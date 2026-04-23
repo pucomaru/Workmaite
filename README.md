@@ -30,7 +30,7 @@
 |------|------|--------|
 | PM  | 안민혁 | [als7928](https://github.com/als7928) |
 | Front-end | (이름) | - |
-| Back-end | (이름) | - |
+| Back-end | 윤세준 | SejunYOON-ai(https://github.com/SejunYOON-ai) |
 
 > 팀원 정보를 직접 채워주세요.
 
