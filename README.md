@@ -34,6 +34,7 @@
 | Back-end | 윤세준 | [SejunYOON-ai](https://github.com/SejunYOON-ai) |
 | Front-end | 안상연 | [ahnup](https://github.com/ahnup) |
 | Back-end | (이름) | - |
+| Infra | 이다예 | [pucomaru](https://github.com/pucomaru)|
 
 
 > 팀원 정보를 직접 채워주세요.
