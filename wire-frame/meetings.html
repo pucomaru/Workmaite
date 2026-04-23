@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetmA!te - 회의</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #F5722A; --primary-light: #FEF0E7;
+      --sidebar: #1E1B35; --sidebar-text: #A0A0B8;
+      --bg: #F4F5F7; --card: #FFFFFF;
+      --text: #1A1A2E; --text-sub: #6B7280; --border: #E5E7EB;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 220px; min-width: 220px; background: var(--sidebar); display: flex; flex-direction: column; padding: 20px 0; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 0 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    .logo-icon { width: 32px; height: 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 15px; }
+    .logo-name { color: #fff; font-weight: 700; font-size: 16px; }
+    .sidebar-user { display: flex; align-items: center; gap: 10px; padding: 16px 20px; }
+    .user-avatar { width: 32px; height: 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 12px; }
+    .user-info .user-name { color: #fff; font-size: 13px; font-weight: 600; }
+    .user-info .user-ws { color: var(--sidebar-text); font-size: 11px; }
+    nav { padding: 12px 0; flex: 1; }
+    .nav-section { padding: 8px 20px 4px; font-size: 10px; color: rgba(160,160,184,0.5); text-transform: uppercase; letter-spacing: 1px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: var(--sidebar-text); font-size: 13px; text-decoration: none; cursor: pointer; }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .nav-item.active { color: #fff; background: rgba(245,114,42,0.15); border-right: 3px solid var(--primary); }
+    .recent-item { padding: 7px 20px; color: var(--sidebar-text); font-size: 12px; cursor: pointer; }
+    .recent-item:hover { color: #fff; }
+    .sidebar-bottom { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 20px; }
+    .sidebar-bottom a { color: var(--sidebar-text); font-size: 12px; text-decoration: none; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 28px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .page-title { font-size: 18px; font-weight: 700; color: var(--text); }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .btn-primary { display: flex; align-items: center; gap: 6px; background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .filter-btn { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 13px; color: var(--text-sub); cursor: pointer; }
+    .content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+    .tab-bar { display: flex; align-items: center; padding: 0 28px; background: var(--card); border-bottom: 1px solid var(--border); gap: 4px; }
+    .tab { padding: 14px 16px; font-size: 14px; font-weight: 500; color: var(--text-sub); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .calendar-section { background: var(--card); margin: 20px 28px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .calendar-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .cal-nav { display: flex; align-items: center; gap: 12px; }
+    .cal-nav button { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-sub); padding: 4px 8px; }
+    .cal-month { font-size: 16px; font-weight: 700; color: var(--text); }
+    .cal-view { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .cal-view button { padding: 6px 12px; background: none; border: none; font-size: 13px; cursor: pointer; color: var(--text-sub); border-right: 1px solid var(--border); }
+    .cal-view button:last-child { border-right: none; }
+    .cal-view button.active { background: var(--primary); color: #fff; }
+    .calendar-grid { padding: 0 20px 20px; }
+    .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; }
+    .cal-day-header { text-align: center; font-size: 12px; color: var(--text-sub); padding: 8px 4px; font-weight: 500; }
+    .cal-cells { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+    .cal-cell { min-height: 80px; padding: 6px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+    .cal-cell:hover { background: var(--bg); }
+    .cal-cell .date-num { font-size: 13px; color: var(--text-sub); margin-bottom: 4px; }
+    .cal-cell.today .date-num { color: var(--primary); font-weight: 700; }
+    .cal-cell.today { background: #FFF7F3; border-color: var(--primary-light); }
+    .cal-cell.other-month .date-num { color: #D1D5DB; }
+    .cal-event { font-size: 11px; padding: 2px 6px; border-radius: 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-event.orange { background: var(--primary-light); color: var(--primary); }
+    .cal-event.blue { background: #EFF6FF; color: #2563EB; }
+    .cal-event.purple { background: #F5F3FF; color: #7C3AED; }
+    .cal-event.green { background: #DCFCE7; color: #16A34A; }
+    .meetings-section { padding: 0 28px 28px; }
+    .section-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
+    .meeting-card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; transition: box-shadow 0.2s; }
+    .meeting-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .meeting-card.live { border-color: var(--primary); background: #FFFCFB; }
+    .meeting-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .meeting-info { flex: 1; }
+    .meeting-name { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .meeting-meta { font-size: 13px; color: var(--text-sub); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .avatars { display: flex; }
+    .avatar { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; margin-left: -6px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 9px; font-weight: 700; }
+    .avatar:first-child { margin-left: 0; }
+    .status-badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+    .status-live { background: var(--primary-light); color: var(--primary); }
+    .btn-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .btn-join { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-detail { background: #fff; color: var(--text-sub); border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+    .btn-edit { background: #fff; color: var(--text-sub); border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+    .meeting-tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+    .tag-strategy { background: #FEF3C7; color: #D97706; }
+    .tag-review { background: #EFF6FF; color: #2563EB; }
+    .tag-planning { background: #F5F3FF; color: #7C3AED; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">M</div>
+      <span class="logo-name">MeetmA!te</span>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar">민</div>
+      <div class="user-info"><div class="user-name">안민혁</div><div class="user-ws">No.00 팀 ∨</div></div>
+    </div>
+    <nav>
+      <a class="nav-item" href="dashboard.html"><span>◎</span> 대시보드</a>
+      <a class="nav-item active" href="meetings.html"><span>▶</span> 회의</a>
+      <a class="nav-item" href="tasks.html"><span>☰</span> 작업</a>
+      <a class="nav-item" href="#"><span>↗</span> 분석 리포트</a>
+      <a class="nav-item" href="#"><span>♟</span> 팀 관리</a>
+      <div class="nav-section" style="margin-top:12px;">최근 회의</div>
+      <div class="recent-item">⊡ Q2 사업 전략 수립 회의</div>
+      <div class="recent-item">⊡ 신제품 출시 로드맵 검토</div>
+      <div class="recent-item">⊡ 분기 실적 KPI 리뷰</div>
+      <div class="nav-section" style="margin-top:12px;">내 프로젝트</div>
+      <div class="recent-item">⬡ 2025 사업 전략</div>
+      <div class="recent-item">⬡ 신제품 런칭 TF</div>
+    </nav>
+    <div class="sidebar-bottom">
+      <a href="#">초대</a><a href="#">도움말</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="page-title">회의</span>
+      <div class="topbar-right">
+        <button class="filter-btn">▼ 필터</button>
+        <button class="btn-primary" onclick="location.href='meeting-room.html'">＋ 새 회의</button>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <div class="tab active">📅 전체 회의</div>
+      <div class="tab">🕐 지난 회의</div>
+      <div class="tab">⭐ 중요 회의</div>
+      <div class="tab">🗑 휴지통</div>
+    </div>
+
+    <div class="content">
+      <!-- Calendar -->
+      <div class="calendar-section">
+        <div class="calendar-header">
+          <div class="cal-nav">
+            <button>‹</button>
+            <span class="cal-month">2025년 4월</span>
+            <button>›</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="filter-btn" style="font-size:12px;padding:5px 10px;">오늘</button>
+            <div class="cal-view">
+              <button>월</button>
+              <button class="active">주</button>
+              <button>일</button>
+            </div>
+          </div>
+        </div>
+        <div class="calendar-grid">
+          <div class="cal-days">
+            <div class="cal-day-header">일</div><div class="cal-day-header">월</div>
+            <div class="cal-day-header">화</div><div class="cal-day-header">수</div>
+            <div class="cal-day-header">목</div><div class="cal-day-header">금</div>
+            <div class="cal-day-header">토</div>
+          </div>
+          <div class="cal-cells">
+            <div class="cal-cell other-month"><div class="date-num">30</div></div>
+            <div class="cal-cell"><div class="date-num">1</div></div>
+            <div class="cal-cell"><div class="date-num">2</div></div>
+            <div class="cal-cell"><div class="date-num">3</div></div>
+            <div class="cal-cell"><div class="date-num">4</div><div class="cal-event orange">Q2 전략 회의</div></div>
+            <div class="cal-cell"><div class="date-num">5</div></div>
+            <div class="cal-cell"><div class="date-num">6</div></div>
+            <div class="cal-cell"><div class="date-num">7</div></div>
+            <div class="cal-cell"><div class="date-num">8</div></div>
+            <div class="cal-cell"><div class="date-num">9</div><div class="cal-event blue">KPI 리뷰</div></div>
+            <div class="cal-cell"><div class="date-num">10</div></div>
+            <div class="cal-cell"><div class="date-num">11</div></div>
+            <div class="cal-cell"><div class="date-num">12</div></div>
+            <div class="cal-cell"><div class="date-num">13</div></div>
+            <div class="cal-cell"><div class="date-num">14</div><div class="cal-event purple">신제품 로드맵</div></div>
+            <div class="cal-cell today"><div class="date-num">23</div><div class="cal-event orange">Q2 전략 수립</div></div>
+            <div class="cal-cell"><div class="date-num">24</div><div class="cal-event green">예산 배분 회의</div></div>
+            <div class="cal-cell"><div class="date-num">25</div></div>
+            <div class="cal-cell"><div class="date-num">26</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scheduled -->
+      <div class="meetings-section">
+        <div class="section-title">예정된 회의</div>
+        <div class="meeting-card live">
+          <div class="meeting-icon" style="background:#FEF0E7;">🎥</div>
+          <div class="meeting-info">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="meeting-name">Q2 사업 전략 수립 회의</span>
+              <span class="meeting-tag tag-strategy">전략</span>
+            </div>
+            <div class="meeting-meta">
+              오늘 10:00 - 11:30
+              <div class="avatars">
+                <div class="avatar" style="background:#F5722A;">민</div>
+                <div class="avatar" style="background:#7C3AED;">세</div>
+                <div class="avatar" style="background:#059669;">다</div>
+                <div class="avatar" style="background:#3B82F6;">상</div>
+                <div class="avatar" style="background:#F59E0B;">준</div>
+                <div class="avatar" style="background:#0D9488;">결</div>
+              </div>
+              <span>6명 참석</span>
+            </div>
+          </div>
+          <span class="status-badge status-live">진행 중</span>
+          <div class="btn-actions">
+            <button class="btn-join" onclick="location.href='meeting-room.html'">참여하기</button>
+          </div>
+        </div>
+        <div class="meeting-card">
+          <div class="meeting-icon" style="background:#EFF6FF;">🎥</div>
+          <div class="meeting-info">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="meeting-name">신제품 출시 로드맵 검토</span>
+              <span class="meeting-tag tag-planning">기획</span>
+            </div>
+            <div class="meeting-meta">
+              오늘 14:00 - 15:00
+              <div class="avatars">
+                <div class="avatar" style="background:#F5722A;">민</div>
+                <div class="avatar" style="background:#3B82F6;">상</div>
+                <div class="avatar" style="background:#F59E0B;">준</div>
+                <div class="avatar" style="background:#0D9488;">결</div>
+              </div>
+              <span>4명 참석</span>
+            </div>
+          </div>
+          <span style="font-size:13px;color:var(--text-sub);white-space:nowrap;">오늘 14:00</span>
+          <div class="btn-actions">
+            <button class="btn-detail">상세보기</button>
+            <button class="btn-join">참여하기</button>
+          </div>
+        </div>
+        <div class="meeting-card">
+          <div class="meeting-icon" style="background:#F5F3FF;">🎥</div>
+          <div class="meeting-info">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="meeting-name">분기 실적 KPI 리뷰</span>
+              <span class="meeting-tag tag-review">리뷰</span>
+            </div>
+            <div class="meeting-meta">
+              내일 09:00 - 10:00
+              <div class="avatars">
+                <div class="avatar" style="background:#F5722A;">민</div>
+                <div class="avatar" style="background:#7C3AED;">세</div>
+                <div class="avatar" style="background:#059669;">다</div>
+              </div>
+              <span>3명 참석</span>
+            </div>
+          </div>
+          <span style="font-size:13px;color:var(--text-sub);white-space:nowrap;">내일 09:00</span>
+          <div class="btn-actions">
+            <button class="btn-detail">상세보기</button>
+            <button class="btn-edit">일정 수정</button>
+          </div>
+        </div>
+        <div class="meeting-card">
+          <div class="meeting-icon" style="background:#DCFCE7;">🎥</div>
+          <div class="meeting-info">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="meeting-name">마케팅 예산 배분 회의</span>
+              <span class="meeting-tag tag-strategy">전략</span>
+            </div>
+            <div class="meeting-meta">
+              4/24 (목) 15:00 - 16:00
+              <div class="avatars">
+                <div class="avatar" style="background:#F5722A;">민</div>
+                <div class="avatar" style="background:#059669;">다</div>
+                <div class="avatar" style="background:#7C3AED;">세</div>
+              </div>
+              <span>3명 참석</span>
+            </div>
+          </div>
+          <span style="font-size:13px;color:var(--text-sub);white-space:nowrap;">4/24 15:00</span>
+          <div class="btn-actions">
+            <button class="btn-detail">상세보기</button>
+            <button class="btn-edit">일정 수정</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

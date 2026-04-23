@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetmA!te - 설정</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #F5722A; --primary-light: #FEF0E7;
+      --sidebar: #1E1B35; --sidebar-text: #A0A0B8;
+      --bg: #F4F5F7; --card: #FFFFFF;
+      --text: #1A1A2E; --text-sub: #6B7280; --border: #E5E7EB;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 220px; min-width: 220px; background: var(--sidebar); display: flex; flex-direction: column; padding: 20px 0; overflow-y: auto; }
+    .sidebar-logo { display: flex; align-items: center; gap: 10px; padding: 0 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    .logo-icon { width: 32px; height: 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 15px; }
+    .logo-name { color: #fff; font-weight: 700; font-size: 16px; }
+    .sidebar-user { display: flex; align-items: center; gap: 10px; padding: 16px 20px; }
+    .user-avatar { width: 32px; height: 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 12px; }
+    .user-info .user-name { color: #fff; font-size: 13px; font-weight: 600; }
+    .user-info .user-ws { color: var(--sidebar-text); font-size: 11px; }
+    nav { padding: 12px 0; flex: 1; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: var(--sidebar-text); font-size: 13px; text-decoration: none; cursor: pointer; }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,0.05); }
+    .nav-item.active { color: #fff; background: rgba(245,114,42,0.15); border-right: 3px solid var(--primary); }
+    .recent-item { padding: 7px 20px; color: var(--sidebar-text); font-size: 12px; cursor: pointer; }
+    .recent-item:hover { color: #fff; }
+    .sidebar-bottom { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 20px; }
+    .sidebar-bottom a { color: var(--sidebar-text); font-size: 12px; text-decoration: none; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 28px; height: 56px; display: flex; align-items: center; flex-shrink: 0; }
+    .page-title { font-size: 18px; font-weight: 700; color: var(--text); }
+    .content { flex: 1; overflow-y: auto; padding: 28px; display: flex; gap: 24px; }
+    .settings-nav { width: 200px; min-width: 200px; background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 8px; height: fit-content; }
+    .settings-nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; font-size: 13px; color: var(--text-sub); cursor: pointer; transition: all 0.15s; }
+    .settings-nav-item:hover { background: var(--bg); color: var(--text); }
+    .settings-nav-item.active { background: var(--primary-light); color: var(--primary); font-weight: 600; }
+    .nav-section-label { padding: 8px 14px 4px; font-size: 10px; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; }
+    .settings-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+    .settings-card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 24px; }
+    .settings-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 20px; }
+    .profile-section { display: flex; align-items: flex-start; gap: 20px; }
+    .profile-avatar-wrap { position: relative; }
+    .profile-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 30px; font-weight: 700; }
+    .avatar-edit { position: absolute; bottom: 0; right: 0; width: 26px; height: 26px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; color: #fff; }
+    .profile-form { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { }
+    .form-group.full { grid-column: 1 / -1; }
+    label { display: block; font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+    input[type="text"], input[type="email"], textarea, select {
+      width: 100%; padding: 10px 14px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 14px; color: var(--text); background: #fff; outline: none; font-family: inherit;
+    }
+    input:focus, textarea:focus { border-color: var(--primary); }
+    textarea { resize: vertical; min-height: 80px; }
+    .btn-save { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-row { display: flex; justify-content: flex-end; margin-top: 4px; }
+    .notify-item { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .notify-item:last-child { border-bottom: none; }
+    .notify-info .notify-title { font-size: 14px; font-weight: 500; color: var(--text); }
+    .notify-info .notify-desc { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+    .toggle { position: relative; width: 46px; height: 26px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 13px; cursor: pointer; transition: 0.2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .toggle input:checked + .toggle-slider { background: var(--primary); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+    .team-member-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .team-member-row:last-child { border-bottom: none; }
+    .member-info { display: flex; align-items: center; gap: 12px; }
+    .m-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
+    .m-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .m-role { font-size: 12px; color: var(--text-sub); }
+    .role-badge { padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .badge-pm { background: var(--primary-light); color: var(--primary); }
+    .badge-member { background: var(--bg); color: var(--text-sub); }
+    .btn-sm { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: #fff; font-size: 12px; color: var(--text-sub); cursor: pointer; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">M</div>
+      <span class="logo-name">MeetmA!te</span>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar">민</div>
+      <div class="user-info"><div class="user-name">안민혁</div><div class="user-ws">No.00 팀 ∨</div></div>
+    </div>
+    <nav>
+      <a class="nav-item" href="dashboard.html"><span>◎</span> 대시보드</a>
+      <a class="nav-item" href="meetings.html"><span>▶</span> 회의</a>
+      <a class="nav-item" href="tasks.html"><span>☰</span> 작업</a>
+      <a class="nav-item" href="#"><span>↗</span> 분석 리포트</a>
+      <a class="nav-item" href="#"><span>♟</span> 팀 관리</a>
+      <div style="padding:8px 20px 4px;font-size:10px;color:rgba(160,160,184,0.5);text-transform:uppercase;letter-spacing:1px;margin-top:12px;">최근 회의</div>
+      <div class="recent-item">⊡ Q2 사업 전략 수립 회의</div>
+      <div class="recent-item">⊡ 신제품 출시 로드맵 검토</div>
+      <div style="padding:8px 20px 4px;font-size:10px;color:rgba(160,160,184,0.5);text-transform:uppercase;letter-spacing:1px;margin-top:8px;">내 프로젝트</div>
+      <div class="recent-item">⬡ 2025 사업 전략</div>
+      <div class="recent-item">⬡ 신제품 런칭 TF</div>
+    </nav>
+    <div class="sidebar-bottom">
+      <a href="#">초대</a><a href="#">도움말</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="page-title">설정</span>
+    </div>
+    <div class="content">
+      <!-- Settings nav -->
+      <div class="settings-nav">
+        <div class="nav-section-label">계정</div>
+        <div class="settings-nav-item active">👤 프로필 관리</div>
+        <div class="settings-nav-item">🔒 계정 보안</div>
+        <div class="settings-nav-item">🔔 알림 설정</div>
+        <div class="nav-section-label" style="margin-top:8px;">워크스페이스</div>
+        <div class="settings-nav-item">👥 팀 관리</div>
+        <div class="settings-nav-item">🔗 연동 서비스</div>
+        <div class="settings-nav-item">🗄 데이터 관리</div>
+        <div class="settings-nav-item">&lt;/&gt; API 키</div>
+        <div class="nav-section-label" style="margin-top:8px;">지원</div>
+        <div class="settings-nav-item">❓ 도움말 및 지원</div>
+      </div>
+
+      <!-- Settings content -->
+      <div class="settings-content">
+        <!-- Profile -->
+        <div class="settings-card">
+          <div class="settings-title">프로필 관리</div>
+          <div class="profile-section">
+            <div class="profile-avatar-wrap">
+              <div class="profile-avatar">민</div>
+              <div class="avatar-edit">📷</div>
+            </div>
+            <div class="profile-form">
+              <div class="form-group">
+                <label>이름</label>
+                <input type="text" value="안민혁">
+              </div>
+              <div class="form-group">
+                <label>직책</label>
+                <input type="text" value="PM (프로젝트 매니저)">
+              </div>
+              <div class="form-group full">
+                <label>이메일</label>
+                <input type="email" value="minhyuk.ahn@no00.team">
+              </div>
+              <div class="form-group full">
+                <label>소개</label>
+                <textarea>No.00 팀 PM. MeetmA!te 서비스 기획 및 팀 전략 수립 담당.</textarea>
+              </div>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:16px;">
+            <button class="btn-save">변경사항 저장</button>
+          </div>
+        </div>
+
+        <!-- Team Members -->
+        <div class="settings-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <span class="settings-title" style="margin-bottom:0;">팀원 관리</span>
+            <button style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;">+ 팀원 초대</button>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#F5722A;">민</div>
+              <div><div class="m-name">안민혁</div><div class="m-role">PM</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-pm">PM</span>
+              <span style="font-size:12px;color:#16A34A;">● 온라인</span>
+            </div>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#7C3AED;">세</div>
+              <div><div class="m-name">김세림</div><div class="m-role">전략기획</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-member">팀원</span>
+              <span style="font-size:12px;color:#16A34A;">● 온라인</span>
+              <button class="btn-sm">권한 수정</button>
+            </div>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#059669;">다</div>
+              <div><div class="m-name">이다예</div><div class="m-role">마케팅</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-member">팀원</span>
+              <span style="font-size:12px;color:#16A34A;">● 온라인</span>
+              <button class="btn-sm">권한 수정</button>
+            </div>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#3B82F6;">상</div>
+              <div><div class="m-name">안상연</div><div class="m-role">재무</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-member">팀원</span>
+              <span style="font-size:12px;color:#6B7280;">● 자리비움</span>
+              <button class="btn-sm">권한 수정</button>
+            </div>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#F59E0B;">준</div>
+              <div><div class="m-name">윤세준</div><div class="m-role">개발</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-member">팀원</span>
+              <span style="font-size:12px;color:#16A34A;">● 온라인</span>
+              <button class="btn-sm">권한 수정</button>
+            </div>
+          </div>
+          <div class="team-member-row">
+            <div class="member-info">
+              <div class="m-avatar" style="background:#0D9488;">결</div>
+              <div><div class="m-name">이한결</div><div class="m-role">디자인</div></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="role-badge badge-member">팀원</span>
+              <span style="font-size:12px;color:#6B7280;">● 오프라인</span>
+              <button class="btn-sm">권한 수정</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="settings-card">
+          <div class="settings-title">알림 설정</div>
+          <div class="notify-item">
+            <div class="notify-info">
+              <div class="notify-title">회의 시작 알림</div>
+              <div class="notify-desc">전략 회의 시작 10분 전 알림 수신</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="notify-item">
+            <div class="notify-info">
+              <div class="notify-title">과제 마감 알림</div>
+              <div class="notify-desc">마감 1일 전 이메일 및 앱 알림</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="notify-item">
+            <div class="notify-info">
+              <div class="notify-title">회의록 AI 요약 완료</div>
+              <div class="notify-desc">전략 회의 종료 후 요약본 생성 시 알림</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+          </div>
+          <div class="notify-item">
+            <div class="notify-info">
+              <div class="notify-title">팀원 멘션</div>
+              <div class="notify-desc">회의록 또는 과제에서 나를 언급 시 알림</div>
+            </div>
+            <label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
