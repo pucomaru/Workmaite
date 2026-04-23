@@ -29,8 +29,9 @@
 | 역할 | 이름 | GitHub |
 |------|------|--------|
 | PM  | 안민혁 | [als7928](https://github.com/als7928) |
-| Front-end | (이름) | - |
+| Infra | 김세림 | [serim0906](https://github.com/serim0906) |
 | Back-end | (이름) | - |
+
 
 > 팀원 정보를 직접 채워주세요.
 
