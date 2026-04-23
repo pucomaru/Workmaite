@@ -29,6 +29,8 @@
 | 역할 | 이름 | GitHub |
 |------|------|--------|
 | PM  | 안민혁 | [als7928](https://github.com/als7928) |
+| Front-end | (이름) | - |
+| Back-end | 윤세준 | SejunYOON-ai(https://github.com/SejunYOON-ai) |
 | Front-end | 안상연 | [ahnup](https://github.com/ahnup) |
 | Back-end | (이름) | - |
 
