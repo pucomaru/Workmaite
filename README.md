@@ -1,4 +1,4 @@
-# MeetmA!te
+# Workma!te
 
 > **Team No.00** | 팀 프로젝트 깃허브
 
@@ -80,7 +80,7 @@ git config --global user.email "your@email.com"
 ### 2. 저장소 복사 (최초 1회)
 
 ```bash
-git clone https://github.com/als7928/meetmaite.git
+git clone https://github.com/als7928/Workmaite.git
 cd meetmaite
 ```
 
