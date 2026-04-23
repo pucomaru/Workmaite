@@ -31,6 +31,7 @@
 | PM  | 안민혁 | [als7928](https://github.com/als7928) |
 | Front-end | (이름) | - |
 | Back-end | (이름) | - |
+| Infra | 이다예 | [pucomaru](https://github.com/pucomaru)|
 
 > 팀원 정보를 직접 채워주세요.
 
