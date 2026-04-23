@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetmA!te - 회의록</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #F5722A; --primary-light: #FEF0E7;
+      --bg: #F4F5F7; --card: #FFFFFF;
+      --text: #1A1A2E; --text-sub: #6B7280; --border: #E5E7EB;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); min-height: 100vh; }
+    .page-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 20px 40px; }
+    .header-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .back-btn { color: var(--text-sub); text-decoration: none; font-size: 13px; cursor: pointer; }
+    .meeting-title { font-size: 22px; font-weight: 700; color: var(--text); }
+    .header-actions { display: flex; gap: 10px; }
+    .btn-share { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; color: var(--text-sub); cursor: pointer; }
+    .btn-export { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .meeting-meta { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--text-sub); flex-wrap: wrap; }
+    .avatars { display: flex; }
+    .avatar { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; margin-left: -6px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 9px; font-weight: 700; }
+    .avatar:first-child { margin-left: 0; }
+    .meeting-tag { font-size: 11px; padding: 3px 10px; border-radius: 4px; font-weight: 600; background: #FEF3C7; color: #D97706; }
+    .tab-bar { display: flex; background: var(--card); border-bottom: 1px solid var(--border); padding: 0 40px; }
+    .tab { padding: 14px 16px; font-size: 14px; font-weight: 500; color: var(--text-sub); cursor: pointer; border-bottom: 2px solid transparent; }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .main-content { display: grid; grid-template-columns: 1fr 300px; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 28px 40px; }
+    .transcript-panel { background: var(--card); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .transcript-toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .search-input { flex: 1; padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text); background: #fff; outline: none; }
+    .search-input::placeholder { color: var(--text-sub); }
+    .transcript-msg { display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--border); transition: background 0.15s; cursor: pointer; }
+    .transcript-msg:hover { background: #FAFAFA; }
+    .transcript-msg:last-child { border-bottom: none; }
+    .t-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+    .t-body { flex: 1; }
+    .t-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+    .t-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .t-time { font-size: 12px; color: var(--text-sub); }
+    .t-text { font-size: 14px; color: var(--text); line-height: 1.65; }
+    .right-panel { display: flex; flex-direction: column; gap: 16px; }
+    .panel-card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 18px; }
+    .panel-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
+    .ai-summary-box { background: #FFF7F3; border-radius: 8px; padding: 14px; font-size: 13px; color: var(--text-sub); line-height: 1.65; margin-bottom: 12px; }
+    .ai-summary-box em { color: var(--primary); font-style: normal; font-weight: 600; }
+    .key-item { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; color: var(--text); padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .key-item:last-child { border-bottom: none; }
+    .key-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); margin-top: 6px; flex-shrink: 0; }
+    .timeline { width: 100%; height: 4px; background: var(--border); border-radius: 2px; position: relative; margin: 12px 0; cursor: pointer; }
+    .timeline-fill { position: absolute; left: 0; top: 0; height: 100%; width: 55%; background: var(--primary); border-radius: 2px; }
+    .timeline-thumb { position: absolute; top: 50%; left: 55%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: var(--primary); border-radius: 50%; }
+    .time-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sub); margin-bottom: 8px; }
+    .player-controls { display: flex; justify-content: center; gap: 14px; align-items: center; }
+    .p-btn { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--border); background: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; cursor: pointer; }
+    .p-btn.play { width: 46px; height: 46px; background: var(--primary); border-color: var(--primary); font-size: 20px; color: #fff; }
+    .quick-action { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-sub); transition: background 0.15s; }
+    .quick-action:hover { background: var(--bg); color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <div class="header-top">
+      <div class="header-left">
+        <a href="meetings.html" class="back-btn">← 회의 목록</a>
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+            <span class="meeting-title">Q2 사업 전략 수립 회의</span>
+            <span class="meeting-tag">전략</span>
+          </div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-share">↗ 공유</button>
+        <button class="btn-export">⬇ 내보내기</button>
+      </div>
+    </div>
+    <div class="meeting-meta">
+      <span>📅 2025년 4월 23일 10:00 - 11:30</span>
+      <div class="avatars">
+        <div class="avatar" style="background:#F5722A;">민</div>
+        <div class="avatar" style="background:#7C3AED;">세</div>
+        <div class="avatar" style="background:#059669;">다</div>
+        <div class="avatar" style="background:#3B82F6;">상</div>
+        <div class="avatar" style="background:#F59E0B;">준</div>
+        <div class="avatar" style="background:#0D9488;">결</div>
+      </div>
+      <span>6명 참석 &nbsp;·&nbsp; 90분</span>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active">전체 대화록</div>
+    <div class="tab">AI 요약</div>
+    <div class="tab">작업 목록</div>
+    <div class="tab">첨부 파일</div>
+  </div>
+
+  <div class="main-content">
+    <!-- Transcript -->
+    <div class="transcript-panel">
+      <div class="transcript-toolbar">
+        <input class="search-input" placeholder="🔍 대화록 검색...">
+      </div>
+      <div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#F5722A;">민</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">안민혁</span><span class="t-time">10:00</span></div>
+            <div class="t-text">안녕하세요. 오늘은 Q2 사업 전략 수립 회의입니다. 먼저 Q1 실적 리뷰를 하고, 이어서 Q2 핵심 전략 방향을 논의하겠습니다. 김세림 님이 Q1 실적 브리핑을 먼저 진행해 주시겠어요?</div>
+          </div>
+        </div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#7C3AED;">세</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">김세림</span><span class="t-time">10:03</span></div>
+            <div class="t-text">네, 말씀드리겠습니다. Q1 전체 매출은 목표 대비 107%를 달성했습니다. 특히 SaaS 구독 매출이 전분기 대비 23% 성장했고, 신규 고객 유치는 계획의 92% 수준입니다. 고객 유지율은 94.5%로 안정적입니다.</div>
+          </div>
+        </div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#3B82F6;">상</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">안상연</span><span class="t-time">10:09</span></div>
+            <div class="t-text">재무 측면에서 추가 말씀드리면, Q1 영업이익률이 전분기 대비 2.1%p 개선되었습니다. Q2에는 B2B 영업 확대를 위한 추가 인력 채용이 필요한데, 약 1.5억 원의 예산이 필요할 것으로 보입니다.</div>
+          </div>
+        </div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#059669;">다</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">이다예</span><span class="t-time">10:14</span></div>
+            <div class="t-text">마케팅 채널 전략으로는 LinkedIn과 유튜브를 통한 B2B 콘텐츠 마케팅을 강화할 계획입니다. Q2 마케팅 예산의 60%를 디지털 채널에 집중하고, 나머지 40%는 오프라인 네트워킹 행사에 배분하는 방향이 효율적일 것 같습니다.</div>
+          </div>
+        </div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#F59E0B;">준</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">윤세준</span><span class="t-time">10:20</span></div>
+            <div class="t-text">제품 기능 고도화 측면에서는 Q2에 AI 기반 회의 요약 정확도 개선과 팀 협업 기능 강화가 핵심입니다. 개발 리소스를 고려하면 두 가지를 병렬로 진행하는 것이 가능하며, 5월 말까지 베타 버전 출시가 목표입니다.</div>
+          </div>
+        </div>
+        <div class="transcript-msg">
+          <div class="t-avatar" style="background:#0D9488;">결</div>
+          <div class="t-body">
+            <div class="t-header"><span class="t-name">이한결</span><span class="t-time">10:26</span></div>
+            <div class="t-text">디자인 관점에서 브랜드 리뉴얼을 Q2 초에 진행하면 신제품 출시와 타이밍을 맞출 수 있습니다. 새로운 브랜드 아이덴티티 가이드라인 초안을 다음 주까지 공유드리겠습니다.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right -->
+    <div class="right-panel">
+      <!-- AI Summary -->
+      <div class="panel-card">
+        <div class="panel-title">AI 핵심 요약</div>
+        <div class="ai-summary-box">
+          Q1 매출 <em>목표 107% 달성</em>, 영업이익률 2.1%p 개선. Q2 전략 방향 3가지 합의: <em>B2B 영업 강화</em>, 제품 고도화, 브랜드 인지도 제고.
+        </div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">주요 결정 사항</div>
+        <div class="key-item"><span class="key-dot"></span><span>B2B 영업 인력 채용 예산 1.5억 원 승인 검토</span></div>
+        <div class="key-item"><span class="key-dot"></span><span>마케팅 예산 디지털 60% / 오프라인 40% 배분</span></div>
+        <div class="key-item"><span class="key-dot"></span><span>5월 말 신제품 베타 출시 일정 확정</span></div>
+        <div class="key-item"><span class="key-dot"></span><span>브랜드 리뉴얼 가이드라인 다음 주 공유</span></div>
+      </div>
+
+      <!-- Audio Player -->
+      <div class="panel-card">
+        <div class="panel-title">녹음 재생</div>
+        <div class="time-labels">
+          <span>10:00</span>
+          <span>11:30</span>
+        </div>
+        <div class="timeline">
+          <div class="timeline-fill"></div>
+          <div class="timeline-thumb"></div>
+        </div>
+        <div class="player-controls">
+          <button class="p-btn">⏮</button>
+          <button class="p-btn play">▶</button>
+          <button class="p-btn">⏭</button>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="panel-card">
+        <div class="panel-title">빠른 작업</div>
+        <div class="quick-action">✏️ &nbsp;회의록 편집</div>
+        <div class="quick-action">📄 &nbsp;PDF로 내보내기</div>
+        <div class="quick-action">↗ &nbsp;팀에 공유하기</div>
+        <div class="quick-action">✅ &nbsp;과제로 등록</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
