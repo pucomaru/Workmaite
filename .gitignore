@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+.installed.cfg
+lib/
+lib64/
+.venv/
+venv/
+env/
+ENV/
+
+# FastAPI / Uvicorn
+*.log
+
+# Node / Vue / Vite
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm/
+.yarn/
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Vue
+*.vue.js
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Alembic
+alembic/versions/*.pyc
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.bak
+*.tmp
+*.orig
