@@ -4,9 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
 import MeetingNav from '../components/MeetingNav.vue'
+import AgentPanel from '../components/AgentPanel.vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useChatHistory } from '../composables/useChatHistory'
 import naonAvatar from '../assets/agents/naon.png'
+import { marked } from 'marked'
+const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
 const route = useRoute()
 const router = useRouter()
@@ -31,7 +34,13 @@ const rightView = ref('list')
 const selectedCard = ref(null)
 
 const chatArea = ref(null)
+const agentPanelRef = ref(null)
 const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('cardnews', meetingId.value)
+
+async function handleSend(text) {
+  chatInput.value = text
+  await sendMessage()
+}
 
 onMounted(async () => {
   await meetingsStore.fetchMeeting(meetingId.value)
@@ -247,82 +256,60 @@ function slideColor(type) {
   <div class="page-wrap">
     <MeetingNav />
 
-    <div class="two-col" style="flex:1;min-height:0">
-      <!-- ── 왼쪽: 나온 상담 채팅 ────────────────────────────── -->
-      <div class="col-panel card chat-col">
-        <!-- 헤더 -->
-        <div class="card-header">
-          <div style="display:flex;align-items:center;gap:10px">
-            <img :src="naonAvatar" class="agent-header-avatar" alt="나온" />
-            <div>
-              <div style="font-weight:700;font-size:14px">나온 (Naon)</div>
-              <div style="font-size:11px;color:var(--text-muted)">카드뉴스 기획 Agent</div>
+    <div class="cardnews-body">
+      <!-- ── 왼쪽: 나온 AgentPanel ─────────────────────────── -->
+      <AgentPanel
+        ref="agentPanelRef"
+        :avatar="naonAvatar"
+        name="나온"
+        name-en="Naon"
+        subtitle="카드뉴스 기획 Agent"
+        :messages="messages"
+        :loading="loading"
+        placeholder="나온에게 메시지를 보내세요..."
+        accent-color="#8b5cf6"
+        accent-border="#a78bfa"
+        accent-bg="#f5f3ff"
+        bubble-gradient="linear-gradient(135deg,#f5f3ff,#ede9fe)"
+        bubble-color="#4c1d95"
+        @send="handleSend"
+        @clear="clearHistory"
+      >
+        <template #extra-header>
+          <!-- 회의 차수 선택 -->
+          <div class="session-selector">
+            <div class="section-label">회의 차수 선택 <span style="color:var(--text-muted);font-weight:400">(기획안에 반영될 회의록)</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+              <div v-if="!sessions.length" style="font-size:13px;color:var(--text-muted)">종료된 회의가 없습니다.</div>
+              <button
+                v-for="s in sessions"
+                :key="s.id"
+                class="btn btn-sm"
+                :class="selectedSessions.includes(s.id) ? 'btn-primary' : 'btn-outline'"
+                @click="toggleSession(s.id)"
+              >
+                {{ s.session_number }}차 {{ s.title || '' }}
+              </button>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" @click="clearHistory" title="대화 초기화">🗑</button>
-        </div>
-
-        <!-- 회의 차수 선택 -->
-        <div class="session-selector">
-          <div class="section-label">회의 차수 선택 <span style="color:var(--text-muted);font-weight:400">(기획안에 반영될 회의록)</span></div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
-            <div v-if="!sessions.length" style="font-size:13px;color:var(--text-muted)">종료된 회의가 없습니다.</div>
+        </template>
+        <template #footer-extra>
+          <!-- 기획안 요청 버튼 -->
+          <div style="padding: 0 16px 12px">
             <button
-              v-for="s in sessions"
-              :key="s.id"
-              class="btn btn-sm"
-              :class="selectedSessions.includes(s.id) ? 'btn-primary' : 'btn-outline'"
-              @click="toggleSession(s.id)"
+              class="btn btn-outline btn-sm plan-btn"
+              :disabled="proposingPlan || generating || loading"
+              @click="requestPlan"
+              title="지금까지 나눈 대화와 선택한 회의 차수를 기반으로 기획안을 작성합니다"
             >
-              {{ s.session_number }}차 {{ s.title || '' }}
+              {{ proposingPlan ? '기획안 작성 중...' : '📋 기획안 요청' }}
             </button>
           </div>
-        </div>
-
-        <!-- 채팅 영역 -->
-        <div ref="chatArea" class="chat-messages">
-          <div v-for="(msg, i) in messages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
-            <div v-if="msg.role === 'agent'" class="chat-agent-label">
-              <img :src="naonAvatar" class="chat-avatar-sm" alt="나온" />
-              나온
-            </div>
-            <div class="chat-bubble" :class="msg.role" style="white-space:pre-wrap">{{ msg.content }}</div>
-          </div>
-          <div v-if="loading" class="chat-msg-row agent">
-            <div class="chat-agent-label">
-              <img :src="naonAvatar" class="chat-avatar-sm" alt="나온" />
-              나온
-            </div>
-            <div class="chat-bubble agent typing-indicator"><span></span><span></span><span></span></div>
-          </div>
-        </div>
-
-        <!-- 입력 + 기획안 요청 버튼 -->
-        <div class="chat-footer">
-          <!-- 기획안 요청 버튼 -->
-          <button
-            class="btn btn-outline btn-sm plan-btn"
-            :disabled="proposingPlan || generating || loading"
-            @click="requestPlan"
-            title="지금까지 나눈 대화와 선택한 회의 차수를 기반으로 기획안을 작성합니다"
-          >
-            {{ proposingPlan ? '기획안 작성 중...' : '📋 기획안 요청' }}
-          </button>
-          <div class="chat-input-area">
-            <textarea
-              v-model="chatInput"
-              class="chat-input"
-              placeholder="나온에게 메시지를 보내세요..."
-              rows="1"
-              @keydown="onKeydown"
-            />
-            <button class="btn btn-primary btn-sm" :disabled="loading || !chatInput.trim()" @click="sendMessage">전송</button>
-          </div>
-        </div>
-      </div>
+        </template>
+      </AgentPanel>
 
       <!-- ── 오른쪽: 기획안 / 카드뉴스 목록 ─────────────────── -->
-      <div class="col-panel card right-col">
+      <div class="cardnews-right card right-col">
 
         <!-- ● 기획안 검토 뷰 -->
         <template v-if="rightView === 'plan'">
@@ -458,16 +445,15 @@ function slideColor(type) {
 
 <style scoped>
 .page-wrap { display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 40px); }
+.cardnews-body { flex: 1; min-height: 0; display: flex; gap: 16px; overflow: hidden; }
+.cardnews-right { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 
-/* ── 채팅 열 ── */
-.chat-col { display: flex; flex-direction: column; }
+/* 세션 선택기 (AgentPanel extra-header 슬롯 안) */
 .session-selector { padding: 10px 16px; border-bottom: 1px solid var(--border); }
 .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.chat-messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
-.chat-footer { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
 .plan-btn { width: 100%; font-size: 13px; }
 
-/* 타이핑 인디케이터 */
+/* 타이핑 인디케이터 (AgentPanel 내장) */
 .typing-indicator { display: flex; align-items: center; gap: 4px; padding: 12px 16px; }
 .typing-indicator span { width: 7px; height: 7px; background: rgba(255,255,255,.7); border-radius: 50%; animation: bounce 1.2s infinite; }
 .typing-indicator span:nth-child(2) { animation-delay: .2s; }

@@ -4,9 +4,12 @@ import { useRoute } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
 import MeetingNav from '../components/MeetingNav.vue'
+import AgentPanel from '../components/AgentPanel.vue'
 import { useMeetingsStore } from '../stores/meetings'
 import gaonAvatar from '../assets/agents/gaon.png'
 import { useChatHistory } from '../composables/useChatHistory'
+import { marked } from 'marked'
+const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
 const route = useRoute()
 const meetingsStore = useMeetingsStore()
@@ -29,6 +32,12 @@ const saving = ref(false)
 
 const GREETING = '안녕하세요! 저는 아젠다 추출 AI 가온입니다.\n보고자료를 업로드하거나, 이전 회의록을 기반으로 새 아젠다를 추출해 드립니다.\n파일을 첨부하거나 직접 내용을 입력해 주세요.'
 const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('agenda', meetingId.value)
+const agentPanelRef = ref(null)
+
+async function handleSend(text) {
+  input.value = text
+  await sendMessage()
+}
 
 onMounted(async () => {
   await meetingsStore.fetchMeeting(meetingId.value)
@@ -217,62 +226,55 @@ function onDrop(e) {
 </script>
 
 <template>
-  <div style="display:flex;flex-direction:column;height:calc(100vh - var(--header-h) - 40px)">
+  <div class="agenda-layout">
     <MeetingNav />
-    <div class="two-col" style="flex:1;min-height:0">
-      <!-- Left: Chat -->
-      <div class="col-panel card" style="position:relative"
+    <div class="agent-body">
+      <!-- 왼쪽: 가온 패널 -->
+      <AgentPanel
+        ref="agentPanelRef"
+        :avatar="gaonAvatar"
+        name="가온"
+        name-en="Gaon"
+        subtitle="아젠다 추출 어시스턴트"
+        :messages="messages"
+        :loading="loading"
+        placeholder="가온에게 질문하거나 지시하세요..."
+        accent-color="#6366f1"
+        accent-border="#818cf8"
+        accent-bg="#eef2ff"
+        bubble-gradient="linear-gradient(135deg,#eef2ff,#e0e7ff)"
+        bubble-color="#3730a3"
+        @send="handleSend"
+        @clear="clearHistory"
+        style="position:relative"
         @dragover.prevent="onDragover"
         @dragleave="onDragleave"
         @drop.prevent="onDrop"
       >
-        <div v-if="isDragging" class="drag-overlay">
-          <div class="drag-hint">📎 파일을 여기에 놓으세요</div>
-        </div>
-        <div class="card-header">
-          <div style="display:flex;align-items:center;gap:10px">
-            <img :src="gaonAvatar" class="agent-header-avatar" alt="가온" />
-            <div>
-              <div style="font-weight:700;font-size:14px">가온 (Gaon)</div>
-              <div style="font-size:11px;color:var(--text-muted)">아젠다 추출</div>
-            </div>
+        <template #actions>
+          <button class="btn btn-outline btn-sm" :disabled="uploading" @click="fileInput.click()">
+            {{ uploading ? '업로드 중...' : '📎 파일 첨부' }}
+          </button>
+          <input ref="fileInput" type="file" accept=".pdf,.docx,.txt,.xlsx" style="display:none" @change="uploadFile" />
+        </template>
+        <template #overlay>
+          <div v-if="isDragging" class="drag-overlay">
+            <div class="drag-hint">📎 파일을 여기에 놓으세요</div>
           </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-outline btn-sm" :disabled="uploading" @click="fileInput.click()">
-              {{ uploading ? '업로드 중...' : '📎 파일 첨부' }}
-            </button>
-            <button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" @click="clearHistory" title="대화 기록 지우기">🗑</button>
-            <input ref="fileInput" type="file" accept=".pdf,.docx,.txt,.xlsx" style="display:none" @change="uploadFile" />
-          </div>
-        </div>
-        <div ref="messagesEl" class="chat-messages" style="flex:1;overflow-y:auto">
-          <div v-for="(msg, i) in messages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
-            <div v-if="msg.role === 'agent'" class="chat-agent-label">
-              <img :src="gaonAvatar" class="chat-avatar-sm" alt="가온" />
-              가온
-            </div>
-            <div class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
-          </div>
-
-          <!-- HITL: 아젠다 추출 확인 배너 -->
+        </template>
+        <template #messages-extra>
           <div v-if="pendingExtraction" class="hitl-banner fade-in">
             <div class="hitl-text">위 내용에서 아젠다와 To-do를 추출해 저장할까요?</div>
             <div class="hitl-actions">
-              <button class="btn btn-primary btn-sm" :disabled="saving" @click="confirmExtraction">
-                {{ saving ? '저장 중...' : '✔ 저장' }}
-              </button>
+              <button class="btn btn-primary btn-sm" :disabled="saving" @click="confirmExtraction">{{ saving ? '저장 중...' : '✔ 저장' }}</button>
               <button class="btn btn-ghost btn-sm" @click="rejectExtraction">취소</button>
             </div>
           </div>
-        </div>
-        <div class="chat-input-area">
-          <textarea v-model="input" class="chat-input" placeholder="가온에게 질문하거나 지시하세요..." rows="1" @keydown="onKeydown" />
-          <button class="btn btn-primary btn-sm" :disabled="loading || !input.trim()" @click="sendMessage">전송</button>
-        </div>
-      </div>
+        </template>
+      </AgentPanel>
 
-      <!-- Right: Agenda List -->
-      <div class="col-panel card">
+      <!-- 오른쪽: 아젠다 목록 -->
+      <div class="agenda-right card">
         <div class="card-header">
           <span style="font-weight:600">아젠다 목록 ({{ agendas.length }})</span>
           <button class="btn btn-outline btn-sm" @click="addAgenda">+ 직접 추가</button>
@@ -326,6 +328,25 @@ function onDrop(e) {
 </template>
 
 <style scoped>
+.agenda-layout {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-h) - 40px);
+}
+.agent-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+  overflow: hidden;
+}
+.agenda-right {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .agenda-item { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .agenda-item.confirmed { border-left: 3px solid var(--success); background: #f0fdf4; }
 .agenda-content { display: flex; flex-direction: column; gap: 6px; }

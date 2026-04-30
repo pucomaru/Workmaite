@@ -211,6 +211,63 @@ async def ara_chat(
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
+
+@router.post("/ara/sessions-chat")
+async def ara_sessions_chat(
+    data: schemas.AgentChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """회의 탭 전용 아라: 전체/특정 세션 요약·질의응답."""
+    # 전체 세션 목록 + 회의록 수집
+    sessions = (
+        db.query(models.MeetingSession)
+        .filter(models.MeetingSession.meeting_id == data.meeting_id)
+        .order_by(models.MeetingSession.id.desc())
+        .all()
+    )
+    sessions_info = []
+    for s in sessions:
+        info = {
+            "id": s.id,
+            "title": s.title,
+            "status": s.status,
+            "summary": s.minutes.content_summary if s.minutes and s.minutes.content_summary else None,
+        }
+        sessions_info.append(info)
+
+    agendas = db.query(models.Agenda).filter(
+        models.Agenda.meeting_id == data.meeting_id,
+        models.Agenda.status == "confirmed",
+    ).all()
+    agendas_list = [{"content": a.content, "department": a.department} for a in agendas]
+
+    # 세션 요약들을 previous_minutes 형태로 전달
+    session_summaries = [
+        f"[{s['title']}] {s['summary']}"
+        for s in sessions_info if s["summary"]
+    ]
+    # 세션 목록 컨텍스트 (요약 없는 것 포함)
+    session_list_text = "\n".join([
+        f"- {s['title']} ({s['status']})" + (f": 요약 있음" if s['summary'] else ": 요약 없음")
+        for s in sessions_info
+    ])
+    extra_context = f"[회의 세션 목록]\n{session_list_text}"
+    if session_summaries:
+        extra_context += f"\n\n[세션별 회의록]\n" + "\n\n".join(session_summaries)
+
+    async def stream():
+        async for chunk in ara.chat_stream(
+            message=data.message,
+            chat_history=data.chat_history or [],
+            previous_minutes=[extra_context],
+            current_agendas=agendas_list,
+        ):
+            yield f"data: {chunk}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
 import uuid as _uuid
 
 # ─── 나온 Agent (LangGraph Human-in-the-Loop) ───────────────────

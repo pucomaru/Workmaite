@@ -121,27 +121,29 @@ async def _analyze_propose_node(state: KnowledgeProposalState) -> dict:
     events_text = json.dumps(recent_events[-10:], ensure_ascii=False, indent=2)
     knowledge_text = json.dumps(current_knowledge[:5], ensure_ascii=False, indent=2)
 
-    prompt = f"""최근 회의체 이벤트 패턴을 분석하여 암묵지 업데이트를 제안해주세요.
+    prompt = f"""최근 회의 활동 데이터를 분석하여 이 회의체의 메모리를 업데이트해주세요.
 
-반드시 JSON 형식으로만 응답하세요. 제안이 없으면 null을 반환하세요.
+반드시 JSON 형식으로만 응답하세요. 업데이트할 내용이 없으면 null을 반환하세요.
 형식:
 {{
-  "category": "report_standard",
-  "title": "기준 제목",
-  "proposed_content": "새 기준 내용 (마크다운)",
+  "category": "meeting_standard",
+  "title": "기억할 항목 제목",
+  "proposed_content": "업데이트된 내용 (마크다운)",
   "diff_summary": "변경 요약",
-  "evidence_summary": "이벤트 패턴에서 도출된 근거"
+  "evidence_summary": "근거"
 }}
 
-[최근 이벤트]
+카테고리: report_standard(보고서 기준), agenda_standard(아젠다 기준), todo_standard(과제 기준), meeting_standard(회의 운영 기준)
+
+[최근 활동]
 {events_text}
 
-[현재 기준]
+[현재 메모리]
 {knowledge_text}"""
 
     llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
     response = await llm.ainvoke([
-        SystemMessage(content="당신은 조직의 암묵지를 분석하고 기준을 업데이트하는 전문가입니다."),
+        SystemMessage(content="당신은 회의체의 운영 패턴을 학습하고 메모리를 업데이트하는 AI입니다."),
         HumanMessage(content=prompt),
     ])
     text = response.content.strip()
@@ -212,34 +214,36 @@ async def analyze_and_propose(
     scope: str = "global",
     meeting_id: int = None,
 ) -> dict | None:
-    """이벤트 패턴 분석 → 암묵지 업데이트 제안 (즉시 반환, HITL 없음)."""
-    if len(recent_events) < 3:
+    """회의 활동 분석 → 메모리 업데이트 제안 (즉시 반환, HITL 없음)."""
+    if len(recent_events) < 2:
         return None
 
-    events_text = json.dumps(recent_events[-10:], ensure_ascii=False, indent=2)
+    events_text = json.dumps(recent_events[-15:], ensure_ascii=False, indent=2)
     knowledge_text = json.dumps(current_knowledge[:5], ensure_ascii=False, indent=2)
 
-    prompt = f"""최근 회의체 이벤트 패턴을 분석하여 암묵지 업데이트를 제안해주세요.
+    prompt = f"""최근 회의 활동 데이터를 분석하여 이 회의체의 메모리를 업데이트해주세요.
 
-반드시 JSON 형식으로만 응답하세요. 제안이 없으면 null을 반환하세요.
+반드시 JSON 형식으로만 응답하세요. 업데이트할 내용이 없으면 null을 반환하세요.
 형식:
 {{
-  "category": "report_standard",
-  "title": "기준 제목",
-  "proposed_content": "새 기준 내용 (마크다운)",
+  "category": "meeting_standard",
+  "title": "기억할 항목 제목",
+  "proposed_content": "업데이트된 내용 (마크다운)",
   "diff_summary": "변경 요약",
-  "evidence_summary": "이벤트 패턴에서 도출된 근거"
+  "evidence_summary": "근거"
 }}
 
-[최근 이벤트]
+카테고리: report_standard(보고서 기준), agenda_standard(아젠다 기준), todo_standard(과제 기준), meeting_standard(회의 운영 기준)
+
+[최근 활동]
 {events_text}
 
-[현재 기준]
+[현재 메모리]
 {knowledge_text}"""
 
     llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
     response = await llm.ainvoke([
-        SystemMessage(content="당신은 조직의 암묵지를 분석하고 기준을 업데이트하는 전문가입니다."),
+        SystemMessage(content="당신은 회의체의 운영 패턴을 학습하고 메모리를 업데이트하는 AI입니다. 실제 활동 데이터에서 패턴을 추출해 구체적인 메모리를 만들어주세요."),
         HumanMessage(content=prompt),
     ])
     text = response.content.strip()

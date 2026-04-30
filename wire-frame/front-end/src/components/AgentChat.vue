@@ -1,6 +1,8 @@
 <script setup>
 import { ref, nextTick, onMounted } from 'vue'
 import { streamPost } from '../api'
+import { marked } from 'marked'
+const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
 const props = defineProps({
   agentName: { type: String, required: true },
@@ -92,7 +94,8 @@ function onKeydown(e) {
           <span class="agent-dot-sm" :style="{ background: agentColor }"></span>
           {{ agentName }}
         </div>
-        <div class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
+        <div v-if="msg.role === 'agent'" class="chat-bubble agent" v-html="renderMd(msg.content)"></div>
+        <div v-else class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
       </div>
       <div v-if="loading && messages[messages.length-1]?.content === ''" class="chat-msg-row agent">
         <div class="chat-bubble agent typing">

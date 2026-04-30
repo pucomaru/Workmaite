@@ -1,9 +1,8 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
-import api from '../api'
 
 const route  = useRoute()
 const router = useRouter()
@@ -11,99 +10,78 @@ const meetingsStore = useMeetingsStore()
 const authStore     = useAuthStore()
 
 const meetingId = computed(() => route.params.meetingId)
-
-// ── 준비 상태 (role + loops 모두 로드 완료 전까지 opacity 0) ──
 const ready = ref(false)
+const role    = computed(() => meetingsStore.myRole)
+const isEnded = computed(() => meetingsStore.currentMeeting?.status === 'ended')
 
-// ── role ────────────────────────────────────────────────────────
-const role     = computed(() => meetingsStore.myRole)
-const isEnded  = computed(() => meetingsStore.currentMeeting?.status === 'ended')
-
-// ── 루프 목록 ──────────────────────────────────────────────────
-const loops = ref([])
-
-// store를 통해 SessionsPage와 공유
-const currentLoopIdx = computed({
-  get: () => meetingsStore.currentLoopIdx,
-  set: (v) => { meetingsStore.currentLoopIdx = v },
-})
-
-const canGoPrev = computed(() => currentLoopIdx.value > 0)
-const canGoNext = computed(() => currentLoopIdx.value < loops.value.length - 1)
-
-const isLastLoopAllEnded = computed(() => {
-  if (loops.value.length === 0) return false
-  const lastLoop = loops.value[loops.value.length - 1]
-  return lastLoop.sessions.length > 0 &&
-    lastLoop.sessions.every(s => s.status === 'ended')
-})
-
-const showLoopControls = computed(() =>
-  role.value === 'admin' &&
-  isLastLoopAllEnded.value &&
-  !isEnded.value
-)
-
-// 루프 로드 후 마지막 루프 선택
-watch(loops, (l) => {
-  if (l.length > 0) meetingsStore.currentLoopIdx = l.length - 1
-})
-
-function prevLoop() { if (canGoPrev.value) currentLoopIdx.value-- }
-function nextLoop() { if (canGoNext.value) currentLoopIdx.value++ }
-
-// ── 탭 ──────────────────────────────────────────────────────────
 const adminTabs = [
-  { label: 'Agenda',   path: 'agenda',   icon: '📋' },
-  { label: '회의준비',  path: 'prepare',  icon: '📝' },
-  { label: '회의',     path: 'sessions', icon: '🎙' },
+  { label: '아젠다',  path: 'agenda',   icon: '📋' },
+  { label: '회의준비', path: 'prepare',  icon: '📝' },
+  { label: '회의',    path: 'sessions', icon: '🎤' },
 ]
 const presenterTabs = [
-  { label: 'To-do',   path: 'todo',     icon: '✅' },
+  { label: 'To-do',  path: 'todo',     icon: '✅' },
   { label: '회의준비', path: 'prepare',  icon: '📝' },
-  { label: '회의',    path: 'sessions', icon: '🎙' },
+  { label: '회의',   path: 'sessions', icon: '🎤' },
 ]
 const tabs = computed(() => role.value === 'admin' ? adminTabs : presenterTabs)
 
 function isActive(path) { return route.path.includes(`/${path}`) }
-function go(path)       { router.push(`/meetings/${meetingId.value}/${path}`) }
 
-// ── 데이터 로드: role + loops 동시 fetch ──────────────────────
+const spinDir = ref('fwd')
+
+const activeIdx = computed(() => {
+  const idx = tabs.value.findIndex(tab => isActive(tab.path))
+  return idx === -1 ? 0 : idx
+})
+
+function go(path) {
+  const t = tabs.value
+  const n = t.length
+  const curIdx = activeIdx.value
+  const nextIdx = t.findIndex(tab => tab.path === path)
+  if (nextIdx === -1 || nextIdx === curIdx) return
+  spinDir.value = (nextIdx - curIdx + n) % n === 1 ? 'fwd' : 'bwd'
+  router.push(`/meetings/${meetingId.value}/${path}`)
+}
+
+const CARD_NEWS_TAB = { label: '카드뉴스', path: 'card-news', icon: '🗞' }
+
+const visibleTabs = computed(() => {
+  // 카드뉴스 페이지 활성 시: 회의 - 카드뉴스 - 아젠다(or To-do) 고정 표시
+  if (isActive('card-news')) {
+    const t = tabs.value
+    const firstTab = t[0] // 아젠다 or To-do
+    const sessionsTab = t.find(tab => tab.path === 'sessions') || t[t.length - 1]
+    return [
+      { ...sessionsTab,  pos: 'prev' },
+      { ...CARD_NEWS_TAB, pos: 'active' },
+      { ...firstTab,     pos: 'next' },
+    ]
+  }
+  const t = tabs.value
+  const n = t.length
+  const cur = activeIdx.value
+  return [
+    { ...t[(cur - 1 + n) % n], pos: 'prev' },
+    { ...t[cur],                pos: 'active' },
+    { ...t[(cur + 1) % n],      pos: 'next' },
+  ]
+})
+
 onMounted(async () => {
   try {
-    const [, loopsData] = await Promise.all([
-      meetingsStore.fetchRole(Number(meetingId.value)),
-      api.get(`/api/meetings/${meetingId.value}/loops`)
-        .then(r => r.data)
-        .catch(() => []),
-    ])
-    loops.value = loopsData
+    await meetingsStore.fetchRole(Number(meetingId.value))
   } finally {
     ready.value = true
   }
 })
 
-// ── 새 루프 시작 ─────────────────────────────────────────────────
-const creatingLoop = ref(false)
-async function startNewLoop() {
-  if (creatingLoop.value) return
-  creatingLoop.value = true
-  try {
-    await api.post(`/api/meetings/${meetingId.value}/loops`)
-    const { data } = await api.get(`/api/meetings/${meetingId.value}/loops`)
-    loops.value = data
-  } finally {
-    creatingLoop.value = false
-  }
-}
-
-// ── 회의체 종료 ──────────────────────────────────────────────────
 async function terminateMeetingGroup() {
   if (!confirm('회의체를 완전히 종료하시겠습니까?\n이후 회의를 진행할 수 없습니다.')) return
   await meetingsStore.terminateMeeting(Number(meetingId.value))
 }
 
-// ── 회의체 삭제 ──────────────────────────────────────────────────
 const deleting = ref(false)
 async function deleteMeetingGroup() {
   if (!confirm('회의체를 영구 삭제하시겠습니까?\n모든 회의록, 발제자료, 아젠다 데이터가 삭제되며 복구할 수 없습니다.')) return
@@ -118,7 +96,6 @@ async function deleteMeetingGroup() {
   }
 }
 
-// ── 회의체 탈퇴 ──────────────────────────────────────────────────
 const leaving = ref(false)
 async function leaveMeeting() {
   if (!confirm('이 회의체에서 탈퇴하시겠습니까?')) return
@@ -137,59 +114,45 @@ async function leaveMeeting() {
 <template>
   <nav class="meeting-nav">
     <template v-if="ready">
-      <!-- ‹ N차 › 루프 탐색 -->
-      <div v-if="loops.length" class="loop-nav">
-        <button class="loop-arrow" :disabled="!canGoPrev" @click="prevLoop">‹</button>
-        <span class="loop-badge">{{ currentLoopIdx + 1 }}차</span>
-        <button class="loop-arrow" :disabled="!canGoNext" @click="nextLoop">›</button>
+      <!-- perspective wrapper: 3D 드럼 효과 -->
+      <div class="drum-scene">
+        <Transition :name="'drum-' + spinDir">
+          <div class="drum-track" :key="activeIdx">
+            <div
+              v-for="tab in visibleTabs"
+              :key="tab.pos"
+              class="tab-item"
+              :class="tab.pos"
+              @click="go(tab.path)"
+            >
+              <span class="tab-icon">{{ tab.icon }}</span>
+              <span class="tab-label">{{ tab.label }}</span>
+            </div>
+          </div>
+        </Transition>
       </div>
 
-      <!-- 스크롤 탭 -->
-      <div class="tabs-scroll">
-        <div
-          v-for="tab in tabs"
-          :key="tab.path"
-          class="tab-item"
-          :class="{ active: isActive(tab.path) }"
-          @click="go(tab.path)"
-        >
-          <span class="tab-icon">{{ tab.icon }}</span>
-          <span class="tab-label">{{ tab.label }}</span>
-        </div>
-      </div>
-
-      <!-- 오른쪽 고정 액션 -->
       <div class="nav-actions">
         <span v-if="isEnded" class="ended-badge">종료됨</span>
-
-        <template v-else-if="showLoopControls">
-          <button class="btn btn-primary btn-sm" :disabled="creatingLoop" @click="startNewLoop">
-            {{ creatingLoop ? '생성 중...' : '▶ 새 루프 시작' }}
-          </button>
-          <button class="btn btn-danger btn-sm" @click="terminateMeetingGroup">
-            ⏹ 회의체 종료
-          </button>
-        </template>
-
-        <!-- 삭제 버튼: admin이면 항상 표시 -->
+        <button
+          v-if="role === 'admin' && !isEnded"
+          class="btn btn-ghost btn-sm"
+          @click="terminateMeetingGroup"
+          title="회의체 종료"
+        >⏹ 종료</button>
         <button
           v-if="role === 'admin'"
           class="btn btn-ghost btn-sm delete-btn"
           :disabled="deleting"
           @click="deleteMeetingGroup"
           title="회의체 영구 삭제"
-        >
-          {{ deleting ? '삭제 중...' : '🗑 삭제' }}
-        </button>
-
+        >{{ deleting ? '삭제 중...' : '🗑' }}</button>
         <button
           v-if="role && role !== 'admin'"
           class="btn btn-ghost btn-sm leave-btn"
           :disabled="leaving"
           @click="leaveMeeting"
-        >
-          {{ leaving ? '처리 중...' : '탈퇴' }}
-        </button>
+        >{{ leaving ? '처리 중...' : '탈퇴' }}</button>
       </div>
     </template>
   </nav>
@@ -206,85 +169,113 @@ async function leaveMeeting() {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 44px;
+  min-height: 52px;
   flex-shrink: 0;
-  overflow: hidden;
 }
 
-/* ── 루프 탐색 ── */
-.loop-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-.loop-arrow {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
-  font-size: 17px;
-  color: var(--text-muted);
-  cursor: pointer;
-  line-height: 1;
-  transition: all .15s;
-}
-.loop-arrow:hover:not(:disabled) {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
-}
-.loop-arrow:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.loop-badge {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--primary);
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 99px;
-  padding: 2px 9px;
-  white-space: nowrap;
-}
-
-/* ── 탭 스크롤 ── */
-.tabs-scroll {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  overflow-x: auto;
+/* ── 3D 드럼 씬 ── */
+.drum-scene {
   flex: 1;
-  scrollbar-width: none;
   min-width: 0;
+  overflow: hidden;
+  position: relative;
+  height: 44px;
+  /* 원통 회전 원근감 */
+  perspective: 600px;
+  perspective-origin: 50% 50%;
 }
-.tabs-scroll::-webkit-scrollbar { display: none; }
+
+/* 탭 3개가 나란히 놓이는 트랙 */
+.drum-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  /* 3D 공간에서 자식도 함께 */
+  transform-style: preserve-3d;
+  /* 회전 기준점: 중심 */
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+
 .tab-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 6px 14px;
   border-radius: 20px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
-  transition: all .15s;
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 1;
+  justify-content: center;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
 }
-.tab-item:hover { background: #f1f5f9; color: var(--text); }
-.tab-item.active { background: var(--primary); color: #fff; }
+
+.tab-item.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: default;
+  flex: 1.4;
+}
+
+.tab-item.prev,
+.tab-item.next {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.tab-item.prev:hover,
+.tab-item.next:hover {
+  background: #f1f5f9;
+  color: var(--text);
+  opacity: 1;
+}
+
 .tab-icon { font-size: 14px; }
 
-/* ── 오른쪽 액션 ── */
+/* ══════════════════════════════════════════════
+   슬롯머신 드럼 애니메이션
+   트랙 전체가 X축(가로 회전축) 기준으로 회전
+   fwd(앞으로): 아래서 올라오는 릴
+   bwd(뒤로):   위에서 내려오는 릴
+   ══════════════════════════════════════════════ */
+.drum-fwd-enter-active,
+.drum-fwd-leave-active,
+.drum-bwd-enter-active,
+.drum-bwd-leave-active {
+  transition:
+    transform 0.42s cubic-bezier(0.25, 0.8, 0.25, 1),
+    opacity   0.42s ease;
+  position: absolute;
+  width: 100%;
+}
+
+/* 앞으로 — 아래에서 올라오는 릴 */
+.drum-fwd-enter-from {
+  transform: rotateX(-75deg) translateY(10px);
+  opacity: 0;
+}
+.drum-fwd-leave-to {
+  transform: rotateX(75deg) translateY(-10px);
+  opacity: 0;
+}
+
+/* 뒤로 — 위에서 내려오는 릴 */
+.drum-bwd-enter-from {
+  transform: rotateX(75deg) translateY(-10px);
+  opacity: 0;
+}
+.drum-bwd-leave-to {
+  transform: rotateX(-75deg) translateY(10px);
+  opacity: 0;
+}
+
+/* 오른쪽 액션 */
 .nav-actions {
   display: flex;
   align-items: center;
@@ -309,10 +300,5 @@ async function leaveMeeting() {
   padding: 3px 10px;
 }
 .leave-btn:hover { background: #fef2f2; }
-.btn-danger {
-  background: var(--danger, #ef4444);
-  color: #fff;
-  border-radius: 99px;
-}
-.btn-danger:hover { opacity: .88; }
+.delete-btn { color: var(--text-muted); }
 </style>

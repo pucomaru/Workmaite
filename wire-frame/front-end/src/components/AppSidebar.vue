@@ -18,6 +18,12 @@ const filtered = computed(() =>
   )
 )
 
+const filteredEnded = computed(() =>
+  meetingsStore.meetings.filter(m =>
+    m.title.toLowerCase().includes(search.value.toLowerCase()) && m.status === 'ended'
+  )
+)
+
 function goMeeting(m) {
   router.push(`/meetings/${m.id}/agenda`)
 }
@@ -40,15 +46,12 @@ const isAdmin = computed(() => meetingsStore.myRole === 'admin')
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         보고서
       </router-link>
-      <router-link to="/tacit-knowledge" class="nav-item" :class="{ active: route.path === '/tacit-knowledge' }">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        암묵지 관리
-      </router-link>
+
     </nav>
 
     <div class="sidebar-section">
+      <input v-model="search" class="form-input" placeholder="검색..." style="margin-bottom:10px" />
       <div class="section-label">진행중인 회의체</div>
-      <input v-model="search" class="form-input" placeholder="검색..." style="margin-bottom:8px" />
       <div class="meeting-list">
         <div
           v-for="m in filtered"
@@ -62,6 +65,21 @@ const isAdmin = computed(() => meetingsStore.myRole === 'admin')
         </div>
         <div v-if="!filtered.length" class="sidebar-empty">회의체 없음</div>
       </div>
+      <template v-if="filteredEnded.length">
+        <div class="section-label" style="margin-top:12px">지난 회의체</div>
+        <div class="meeting-list">
+          <div
+            v-for="m in filteredEnded"
+            :key="m.id"
+            class="meeting-item ended"
+            :class="{ active: route.params.meetingId == m.id }"
+            @click="goMeeting(m)"
+          >
+            <div class="meeting-item-dot ended-dot"></div>
+            <span>{{ m.title }}</span>
+          </div>
+        </div>
+      </template>
     </div>
   </aside>
 </template>
@@ -95,4 +113,6 @@ const isAdmin = computed(() => meetingsStore.myRole === 'admin')
 .meeting-item:hover, .meeting-item.active { background: #eff6ff; color: var(--primary); }
 .meeting-item-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; flex-shrink: 0; }
 .sidebar-empty { font-size: 12px; color: var(--text-muted); padding: 8px 10px; }
+.ended-dot { background: #94a3b8 !important; }
+.meeting-item.ended { opacity: .8; }
 </style>

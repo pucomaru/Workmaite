@@ -134,10 +134,15 @@ def calendar_events(
     ).all()
     meeting_ids = [r.meeting_id for r in member_rows]
 
-    sessions = db.query(models.MeetingSession).filter(
-        models.MeetingSession.meeting_id.in_(meeting_ids),
-        models.MeetingSession.scheduled_at.isnot(None),
-    ).all()
+    sessions = (
+        db.query(models.MeetingSession, models.Meeting.title.label("meeting_title"))
+        .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+        .filter(
+            models.MeetingSession.meeting_id.in_(meeting_ids),
+            models.MeetingSession.scheduled_at.isnot(None),
+            models.MeetingSession.status != 'ended',
+        ).all()
+    )
 
     todos = db.query(models.Todo).filter(
         models.Todo.user_id == current_user.id,
@@ -145,13 +150,14 @@ def calendar_events(
     ).all()
 
     events = []
-    for s in sessions:
+    for s, meeting_title in sessions:
         events.append({
             "type": "session",
             "id": s.id,
             "title": s.title,
             "date": s.scheduled_at.isoformat() if s.scheduled_at else None,
             "meeting_id": s.meeting_id,
+            "meeting_title": meeting_title,
         })
     for t in todos:
         events.append({

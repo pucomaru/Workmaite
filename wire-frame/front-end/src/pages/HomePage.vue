@@ -10,8 +10,6 @@ const router = useRouter()
 const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
-const todos = ref([])
-const myTasks = ref([])
 const calendarEvents = ref([])
 const showCreateModal = ref(false)
 const form = ref({ title: '', purpose: '', start_date: '', end_date: '' })
@@ -133,24 +131,10 @@ function clickMiniDay(d) {
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
   try {
-    const [todoRes, taskRes, calRes] = await Promise.all([
-      api.get('/api/todos/urgent'),
-      api.get('/api/todos/mine').catch(() => api.get('/api/todos/urgent')),
-      api.get('/api/calendar/events'),
-    ])
-    todos.value = todoRes.data
-    myTasks.value = taskRes.data
+    const calRes = await api.get('/api/calendar/events')
     calendarEvents.value = calRes.data
   } catch {}
 })
-
-async function toggleTodo(todo) {
-  const newStatus = todo.status === 'done' ? 'pending' : 'done'
-  try {
-    await api.patch(`/api/todos/${todo.id}`, { status: newStatus })
-    todo.status = newStatus
-  } catch {}
-}
 
 // ── Modal ────────────────────────────────────────────────────
 async function searchMembers() {
@@ -205,35 +189,44 @@ function statusLabel(s) {
 const activeMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'active')
 )
+
+// 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
+const upcomingSessions = computed(() => {
+  const todayStr = fmtISO(new Date())
+  return calendarEvents.value
+    .filter(e => e.type === 'session' && e.date >= todayStr)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+})
 </script>
 
 <template>
   <div class="home">
 
-    <!-- ① To-do 리스트 -->
+    <!-- ① 예정된 회의 -->
     <div class="card todo-section">
       <div class="section-title-row">
-        <span class="section-title">나의 To-do</span>
-        <span class="badge badge-muted" style="font-size:11px">{{ todos.length }}건</span>
+        <span class="section-title">예정된 회의</span>
+        <span class="badge badge-muted" style="font-size:11px">{{ upcomingSessions.length }}건</span>
       </div>
-      <div v-if="!todos.length" class="empty-inline">등록된 To-do가 없습니다.</div>
+      <div v-if="!upcomingSessions.length" class="empty-inline">예정된 회의가 없습니다.</div>
       <div v-else class="todo-list">
-        <div v-for="t in todos" :key="t.id" class="todo-row" :class="{ done: t.status === 'done' }">
-          <button class="todo-check" @click="toggleTodo(t)">
-            <svg v-if="t.status === 'done'" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" fill="var(--success)" stroke="var(--success)"/>
-              <path d="M5 8.5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span v-else class="todo-circle" />
-          </button>
-          <span class="todo-content">{{ t.content }}</span>
-          <span v-if="t.due_date" class="todo-dday" :class="getDday(t.due_date) < 0 ? 'overdue' : getDday(t.due_date) <= 3 ? 'urgent' : ''">
-            {{ getDday(t.due_date) < 0 ? `D+${Math.abs(getDday(t.due_date))}` : getDday(t.due_date) === 0 ? 'D-day' : `D-${getDday(t.due_date)}` }}
+        <div v-for="s in upcomingSessions" :key="s.id" class="todo-row">
+          <span style="font-size:15px;flex-shrink:0">🎙</span>
+          <div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:0">
+            <span class="todo-content">{{ s.title }}</span>
+            <span v-if="s.meeting_title" style="font-size:11px;color:var(--text-muted)">{{ s.meeting_title }}</span>
+          </div>
+          <span class="todo-dday" :class="getDday(s.date) === 0 ? 'urgent' : getDday(s.date) <= 3 ? 'urgent' : ''">
+            {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
           </span>
-          <span v-if="t.meeting_title" class="todo-meeting">{{ t.meeting_title }}</span>
+          <span class="todo-meeting">{{ formatDate(s.date) }}</span>
+          <button v-if="s.meeting_id" class="btn btn-sm btn-outline" style="font-size:11px;padding:2px 8px;flex-shrink:0" @click="router.push(`/meetings/${s.meeting_id}/agenda`)">이동 ›</button>
         </div>
       </div>
     </div>
+
+    <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
+    <div class="main-grid">
 
     <!-- ② 진행중인 회의체 -->
     <div class="meetings-section">
@@ -262,11 +255,8 @@ const activeMeetings = computed(() =>
       </div>
     </div>
 
-    <!-- ③ 하단 2열: 달력 + 나의 작업 -->
-    <div class="bottom-grid">
-
-      <!-- 달력 -->
-      <div class="card cal-card">
+    <!-- ③ 달력 -->
+    <div class="card cal-card">
         <div class="cal-header">
           <div class="cal-nav">
             <button class="nav-btn" @click="navigate(-1)">‹</button>
@@ -357,38 +347,7 @@ const activeMeetings = computed(() =>
           <span><i class="dot-todo"></i> To-do 마감</span>
         </div>
       </div>
-
-      <!-- 나의 작업 -->
-      <div class="card my-tasks-card">
-        <div class="section-title-row" style="padding:14px 16px;border-bottom:1px solid var(--border)">
-          <span class="section-title">나의 작업</span>
-          <span class="badge badge-muted" style="font-size:11px">{{ myTasks.length }}건</span>
-        </div>
-        <div style="flex:1;overflow-y:auto">
-          <div v-if="!myTasks.length" class="empty-state" style="padding:32px 16px">
-            <p>진행 중인 작업이 없습니다.</p>
-          </div>
-          <div v-for="t in myTasks" :key="t.id" class="task-row" :class="{ done: t.status === 'done' }">
-            <button class="todo-check" @click="toggleTodo(t)">
-              <svg v-if="t.status === 'done'" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="7" fill="var(--success)" stroke="var(--success)"/>
-                <path d="M5 8.5l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span v-else class="todo-circle" />
-            </button>
-            <div class="task-info">
-              <div class="task-content">{{ t.content }}</div>
-              <div class="task-meta">
-                <span v-if="t.meeting_title" class="task-meeting">{{ t.meeting_title }}</span>
-                <span v-if="t.due_date" class="todo-dday" :class="getDday(t.due_date) < 0 ? 'overdue' : getDday(t.due_date) <= 3 ? 'urgent' : ''">
-                  {{ getDday(t.due_date) < 0 ? `D+${Math.abs(getDday(t.due_date))}` : getDday(t.due_date) === 0 ? 'D-day' : `D-${getDday(t.due_date)}` }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </div><!-- /main-grid -->
 
     <!-- ④ 혜안 floating -->
     <HyeanAgent />
@@ -482,19 +441,26 @@ const activeMeetings = computed(() =>
 .todo-dday.urgent { background: #fef3c7; color: #d97706; }
 .todo-dday.overdue { background: #fee2e2; color: var(--danger); }
 .todo-meeting { font-size: 11px; color: var(--text-muted); background: #eff6ff; border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
+.todo-row.pinned { background: #fffbeb; border-color: #fde68a; }
+.todo-row.pinned:hover { background: #fef3c7; }
+.pin-fixed-icon { font-size: 13px; flex-shrink: 0; opacity: 0.8; }
+.pin-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0.3; transition: opacity .15s, transform .15s; flex-shrink: 0; }
+.pin-btn:hover { opacity: 0.8; }
+.pin-btn.active { opacity: 1; transform: rotate(-30deg); }
+
+
+/* ── ②③ 메인 2열 그리드 ─────────────────────────────────────── */
+.main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
 
 /* ── ② 회의체 섹션 ──────────────────────────────────────────── */
 .meetings-section { display: flex; flex-direction: column; gap: 12px; }
-.meeting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.meeting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .meeting-card { padding: 16px; cursor: pointer; transition: box-shadow .15s; }
 .meeting-card:hover { box-shadow: var(--shadow-md); }
 .meeting-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .meeting-title { font-size: 14px; font-weight: 600; flex: 1; }
 .meeting-meta { font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 6px; }
 .meeting-dates { font-size: 11px; color: var(--text-muted); }
-
-/* ── ③ 하단 2열 ─────────────────────────────────────────────── */
-.bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
 
 /* ── 달력 ──────────────────────────────────────────────────── */
 .cal-card { display: flex; flex-direction: column; }
@@ -556,24 +522,6 @@ const activeMeetings = computed(() =>
 .dot-session, .dot-todo { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 .dot-session { background: #3b82f6; }
 .dot-todo { background: #f59e0b; }
-
-/* ── 나의 작업 ──────────────────────────────────────────────── */
-.my-tasks-card { display: flex; flex-direction: column; max-height: 520px; }
-.task-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  transition: background .1s;
-}
-.task-row:hover { background: #f8fafc; }
-.task-row:last-child { border-bottom: none; }
-.task-row.done .task-content { text-decoration: line-through; color: var(--text-muted); }
-.task-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.task-content { font-size: 13px; line-height: 1.4; }
-.task-meta { display: flex; align-items: center; gap: 6px; }
-.task-meeting { font-size: 11px; color: var(--primary); background: #eff6ff; border-radius: 99px; padding: 2px 7px; }
 
 /* ── 모달 ───────────────────────────────────────────────────── */
 .search-dropdown { border: 1px solid var(--border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-md); margin-top: 4px; }

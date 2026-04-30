@@ -141,7 +141,7 @@ function logout() {
       </button>
       <router-link to="/" class="logo">
         <span class="logo-icon">W</span>
-        <span class="logo-text">WorkMate</span>
+        <span class="logo-text">workma!te</span>
       </router-link>
 
       <!-- 회의체 제목 영역 -->

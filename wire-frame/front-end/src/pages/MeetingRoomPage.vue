@@ -8,6 +8,9 @@ import { useAuthStore } from '../stores/auth'
 import { useChatHistory } from '../composables/useChatHistory'
 import LiveKitRoom from '../components/LiveKitRoom.vue'
 import PreJoinLobby from '../components/PreJoinLobby.vue'
+import araAvatar from '../assets/agents/ara.png'
+import { marked } from 'marked'
+const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
 const route = useRoute()
 const router = useRouter()
@@ -23,8 +26,36 @@ const qUrl = route.query.lkUrl
 
 const isRecording = ref(false)
 const araTab = ref('summary')
+const chatMode = ref('transcript')  // 'transcript' | 'ara'
 const araInput = ref('')
+const participantInput = ref('')
+const participantMessages = ref([])  // { name, text, time, isSelf }
 const araLoading = ref(false)
+const unreadChat = ref(false)   // 채팅 탭 미확인 표시
+
+// 사이드바 리사이즈 / 토글
+const sidebarVisible = ref(true)
+const sidebarWidth = ref(300)
+let resizing = false
+let resizeStartX = 0
+let resizeStartW = 0
+function onResizeStart(e) {
+  resizing = true
+  resizeStartX = e.clientX
+  resizeStartW = sidebarWidth.value
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeEnd)
+}
+function onResizeMove(e) {
+  if (!resizing) return
+  const delta = e.clientX - resizeStartX
+  sidebarWidth.value = Math.min(520, Math.max(220, resizeStartW + delta))
+}
+function onResizeEnd() {
+  resizing = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+}
 const prevMinutes = ref([])
 const agendas = ref([])
 const participants = ref([])
@@ -38,6 +69,7 @@ const transcriptRef = ref(null)
 
 function onTranscript(seg) {
   transcripts.value.push(seg)
+  if (araTab.value !== 'chat' || chatMode.value !== 'transcript') unreadChat.value = true
   // 자동 스크롤
   setTimeout(() => {
     if (transcriptRef.value) transcriptRef.value.scrollTop = transcriptRef.value.scrollHeight
@@ -96,6 +128,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
 })
 
 async function startMeeting() {
@@ -169,6 +203,23 @@ async function sendAra() {
   )
 }
 
+function openChatTab() {
+  araTab.value = 'chat'
+  unreadChat.value = false
+}
+
+function sendParticipantChat() {
+  if (!participantInput.value.trim()) return
+  const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  participantMessages.value.push({
+    name: auth.user?.name || '나',
+    text: participantInput.value.trim(),
+    time: now,
+    isSelf: true,
+  })
+  participantInput.value = ''
+}
+
 function formatTime(s) {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
@@ -189,18 +240,16 @@ function formatTime(s) {
     />
 
     <!-- Ara sidebar -->
-    <div class="ara-sidebar card">
+    <div v-show="sidebarVisible" class="ara-sidebar card" :style="{ width: sidebarWidth + 'px' }">
       <div class="ara-header">
-        <span style="font-weight:700;font-size:14px;color:var(--primary)">🌊 아라 (Ara)</span>
-        <div style="display:flex;align-items:center;gap:4px">
+        <div style="display:flex;align-items:center;gap:4px;width:100%">
           <button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" @click="clearAraHistory" title="대화 기록 지우기">🗑</button>
-          <div class="tabs" style="margin:0">
+          <div class="tabs" style="margin:0;flex:1">
             <button class="tab-btn" :class="{active: araTab==='summary'}" @click="araTab='summary'">이전 요약</button>
             <button class="tab-btn" :class="{active: araTab==='agenda'}" @click="araTab='agenda'">아젠다</button>
-            <button class="tab-btn" :class="{active: araTab==='transcript'}" @click="araTab='transcript'">
-              발화<span v-if="transcripts.length" class="tab-badge">{{ transcripts.length }}</span>
+            <button class="tab-btn" :class="{active: araTab==='chat'}" @click="openChatTab()">
+              채팅<span v-if="unreadChat" class="unread-dot"></span>
             </button>
-            <button class="tab-btn" :class="{active: araTab==='chat'}" @click="araTab='chat'">채팅</button>
           </div>
         </div>
       </div>
@@ -223,40 +272,89 @@ function formatTime(s) {
             </div>
           </div>
         </div>
-        <!-- 녹취 탭 -->
-        <div v-else-if="araTab === 'transcript'" class="transcript-panel" ref="transcriptRef">
-          <div v-if="!transcripts.length" class="empty-state" style="padding:24px;text-align:center">
-            <p style="color:#94a3b8;font-size:13px">회의 참여 후 발화가 감지되면<br>여기에 표시됩니다.</p>
+        <!-- 채팅 탭: 발화 / 아라 토글 -->
+        <div v-else-if="araTab === 'chat'" class="chat-tab-wrap">
+          <!-- 서브 토글 -->
+          <div class="chat-mode-toggle">
+            <button :class="['mode-btn', { active: chatMode==='transcript' }]" @click="chatMode='transcript'">
+              🎙 발화
+            </button>
+            <button :class="['mode-btn', { active: chatMode==='ara' }]" @click="chatMode='ara'">
+              <img :src="araAvatar" class="ara-mini-avatar" alt="아라" />
+              아라
+            </button>
+            <button :class="['mode-btn', { active: chatMode==='general' }]" @click="chatMode='general'">
+              💬 채팅
+            </button>
           </div>
-          <div
-            v-for="(seg, i) in transcripts"
-            :key="i"
-            class="transcript-row"
-            :class="seg.isSelf ? 'self' : 'other'"
-          >
-            <div v-if="!seg.isSelf" class="tr-avatar">{{ seg.name[0] }}</div>
-            <div class="tr-bubble-wrap">
-              <div class="tr-name">{{ seg.name }}</div>
-              <div class="tr-bubble">{{ seg.text }}</div>
-              <div class="tr-time">{{ seg.time }}</div>
+
+          <!-- 발화 (STT) -->
+          <div v-if="chatMode==='transcript'" class="transcript-panel" ref="transcriptRef">
+            <div v-if="!transcripts.length" class="empty-state" style="padding:24px;text-align:center">
+              <p style="color:#94a3b8;font-size:13px">회의 참여 후 발화가 감지되면<br>여기에 표시됩니다.</p>
             </div>
-            <div v-if="seg.isSelf" class="tr-avatar self-avatar">{{ seg.name[0] }}</div>
-          </div>
-        </div>
-        <div v-else class="chat-container" style="height:100%">
-          <div class="chat-messages" style="flex:1;overflow-y:auto">
-            <div v-for="(msg, i) in araMessages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
-              <div v-if="msg.role==='agent'" class="chat-agent-label">아라</div>
-              <div class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
+            <div v-for="(seg, i) in transcripts" :key="i" class="transcript-row" :class="seg.isSelf ? 'self' : 'other'">
+              <div v-if="!seg.isSelf" class="tr-avatar">{{ seg.name[0] }}</div>
+              <div class="tr-bubble-wrap">
+                <div class="tr-name">{{ seg.name }}</div>
+                <div class="tr-bubble">{{ seg.text }}</div>
+                <div class="tr-time">{{ seg.time }}</div>
+              </div>
+              <div v-if="seg.isSelf" class="tr-avatar self-avatar">{{ seg.name[0] }}</div>
             </div>
           </div>
-          <div class="chat-input-area">
-            <textarea v-model="araInput" class="chat-input" placeholder="아라에게 질문..." rows="1" @keydown.enter.exact.prevent="sendAra" />
-            <button class="btn btn-primary btn-sm" :disabled="araLoading || !araInput.trim()" @click="sendAra">전송</button>
+
+          <!-- 아라 질의 -->
+          <div v-else-if="chatMode==='ara'" class="chat-container ara-mode">
+            <div class="chat-messages">
+              <div v-for="(msg, i) in araMessages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
+                <div v-if="msg.role==='agent'" class="chat-agent-label">
+                  <img :src="araAvatar" class="ara-mini-avatar" alt="아라" />아라
+                </div>
+                <div v-if="msg.role === 'agent'" class="chat-bubble ara-bubble" v-html="renderMd(msg.content)"></div>
+                <div v-else class="chat-bubble user">{{ msg.content }}</div>
+              </div>
+            </div>
+            <div class="chat-input-area">
+              <textarea v-model="araInput" class="chat-input" placeholder="아라에게 질문..." rows="1"
+                @keydown.enter.exact.prevent="sendAra" />
+              <button class="btn btn-ara btn-sm" :disabled="araLoading || !araInput.trim()" @click="sendAra">전송</button>
+            </div>
+          </div>
+
+          <!-- 참여자 채팅 -->
+          <div v-else class="chat-container">
+            <div class="chat-messages">
+              <div v-if="!participantMessages.length" class="empty-state" style="padding:24px;text-align:center">
+                <p style="color:#94a3b8;font-size:13px">참여자들과 채팅해보세요.</p>
+              </div>
+              <div v-for="(msg, i) in participantMessages" :key="i" class="transcript-row" :class="msg.isSelf ? 'self' : 'other'">
+                <div v-if="!msg.isSelf" class="tr-avatar">{{ msg.name[0] }}</div>
+                <div class="tr-bubble-wrap">
+                  <div class="tr-name">{{ msg.name }}</div>
+                  <div class="tr-bubble">{{ msg.text }}</div>
+                  <div class="tr-time">{{ msg.time }}</div>
+                </div>
+                <div v-if="msg.isSelf" class="tr-avatar self-avatar">{{ msg.name[0] }}</div>
+              </div>
+            </div>
+            <div class="chat-input-area">
+              <textarea v-model="participantInput" class="chat-input" placeholder="메시지 입력..." rows="1"
+                @keydown.enter.exact.prevent
+                @keyup.enter.exact="sendParticipantChat" />
+              <button class="btn btn-primary btn-sm" :disabled="!participantInput.trim()" @click="sendParticipantChat">전송</button>
+            </div>
           </div>
         </div>
       </div>
+      <!-- 우측 리사이즈 핸들 -->
+      <div class="sidebar-resize-handle" @mousedown.prevent="onResizeStart"></div>
     </div>
+
+    <!-- 사이드바 토글 버튼 -->
+    <button class="sidebar-toggle-btn" @click="sidebarVisible = !sidebarVisible" :title="sidebarVisible ? '사이드바 숨기기' : '사이드바 보이기'">
+      {{ sidebarVisible ? '◀' : '▶' }}
+    </button>
 
     <!-- Main area -->
     <div class="room-main">
@@ -329,9 +427,15 @@ function formatTime(s) {
 </template>
 
 <style scoped>
-.room-layout { display: flex; height: calc(100vh - var(--header-h)); overflow: hidden; background: #0f172a; }
-.ara-sidebar { width: 300px; height: 100%; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; background: #1e293b; border: none; border-right: 1px solid #334155; }
-.ara-header { padding: 12px 14px; border-bottom: 1px solid #334155; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+.room-layout { display: flex; height: calc(100vh - var(--header-h)); overflow: hidden; background: #0f172a; position: relative; }
+.ara-sidebar { height: 100%; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; background: #1e293b; border: none; border-right: 1px solid #334155; position: relative; min-width: 220px; max-width: 520px; }
+.sidebar-resize-handle { position: absolute; top: 0; right: 0; width: 5px; height: 100%; cursor: ew-resize; z-index: 10; background: transparent; transition: background .15s; }
+.sidebar-resize-handle:hover { background: rgba(99,102,241,.4); }
+.sidebar-toggle-btn { position: relative; z-index: 20; align-self: center; flex-shrink: 0; width: 18px; height: 48px; background: #1e293b; border: 1px solid #334155; border-left: none; border-radius: 0 6px 6px 0; color: #64748b; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s; }
+.sidebar-toggle-btn:hover { background: #334155; color: #e2e8f0; }
+/* 탭 뱃지 */
+.unread-dot { display: inline-block; width: 7px; height: 7px; background: #ef4444; border-radius: 50%; margin-left: 5px; vertical-align: middle; flex-shrink: 0; }
+
 .ara-header .tab-btn { color: #94a3b8; }
 .ara-header .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 .ara-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -358,8 +462,33 @@ function formatTime(s) {
 .ctrl-btn.leave { background: #374151; color: #9ca3af; }
 .ctrl-btn.end { background: var(--danger); color: #fff; }
 
-/* 탭 뱃지 */
-.tab-badge { display: inline-flex; align-items: center; justify-content: center; background: #3b82f6; color: #fff; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 0 5px; min-width: 16px; height: 16px; margin-left: 4px; vertical-align: middle; }
+/* 채팅 탭 통합 */
+.chat-tab-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.chat-mode-toggle { display: flex; gap: 2px; padding: 8px 10px; border-bottom: 1px solid #334155; flex-shrink: 0; background: #1a2535; }
+.mode-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 4px; font-size: 11px; font-weight: 500; color: #64748b; background: none; border: none; border-radius: 7px; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.mode-btn:hover { background: #334155; color: #94a3b8; }
+.mode-btn.active { background: #334155; color: #e2e8f0; }
+.ara-mini-avatar { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+
+/* 아라 채팅 버블 (노란~주황) */
+.ara-mode .chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.chat-bubble.ara-bubble { background: linear-gradient(135deg, #fef3c7, #fed7aa); border: 1px solid #fbbf24; color: #92400e; border-radius: 2px 12px 12px 12px; }
+.chat-agent-label { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #f59e0b; margin-bottom: 2px; }
+.btn-ara { background: linear-gradient(135deg, #f59e0b, #ea580c); color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+.btn-ara:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ara:not(:disabled):hover { opacity: .88; }
+
+/* 채팅 공통 */
+.chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.chat-msg-row { display: flex; flex-direction: column; gap: 3px; }
+.chat-msg-row.user { align-items: flex-end; }
+.chat-bubble { padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; max-width: 90%; word-break: break-word; }
+.chat-bubble.user { background: #1d4ed8; color: #fff; border-radius: 12px 12px 2px 12px; }
+.chat-bubble.agent { background: #1e3a5f; border: 1px solid #334155; color: #e2e8f0; border-radius: 2px 12px 12px 12px; }
+.chat-input-area { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #334155; flex-shrink: 0; }
+.chat-input { flex: 1; resize: none; border: 1px solid #334155; border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none; font-family: inherit; background: #0f172a; color: #e2e8f0; }
+.chat-input:focus { border-color: var(--primary); }
 
 /* 녹취 패널 — SMS 스타일 */
 .transcript-panel { flex: 1; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 12px; }

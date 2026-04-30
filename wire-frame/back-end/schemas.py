@@ -138,6 +138,7 @@ class ReportOut(BaseModel):
     feedback: Optional[Any]
     submitted_at: Optional[datetime]
     approved_at: Optional[datetime]
+    review_comment: Optional[str] = None
     created_at: datetime
     presenter: Optional[UserOut] = None
 
@@ -146,6 +147,7 @@ class ReportOut(BaseModel):
 
 class ReportStatusUpdate(BaseModel):
     status: str  # approved | rejected
+    comment: Optional[str] = None  # 승인/반려 사유
 
 
 # MeetingLoop
@@ -166,7 +168,7 @@ class LoopOut(BaseModel):
 # MeetingSession
 class SessionCreate(BaseModel):
     title: str
-    loop_id: int
+    loop_id: Optional[int] = None
     scheduled_at: Optional[datetime] = None
     password: Optional[str] = None
 
@@ -247,6 +249,22 @@ class TacitKnowledgeGlobalOut(BaseModel):
     version: int
     status: str
     source_event_ids: Optional[Any]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TacitKnowledgeMeetingOut(BaseModel):
+    id: int
+    meeting_id: int
+    category: str
+    title: str
+    content: str
+    version: int
+    status: str
+    loop_number: Optional[int] = None
+    source_event_ids: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
 

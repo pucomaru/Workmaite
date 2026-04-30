@@ -31,7 +31,7 @@ async function submit() {
       <div class="auth-header">
         <div class="auth-logo">W</div>
         <h1>회원가입</h1>
-        <p>WorkMate 계정을 만드세요</p>
+        <p>workma!te 계정을 만드세요</p>
       </div>
       <form @submit.prevent="submit" class="auth-form">
         <div class="form-group">

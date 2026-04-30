@@ -29,7 +29,7 @@ async function submit() {
     <div class="auth-card">
       <div class="auth-header">
         <div class="auth-logo">W</div>
-        <h1>WorkMate</h1>
+        <h1>workma!te</h1>
         <p>회의체 운영 AI Agent 서비스</p>
       </div>
       <form @submit.prevent="submit" class="auth-form">

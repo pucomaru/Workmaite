@@ -215,6 +215,7 @@ def delete_meeting(
 
 
 @router.get("/users/search")
+def search_users(
     q: str = Query(""),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),

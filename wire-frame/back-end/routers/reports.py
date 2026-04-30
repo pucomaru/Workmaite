@@ -32,6 +32,7 @@ def list_reports(
 async def submit_report(
     meeting_id: int,
     file: UploadFile = File(...),
+    submit: bool = Form(False),  # True면 즉시 제출, False면 draft
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,6 +43,7 @@ async def submit_report(
     with open(file_path, "wb") as f:
         f.write(content)
 
+    new_status = "submitted" if submit else "draft"
     report = db.query(models.Report).filter(
         models.Report.meeting_id == meeting_id,
         models.Report.presenter_id == current_user.id,
@@ -50,47 +52,49 @@ async def submit_report(
     if report:
         report.file_path = file_path
         report.file_name = file.filename
-        report.status = "submitted"
-        report.submitted_at = datetime.utcnow()
+        report.status = new_status
+        report.submitted_at = datetime.utcnow() if submit else report.submitted_at
+        report.review_comment = None  # 재업로드 시 기존 사유 초기화
     else:
         report = models.Report(
             meeting_id=meeting_id,
             presenter_id=current_user.id,
             file_path=file_path,
             file_name=file.filename,
-            status="submitted",
-            submitted_at=datetime.utcnow(),
+            status=new_status,
+            submitted_at=datetime.utcnow() if submit else None,
         )
         db.add(report)
 
     db.flush()
 
-    admins = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id,
-        models.MeetingMember.role == "admin",
-    ).all()
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    for a in admins:
-        create_notification(
-            db,
-            user_id=a.user_id,
-            type="report_submitted",
-            message=f"{current_user.name}님이 '{meeting.title}' 보고서를 제출했습니다.",
-            ref_id=meeting_id,
-            ref_type="meeting",
-        )
+    if submit:
+        admins = db.query(models.MeetingMember).filter(
+            models.MeetingMember.meeting_id == meeting_id,
+            models.MeetingMember.role == "admin",
+        ).all()
+        meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+        for a in admins:
+            create_notification(
+                db,
+                user_id=a.user_id,
+                type="report_submitted",
+                message=f"{current_user.name}님이 '{meeting.title}' 보고서를 제출했습니다.",
+                ref_id=meeting_id,
+                ref_type="meeting",
+            )
 
     event = models.TacitEvent(
-        event_type="report_submitted",
+        event_type="report_submitted" if submit else "report_draft_saved",
         meeting_id=meeting_id,
-        payload={"reporter": current_user.name, "file": file.filename},
+        payload={"reporter": current_user.name, "file": file.filename, "status": new_status},
         actor_id=current_user.id,
     )
     db.add(event)
     db.commit()
     db.refresh(report)
 
-    await manager.broadcast_meeting(meeting_id, {"type": "report_submitted", "report_id": report.id})
+    await manager.broadcast_meeting(meeting_id, {"type": "report_submitted", "report_id": report.id, "status": new_status})
     return report
 
 
@@ -108,12 +112,19 @@ async def update_report_status(
     report.status = data.status
     if data.status == "approved":
         report.approved_at = datetime.utcnow()
+    if data.comment is not None:
+        report.review_comment = data.comment
+
+    status_label = '승인' if data.status == 'approved' else '반려'
+    notif_msg = f"보고서가 {status_label}되었습니다."
+    if data.comment:
+        notif_msg += f" 사유: {data.comment}"
 
     create_notification(
         db,
         user_id=report.presenter_id,
         type="report_reviewed",
-        message=f"보고서가 {'승인' if data.status == 'approved' else '반려'}되었습니다.",
+        message=notif_msg,
         ref_id=report.meeting_id,
         ref_type="meeting",
     )

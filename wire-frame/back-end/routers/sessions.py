@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
 from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db
@@ -27,8 +27,9 @@ def list_loops(
 
 
 @router.post("/meetings/{meeting_id}/loops", response_model=schemas.LoopOut)
-def create_loop(
+async def create_loop(
     meeting_id: int,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,6 +43,9 @@ def create_loop(
     db.add(loop)
     db.commit()
     db.refresh(loop)
+    # 루프 생성 시 AI 메모리 자동 갱신
+    from routers.tacit_knowledge import _do_refresh_memory
+    background_tasks.add_task(_do_refresh_memory, meeting_id, loop.loop_number)
     return loop
 
 
@@ -55,7 +59,7 @@ def list_sessions(
 ):
     return db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id
-    ).order_by(models.MeetingSession.session_number.asc()).all()
+    ).order_by(models.MeetingSession.id.desc()).all()
 
 
 @router.post("/meetings/{meeting_id}/sessions", response_model=schemas.SessionOut)
@@ -65,12 +69,22 @@ async def create_session(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    loop = db.query(models.MeetingLoop).filter(
-        models.MeetingLoop.id == data.loop_id,
-        models.MeetingLoop.meeting_id == meeting_id,
-    ).first()
-    if not loop:
-        raise HTTPException(status_code=404, detail="루프를 찾을 수 없습니다.")
+    # 루프가 없으면 기본 루프 자동 생성
+    if data.loop_id:
+        loop = db.query(models.MeetingLoop).filter(
+            models.MeetingLoop.id == data.loop_id,
+            models.MeetingLoop.meeting_id == meeting_id,
+        ).first()
+        if not loop:
+            raise HTTPException(status_code=404, detail="루프를 찾을 수 없습니다.")
+    else:
+        loop = db.query(models.MeetingLoop).filter(
+            models.MeetingLoop.meeting_id == meeting_id
+        ).first()
+        if not loop:
+            loop = models.MeetingLoop(meeting_id=meeting_id, loop_number=1)
+            db.add(loop)
+            db.flush()
 
     count = db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id

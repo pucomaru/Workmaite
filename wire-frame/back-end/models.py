@@ -97,6 +97,7 @@ class Report(Base):
     feedback = Column(JSON, nullable=True)
     submitted_at = Column(DateTime, nullable=True)
     approved_at = Column(DateTime, nullable=True)
+    review_comment = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     meeting = relationship("Meeting", back_populates="reports")
@@ -218,6 +219,7 @@ class TacitKnowledgeMeeting(Base):
     content = Column(Text)
     version = Column(Integer, default=1)
     status = Column(String, default="active")
+    loop_number = Column(Integer, nullable=True)  # 마지막 업데이트 루프 번호
     source_event_ids = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -19,10 +19,19 @@ from routers import auth, meetings, agendas, todos, reports, sessions, notificat
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=engine)
+    # SQLite 컬럼 마이그레이션 (없으면 추가)
+    try:
+        with engine.connect() as conn:
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE tacit_knowledge_meeting ADD COLUMN loop_number INTEGER"
+            ))
+            conn.commit()
+    except Exception:
+        pass  # 이미 존재하면 무시
     yield
 
 
-app = FastAPI(title="WorkMate API", lifespan=lifespan)
+app = FastAPI(title="workma!te API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

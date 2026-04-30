@@ -7,6 +7,8 @@ import MeetingNav from '../components/MeetingNav.vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useChatHistory } from '../composables/useChatHistory'
 import gaonAvatar from '../assets/agents/gaon.png'
+import { marked } from 'marked'
+const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
 const route = useRoute()
 const meetingsStore = useMeetingsStore()
@@ -123,7 +125,8 @@ const statusMap = { pending: { label: '대기', cls: 'badge-warning' }, done: { 
               <img :src="gaonAvatar" class="chat-avatar-sm" alt="가온" />
               가온
             </div>
-            <div class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
+            <div v-if="msg.role === 'agent'" class="chat-bubble agent" v-html="renderMd(msg.content)"></div>
+            <div v-else class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
           </div>
         </div>
         <div class="chat-input-area">
