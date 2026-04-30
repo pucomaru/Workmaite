@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
-const form = ref({ name: '', employee_id: '', password: '' })
+const form = ref({ name: '', employee_id: '', password: '', department: '' })
 const error = ref('')
 const loading = ref(false)
 
@@ -14,7 +14,7 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    await auth.register(form.value.name, form.value.employee_id, form.value.password)
+    await auth.register(form.value)
     await auth.login(form.value.employee_id, form.value.password)
     router.push('/')
   } catch (e) {
@@ -41,6 +41,10 @@ async function submit() {
         <div class="form-group">
           <label class="form-label">사번</label>
           <input v-model="form.employee_id" class="form-input" placeholder="사번" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">담당 부서</label>
+          <input v-model="form.department" class="form-input" placeholder="예: 전략기획팀" />
         </div>
         <div class="form-group">
           <label class="form-label">비밀번호</label>

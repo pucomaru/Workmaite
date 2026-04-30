@@ -12,15 +12,15 @@ const authStore     = useAuthStore()
 
 const meetingId = computed(() => route.params.meetingId)
 
-// ── 준비 상태 (role + sessions 모두 로드 완료 전까지 opacity 0) ──
+// ── 준비 상태 (role + loops 모두 로드 완료 전까지 opacity 0) ──
 const ready = ref(false)
 
 // ── role ────────────────────────────────────────────────────────
 const role     = computed(() => meetingsStore.myRole)
 const isEnded  = computed(() => meetingsStore.currentMeeting?.status === 'ended')
 
-// ── 세션(루프) 목록 ──────────────────────────────────────────────
-const sessions = ref([])
+// ── 루프 목록 ──────────────────────────────────────────────────
+const loops = ref([])
 
 // store를 통해 SessionsPage와 공유
 const currentLoopIdx = computed({
@@ -29,22 +29,24 @@ const currentLoopIdx = computed({
 })
 
 const canGoPrev = computed(() => currentLoopIdx.value > 0)
-const canGoNext = computed(() => currentLoopIdx.value < sessions.value.length - 1)
+const canGoNext = computed(() => currentLoopIdx.value < loops.value.length - 1)
 
-const isLastSessionEnded = computed(() =>
-  sessions.value.length > 0 &&
-  sessions.value[sessions.value.length - 1]?.status === 'ended'
-)
+const isLastLoopAllEnded = computed(() => {
+  if (loops.value.length === 0) return false
+  const lastLoop = loops.value[loops.value.length - 1]
+  return lastLoop.sessions.length > 0 &&
+    lastLoop.sessions.every(s => s.status === 'ended')
+})
 
 const showLoopControls = computed(() =>
   role.value === 'admin' &&
-  (sessions.value.length === 0 || isLastSessionEnded.value) &&
+  isLastLoopAllEnded.value &&
   !isEnded.value
 )
 
-// 세션 로드 후 마지막 루프 선택
-watch(sessions, (s) => {
-  if (s.length > 0) meetingsStore.currentLoopIdx = s.length - 1
+// 루프 로드 후 마지막 루프 선택
+watch(loops, (l) => {
+  if (l.length > 0) meetingsStore.currentLoopIdx = l.length - 1
 })
 
 function prevLoop() { if (canGoPrev.value) currentLoopIdx.value-- }
@@ -66,18 +68,17 @@ const tabs = computed(() => role.value === 'admin' ? adminTabs : presenterTabs)
 function isActive(path) { return route.path.includes(`/${path}`) }
 function go(path)       { router.push(`/meetings/${meetingId.value}/${path}`) }
 
-// ── 데이터 로드: role + sessions 동시 fetch ──────────────────────
+// ── 데이터 로드: role + loops 동시 fetch ──────────────────────
 onMounted(async () => {
   try {
-    const [, sessionsData] = await Promise.all([
+    const [, loopsData] = await Promise.all([
       meetingsStore.fetchRole(Number(meetingId.value)),
-      api.get(`/api/meetings/${meetingId.value}/sessions`)
+      api.get(`/api/meetings/${meetingId.value}/loops`)
         .then(r => r.data)
         .catch(() => []),
     ])
-    sessions.value = sessionsData
+    loops.value = loopsData
   } finally {
-    // 성공·실패 무관하게 준비 완료 → 렌더링 표시
     ready.value = true
   }
 })
@@ -88,14 +89,9 @@ async function startNewLoop() {
   if (creatingLoop.value) return
   creatingLoop.value = true
   try {
-    const nextNum = sessions.value.length + 1
-    await api.post(`/api/meetings/${meetingId.value}/sessions`, {
-      title: `${nextNum}차 회의`,
-      scheduled_at: null,
-    })
-    const { data } = await api.get(`/api/meetings/${meetingId.value}/sessions`)
-    sessions.value = data
-    router.push(`/meetings/${meetingId.value}/agenda`)
+    await api.post(`/api/meetings/${meetingId.value}/loops`)
+    const { data } = await api.get(`/api/meetings/${meetingId.value}/loops`)
+    loops.value = data
   } finally {
     creatingLoop.value = false
   }
@@ -105,6 +101,21 @@ async function startNewLoop() {
 async function terminateMeetingGroup() {
   if (!confirm('회의체를 완전히 종료하시겠습니까?\n이후 회의를 진행할 수 없습니다.')) return
   await meetingsStore.terminateMeeting(Number(meetingId.value))
+}
+
+// ── 회의체 삭제 ──────────────────────────────────────────────────
+const deleting = ref(false)
+async function deleteMeetingGroup() {
+  if (!confirm('회의체를 영구 삭제하시겠습니까?\n모든 회의록, 발제자료, 아젠다 데이터가 삭제되며 복구할 수 없습니다.')) return
+  deleting.value = true
+  try {
+    await meetingsStore.deleteMeeting(Number(meetingId.value))
+    router.push('/')
+  } catch {
+    alert('삭제 중 오류가 발생했습니다.')
+  } finally {
+    deleting.value = false
+  }
 }
 
 // ── 회의체 탈퇴 ──────────────────────────────────────────────────
@@ -127,7 +138,7 @@ async function leaveMeeting() {
   <nav class="meeting-nav">
     <template v-if="ready">
       <!-- ‹ N차 › 루프 탐색 -->
-      <div v-if="sessions.length" class="loop-nav">
+      <div v-if="loops.length" class="loop-nav">
         <button class="loop-arrow" :disabled="!canGoPrev" @click="prevLoop">‹</button>
         <span class="loop-badge">{{ currentLoopIdx + 1 }}차</span>
         <button class="loop-arrow" :disabled="!canGoNext" @click="nextLoop">›</button>
@@ -159,6 +170,17 @@ async function leaveMeeting() {
             ⏹ 회의체 종료
           </button>
         </template>
+
+        <!-- 삭제 버튼: admin이면 항상 표시 -->
+        <button
+          v-if="role === 'admin'"
+          class="btn btn-ghost btn-sm delete-btn"
+          :disabled="deleting"
+          @click="deleteMeetingGroup"
+          title="회의체 영구 삭제"
+        >
+          {{ deleting ? '삭제 중...' : '🗑 삭제' }}
+        </button>
 
         <button
           v-if="role && role !== 'admin'"

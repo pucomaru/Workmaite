@@ -13,6 +13,7 @@ class User(Base):
     name = Column(String, nullable=False)
     employee_id = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    department = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     meeting_members = relationship("MeetingMember", back_populates="user")
@@ -36,6 +37,7 @@ class Meeting(Base):
     agendas = relationship("Agenda", back_populates="meeting")
     todos = relationship("Todo", back_populates="meeting")
     reports = relationship("Report", back_populates="meeting")
+    loops = relationship("MeetingLoop", back_populates="meeting", order_by="MeetingLoop.loop_number")
     sessions = relationship("MeetingSession", back_populates="meeting")
     card_news = relationship("CardNews", back_populates="meeting")
 
@@ -101,10 +103,22 @@ class Report(Base):
     presenter = relationship("User", back_populates="reports")
 
 
+class MeetingLoop(Base):
+    __tablename__ = "meeting_loops"
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"))
+    loop_number = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    meeting = relationship("Meeting", back_populates="loops")
+    sessions = relationship("MeetingSession", back_populates="loop", order_by="MeetingSession.session_number")
+
+
 class MeetingSession(Base):
     __tablename__ = "meeting_sessions"
     id = Column(Integer, primary_key=True, index=True)
     meeting_id = Column(Integer, ForeignKey("meetings.id"))
+    loop_id = Column(Integer, ForeignKey("meeting_loops.id"), nullable=True)
     session_number = Column(Integer, default=1)
     title = Column(String)
     password = Column(String, nullable=True)
@@ -114,6 +128,7 @@ class MeetingSession(Base):
     status = Column(String, default="scheduled")  # scheduled | ongoing | ended
 
     meeting = relationship("Meeting", back_populates="sessions")
+    loop = relationship("MeetingLoop", back_populates="sessions")
     minutes = relationship("Minutes", back_populates="session", uselist=False)
 
 

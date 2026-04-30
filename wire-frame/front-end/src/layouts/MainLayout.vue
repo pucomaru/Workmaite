@@ -38,6 +38,7 @@ function connectNotifWs() {
 const meetingId = ref(null)
 watch(() => route.params.meetingId, (id) => {
   meetingId.value = id ? Number(id) : null
+  meetingsStore.currentLoopIdx = 0
   if (id) meetingsStore.fetchRole(id)
 }, { immediate: true })
 
@@ -53,7 +54,7 @@ watch(() => route.path, (p) => {
     <div class="layout-body">
       <AppSidebar :open="sidebarOpen" />
       <main class="layout-main" :class="{ 'sidebar-closed': !sidebarOpen }">
-        <RouterView />
+        <RouterView :key="route.params.meetingId ?? route.path" />
       </main>
     </div>
     <HyeanAgent v-if="inMeetingPage && meetingId" :meeting-id="meetingId" />

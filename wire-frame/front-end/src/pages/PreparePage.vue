@@ -37,8 +37,9 @@ onMounted(async () => {
       saveMessage('agent', greeting)
     }
   } else {
+    await loadReports()
     if (messages.value.length === 0) {
-      const greeting = '보고서 파일을 업로드하면 AI가 사전 검토를 진행합니다. 점수와 개선사항을 제공해드립니다.'
+      const greeting = '발제자료 파일을 업로드하면 AI가 사전 검토를 진행합니다. 점수와 개선사항을 제공해드립니다.'
       messages.value.push({ role: 'agent', content: greeting })
       saveMessage('agent', greeting)
     }
@@ -114,7 +115,7 @@ async function uploadReport(fileOrEvent) {
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
     })
-    if (role.value === 'admin') await loadReports()
+    await loadReports()
   } catch (err) {
     agentMsg.content = '파일 처리 중 오류가 발생했습니다.'
   } finally {
@@ -161,6 +162,30 @@ function statusLabel(s) {
   const m = { draft: '미제출', submitted: '제출됨', approved: '승인', rejected: '반려' }
   return m[s] || s
 }
+
+function getToken() { return localStorage.getItem('token') }
+
+async function downloadFile(reportId, fileName) {
+  const res = await fetch(`http://localhost:8000/api/reports/${reportId}/download`, {
+    headers: { Authorization: `Bearer ${getToken()}` }
+  })
+  if (!res.ok) { alert('파일을 불러올 수 없습니다.'); return }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = fileName; a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function previewFile(reportId) {
+  const res = await fetch(`http://localhost:8000/api/reports/${reportId}/download`, {
+    headers: { Authorization: `Bearer ${getToken()}` }
+  })
+  if (!res.ok) { alert('파일을 불러올 수 없습니다.'); return }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank')
+}
 </script>
 
 <template>
@@ -181,7 +206,7 @@ function statusLabel(s) {
             <img :src="naruAvatar" class="agent-header-avatar" alt="나루" />
             <div>
               <div style="font-weight:700;font-size:14px">나루 (Naru)</div>
-              <div style="font-size:11px;color:var(--text-muted)">{{ role === 'admin' ? '전체 보고서 검토' : '개인 보고서 검토' }}</div>
+              <div style="font-size:11px;color:var(--text-muted)">{{ role === 'admin' ? '발제자료 검토' : '개인 발제자료 검토' }}</div>
             </div>
           </div>
           <div style="display:flex;gap:6px">
@@ -189,7 +214,7 @@ function statusLabel(s) {
               전체 검토 시작
             </button>
             <button v-else class="btn btn-outline btn-sm" @click="fileInput.click()" :disabled="uploading">
-              {{ uploading ? '분석 중...' : '📎 보고서 업로드' }}
+              {{ uploading ? '분석 중...' : '📎 발제자료 업로드' }}
             </button>
             <input ref="fileInput" type="file" accept=".pdf,.docx,.txt" style="display:none" @change="uploadReport" />
             <button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" @click="clearHistory" title="대화 기록 지우기">🗑</button>
@@ -215,7 +240,7 @@ function statusLabel(s) {
         <!-- Admin: Report table -->
         <div v-if="role === 'admin'" class="card">
           <div class="card-header">
-            <span style="font-weight:600">보고서 제출 현황</span>
+            <span style="font-weight:600">발제자료 제출 현황</span>
             <button class="btn btn-ghost btn-sm" @click="loadReports">새로고침</button>
           </div>
           <div style="overflow-x:auto">
@@ -231,11 +256,20 @@ function statusLabel(s) {
               </thead>
               <tbody>
                 <tr v-if="!reports.length">
-                  <td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px">제출된 보고서가 없습니다.</td>
+                  <td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px">제출된 발제자료가 없습니다.</td>
                 </tr>
                 <tr v-for="r in reports" :key="r.id" class="fade-in">
                   <td>{{ r.presenter?.name || '-' }}</td>
-                  <td style="font-size:12px;color:var(--text-muted)">{{ r.file_name || '-' }}</td>
+                  <td style="font-size:12px">
+                    <div v-if="r.file_name" class="file-name-cell">
+                      <span class="file-name-text">{{ r.file_name }}</span>
+                      <span class="file-actions">
+                        <button class="file-act-btn" @click.stop="previewFile(r.id)" title="미리보기">👁 미리보기</button>
+                        <button class="file-act-btn" @click.stop="downloadFile(r.id, r.file_name)" title="다운로드">⬇ 다운로드</button>
+                      </span>
+                    </div>
+                    <span v-else style="color:var(--text-muted)">-</span>
+                  </td>
                   <td style="font-size:12px">{{ formatDate(r.submitted_at) }}</td>
                   <td><span class="badge" :class="statusCls(r.status)">{{ statusLabel(r.status) }}</span></td>
                   <td>
@@ -256,7 +290,7 @@ function statusLabel(s) {
           <div class="card-header"><span style="font-weight:600">검토 결과</span></div>
           <div class="card-body">
             <div v-if="!reviewResult" class="empty-state">
-              <p>보고서를 업로드하면 AI 검토 결과가 표시됩니다.</p>
+              <p>발제자료를 업로드하면 AI 검토 결과가 표시됩니다.</p>
             </div>
             <div v-else class="review-result">
               <div class="score-card">
@@ -267,6 +301,17 @@ function statusLabel(s) {
                 <div style="font-weight:600;margin-bottom:8px">개선 사항</div>
                 <div v-for="(f, i) in reviewResult.feedback" :key="i" class="feedback-item">
                   <span>📌</span><span>{{ f }}</span>
+                </div>
+              </div>
+              <!-- 제출 파일 다운로드 -->
+              <div v-if="reports.length" style="margin-top:8px;padding-top:12px;border-top:1px solid var(--border)">
+                <div style="font-weight:600;margin-bottom:8px;font-size:13px">제출한 파일</div>
+                <div v-for="r in reports" :key="r.id" class="file-name-cell">
+                  <span class="file-name-text">📄 {{ r.file_name }}</span>
+                  <span class="file-actions">
+                    <button class="file-act-btn" @click="previewFile(r.id)">👁 미리보기</button>
+                    <button class="file-act-btn" @click="downloadFile(r.id, r.file_name)">⬇ 다운로드</button>
+                  </span>
                 </div>
               </div>
             </div>
@@ -284,6 +329,17 @@ function statusLabel(s) {
 .score-label { font-size: 20px; opacity: .8; }
 .feedback-list { display: flex; flex-direction: column; gap: 8px; }
 .feedback-item { display: flex; gap: 8px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; font-size: 13px; line-height: 1.5; }
+.file-name-cell { display: flex; align-items: center; gap: 8px; }
+.file-name-text { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.file-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+.file-name-cell:hover .file-actions { opacity: 1; }
+.file-act-btn {
+  font-size: 11px; color: var(--primary); background: none; border: 1px solid var(--primary);
+  border-radius: 4px; padding: 1px 6px; cursor: pointer; white-space: nowrap;
+}
+.file-act-btn:hover { background: #eff6ff; }
+.submitted-files-section { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.review-result.has-divider { padding-top: 4px; }
 .drag-overlay {
   position: absolute; inset: 0; z-index: 10;
   background: rgba(99, 102, 241, 0.08);

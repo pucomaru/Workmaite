@@ -30,7 +30,6 @@ const views = [
   { key: 'day',   label: '일' },
   { key: 'week',  label: '주' },
   { key: 'month', label: '월' },
-  { key: 'year',  label: '년' },
 ]
 
 function navigate(dir) {
@@ -38,7 +37,6 @@ function navigate(dir) {
   if (calView.value === 'day')   d.setDate(d.getDate() + dir)
   if (calView.value === 'week')  d.setDate(d.getDate() + dir * 7)
   if (calView.value === 'month') d.setMonth(d.getMonth() + dir)
-  if (calView.value === 'year')  d.setFullYear(d.getFullYear() + dir)
   cursor.value = d
 }
 function goToday() { cursor.value = new Date() }
@@ -56,8 +54,7 @@ const calTitle = computed(() => {
     if (sm === em) return `${y}년 ${sm}월 ${start.getDate()}일 – ${end.getDate()}일`
     return `${y}년 ${sm}월 ${start.getDate()}일 – ${em}월 ${end.getDate()}일`
   }
-  if (calView.value === 'month') return `${y}년 ${m}월`
-  return `${y}년`
+  return `${y}년 ${m}월`
 })
 
 function isSameDay(a, b) {

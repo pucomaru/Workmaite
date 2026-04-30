@@ -23,6 +23,7 @@ const routes = [
       { path: 'meetings/:meetingId/sessions', component: () => import('./pages/SessionsPage.vue') },
       { path: 'meetings/:meetingId/card-news', component: () => import('./pages/CardNewsPage.vue') },
       { path: 'tacit-knowledge', component: () => import('./pages/TacitKnowledgePage.vue') },
+      { path: 'profile', component: () => import('./pages/ProfilePage.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

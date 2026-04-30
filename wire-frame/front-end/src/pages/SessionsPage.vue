@@ -11,14 +11,10 @@ const meetingsStore = useMeetingsStore()
 const meetingId = computed(() => Number(route.params.meetingId))
 const role = computed(() => meetingsStore.myRole)
 
-const sessions = ref([])
-// 현재 선택된 차수(루프)의 세션만 표시
+const loops = ref([])
 const currentLoopIdx = computed(() => meetingsStore.currentLoopIdx)
-const currentSessions = computed(() =>
-  sessions.value[currentLoopIdx.value]
-    ? [sessions.value[currentLoopIdx.value]]
-    : []
-)
+const currentLoop = computed(() => loops.value[currentLoopIdx.value] ?? null)
+const currentSessions = computed(() => currentLoop.value?.sessions ?? [])
 
 const showMinutesModal = ref(false)
 const selectedSession = ref(null)
@@ -29,18 +25,40 @@ const editForm = ref({ title: '', scheduled_at: '' })
 const saving = ref(false)
 const deleting = ref(null)
 
+// 회의 만들기 모달
+const showCreateModal = ref(false)
+const createForm = ref({ title: '', scheduled_at: '' })
+const creating = ref(false)
+
 onMounted(async () => {
   await meetingsStore.fetchMeeting(meetingId.value)
   await meetingsStore.fetchRole(meetingId.value)
-  await loadSessions()
+  await loadLoops()
 })
 
-async function loadSessions() {
-  const { data } = await api.get(`/api/meetings/${meetingId.value}/sessions`)
-  sessions.value = data
-  // currentLoopIdx 범위 보정
+async function loadLoops() {
+  const { data } = await api.get(`/api/meetings/${meetingId.value}/loops`)
+  loops.value = data
   if (data.length > 0 && currentLoopIdx.value >= data.length) {
     meetingsStore.currentLoopIdx = data.length - 1
+  }
+}
+
+// 회의 생성
+async function createSession() {
+  if (!createForm.value.title.trim() || creating.value || !currentLoop.value) return
+  creating.value = true
+  try {
+    await api.post(`/api/meetings/${meetingId.value}/sessions`, {
+      title: createForm.value.title.trim(),
+      loop_id: currentLoop.value.id,
+      scheduled_at: createForm.value.scheduled_at || null,
+    })
+    showCreateModal.value = false
+    createForm.value = { title: '', scheduled_at: '' }
+    await loadLoops()
+  } finally {
+    creating.value = false
   }
 }
 
@@ -63,7 +81,7 @@ async function saveEdit(s) {
       scheduled_at: editForm.value.scheduled_at || null,
     })
     editingId.value = null
-    await loadSessions()
+    await loadLoops()
   } finally {
     saving.value = false
   }
@@ -74,7 +92,7 @@ async function deleteSession(s) {
   deleting.value = s.id
   try {
     await api.delete(`/api/sessions/${s.id}`)
-    sessions.value = sessions.value.filter(x => x.id !== s.id)
+    await loadLoops()
   } finally {
     deleting.value = null
   }
@@ -128,15 +146,35 @@ function statusCls(s) {
 
     <div class="card" style="flex:1;min-height:0;display:flex;flex-direction:column">
       <div class="card-header">
-        <span style="font-weight:600">회의 목록</span>
-        <button v-if="role === 'admin'" class="btn btn-outline btn-sm" @click="goCardNews">
-          📰 카드뉴스
-        </button>
+        <span style="font-weight:600">
+          {{ currentLoop ? `${currentLoop.loop_number}차 회의 목록` : '회의 목록' }}
+        </span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button
+            v-if="role === 'admin' && currentLoop"
+            class="btn btn-primary btn-sm"
+            @click="showCreateModal = true"
+          >
+            + 회의 만들기
+          </button>
+          <button v-if="role === 'admin'" class="btn btn-outline btn-sm" @click="goCardNews">
+            📰 카드뉴스
+          </button>
+        </div>
       </div>
 
       <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px">
+        <!-- 이 차수에 회의 없음 -->
         <div v-if="!currentSessions.length" class="empty-state">
-          <p>이 차수에 등록된 회의가 없습니다.<br>상단 <strong>▶ 새 루프 시작</strong>으로 회의를 만들어 보세요.</p>
+          <p>이 차수에 등록된 회의가 없습니다.</p>
+          <button
+            v-if="role === 'admin'"
+            class="btn btn-primary btn-sm"
+            style="margin-top:12px"
+            @click="showCreateModal = true"
+          >
+            + 회의 만들기
+          </button>
         </div>
 
         <div v-for="s in currentSessions" :key="s.id" class="session-card fade-in">
@@ -190,6 +228,44 @@ function statusCls(s) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 회의 만들기 모달 -->
+  <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+    <div class="modal slide-up">
+      <div class="modal-header">
+        <span class="modal-title">
+          {{ currentLoop?.loop_number }}차 회의 만들기
+        </span>
+        <button class="btn-ghost btn-icon" @click="showCreateModal = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">회의 제목 <span style="color:var(--danger)">*</span></label>
+          <input
+            v-model="createForm.title"
+            class="form-input"
+            placeholder="예: 1차 회의"
+            @keydown.enter="createSession"
+            autofocus
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">일정</label>
+          <input type="datetime-local" v-model="createForm.scheduled_at" class="form-input" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" @click="showCreateModal = false">취소</button>
+        <button
+          class="btn btn-primary"
+          :disabled="!createForm.title.trim() || creating"
+          @click="createSession"
+        >
+          {{ creating ? '생성 중...' : '회의 만들기' }}
+        </button>
       </div>
     </div>
   </div>

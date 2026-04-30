@@ -37,6 +37,7 @@ async def gaon_chat(
 ):
     knowledge = _get_knowledge(db, data.meeting_id)
     previous_minutes = _get_previous_minutes(db, data.meeting_id)
+    departments = _get_member_departments(db, data.meeting_id)
 
     async def stream():
         async for chunk in gaon.chat_stream(
@@ -44,6 +45,7 @@ async def gaon_chat(
             chat_history=data.chat_history or [],
             previous_minutes=previous_minutes,
             knowledge=knowledge,
+            departments=departments,
         ):
             yield f"data: {chunk}\n\n"
         yield "data: [DONE]\n\n"
@@ -59,36 +61,56 @@ async def extract_agenda(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    import json as _json
     file_content = ""
     if file:
-        content = await file.read()
-        try:
-            file_content = content.decode("utf-8")
-        except Exception:
-            file_content = f"[파일: {file.filename}]"
+        raw = await file.read()
+        fname = (file.filename or "").lower()
+        file_content = _extract_text_from_file(raw, fname)
+
+    if not file_content.strip():
+        return {"agendas": [], "todos": [], "error": "파일에서 텍스트를 추출할 수 없습니다."}
 
     previous_minutes = _get_previous_minutes(db, meeting_id)
     knowledge = _get_knowledge(db, meeting_id)
+    departments = _get_member_departments(db, meeting_id)
 
-    agendas = await gaon.extract_agendas(
-        file_content=file_content,
+    result = await gaon.extract_agendas_and_todos(
+        content=file_content,
         previous_minutes=previous_minutes,
         knowledge=knowledge,
+        departments=departments,
     )
 
-    saved = []
-    for a in agendas:
-        agenda = models.Agenda(
-            meeting_id=meeting_id,
-            department=a.get("department"),
-            content=a.get("content", ""),
-        )
-        db.add(agenda)
-        db.flush()
-        saved.append({"id": agenda.id, "department": agenda.department, "content": agenda.content})
-    db.commit()
-    return {"agendas": saved}
+    saved_agendas, saved_todos = _save_extracted(db, meeting_id, result)
+    return {"agendas": saved_agendas, "todos": saved_todos}
+
+
+@router.post("/gaon/extract-from-text")
+async def extract_from_text(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """채팅 응답 텍스트에서 JSON을 직접 파싱해 저장. LLM 재호출 없음."""
+    meeting_id = data.get("meeting_id")
+    text = data.get("text", "")
+    if not meeting_id or not text:
+        return {"agendas": [], "todos": []}
+
+    parsed = gaon._parse_json_from_text(text)
+    if not parsed:
+        return {"agendas": [], "todos": []}
+
+    if isinstance(parsed, list):
+        result = {"agendas": parsed, "todos": []}
+    else:
+        result = {
+            "agendas": parsed.get("agendas", []),
+            "todos": parsed.get("todos", []),
+        }
+
+    saved_agendas, saved_todos = _save_extracted(db, meeting_id, result)
+    return {"agendas": saved_agendas, "todos": saved_todos}
 
 
 # ─── 나루 Agent ───────────────────────────────
@@ -360,6 +382,134 @@ async def hyean_chat(
 
 
 # ─── Helpers ─────────────────────────────────
+def _extract_text_from_file(raw: bytes, filename: str) -> str:
+    """파일 종류에 따라 텍스트 추출."""
+    import io
+
+    # PDF
+    if filename.endswith(".pdf"):
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages]
+            return "\n".join(pages).strip()
+        except Exception as e:
+            return f"[PDF 추출 오류: {e}]"
+
+    # DOCX
+    if filename.endswith(".docx"):
+        try:
+            import docx as _docx
+            doc = _docx.Document(io.BytesIO(raw))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            return f"[DOCX 추출 오류: {e}]"
+
+    # XLSX
+    if filename.endswith((".xlsx", ".xls")):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+            lines = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    row_text = "\t".join(str(c) if c is not None else "" for c in row)
+                    if row_text.strip():
+                        lines.append(row_text)
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[XLSX 추출 오류: {e}]"
+
+    # 텍스트 파일 (txt, csv, md 등)
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            pass
+
+    return ""
+
+
+def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
+    from sqlalchemy.orm import joinedload
+    members = (
+        db.query(models.MeetingMember)
+        .options(joinedload(models.MeetingMember.user))
+        .filter(models.MeetingMember.meeting_id == meeting_id)
+        .all()
+    )
+    return list({m.user.department for m in members if m.user and m.user.department})
+
+
+def _save_extracted(db: Session, meeting_id: int, result: dict):
+    def _clean_dept(val):
+        if val is None or str(val).lower() in ("null", "none", ""):
+            return None
+        return str(val).strip()
+
+    saved_agendas = []
+    for a in result.get("agendas", []):
+        if not a.get("content", "").strip():
+            continue
+        agenda = models.Agenda(
+            meeting_id=meeting_id,
+            department=_clean_dept(a.get("department")),
+            content=a["content"],
+        )
+        db.add(agenda)
+        db.flush()
+        saved_agendas.append({"id": agenda.id, "department": agenda.department, "content": agenda.content})
+
+    saved_todos = []
+    for t in result.get("todos", []):
+        if not t.get("content", "").strip():
+            continue
+        from datetime import datetime as _dt
+        due = None
+        if t.get("due_date"):
+            try:
+                due = _dt.strptime(t["due_date"], "%Y-%m-%d")
+            except Exception:
+                pass
+        # 담당부서 기반으로 멤버 찾기
+        user_id = None
+        if t.get("department"):
+            member = (
+                db.query(models.MeetingMember)
+                .join(models.User, models.MeetingMember.user_id == models.User.id)
+                .filter(
+                    models.MeetingMember.meeting_id == meeting_id,
+                    models.User.department == t["department"],
+                )
+                .first()
+            )
+            if member:
+                user_id = member.user_id
+
+        if not user_id:
+            # 담당자 미정 시 admin에게 할당
+            admin = db.query(models.MeetingMember).filter(
+                models.MeetingMember.meeting_id == meeting_id,
+                models.MeetingMember.role == "admin",
+            ).first()
+            user_id = admin.user_id if admin else None
+
+        if user_id:
+            todo = models.Todo(
+                meeting_id=meeting_id,
+                user_id=user_id,
+                content=t["content"],
+                due_date=due,
+                source_type="meeting_minutes",
+            )
+            db.add(todo)
+            db.flush()
+            saved_todos.append({"id": todo.id, "content": todo.content})
+
+    db.commit()
+    return saved_agendas, saved_todos
+
+
 def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
     sessions = db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id,

@@ -64,6 +64,12 @@ export const useMeetingsStore = defineStore('meetings', () => {
     return data
   }
 
+  async function deleteMeeting(meetingId) {
+    await api.delete(`/api/meetings/${meetingId}`)
+    meetings.value = meetings.value.filter(m => m.id !== meetingId)
+    if (currentMeeting.value?.id === meetingId) currentMeeting.value = null
+  }
+
   async function addMember(meetingId, userId, role = 'presenter') {
     const { data } = await api.post(`/api/meetings/${meetingId}/members`, { user_id: userId, role })
     await fetchMembers(meetingId)
@@ -91,7 +97,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   return {
     meetings, currentMeeting, myRole, currentMembers, currentLoopIdx,
     fetchMeetings, fetchMeeting, fetchMembers, fetchRole,
-    createMeeting, updateTitle, terminateMeeting,
+    createMeeting, updateTitle, terminateMeeting, deleteMeeting,
     addMember, updateMemberRole, removeMember, leaveMeeting,
   }
 })

@@ -13,6 +13,40 @@ from agents.ara import generate_minutes
 router = APIRouter(prefix="/api", tags=["sessions"])
 
 
+# ── Loop endpoints ────────────────────────────────────────────────────────────
+
+@router.get("/meetings/{meeting_id}/loops", response_model=List[schemas.LoopOut])
+def list_loops(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.MeetingLoop).filter(
+        models.MeetingLoop.meeting_id == meeting_id
+    ).order_by(models.MeetingLoop.loop_number.asc()).all()
+
+
+@router.post("/meetings/{meeting_id}/loops", response_model=schemas.LoopOut)
+def create_loop(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    count = db.query(models.MeetingLoop).filter(
+        models.MeetingLoop.meeting_id == meeting_id
+    ).count()
+    loop = models.MeetingLoop(
+        meeting_id=meeting_id,
+        loop_number=count + 1,
+    )
+    db.add(loop)
+    db.commit()
+    db.refresh(loop)
+    return loop
+
+
+# ── Session endpoints ─────────────────────────────────────────────────────────
+
 @router.get("/meetings/{meeting_id}/sessions", response_model=List[schemas.SessionOut])
 def list_sessions(
     meeting_id: int,
@@ -31,12 +65,20 @@ async def create_session(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    loop = db.query(models.MeetingLoop).filter(
+        models.MeetingLoop.id == data.loop_id,
+        models.MeetingLoop.meeting_id == meeting_id,
+    ).first()
+    if not loop:
+        raise HTTPException(status_code=404, detail="루프를 찾을 수 없습니다.")
+
     count = db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id
     ).count()
 
     session = models.MeetingSession(
         meeting_id=meeting_id,
+        loop_id=data.loop_id,
         session_number=count + 1,
         title=data.title,
         password=data.password,
@@ -55,7 +97,7 @@ async def create_session(
                 db,
                 user_id=m.user_id,
                 type="session_created",
-                message=f"'{meeting.title}' {count+1}차 회의가 생성되었습니다.",
+                message=f"'{meeting.title}' {loop.loop_number}차 회의가 생성되었습니다.",
                 ref_id=session.id,
                 ref_type="session",
             )

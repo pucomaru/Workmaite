@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 import models, schemas
 from database import get_db
@@ -133,6 +134,31 @@ async def update_report_status(
         "status": data.status,
     })
     return report
+
+
+@router.get("/reports/{report_id}/download")
+def download_report(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Not found")
+    # 해당 meeting 구성원인지 확인
+    member = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == report.meeting_id,
+        models.MeetingMember.user_id == current_user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not report.file_path or not os.path.exists(report.file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=report.file_path,
+        filename=report.file_name,
+        media_type="application/octet-stream",
+    )
 
 
 @router.get("/all-reports")

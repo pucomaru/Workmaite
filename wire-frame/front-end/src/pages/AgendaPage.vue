@@ -21,6 +21,11 @@ const uploading = ref(false)
 const fileInput = ref(null)
 const messagesEl = ref(null)
 const isDragging = ref(false)
+const memberDepartments = ref([])
+
+// HITL: 추출 결과 대기 상태
+const pendingExtraction = ref(null) // { agendas, todos, msgIdx }
+const saving = ref(false)
 
 const GREETING = '안녕하세요! 저는 아젠다 추출 AI 가온입니다.\n보고자료를 업로드하거나, 이전 회의록을 기반으로 새 아젠다를 추출해 드립니다.\n파일을 첨부하거나 직접 내용을 입력해 주세요.'
 const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('agenda', meetingId.value)
@@ -28,7 +33,7 @@ const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('ag
 onMounted(async () => {
   await meetingsStore.fetchMeeting(meetingId.value)
   await meetingsStore.fetchRole(meetingId.value)
-  await Promise.all([loadAgendas(), loadMessages()])
+  await Promise.all([loadAgendas(), loadMessages(), loadMemberDepartments()])
   if (messages.value.length === 0) {
     messages.value.push({ role: 'agent', content: GREETING })
     saveMessage('agent', GREETING)
@@ -45,6 +50,13 @@ onMounted(async () => {
 async function loadAgendas() {
   const { data } = await api.get(`/api/meetings/${meetingId.value}/agendas`)
   agendas.value = data
+}
+
+async function loadMemberDepartments() {
+  try {
+    const { data } = await api.get(`/api/meetings/${meetingId.value}/members`)
+    memberDepartments.value = [...new Set(data.map(m => m.user?.department).filter(Boolean))]
+  } catch {}
 }
 
 async function sendMessage() {
@@ -67,8 +79,39 @@ async function sendMessage() {
     '/api/agent/gaon/chat',
     { meeting_id: meetingId.value, message: text, chat_history: history },
     (chunk) => { agentMsg.content += chunk; scrollBottom() },
-    () => { loading.value = false; loadAgendas(); saveMessage('agent', agentMsg.content) }
+    async () => {
+      loading.value = false
+      saveMessage('agent', agentMsg.content)
+      // JSON 감지 시 HITL: 바로 저장하지 않고 확인 버튼 표시
+      if (agentMsg.content.includes('"agendas"')) {
+        const msgIdx = messages.value.length - 1
+        pendingExtraction.value = { text: agentMsg.content, msgIdx }
+      }
+    }
   )
+}
+
+async function confirmExtraction() {
+  if (!pendingExtraction.value || saving.value) return
+  saving.value = true
+  try {
+    const { data } = await api.post('/api/agent/gaon/extract-from-text', {
+      meeting_id: meetingId.value,
+      text: pendingExtraction.value.text,
+    })
+    const parts = [`✅ ${data.agendas.length}개 아젠다 저장 완료.`]
+    if (data.todos?.length) parts.push(`To-do ${data.todos.length}건 등록.`)
+    messages.value.push({ role: 'agent', content: parts.join(' ') })
+    saveMessage('agent', parts.join(' '))
+    pendingExtraction.value = null
+    await loadAgendas()
+  } finally {
+    saving.value = false
+  }
+}
+
+function rejectExtraction() {
+  pendingExtraction.value = null
 }
 
 async function uploadFile(fileOrEvent) {
@@ -94,7 +137,16 @@ async function uploadFile(fileOrEvent) {
       body: formData,
     })
     const data = await res.json()
-    agentMsg.content = `${data.agendas.length}개의 아젠다를 추출했습니다. 우측에서 확인 및 수정하세요.`
+    if (data.error) {
+      agentMsg.content = `파일 처리 실패: ${data.error}`
+    } else if (!data.agendas?.length && !data.todos?.length) {
+      agentMsg.content = '파일에서 아젠다를 찾지 못했습니다. 파일 내용을 확인하거나 직접 입력해 주세요.'
+    } else {
+      const parts = [`${data.agendas.length}개의 아젠다를 추출했습니다.`]
+      if (data.todos?.length) parts.push(`To-do ${data.todos.length}건도 등록했습니다.`)
+      parts.push('우측에서 확인 및 수정하세요.')
+      agentMsg.content = parts.join(' ')
+    }
     saveMessage('agent', agentMsg.content)
     await loadAgendas()
   } catch {
@@ -182,7 +234,7 @@ function onDrop(e) {
             <img :src="gaonAvatar" class="agent-header-avatar" alt="가온" />
             <div>
               <div style="font-weight:700;font-size:14px">가온 (Gaon)</div>
-              <div style="font-size:11px;color:var(--text-muted)">아젠다 추출 Agent</div>
+              <div style="font-size:11px;color:var(--text-muted)">아젠다 추출</div>
             </div>
           </div>
           <div style="display:flex;gap:6px">
@@ -200,6 +252,17 @@ function onDrop(e) {
               가온
             </div>
             <div class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
+          </div>
+
+          <!-- HITL: 아젠다 추출 확인 배너 -->
+          <div v-if="pendingExtraction" class="hitl-banner fade-in">
+            <div class="hitl-text">위 내용에서 아젠다와 To-do를 추출해 저장할까요?</div>
+            <div class="hitl-actions">
+              <button class="btn btn-primary btn-sm" :disabled="saving" @click="confirmExtraction">
+                {{ saving ? '저장 중...' : '✔ 저장' }}
+              </button>
+              <button class="btn btn-ghost btn-sm" @click="rejectExtraction">취소</button>
+            </div>
           </div>
         </div>
         <div class="chat-input-area">
@@ -239,7 +302,16 @@ function onDrop(e) {
               </div>
             </div>
             <div v-else class="agenda-edit">
-              <input v-model="editForm.department" class="form-input" placeholder="담당 부서" style="margin-bottom:8px" />
+              <input
+                v-model="editForm.department"
+                class="form-input"
+                placeholder="담당 부서"
+                style="margin-bottom:8px"
+                list="dept-list"
+              />
+              <datalist id="dept-list">
+                <option v-for="d in memberDepartments" :key="d" :value="d" />
+              </datalist>
               <textarea v-model="editForm.content" class="form-input form-textarea" placeholder="아젠다 내용" style="min-height:80px" />
               <div class="agenda-actions">
                 <button class="btn btn-sm btn-primary" @click="saveEdit(a)">저장</button>
@@ -259,6 +331,20 @@ function onDrop(e) {
 .agenda-content { display: flex; flex-direction: column; gap: 6px; }
 .agenda-edit { display: flex; flex-direction: column; gap: 8px; }
 .agenda-actions { display: flex; gap: 6px; margin-top: 4px; }
+.hitl-banner {
+  margin: 8px 12px;
+  padding: 12px 14px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hitl-text { font-size: 13px; color: #1e40af; font-weight: 500; flex: 1; }
+.hitl-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
 .drag-overlay {
   position: absolute; inset: 0; z-index: 10;
   background: rgba(99, 102, 241, 0.08);

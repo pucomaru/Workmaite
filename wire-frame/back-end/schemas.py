@@ -8,6 +8,7 @@ class UserCreate(BaseModel):
     name: str
     employee_id: str
     password: str
+    department: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -15,10 +16,17 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    department: Optional[str] = None
+    password: Optional[str] = None
+
+
 class UserOut(BaseModel):
     id: int
     name: str
     employee_id: str
+    department: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -140,12 +148,27 @@ class ReportStatusUpdate(BaseModel):
     status: str  # approved | rejected
 
 
+# MeetingLoop
+class LoopCreate(BaseModel):
+    pass
+
+
+class LoopOut(BaseModel):
+    id: int
+    meeting_id: int
+    loop_number: int
+    sessions: List["SessionOut"] = []
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # MeetingSession
 class SessionCreate(BaseModel):
     title: str
+    loop_id: int
     scheduled_at: Optional[datetime] = None
     password: Optional[str] = None
-    member_ids: Optional[List[int]] = None
 
 
 class SessionUpdate(BaseModel):
@@ -157,6 +180,7 @@ class SessionUpdate(BaseModel):
 class SessionOut(BaseModel):
     id: int
     meeting_id: int
+    loop_id: Optional[int]
     session_number: int
     title: str
     password: Optional[str]
@@ -166,6 +190,9 @@ class SessionOut(BaseModel):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+LoopOut.model_rebuild()
 
 
 # Minutes

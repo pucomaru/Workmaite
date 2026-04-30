@@ -170,27 +170,22 @@ function logout() {
         </template>
 
         <!-- 구성원 아바타 + 관리 버튼 -->
-        <div class="member-avatars-wrap" v-if="memberCount > 0">
+        <div
+          class="member-avatars-wrap"
+          v-if="memberCount > 0"
+          :title="isAdmin ? '구성원 관리' : '구성원 목록'"
+          @click="showMemberMgmt = !showMemberMgmt"
+        >
           <div class="member-avatars">
             <div
               v-for="(m, i) in visibleAvatars"
               :key="m.id"
               class="member-avatar"
-              :style="{ zIndex: 3 - i, left: `${i * 18}px` }"
+              :style="{ zIndex: 3 - i }"
               :title="m.user?.name"
             >{{ (m.user?.name || '?')[0] }}</div>
-            <div
-              v-if="memberCount > 1"
-              class="member-count"
-              :style="{ left: `${Math.min(visibleAvatars.length, 3) * 18}px` }"
-            >{{ memberCount >= 100 ? '+99' : memberCount }}</div>
+
           </div>
-          <!-- (+) 관리 버튼 -->
-          <button
-            class="member-add-btn"
-            :title="isAdmin ? '구성원 관리' : '구성원 목록'"
-            @click="showMemberMgmt = !showMemberMgmt"
-          >+</button>
         </div>
       </template>
     </div>
@@ -236,9 +231,13 @@ function logout() {
             <div>
               <div style="font-weight:600">{{ auth.user.name }}</div>
               <div style="color:var(--text-muted);font-size:12px">{{ auth.user.employee_id }}</div>
+              <div v-if="auth.user.department" style="color:var(--text-muted);font-size:11px;margin-top:2px">{{ auth.user.department }}</div>
             </div>
           </div>
-          <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center" @click="logout">로그아웃</button>
+          <router-link to="/profile" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex;text-decoration:none" @click="showProfile=false">
+            개인설정
+          </router-link>
+          <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">로그아웃</button>
         </div>
       </div>
     </div>
@@ -246,7 +245,10 @@ function logout() {
     <!-- 구성원 관리 팝업 -->
     <div v-if="showMemberMgmt" class="member-mgmt-popup">
       <div class="mgmt-header">
-        <span style="font-weight:600;font-size:14px">{{ isAdmin ? '구성원 관리' : '구성원 목록' }}</span>
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <span style="font-weight:600;font-size:14px">{{ isAdmin ? '구성원 관리' : '구성원 목록' }}</span>
+          <span style="font-size:12px;color:var(--text-muted)">{{ memberCount }}명</span>
+        </div>
         <button class="btn-ghost btn-icon" style="color:#64748b" @click="showMemberMgmt = false">✕</button>
       </div>
 
@@ -352,19 +354,13 @@ function logout() {
 .title-input::placeholder { color: rgba(255,255,255,.5); }
 
 /* 구성원 아바타 */
-.member-avatars-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 2px; }
-.member-avatars { position: relative; display: flex; align-items: center; height: 28px; min-width: 28px; }
-.member-avatar { position: absolute; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); border: 2px solid var(--primary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.member-count { position: absolute; height: 20px; padding: 0 6px; border-radius: 99px; background: rgba(255,255,255,.2); border: 1.5px solid rgba(255,255,255,.4); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; top: 50%; transform: translateY(-50%); }
-.member-add-btn {
-  width: 24px; height: 24px; border-radius: 50%;
-  background: rgba(255,255,255,.2); border: 1.5px solid rgba(255,255,255,.4);
-  color: #fff; font-size: 16px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; flex-shrink: 0; line-height: 1;
-  margin-left: 24px;
-}
-.member-add-btn:hover { background: rgba(255,255,255,.35); }
+.member-avatars-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 2px; cursor: pointer; padding: 3px 6px; border-radius: 99px; transition: background .15s; }
+.member-avatars-wrap:hover { background: rgba(255,255,255,.12); }
+.member-avatars { display: flex; align-items: center; }
+.member-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); border: 2px solid var(--primary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; margin-left: -6px; }
+.member-avatar:first-child { margin-left: 0; }
+.member-count { height: 20px; padding: 0 6px; border-radius: 99px; background: rgba(255,255,255,.2); border: 1.5px solid rgba(255,255,255,.4); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; margin-left: 4px; flex-shrink: 0; }
+
 
 
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
