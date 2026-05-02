@@ -407,3 +407,72 @@ async def _do_refresh_memory(meeting_id: int, loop_number: int):
             pass
     finally:
         db.close()
+
+
+# ── ActivityMemory API ────────────────────────────────────────────────────────
+
+@router.get("/activity/{meeting_id}")
+def get_activity_memory(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """회의체별 활동 기록 단일 문서 조회."""
+    doc = db.query(models.ActivityMemory).filter(
+        models.ActivityMemory.meeting_id == meeting_id
+    ).first()
+    if not doc:
+        return {"meeting_id": meeting_id, "content": "", "updated_at": None}
+    return {
+        "meeting_id": doc.meeting_id,
+        "content": doc.content,
+        "updated_at": doc.updated_at,
+    }
+
+
+@router.patch("/activity/{meeting_id}")
+def update_activity_memory(
+    meeting_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """관리자가 활동 기록 문서를 직접 수정."""
+    doc = db.query(models.ActivityMemory).filter(
+        models.ActivityMemory.meeting_id == meeting_id
+    ).first()
+    content = data.get("content", "")
+    if doc:
+        doc.content = content
+        doc.updated_at = datetime.utcnow()
+    else:
+        doc = models.ActivityMemory(
+            meeting_id=meeting_id,
+            content=content,
+        )
+        db.add(doc)
+    db.commit()
+    return {"ok": True}
+
+
+def append_activity_log(db, meeting_id: int, agent: str, action: str, detail: str = ""):
+    """에이전트 호출 후 활동 기록에 자동 append. 동기 함수 — BackgroundTask에서 호출."""
+    from datetime import timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    entry = f"\n---\n**[{now}] {agent}** — {action}"
+    if detail:
+        entry += f"\n{detail}"
+    entry += "\n"
+    doc = db.query(models.ActivityMemory).filter(
+        models.ActivityMemory.meeting_id == meeting_id
+    ).first()
+    if doc:
+        doc.content = (doc.content or "") + entry
+        doc.updated_at = datetime.utcnow()
+    else:
+        doc = models.ActivityMemory(
+            meeting_id=meeting_id,
+            content=entry,
+        )
+        db.add(doc)
+    db.commit()

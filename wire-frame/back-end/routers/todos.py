@@ -57,6 +57,12 @@ def create_todo(
         meeting_id=meeting_id,
         user_id=current_user.id,
         content=data.content,
+        assignee_name=data.assignee_name,
+        assignee_dept=data.assignee_dept,
+        how=data.how,
+        why=data.why,
+        priority=data.priority or "normal",
+        tags=data.tags,
         due_date=data.due_date,
         agenda_id=data.agenda_id,
         source_type=data.source_type or "report",
@@ -76,12 +82,23 @@ def update_todo(
 ):
     todo = db.query(models.Todo).filter(
         models.Todo.id == todo_id,
-        models.Todo.user_id == current_user.id,
     ).first()
     if not todo:
         raise HTTPException(status_code=404, detail="Not found")
     if data.content is not None:
         todo.content = data.content
+    if data.assignee_name is not None:
+        todo.assignee_name = data.assignee_name
+    if data.assignee_dept is not None:
+        todo.assignee_dept = data.assignee_dept
+    if data.how is not None:
+        todo.how = data.how
+    if data.why is not None:
+        todo.why = data.why
+    if data.priority is not None:
+        todo.priority = data.priority
+    if data.tags is not None:
+        todo.tags = data.tags
     if data.due_date is not None:
         todo.due_date = data.due_date
     if data.status is not None:
@@ -96,7 +113,7 @@ def update_todo(
                 actor_id=current_user.id,
             )
             db.add(event)
-        elif data.status == "delayed":
+        elif data.status in ("at_risk", "delayed"):
             event = models.TacitEvent(
                 event_type="todo_delayed",
                 meeting_id=todo.meeting_id,

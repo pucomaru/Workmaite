@@ -78,11 +78,25 @@ class MeetingMemberOut(BaseModel):
 class AgendaCreate(BaseModel):
     department: Optional[str] = None
     content: str
+    agenda_type: Optional[str] = "draft"  # draft | scheduled | closed
+    presenter_name: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    order_num: Optional[int] = 0
+    purpose: Optional[str] = None
+    due_date: Optional[datetime] = None
+    related_meeting: Optional[str] = None
 
 
 class AgendaUpdate(BaseModel):
     department: Optional[str] = None
     content: Optional[str] = None
+    agenda_type: Optional[str] = None
+    presenter_name: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    order_num: Optional[int] = None
+    purpose: Optional[str] = None
+    due_date: Optional[datetime] = None
+    related_meeting: Optional[str] = None
 
 
 class AgendaOut(BaseModel):
@@ -90,6 +104,13 @@ class AgendaOut(BaseModel):
     meeting_id: int
     department: Optional[str]
     content: str
+    agenda_type: Optional[str] = "draft"
+    presenter_name: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    order_num: Optional[int] = 0
+    purpose: Optional[str] = None
+    due_date: Optional[datetime] = None
+    related_meeting: Optional[str] = None
     status: str
     confirmed_at: Optional[datetime]
     confirmed_by: Optional[int]
@@ -101,6 +122,12 @@ class AgendaOut(BaseModel):
 # Todo
 class TodoCreate(BaseModel):
     content: str
+    assignee_name: Optional[str] = None
+    assignee_dept: Optional[str] = None
+    how: Optional[str] = None
+    why: Optional[str] = None
+    priority: Optional[str] = "normal"  # urgent_important | important | urgent | low | normal
+    tags: Optional[list] = None
     due_date: Optional[datetime] = None
     agenda_id: Optional[int] = None
     source_type: Optional[str] = "report"
@@ -108,8 +135,14 @@ class TodoCreate(BaseModel):
 
 class TodoUpdate(BaseModel):
     content: Optional[str] = None
+    assignee_name: Optional[str] = None
+    assignee_dept: Optional[str] = None
+    how: Optional[str] = None
+    why: Optional[str] = None
+    priority: Optional[str] = None
+    tags: Optional[list] = None
     due_date: Optional[datetime] = None
-    status: Optional[str] = None
+    status: Optional[str] = None  # pending | in_progress | at_risk | done | on_hold
 
 
 class TodoOut(BaseModel):
@@ -118,6 +151,12 @@ class TodoOut(BaseModel):
     user_id: int
     agenda_id: Optional[int]
     content: str
+    assignee_name: Optional[str] = None
+    assignee_dept: Optional[str] = None
+    how: Optional[str] = None
+    why: Optional[str] = None
+    priority: Optional[str] = "normal"
+    tags: Optional[Any] = None
     due_date: Optional[datetime]
     status: str
     source_type: str
@@ -136,6 +175,9 @@ class ReportOut(BaseModel):
     status: str
     score: Optional[float]
     feedback: Optional[Any]
+    element_scores: Optional[Any] = None
+    principles: Optional[Any] = None
+    missing_elements: Optional[Any] = None
     submitted_at: Optional[datetime]
     approved_at: Optional[datetime]
     review_comment: Optional[str] = None
@@ -146,8 +188,9 @@ class ReportOut(BaseModel):
 
 
 class ReportStatusUpdate(BaseModel):
-    status: str  # approved | rejected
+    status: str  # approved | rejected | submitted | draft
     comment: Optional[str] = None  # 승인/반려 사유
+    notify_teams: bool = False  # Teams 알림 전송 여부
 
 
 # MeetingLoop
@@ -171,12 +214,14 @@ class SessionCreate(BaseModel):
     loop_id: Optional[int] = None
     scheduled_at: Optional[datetime] = None
     password: Optional[str] = None
+    location: Optional[str] = None   # 장소 (TPO)
 
 
 class SessionUpdate(BaseModel):
     title: Optional[str] = None
     scheduled_at: Optional[datetime] = None
     password: Optional[str] = None
+    location: Optional[str] = None   # 장소 (TPO)
 
 
 class SessionOut(BaseModel):
@@ -185,6 +230,7 @@ class SessionOut(BaseModel):
     loop_id: Optional[int]
     session_number: int
     title: str
+    location: Optional[str]
     password: Optional[str]
     scheduled_at: Optional[datetime]
     started_at: Optional[datetime]
@@ -201,8 +247,15 @@ LoopOut.model_rebuild()
 class MinutesOut(BaseModel):
     id: int
     session_id: int
+    recorder_id: Optional[int]
     content_raw: Optional[str]
     content_summary: Optional[str]
+    # 5대 필수요소
+    attendees_json: Optional[Any]       # Joiner
+    decisions_json: Optional[Any]       # Done
+    action_items_json: Optional[Any]    # WILL DO
+    tbd_items_json: Optional[Any]       # TBD
+    next_meeting_note: Optional[str]    # 차기 회의
     generated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -349,6 +402,28 @@ class CardNewsPlanRequest(BaseModel):
     session_ids: List[int]
     chat_history: Optional[List[dict]] = []
     thread_id: Optional[str] = None  # 없으면 백엔드에서 생성
+    target_audience: Optional[str] = "staff"  # c_level | executive | staff | external
+    # 활용할 소스 유형 (없으면 전체)
+    include_minutes: Optional[bool] = True
+    include_reports: Optional[bool] = True
+    include_agendas: Optional[bool] = True
+    include_todos: Optional[bool] = True
+    include_decisions: Optional[bool] = True
+    # 스타일 힌트
+    slide_count: Optional[int] = None
+    first_card: Optional[str] = None        # conclusion | issue_bg | hook | visual_hook
+    tone: Optional[str] = None              # concise | logical | friendly | emotional
+    visual_style: Optional[str] = None      # simple_graph | roadmap | infographic | image_brand
+    include_cta: Optional[bool] = True
+    include_source_date: Optional[bool] = True
+    include_brand_logo: Optional[bool] = False
+    custom_request: Optional[str] = None
+
+
+class CardNewsExtractRequest(BaseModel):
+    meeting_id: int
+    chat_history: List[dict]
+    available_sessions: List[dict]  # [{id, session_number, title}]
 
 
 class CardNewsResumeRequest(BaseModel):

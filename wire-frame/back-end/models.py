@@ -59,7 +59,14 @@ class Agenda(Base):
     meeting_id = Column(Integer, ForeignKey("meetings.id"))
     department = Column(String)
     content = Column(Text, nullable=False)
-    status = Column(String, default="draft")  # draft | confirmed
+    agenda_type = Column(String, default="draft")  # draft | scheduled | closed
+    presenter_name = Column(String, nullable=True)       # 안건 담당자 이름
+    duration_minutes = Column(Integer, nullable=True)    # 소요 시간 (분)
+    order_num = Column(Integer, default=0)               # 안건 순서
+    purpose = Column(Text, nullable=True)            # 목적
+    due_date = Column(DateTime, nullable=True)        # 마감일
+    related_meeting = Column(String, nullable=True)   # 주관 회의체 맵핑
+    status = Column(String, default="draft")  # draft | confirmed | tbd
     confirmed_at = Column(DateTime)
     confirmed_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -74,10 +81,16 @@ class Todo(Base):
     meeting_id = Column(Integer, ForeignKey("meetings.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
     agenda_id = Column(Integer, ForeignKey("agendas.id"), nullable=True)
-    content = Column(Text, nullable=False)
-    due_date = Column(DateTime, nullable=True)
-    status = Column(String, default="pending")  # pending | done | delayed
-    source_type = Column(String, default="report")  # report | meeting_minutes
+    content = Column(Text, nullable=False)               # What
+    assignee_name = Column(String, nullable=True)        # Who (담당자 이름)
+    assignee_dept = Column(String, nullable=True)        # Who (담당 부서)
+    how = Column(Text, nullable=True)                    # How (산출물 형태)
+    why = Column(Text, nullable=True)                    # Why (목적/연결된 의사결정)
+    priority = Column(String, default="normal")          # urgent_important | important | urgent | low
+    tags = Column(JSON, nullable=True)                   # [승인필요, 타부서협조, 외부의존, 보고연결]
+    due_date = Column(DateTime, nullable=True)           # When
+    status = Column(String, default="pending")           # pending | in_progress | at_risk | done | on_hold
+    source_type = Column(String, default="report")       # report | meeting_minutes
     created_at = Column(DateTime, default=datetime.utcnow)
 
     meeting = relationship("Meeting", back_populates="todos")
@@ -95,6 +108,9 @@ class Report(Base):
     status = Column(String, default="draft")  # draft | submitted | approved | rejected
     score = Column(Float, nullable=True)
     feedback = Column(JSON, nullable=True)
+    element_scores = Column(JSON, nullable=True)   # 12대 필수요소별 점수
+    principles = Column(JSON, nullable=True)        # 5대 핵심 원칙 체크
+    missing_elements = Column(JSON, nullable=True)  # 누락 요소 목록
     submitted_at = Column(DateTime, nullable=True)
     approved_at = Column(DateTime, nullable=True)
     review_comment = Column(String, nullable=True)
@@ -122,6 +138,7 @@ class MeetingSession(Base):
     loop_id = Column(Integer, ForeignKey("meeting_loops.id"), nullable=True)
     session_number = Column(Integer, default=1)
     title = Column(String)
+    location = Column(String, nullable=True)       # 장소 (TPO)
     password = Column(String, nullable=True)
     scheduled_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -137,8 +154,15 @@ class Minutes(Base):
     __tablename__ = "minutes"
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey("meeting_sessions.id"))
-    content_raw = Column(Text)
-    content_summary = Column(Text)
+    recorder_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 작성자
+    content_raw = Column(Text)           # 원본 녹취
+    content_summary = Column(Text)       # AI 마크다운 요약
+    # 5대 필수요소 구조적 저장
+    attendees_json = Column(JSON, nullable=True)    # Joiner: [{name, dept, role, present, note}]
+    decisions_json = Column(JSON, nullable=True)    # Done: [{content, decided_by, agenda_ref}]
+    action_items_json = Column(JSON, nullable=True) # WILL DO: [{content, assignee, due_date, status}]
+    tbd_items_json = Column(JSON, nullable=True)    # TBD: [{content, reason}]
+    next_meeting_note = Column(Text, nullable=True) # 차기 회의 예고
     generated_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("MeetingSession", back_populates="minutes")
@@ -242,3 +266,23 @@ class TacitProposal(Base):
     reviewed_at = Column(DateTime, nullable=True)
     final_content = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MeetingStatusCache(Base):
+    """혜안이 생성한 회의체 현황 요약 캐시 (회의체당 1건 유지)"""
+    __tablename__ = "meeting_status_cache"
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), unique=True, nullable=False)
+    content = Column(Text, nullable=False)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ActivityMemory(Base):
+    """회의체별 활동 기록 단일 문서 — 에이전트 호출 시 자동 append, 관리자 편집 가능"""
+    __tablename__ = "activity_memory"
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id"), unique=True, nullable=False)
+    content = Column(Text, default="")          # 마크다운 전체 문서
+    version = Column(Integer, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(String, default="system")  # "system" | "manual"

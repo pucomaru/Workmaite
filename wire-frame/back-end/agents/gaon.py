@@ -20,6 +20,7 @@ class GaonState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     departments: List[str]
     knowledge: List[dict]
+    meeting_context: str
 
 
 class ExtractionState(TypedDict):
@@ -89,26 +90,28 @@ def _parse_json_from_text(text: str):
     return None
 
 
-def _build_system_prompt(knowledge: List[dict] = None, departments: List[str] = None) -> str:
-    base = """당신은 회의체 아젠다 및 To-do 추출 전문 AI 가온(Gaon)입니다.
-사용자가 업로드한 보고자료와 이전 회의록을 분석하여:
-1. 회의 아젠다 항목을 추출합니다 (담당 부서, 내용)
-2. To-do 과제를 도출합니다 (내용, 마감일, 담당 부서)
+def _build_system_prompt(knowledge: List[dict] = None, departments: List[str] = None, meeting_context: str = "") -> str:
+    base = """너는 가온이야. 회의 준비를 도와주는 AI야.
 
-아젠다 추출 요청 시 반드시 아래 JSON 형식으로 응답하세요:
-{
-  "agendas": [{"department": "부서명", "content": "아젠다 내용"}],
-  "todos": [{"content": "할 일 내용", "department": "담당부서", "due_date": "YYYY-MM-DD 또는 null"}]
-}
+말할 때는 회사 동료처럼 자연스럽고 편하게 말해. "~요" 체로 말하고, 헤딩이나 번호 목록 같은 형식 쓰지 마. 그냥 대화하듯 써. 사용자가 짧게 물으면 짧게 답하고, 공감 표현("아 그렇군요", "맞아요" 등)도 자연스럽게 섞어.
 
-- 한국어로 응답합니다
-- 담당 부서가 불명확하면 null로 표기합니다"""
+보고자료나 회의록에서 아젠다랑 To-do 뽑는 게 주 역할이야. 그 외에 현황 요약, 리스크 점검, 준비사항 확인 같은 것도 도와줘.
 
+자료 분석해서 아젠다/To-do를 추출할 때는 먼저 말로 설명하고, 설명 끝나면 빈 줄 하나 뒤에 JSON 코드블록만 붙여. 그게 전부야. 추가 제목, 레이블, 번호 절대 붙이지 마.
+
+```json
+{"agendas":[{"department":"담당부서 또는 null","content":"아젠다 항목"}],"todos":[{"content":"실행 과제","department":"담당부서 또는 null","due_date":"YYYY-MM-DD 또는 null"}]}
+```
+
+부서 정보 불명확하면 null. 추출이 필요 없는 질문엔 JSON 붙이지 마."""
+
+    if meeting_context:
+        base += f"\n\n## 이번 회의 맥락\n{meeting_context}"
     if departments:
-        base += "\n\n[회의 참여자 담당 부서 목록 - 이 중에서 부서를 배정하세요]\n" + "\n".join(f"- {d}" for d in departments if d)
+        base += "\n\n## 참여 부서 목록 (To-do 배정 시 이 목록에서 선택)\n" + "\n".join(f"- {d}" for d in departments if d)
     if knowledge:
         criteria = "\n".join([f"- [{k.get('category','')}] {k.get('title','')}" for k in knowledge])
-        base += f"\n\n[조직 아젠다 선정 기준]\n{criteria}"
+        base += f"\n\n## 조직 아젠다 선정 기준\n{criteria}"
     return base
 
 
@@ -125,7 +128,7 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
 
 # ── Chat graph nodes ───────────────────────────────────────────────────────
 async def _chat_node(state: GaonState) -> dict:
-    system = _build_system_prompt(state.get("knowledge"), state.get("departments"))
+    system = _build_system_prompt(state.get("knowledge"), state.get("departments"), state.get("meeting_context", ""))
     llm = _make_llm()
     response = await llm.ainvoke([SystemMessage(content=system)] + state["messages"])
     return {"messages": [response]}
@@ -189,6 +192,7 @@ async def chat_stream(
     knowledge: List[dict] = None,
     departments: List[str] = None,
     meeting_id: int = 0,
+    meeting_context: str = "",
 ) -> AsyncGenerator[str, None]:
     parts = []
     if file_content:
@@ -203,7 +207,7 @@ async def chat_stream(
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     async for event in _chat_graph.astream_events(
-        {"messages": input_msgs, "departments": departments or [], "knowledge": knowledge or []},
+        {"messages": input_msgs, "departments": departments or [], "knowledge": knowledge or [], "meeting_context": meeting_context},
         config,
         version="v2",
     ):
@@ -228,16 +232,11 @@ async def extract_agendas_and_todos(
     if previous_minutes:
         prev_hint = "\n\n[이전 회의록 참고]\n" + "\n\n".join(previous_minutes[:2])[:2000]
 
-    prompt = f"""다음 문서를 분석하여 회의 아젠다와 To-do 과제를 추출해주세요.
-{dept_hint}
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
-{{
-  "agendas": [{{"department": "부서명 또는 null", "content": "아젠다 내용"}}],
-  "todos": [{{"content": "할 일 내용", "department": "담당부서 또는 null", "due_date": "YYYY-MM-DD 또는 null"}}]
-}}
+    prompt = f"""아래 문서에서 회의 아젠다와 부서별 To-do를 뽑아줘.{dept_hint}
+
+말로 간단히 설명한 다음, 바로 JSON 코드블록 붙여줘. 제목이나 레이블은 붙이지 마.
 {prev_hint}
 
-[분석할 문서]
 {content[:8000]}"""
 
     llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.getenv("OPENAI_API_KEY"))
@@ -246,11 +245,14 @@ async def extract_agendas_and_todos(
         HumanMessage(content=prompt),
     ])
     parsed = _parse_json_from_text(response.content)
+    # Extract reason text (everything before the JSON block)
+    reason = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', response.content).strip()
+    reason = re.sub(r'\{[^{}]*"agendas"[^{}]*\}', '', reason).strip()
     if isinstance(parsed, list):
-        return {"agendas": parsed, "todos": []}
+        return {"agendas": parsed, "todos": [], "reason": reason}
     if isinstance(parsed, dict):
-        return {"agendas": parsed.get("agendas", []), "todos": parsed.get("todos", [])}
-    return {"agendas": [], "todos": []}
+        return {"agendas": parsed.get("agendas", []), "todos": parsed.get("todos", []), "reason": reason}
+    return {"agendas": [], "todos": [], "reason": reason}
 
 
 async def start_extraction_review(

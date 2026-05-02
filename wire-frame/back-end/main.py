@@ -20,14 +20,26 @@ from routers import auth, meetings, agendas, todos, reports, sessions, notificat
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=engine)
     # SQLite 컬럼 마이그레이션 (없으면 추가)
-    try:
-        with engine.connect() as conn:
-            conn.execute(__import__('sqlalchemy').text(
-                "ALTER TABLE tacit_knowledge_meeting ADD COLUMN loop_number INTEGER"
-            ))
-            conn.commit()
-    except Exception:
-        pass  # 이미 존재하면 무시
+    _migrations = [
+        "ALTER TABLE tacit_knowledge_meeting ADD COLUMN loop_number INTEGER",
+        "ALTER TABLE agendas ADD COLUMN agenda_type VARCHAR",
+        "ALTER TABLE agendas ADD COLUMN purpose TEXT",
+        "ALTER TABLE agendas ADD COLUMN due_date DATETIME",
+        "ALTER TABLE agendas ADD COLUMN related_meeting VARCHAR",
+        "ALTER TABLE todos ADD COLUMN assignee_dept VARCHAR",
+        "ALTER TABLE todos ADD COLUMN how TEXT",
+        "ALTER TABLE todos ADD COLUMN why TEXT",
+        "ALTER TABLE todos ADD COLUMN priority VARCHAR",
+        "ALTER TABLE todos ADD COLUMN tags TEXT",
+        "ALTER TABLE todos ADD COLUMN status VARCHAR",
+    ]
+    with engine.connect() as conn:
+        for sql in _migrations:
+            try:
+                conn.execute(__import__('sqlalchemy').text(sql))
+                conn.commit()
+            except Exception:
+                pass  # 이미 존재하면 무시
     yield
 
 

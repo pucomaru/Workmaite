@@ -10,7 +10,7 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/api/chats", tags=["chat_history"])
 
-VALID_CONTEXT_TYPES = {"agenda", "prepare", "todo", "cardnews", "room"}
+VALID_CONTEXT_TYPES = {"agenda", "prepare", "todo", "cardnews", "room", "hyean", "sessions"}
 
 
 class MessageIn(BaseModel):

@@ -4,6 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
+import httpx
 import models, schemas
 from database import get_db
 from auth import get_current_user
@@ -26,6 +27,110 @@ def list_reports(
         .filter(models.Report.meeting_id == meeting_id)
         .all()
     )
+
+
+@router.post("/meetings/{meeting_id}/reports/review", response_model=schemas.ReportOut)
+async def review_and_save_report(
+    meeting_id: int,
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """파일을 업로드하고 AI 검토 후 draft 상태로 DB 저장. score/feedback 포함."""
+    from agents import naru as naru_agent
+    from routers.agents import _get_knowledge
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    filename = f"{meeting_id}_{current_user.id}_{file.filename}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # AI 검토 (텍스트 추출 시도)
+    try:
+        text_content = content.decode("utf-8", errors="ignore")
+    except Exception:
+        text_content = file.filename
+
+    knowledge = _get_knowledge(db, meeting_id)
+    review = await naru_agent.review_report(
+        report_content=text_content[:4000],
+        agenda="",
+        knowledge=knowledge,
+    )
+
+    # DB 저장 (upsert: meeting + presenter + filename 기준)
+    report = db.query(models.Report).filter(
+        models.Report.meeting_id == meeting_id,
+        models.Report.presenter_id == current_user.id,
+        models.Report.file_name == file.filename,
+    ).first()
+    if report:
+        report.file_path = file_path
+        report.file_name = file.filename
+        report.status = "draft"
+        report.score = review.get("score")
+        report.feedback = review.get("feedback")
+        report.element_scores = review.get("element_scores")
+        report.principles = review.get("principles")
+        report.missing_elements = review.get("missing_elements")
+        report.review_comment = None
+    else:
+        report = models.Report(
+            meeting_id=meeting_id,
+            presenter_id=current_user.id,
+            file_path=file_path,
+            file_name=file.filename,
+            status="draft",
+            score=review.get("score"),
+            feedback=review.get("feedback"),
+            element_scores=review.get("element_scores"),
+            principles=review.get("principles"),
+            missing_elements=review.get("missing_elements"),
+        )
+        db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+@router.post("/meetings/{meeting_id}/reports/{report_id}/submit", response_model=schemas.ReportOut)
+async def submit_reviewed_report(
+    meeting_id: int,
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """검토된 보고서를 Admin에게 제출 (draft → submitted)"""
+    report = db.query(models.Report).filter(
+        models.Report.id == report_id,
+        models.Report.meeting_id == meeting_id,
+        models.Report.presenter_id == current_user.id,
+    ).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Not found")
+    report.status = "submitted"
+    report.submitted_at = datetime.utcnow()
+    db.commit()
+    db.refresh(report)
+
+    admins = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == meeting_id,
+        models.MeetingMember.role == "admin",
+    ).all()
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    for a in admins:
+        create_notification(
+            db,
+            user_id=a.user_id,
+            type="report_submitted",
+            message=f"{current_user.name}님이 '{meeting.title if meeting else ''}' 보고서를 제출했습니다.",
+            ref_id=meeting_id,
+            ref_type="meeting",
+        )
+    await manager.broadcast_meeting(meeting_id, {"type": "report_submitted", "report_id": report.id})
+    return report
 
 
 @router.post("/meetings/{meeting_id}/reports", response_model=schemas.ReportOut)
@@ -115,8 +220,14 @@ async def update_report_status(
     if data.comment is not None:
         report.review_comment = data.comment
 
-    status_label = '승인' if data.status == 'approved' else '반려'
-    notif_msg = f"보고서가 {status_label}되었습니다."
+    STATUS_LABEL_MAP = {
+        'approved': '승인',
+        'rejected': '반려',
+        'submitted': '제출됨',
+        'draft': '검토중',
+    }
+    status_label = STATUS_LABEL_MAP.get(data.status, data.status)
+    notif_msg = f"보고서 상태가 '{status_label}'(으)로 변경되었습니다."
     if data.comment:
         notif_msg += f" 사유: {data.comment}"
 
@@ -128,6 +239,30 @@ async def update_report_status(
         ref_id=report.meeting_id,
         ref_type="meeting",
     )
+
+    # Teams 알림 (TEAMS_WEBHOOK_URL 환경변수가 설정된 경우 전송)
+    if data.notify_teams:
+        teams_webhook_url = os.environ.get("TEAMS_WEBHOOK_URL")
+        if teams_webhook_url:
+            meeting = db.query(models.Meeting).filter(models.Meeting.id == report.meeting_id).first()
+            teams_msg = {
+                "@type": "MessageCard",
+                "@context": "https://schema.org/extensions",
+                "summary": f"보고서 상태 변경: {status_label}",
+                "themeColor": "0076D7",
+                "title": f"[Workmaite] 보고서 상태 변경",
+                "text": (
+                    f"**회의:** {meeting.title if meeting else '(알 수 없음)'}\n\n"
+                    f"**파일:** {report.file_name}\n\n"
+                    f"**새 상태:** {status_label}\n\n"
+                    + (f"**코멘트:** {data.comment}" if data.comment else "")
+                ),
+            }
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    await client.post(teams_webhook_url, json=teams_msg)
+            except Exception:
+                pass  # Teams 전송 실패해도 상태 변경은 완료
 
     event = models.TacitEvent(
         event_type=f"report_{data.status}",
@@ -145,6 +280,37 @@ async def update_report_status(
         "status": data.status,
     })
     return report
+
+
+@router.delete("/reports/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """draft 상태 보고서 삭제 (본인 또는 admin만 가능)"""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Not found")
+    # 본인 또는 해당 회의체 admin인지 확인
+    is_owner = report.presenter_id == current_user.id
+    member = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == report.meeting_id,
+        models.MeetingMember.user_id == current_user.id,
+    ).first()
+    is_admin = member and member.role == "admin"
+    if not is_owner and not is_admin:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+    # admin은 모든 상태 삭제 가능, 일반 사용자는 draft만 삭제 가능
+    if not is_admin and report.status not in ("draft",):
+        raise HTTPException(status_code=400, detail="제출된 보고서는 삭제할 수 없습니다.")
+    if report.file_path and os.path.exists(report.file_path):
+        try:
+            os.remove(report.file_path)
+        except Exception:
+            pass
+    db.delete(report)
+    db.commit()
 
 
 @router.get("/reports/{report_id}/download")

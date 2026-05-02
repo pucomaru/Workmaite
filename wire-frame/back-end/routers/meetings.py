@@ -83,6 +83,12 @@ def update_meeting(
         if data["status"] == "ended" and not meeting.end_date:
             from datetime import datetime
             meeting.end_date = datetime.utcnow()
+    if "purpose" in data:
+        meeting.purpose = data["purpose"]
+    if "start_date" in data:
+        meeting.start_date = data["start_date"]
+    if "end_date" in data:
+        meeting.end_date = data["end_date"]
     db.commit()
     db.refresh(meeting)
     return meeting

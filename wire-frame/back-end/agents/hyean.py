@@ -20,6 +20,7 @@ class HyeanState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     meeting_status: dict
     user_role: str
+    user_name: str
     knowledge: List[dict]
 
 
@@ -65,12 +66,38 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
 
 
 def _status_system_prompt() -> str:
-    return """당신은 회의체 운영 현황을 파악하고 안내하는 AI 혜안(Hyean)입니다.
-현재 회의체의 상태를 분석하여:
-1. 현황을 자연어로 간결하게 설명합니다
-2. 다음에 해야 할 액션을 추천합니다
-3. 주의가 필요한 사항을 알립니다
-한국어로, 친근하지만 전문적으로 응답합니다."""
+    return """당신은 회의체 운영을 전담하는 AI 비서 혜안(Hyean)입니다.
+항상 공손하고 정중한 비서 말투를 사용하세요. ("~드립니다", "~습니다", "말씀드리겠습니다" 등)
+
+[현황 브리핑 규칙 — 반드시 준수]
+- 구조: ① 요약(2~3문장, 핵심 수치 포함) ② 이번 주 하이라이트(bullet 3개) ③ 주의 필요 항목(지연·에스컬레이션) ④ 다음 주 예정 회의 및 주요 안건
+- 추측성 표현 금지: "~일 것 같습니다", "~인 것 같아요", "~으로 보입니다" 사용 불가
+- 데이터에 없는 내용은 절대 언급하지 말 것
+- 수치는 반드시 입력 데이터 기반으로만 산출
+- 부정적 내용은 사실 기반으로 중립적 톤 유지
+- 전체 길이는 300자 이내
+- 브리핑 마지막에 반드시 한 줄 추가: "자세한 사항은 우측 하단의 혜안 버튼을 눌러 말씀해 주세요."
+
+[출력 형식 예시]
+📊 W{주차} 회의체 현황 브리핑
+
+{2~3문장 요약, 핵심 수치 포함}
+
+• {하이라이트 1}
+• {하이라이트 2}
+• {하이라이트 3}
+
+⚠️ {지연·에스컬레이션 항목} (없으면 이 섹션 생략)
+
+📅 다음 주: {예정 회의 및 주요 안건} (없으면 이 섹션 생략)
+
+자세한 사항은 우측 하단의 혜안 버튼을 눌러 말씀해 주세요.
+
+[기타 역할]
+사용자가 액션을 요청하면 (슬랙/이메일 발송, 회의 예약 등):
+- 구체적인 내용을 작성해 보여드린 뒤 확인 후 처리해 드립니다.
+
+한국어로, 공손하고 정중한 비서 말투로 응답합니다."""
 
 
 def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
@@ -88,11 +115,20 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
 async def _chat_node(state: HyeanState) -> dict:
     status_text = json.dumps(state.get("meeting_status", {}), ensure_ascii=False, indent=2)
     user_role = state.get("user_role", "presenter")
+    user_name = state.get("user_name") or "담당자"
+    role_label = {"admin": "운영자", "presenter": "발제자"}.get(user_role, user_role)
 
     system_msgs: List[BaseMessage] = [
         SystemMessage(content=_status_system_prompt()),
-        HumanMessage(content=f"[회의체 현황]\n{status_text}\n\n[사용자 역할] {user_role}"),
-        AIMessage(content="현황을 확인했습니다. 무엇이 궁금하신가요?"),
+        HumanMessage(content=(
+            f"[사용자 정보]\n"
+            f"- 이름: {user_name}님\n"
+            f"- 역할: {role_label}\n\n"
+            f"[회의체 현황 데이터]\n{status_text}\n\n"
+            f"위 데이터만을 기반으로, {user_name}님을 개인 비서로서 응대하세요.\n"
+            f"첫 응답은 반드시 \"안녕하세요, {user_name}님.\"으로 시작하세요."
+        )),
+        AIMessage(content=f"안녕하세요, {user_name}님. 현황을 확인했습니다. 무엇이든 말씀해 주세요."),
     ]
     llm = _make_llm()
     response = await llm.ainvoke(system_msgs + state["messages"])
@@ -121,29 +157,36 @@ async def _analyze_propose_node(state: KnowledgeProposalState) -> dict:
     events_text = json.dumps(recent_events[-10:], ensure_ascii=False, indent=2)
     knowledge_text = json.dumps(current_knowledge[:5], ensure_ascii=False, indent=2)
 
-    prompt = f"""최근 회의 활동 데이터를 분석하여 이 회의체의 메모리를 업데이트해주세요.
+    prompt = f"""아래 회의 활동 데이터에서, 이 조직이 앞으로 더 효율적으로 회의를 운영하는 데 직접 도움이 될 패턴이나 기준을 발견하면 암묵지로 제안해줘.
 
-반드시 JSON 형식으로만 응답하세요. 업데이트할 내용이 없으면 null을 반환하세요.
-형식:
+암묵지란 단순한 활동 기록이 아니야. 다음 중 하나에 해당해야 해:
+- 반복적으로 나타나는 의사결정 패턴
+- 아젠다나 To-do 배정에서 드러난 암묵적 기준
+- 자주 놓치거나 지연되는 유형과 그 대응 기준
+- 회의 운영 효율을 높이는 구체적 발견
+
+이런 패턴이 보이지 않으면 null을 반환해.
+
+보이면 아래 JSON 형식으로만 응답해:
 {{
-  "category": "meeting_standard",
-  "title": "기억할 항목 제목",
-  "proposed_content": "업데이트된 내용 (마크다운)",
-  "diff_summary": "변경 요약",
-  "evidence_summary": "근거"
+  "category": "카테고리",
+  "title": "암묵지 제목 (한 줄, 핵심만)",
+  "proposed_content": "구체적 내용. 왜 이 기준이 필요한지, 어떤 상황에서 적용하는지 명확하게 서술.",
+  "diff_summary": "기존 내용과 어떻게 다른지 한 줄 요약",
+  "evidence_summary": "데이터에서 이 패턴을 발견한 근거 (구체적 사례 포함)"
 }}
 
-카테고리: report_standard(보고서 기준), agenda_standard(아젠다 기준), todo_standard(과제 기준), meeting_standard(회의 운영 기준)
+카테고리: meeting_standard(회의 운영 기준), agenda_standard(아젠다 선정·처리 기준), todo_standard(과제 배정·완료 기준), report_standard(보고서·자료 기준)
 
-[최근 활동]
+[회의 활동 데이터]
 {events_text}
 
-[현재 메모리]
+[현재 등록된 암묵지]
 {knowledge_text}"""
 
     llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
     response = await llm.ainvoke([
-        SystemMessage(content="당신은 회의체의 운영 패턴을 학습하고 메모리를 업데이트하는 AI입니다."),
+        SystemMessage(content="너는 조직의 회의 운영 패턴을 관찰하고, 실제로 운영 효율을 높이는 암묵지만 추출하는 AI야. 단순 로그 요약이나 활동 기록은 암묵지가 아니야. 패턴이 불명확하면 null을 반환해."),
         HumanMessage(content=prompt),
     ])
     text = response.content.strip()
@@ -187,6 +230,7 @@ async def status_stream(
     chat_history: List[dict] = None,
     message: str = "현재 회의체 현황을 알려주세요.",
     meeting_id: int = 0,
+    user_name: str = "",
 ) -> AsyncGenerator[str, None]:
     history = _to_base_messages((chat_history or [])[-8:])
     input_msgs = history + [HumanMessage(content=message)]
@@ -197,6 +241,7 @@ async def status_stream(
             "messages": input_msgs,
             "meeting_status": meeting_status,
             "user_role": user_role,
+            "user_name": user_name,
             "knowledge": active_knowledge or [],
         },
         config,
@@ -214,36 +259,43 @@ async def analyze_and_propose(
     scope: str = "global",
     meeting_id: int = None,
 ) -> dict | None:
-    """회의 활동 분석 → 메모리 업데이트 제안 (즉시 반환, HITL 없음)."""
+    """회의 활동 분석 → 암묵지 업데이트 제안 (즉시 반환, HITL 없음)."""
     if len(recent_events) < 2:
         return None
 
     events_text = json.dumps(recent_events[-15:], ensure_ascii=False, indent=2)
     knowledge_text = json.dumps(current_knowledge[:5], ensure_ascii=False, indent=2)
 
-    prompt = f"""최근 회의 활동 데이터를 분석하여 이 회의체의 메모리를 업데이트해주세요.
+    prompt = f"""아래 회의 활동 데이터에서, 이 조직이 앞으로 더 효율적으로 회의를 운영하는 데 직접 도움이 될 패턴이나 기준을 발견하면 암묵지로 제안해줘.
 
-반드시 JSON 형식으로만 응답하세요. 업데이트할 내용이 없으면 null을 반환하세요.
-형식:
+암묵지란 단순한 활동 기록이 아니야. 다음 중 하나에 해당해야 해:
+- 반복적으로 나타나는 의사결정 패턴 (예: 특정 부서는 항상 X를 먼저 처리해야 다음 단계가 가능하다)
+- 아젠다나 To-do 배정에서 드러난 암묵적 기준 (예: 예산 관련 안건은 반드시 재무팀이 먼저 검토한다)
+- 자주 놓치거나 지연되는 유형 (예: 외부 협력사 관련 To-do는 마감 2주 전 착수해야 한다)
+- 회의 운영에서 효율을 높이는 발견 (예: 이 회의체는 현황 보고를 먼저 끝내야 의사결정 토론이 원활하다)
+
+이런 패턴이 데이터에서 보이지 않으면 null을 반환해.
+
+보이면 아래 JSON 형식으로만 응답해:
 {{
-  "category": "meeting_standard",
-  "title": "기억할 항목 제목",
-  "proposed_content": "업데이트된 내용 (마크다운)",
-  "diff_summary": "변경 요약",
-  "evidence_summary": "근거"
+  "category": "카테고리",
+  "title": "암묵지 제목 (한 줄, 핵심만)",
+  "proposed_content": "구체적 내용. 왜 이 기준이 필요한지, 어떤 상황에서 적용하는지 명확하게 서술.",
+  "diff_summary": "기존 내용과 어떻게 다른지 한 줄 요약",
+  "evidence_summary": "데이터에서 이 패턴을 발견한 근거 (구체적 사례 포함)"
 }}
 
-카테고리: report_standard(보고서 기준), agenda_standard(아젠다 기준), todo_standard(과제 기준), meeting_standard(회의 운영 기준)
+카테고리: meeting_standard(회의 운영 기준), agenda_standard(아젠다 선정·처리 기준), todo_standard(과제 배정·완료 기준), report_standard(보고서·자료 기준)
 
-[최근 활동]
+[회의 활동 데이터]
 {events_text}
 
-[현재 메모리]
+[현재 등록된 암묵지]
 {knowledge_text}"""
 
     llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
     response = await llm.ainvoke([
-        SystemMessage(content="당신은 회의체의 운영 패턴을 학습하고 메모리를 업데이트하는 AI입니다. 실제 활동 데이터에서 패턴을 추출해 구체적인 메모리를 만들어주세요."),
+        SystemMessage(content="너는 조직의 회의 운영 패턴을 관찰하고, 실제로 운영 효율을 높이는 암묵지만 추출하는 AI야. 단순 로그 요약이나 활동 기록은 암묵지가 아니야. 패턴이 불명확하면 null을 반환해."),
         HumanMessage(content=prompt),
     ])
     text = response.content.strip()

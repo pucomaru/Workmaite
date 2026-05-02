@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import models, schemas
 from database import get_db
 from auth import get_current_user
@@ -95,6 +95,7 @@ async def create_session(
         loop_id=data.loop_id,
         session_number=count + 1,
         title=data.title,
+        location=data.location,
         password=data.password,
         scheduled_at=data.scheduled_at,
     )
@@ -141,6 +142,8 @@ def update_session(
         session.scheduled_at = data.scheduled_at
     if data.password is not None:
         session.password = data.password
+    if data.location is not None:
+        session.location = data.location
     db.commit()
     db.refresh(session)
     return session
@@ -159,6 +162,13 @@ def delete_session(
         raise HTTPException(status_code=404, detail="Not found")
     if session.status == "ongoing":
         raise HTTPException(status_code=400, detail="진행 중인 회의는 삭제할 수 없습니다.")
+    # admin만 삭제 가능
+    member = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == session.meeting_id,
+        models.MeetingMember.user_id == current_user.id,
+    ).first()
+    if not member or member.role != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 회의록을 삭제할 수 있습니다.")
 
     # 연관 데이터 삭제
     db.query(models.Minutes).filter(models.Minutes.session_id == session_id).delete()
@@ -224,28 +234,106 @@ async def end_session(
         raw_transcript = "\n".join(lines)
 
     db.commit()
-    asyncio.create_task(_generate_minutes_async(session_id, session.meeting_id, raw_transcript, db))
+
+    # context 수집
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == session.meeting_id).first()
+    members = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == session.meeting_id
+    ).all()
+    agendas = db.query(models.Agenda).filter(
+        models.Agenda.meeting_id == session.meeting_id
+    ).all()
+    todos = db.query(models.Todo).filter(
+        models.Todo.meeting_id == session.meeting_id
+    ).all()
+
+    session_ctx = {
+        "title": session.title,
+        "location": getattr(session, "location", None),
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+        "session_number": session.session_number,
+    }
+    meeting_ctx = {
+        "title": meeting.title if meeting else "",
+        "purpose": meeting.purpose if meeting and hasattr(meeting, "purpose") else "",
+    }
+    participants_ctx = []
+    for m in members:
+        user = db.query(models.User).filter(models.User.id == m.user_id).first()
+        if user:
+            participants_ctx.append({
+                "name": user.name,
+                "dept": getattr(m, "department", ""),
+                "role": m.role,
+            })
+    agendas_ctx = [
+        {"content": a.content, "department": a.department, "status": a.status}
+        for a in agendas
+    ]
+    todos_ctx = [
+        {
+            "content": t.content,
+            "assignee": getattr(t, "assignee", ""),
+            "due_date": t.due_date.isoformat() if t.due_date else "",
+            "status": t.status,
+        }
+        for t in todos
+    ]
+
+    asyncio.create_task(_generate_minutes_async(
+        session_id, session.meeting_id, raw_transcript,
+        session_ctx, meeting_ctx, participants_ctx,
+        agendas_ctx, todos_ctx, current_user.id, db,
+    ))
     return {"ok": True, "message": "회의가 종료되었습니다. 회의록을 생성 중입니다."}
 
 
-async def _generate_minutes_async(session_id: int, meeting_id: int, raw_transcript: str, db: Session):
+async def _generate_minutes_async(
+    session_id: int, meeting_id: int, raw_transcript: str,
+    session_ctx: dict, meeting_ctx: dict, participants_ctx: list,
+    agendas_ctx: list, todos_ctx: list, recorder_id: int, db: Session,
+):
     await asyncio.sleep(1)
     existing = db.query(models.Minutes).filter(
         models.Minutes.session_id == session_id
     ).first()
 
-    # 발화 녹취 우선, 없으면 기존 raw
     raw = raw_transcript or (existing.content_raw if existing else "")
 
-    summary = await generate_minutes(raw)
+    summary, structured = await generate_minutes(
+        raw,
+        session_info=session_ctx,
+        meeting_info=meeting_ctx,
+        participants=participants_ctx,
+        agendas=agendas_ctx,
+        todos=todos_ctx,
+    )
+
+    attendees_data = structured.get("attendees", []) + [
+        {**a, "present": False} for a in structured.get("absent", [])
+    ]
+
     if existing:
         existing.content_summary = summary
+        existing.recorder_id = recorder_id
+        existing.attendees_json = attendees_data
+        existing.decisions_json = structured.get("decisions", [])
+        existing.action_items_json = structured.get("action_items", [])
+        existing.tbd_items_json = structured.get("tbd_items", [])
+        existing.next_meeting_note = structured.get("next_meeting_note", "")
         existing.generated_at = datetime.utcnow()
     else:
         minutes = models.Minutes(
             session_id=session_id,
+            recorder_id=recorder_id,
             content_raw=raw,
             content_summary=summary,
+            attendees_json=attendees_data,
+            decisions_json=structured.get("decisions", []),
+            action_items_json=structured.get("action_items", []),
+            tbd_items_json=structured.get("tbd_items", []),
+            next_meeting_note=structured.get("next_meeting_note", ""),
         )
         db.add(minutes)
 
@@ -340,11 +428,19 @@ def get_all_minutes(
             "session_id": s.id,
             "session_number": s.session_number,
             "session_title": s.title,
+            "session_location": s.location,
             "meeting_id": s.meeting_id,
             "meeting_title": meeting.title if meeting else "-",
+            "meeting_purpose": meeting.purpose if meeting else None,
+            "started_at": s.started_at,
             "ended_at": s.ended_at,
             "content_summary": m.content_summary,
             "content_raw": m.content_raw,
+            "attendees_json": m.attendees_json,
+            "decisions_json": m.decisions_json,
+            "action_items_json": m.action_items_json,
+            "tbd_items_json": m.tbd_items_json,
+            "next_meeting_note": m.next_meeting_note,
             "minutes_id": m.id,
         })
     return result

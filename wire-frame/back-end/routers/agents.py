@@ -1,15 +1,29 @@
 import os
 from typing import List
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import models, schemas
-from database import get_db
+from database import get_db, SessionLocal
 from auth import get_current_user
 from agents import gaon, naru, ara, naon, hyean
 from datetime import datetime
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
+
+def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
+    """백그라운드에서 ActivityMemory에 활동 기록 append."""
+    if not meeting_id:
+        return
+    from routers.tacit_knowledge import append_activity_log
+    db = SessionLocal()
+    try:
+        append_activity_log(db, meeting_id, agent, action, detail)
+    except Exception as e:
+        print(f"[ActivityLog Error] {e}")
+    finally:
+        db.close()
 
 
 def _get_knowledge(db: Session, meeting_id: int = None) -> List[dict]:
@@ -28,16 +42,45 @@ def _get_knowledge(db: Session, meeting_id: int = None) -> List[dict]:
     ]
 
 
+def _get_meeting_context(db: Session, meeting_id: int) -> str:
+    """회의체 기본 맥락 문자열 구성 — Supervisor 패턴으로 서브에이전트에 주입."""
+    if not meeting_id:
+        return ""
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not meeting:
+        return ""
+    lines = [f"회의체 이름: {meeting.title}"]
+    if meeting.purpose:
+        lines.append(f"회의 목적: {meeting.purpose}")
+    members = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == meeting_id
+    ).all()
+    if members:
+        member_parts = []
+        for m in members:
+            user = db.query(models.User).filter(models.User.id == m.user_id).first()
+            if user:
+                role_label = "운영자" if m.role == "admin" else "발제자"
+                dept = user.department or ""
+                member_parts.append(f"{user.name}({dept}, {role_label})")
+        if member_parts:
+            lines.append(f"참여자: {', '.join(member_parts)}")
+    return "\n".join(lines)
+
+
 # ─── 가온 Agent ───────────────────────────────
 @router.post("/gaon/chat")
 async def gaon_chat(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     knowledge = _get_knowledge(db, data.meeting_id)
     previous_minutes = _get_previous_minutes(db, data.meeting_id)
     departments = _get_member_departments(db, data.meeting_id)
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "가온", "아젠다/과제 대화", f'"{data.message[:80]}"')
 
     async def stream():
         async for chunk in gaon.chat_stream(
@@ -46,8 +89,9 @@ async def gaon_chat(
             previous_minutes=previous_minutes,
             knowledge=knowledge,
             departments=departments,
+            meeting_context=meeting_context,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -81,8 +125,16 @@ async def extract_agenda(
         departments=departments,
     )
 
-    saved_agendas, saved_todos = _save_extracted(db, meeting_id, result)
-    return {"agendas": saved_agendas, "todos": saved_todos}
+    # 저장하지 않고 추출 결과만 반환 — 프론트에서 사용자 승인 후 저장
+    agendas_out = [
+        {"department": a.get("department"), "content": a.get("content", "")}
+        for a in result.get("agendas", []) if a.get("content", "").strip()
+    ]
+    todos_out = [
+        {k: v for k, v in t.items()}
+        for t in result.get("todos", []) if t.get("content", "").strip()
+    ]
+    return {"agendas": agendas_out, "todos": todos_out}
 
 
 @router.post("/gaon/extract-from-text")
@@ -110,6 +162,9 @@ async def extract_from_text(
         }
 
     saved_agendas, saved_todos = _save_extracted(db, meeting_id, result)
+    if saved_agendas or saved_todos:
+        _log_activity(meeting_id, "가온", "응답에서 아젠다/과제 추출",
+            f"아젠다 {len(saved_agendas)}개 / 과제 {len(saved_todos)}개")
     return {"agendas": saved_agendas, "todos": saved_todos}
 
 
@@ -117,18 +172,22 @@ async def extract_from_text(
 @router.post("/naru/chat")
 async def naru_chat(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     knowledge = _get_knowledge(db, data.meeting_id)
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "나루", "보고서 검토 대화", f'"{data.message[:80]}"')
 
     async def stream():
         async for chunk in naru.chat_stream(
             message=data.message,
             chat_history=data.chat_history or [],
             knowledge=knowledge,
+            meeting_context=meeting_context,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -137,6 +196,7 @@ async def naru_chat(
 @router.post("/naru/global-review")
 async def global_review(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -156,14 +216,18 @@ async def global_review(
         for r in reports
     ]
     knowledge = _get_knowledge(db, data.meeting_id)
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "나루", "전체 보고서 종합 검토",
+        f"보고서 {len(reports_info)}개 검토 요청")
 
     async def stream():
         async for chunk in naru.global_review_stream(
             reports_info=reports_info,
             chat_history=data.chat_history or [],
             knowledge=knowledge,
+            meeting_context=meeting_context,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -189,6 +253,7 @@ async def report_review(
 @router.post("/ara/chat")
 async def ara_chat(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -197,7 +262,9 @@ async def ara_chat(
         models.Agenda.meeting_id == data.meeting_id,
         models.Agenda.status == "confirmed",
     ).all()
-    agendas_list = [{"content": a.content, "department": a.department} for a in agendas]
+    agendas_list = [{'content': a.content, 'department': a.department} for a in agendas]
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "아라", "회의 진행 대화", f'"{data.message[:80]}"')
 
     async def stream():
         async for chunk in ara.chat_stream(
@@ -205,8 +272,9 @@ async def ara_chat(
             chat_history=data.chat_history or [],
             previous_minutes=previous_minutes,
             current_agendas=agendas_list,
+            meeting_context=meeting_context,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -262,8 +330,9 @@ async def ara_sessions_chat(
             chat_history=data.chat_history or [],
             previous_minutes=[extra_context],
             current_agendas=agendas_list,
+            meeting_context=_get_meeting_context(db, data.meeting_id),
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -275,19 +344,38 @@ import uuid as _uuid
 @router.post("/naon/chat")
 async def naon_chat(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """나온과의 자유 대화 (스트리밍). 기획 요구사항 파악 단계."""
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "나온", "카드뉴스 기획 대화", f'"{data.message[:80]}"')
+
     async def stream():
         async for chunk in naon.chat_stream(
             message=data.message,
             chat_history=data.chat_history or [],
+            meeting_context=meeting_context,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.post("/naon/extract-params")
+async def naon_extract_params(
+    data: schemas.CardNewsExtractRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """대화 기록에서 카드뉴스 파라미터(회의차수·대상·소스)를 자동 추출합니다."""
+    result = await naon.extract_params_from_chat(
+        chat_history=data.chat_history,
+        available_sessions=data.available_sessions,
+    )
+    return result
 
 
 @router.post("/naon/propose-plan")
@@ -299,23 +387,91 @@ async def naon_propose_plan(
     """
     [LangGraph HITL Step 1]
     propose_node 를 실행하고 interrupt() 지점에서 그래프를 일시 정지한다.
-    생성된 기획안(plan)과 thread_id 를 반환한다.
-    프론트엔드는 이 plan 을 사용자에게 보여주고 승인/거부를 기다린다.
+    회의록뿐 아니라 보고서·아젠다·To-do·의사결정 등 미팅 전체 자료를 취합하여 전달한다.
     """
-    minutes_list = []
-    for sid in data.session_ids:
-        m = db.query(models.Minutes).filter(models.Minutes.session_id == sid).first()
-        if m and m.content_summary:
-            minutes_list.append(m.content_summary)
-
     meeting = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first()
-    thread_id = data.thread_id or str(_uuid.uuid4())
 
+    # ── 소스 수집 ───────────────────────────────────────────────
+    source_chunks: list[str] = []
+
+    # 1. 회의록 (session별)
+    if data.include_minutes is not False:
+        for sid in data.session_ids:
+            m = db.query(models.Minutes).filter(models.Minutes.session_id == sid).first()
+            if m:
+                session_obj = db.query(models.MeetingSession).filter(models.MeetingSession.id == sid).first()
+                label = f"【{session_obj.session_number}차 회의록】" if session_obj else "【회의록】"
+                if m.content_summary:
+                    source_chunks.append(f"{label}\n{m.content_summary}")
+                # 의사결정 사항
+                if data.include_decisions is not False and m.decisions_json:
+                    decisions = "\n".join(f"- {d.get('content','')}" for d in m.decisions_json if d.get('content'))
+                    if decisions:
+                        source_chunks.append(f"【의사결정 사항】\n{decisions}")
+                # Action Items
+                if m.action_items_json:
+                    actions = "\n".join(f"- {a.get('content','')} (담당: {a.get('assignee','')})" for a in m.action_items_json if a.get('content'))
+                    if actions:
+                        source_chunks.append(f"【Action Items】\n{actions}")
+
+    # 2. 보고서 (approved된 것 우선)
+    if data.include_reports is not False:
+        reports = db.query(models.Report).filter(
+            models.Report.meeting_id == data.meeting_id,
+            models.Report.status.in_(["approved", "submitted"]),
+        ).order_by(models.Report.submitted_at.desc()).limit(5).all()
+        for r in reports:
+            parts = [f"【보고서: {r.file_name or '첨부 자료'}】"]
+            if r.feedback:
+                fb = r.feedback if isinstance(r.feedback, list) else [r.feedback]
+                parts.append("피드백: " + " / ".join(str(f) for f in fb[:3]))
+            if r.review_comment:
+                parts.append(f"검토 의견: {r.review_comment}")
+            source_chunks.append("\n".join(parts))
+
+    # 3. 아젠다 (confirmed)
+    if data.include_agendas is not False:
+        agendas = db.query(models.Agenda).filter(
+            models.Agenda.meeting_id == data.meeting_id,
+            models.Agenda.status == "confirmed",
+        ).order_by(models.Agenda.order_num).all()
+        if agendas:
+            agenda_lines = "\n".join(
+                f"- [{a.agenda_type or 'draft'}] {a.content}" + (f" (발표: {a.presenter_name})" if a.presenter_name else "")
+                for a in agendas
+            )
+            source_chunks.append(f"【확정 아젠다】\n{agenda_lines}")
+
+    # 4. To-do (done + at_risk 포함 전체)
+    if data.include_todos is not False:
+        todos = db.query(models.Todo).filter(
+            models.Todo.meeting_id == data.meeting_id,
+        ).order_by(models.Todo.created_at).all()
+        if todos:
+            todo_lines = "\n".join(
+                f"- [{t.status}] {t.content}" + (f" (담당: {t.assignee_name})" if t.assignee_name else "")
+                for t in todos
+            )
+            source_chunks.append(f"【To-do 목록】\n{todo_lines}")
+
+    thread_id = data.thread_id or str(_uuid.uuid4())
+    style_hints = {
+        "slide_count": data.slide_count,
+        "first_card": data.first_card,
+        "tone": data.tone,
+        "visual_style": data.visual_style,
+        "include_cta": data.include_cta,
+        "include_source_date": data.include_source_date,
+        "include_brand_logo": data.include_brand_logo,
+        "custom_request": data.custom_request,
+    }
     result = await naon.start_proposal(
         thread_id=thread_id,
         chat_history=data.chat_history or [],
-        minutes_list=minutes_list,
+        sources=source_chunks,
         meeting_title=meeting.title if meeting else "",
+        target_audience=data.target_audience or "staff",
+        style_hints=style_hints,
     )
     return {**result, "thread_id": thread_id}
 
@@ -389,22 +545,64 @@ async def generate_card_news(
 
 
 # ─── 혜안 Agent ───────────────────────────────
+@router.get("/hyean/status-cache/{meeting_id}")
+async def hyean_status_cache(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """저장된 현황 요약 반환. 없으면 null."""
+    cache = db.query(models.MeetingStatusCache).filter(
+        models.MeetingStatusCache.meeting_id == meeting_id
+    ).first()
+    if not cache:
+        return {"content": None, "generated_at": None}
+    return {"content": cache.content, "generated_at": cache.generated_at}
+
+
+@router.post("/hyean/status-cache/{meeting_id}")
+async def hyean_save_status_cache(
+    meeting_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """현황 요약 텍스트를 DB에 저장(upsert)."""
+    content = data.get("content", "").strip()
+    if not content:
+        return {"ok": False}
+    cache = db.query(models.MeetingStatusCache).filter(
+        models.MeetingStatusCache.meeting_id == meeting_id
+    ).first()
+    if cache:
+        cache.content = content
+        cache.generated_at = datetime.utcnow()
+    else:
+        cache = models.MeetingStatusCache(meeting_id=meeting_id, content=content)
+        db.add(cache)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/hyean/status")
 async def hyean_status(
     data: schemas.HyeanStatusRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     meeting_status = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "회의 현황 분석 요청", "")
 
     async def stream():
         async for chunk in hyean.status_stream(
             meeting_status=meeting_status,
             user_role=data.user_role,
             active_knowledge=knowledge,
+            user_name=current_user.name,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -413,6 +611,7 @@ async def hyean_status(
 @router.post("/hyean/chat")
 async def hyean_chat(
     data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -423,6 +622,7 @@ async def hyean_chat(
     user_role = member.role if member else "presenter"
     meeting_status = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
+    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "현황 대화", f'"{ data.message[:80] }"')
 
     async def stream():
         async for chunk in hyean.status_stream(
@@ -431,8 +631,9 @@ async def hyean_chat(
             active_knowledge=knowledge,
             chat_history=data.chat_history,
             message=data.message,
+            user_name=current_user.name,
         ):
-            yield f"data: {chunk}\n\n"
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
