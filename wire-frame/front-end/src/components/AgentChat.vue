@@ -1,8 +1,7 @@
 <script setup>
 import { ref, nextTick, onMounted } from 'vue'
 import { streamPost } from '../api'
-import { marked } from 'marked'
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 const props = defineProps({
   agentName: { type: String, required: true },

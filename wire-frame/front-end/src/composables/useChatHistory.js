@@ -40,10 +40,10 @@ export function useChatHistory(contextType, contextId) {
 
   /** 해당 컨텍스트의 대화 기록 전체 삭제 */
   async function clearHistory() {
+    messages.value = []
     if (!contextId) return
     try {
       await api.delete(`/api/chats/${contextType}/${contextId}`)
-      messages.value = []
     } catch (e) {
       console.error('[useChatHistory] 삭제 실패', e)
     }

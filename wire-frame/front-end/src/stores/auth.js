@@ -2,8 +2,13 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../api'
 
+function safeParseUser() {
+  try { return JSON.parse(localStorage.getItem('user') || 'null') }
+  catch { return null }
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
+  const user = ref(safeParseUser())
   const token = ref(localStorage.getItem('token') || '')
 
   async function login(employee_id, password) {

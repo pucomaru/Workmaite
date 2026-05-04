@@ -20,7 +20,7 @@ const adminTabs = [
   { label: '회의',    path: 'sessions', icon: '🎤' },
 ]
 const presenterTabs = [
-  { label: 'To-do',  path: 'todo',     icon: '✅' },
+  { label: '아젠다',  path: 'agenda',   icon: '📋' },
   { label: '회의준비', path: 'prepare',  icon: '📝' },
   { label: '회의',   path: 'sessions', icon: '🎤' },
 ]
@@ -30,12 +30,20 @@ function isActive(path) { return route.path.includes(`/${path}`) }
 
 const spinDir = ref('fwd')
 
+const isOnHome = computed(() => route.path.endsWith('/home'))
+
 const activeIdx = computed(() => {
+  if (isOnHome.value) return -1
   const idx = tabs.value.findIndex(tab => isActive(tab.path))
   return idx === -1 ? 0 : idx
 })
 
 function go(path) {
+  // 카드뉴스 페이지는 일반 탭 순서 밖이므로 직접 이동 허용
+  if (isActive('card-news')) {
+    router.push(`/meetings/${meetingId.value}/${path}`)
+    return
+  }
   const t = tabs.value
   const n = t.length
   const curIdx = activeIdx.value
@@ -62,6 +70,14 @@ const visibleTabs = computed(() => {
   const t = tabs.value
   const n = t.length
   const cur = activeIdx.value
+  // 홈 화면일 때: 모든 탭을 비활성(inactive) 상태로 표시
+  if (cur === -1) {
+    return [
+      { ...t[n - 1], pos: 'prev' },
+      { ...t[0],     pos: 'inactive' },
+      { ...t[1 % n], pos: 'next' },
+    ]
+  }
   return [
     { ...t[(cur - 1 + n) % n], pos: 'prev' },
     { ...t[cur],                pos: 'active' },
@@ -114,6 +130,14 @@ async function leaveMeeting() {
 <template>
   <nav class="meeting-nav">
     <template v-if="ready">
+      <!-- 홈 버튼 -->
+      <button
+        class="home-btn"
+        :class="{ active: isActive('home') }"
+        @click="router.push(`/meetings/${meetingId}/home`)"
+        title="회의체 홈"
+      >🏠 회의체 홈</button>
+
       <!-- perspective wrapper: 3D 드럼 효과 -->
       <div class="drum-scene">
         <Transition :name="'drum-' + spinDir">
@@ -133,20 +157,21 @@ async function leaveMeeting() {
       </div>
 
       <div class="nav-actions">
-        <span v-if="isEnded" class="ended-badge">종료됨</span>
+        <!-- 활성 회의체: 종료만 표시 (붉은 글씨) -->
         <button
           v-if="role === 'admin' && !isEnded"
-          class="btn btn-ghost btn-sm"
+          class="btn-nav-end"
           @click="terminateMeetingGroup"
           title="회의체 종료"
-        >⏹ 종료</button>
+        >종료</button>
+        <!-- 종료된 회의체: 삭제만 표시 -->
         <button
-          v-if="role === 'admin'"
+          v-if="role === 'admin' && isEnded"
           class="btn btn-ghost btn-sm delete-btn"
           :disabled="deleting"
           @click="deleteMeetingGroup"
           title="회의체 영구 삭제"
-        >{{ deleting ? '삭제 중...' : '🗑' }}</button>
+        >{{ deleting ? '삭제 중...' : '삭제' }}</button>
         <button
           v-if="role && role !== 'admin'"
           class="btn btn-ghost btn-sm leave-btn"
@@ -172,6 +197,26 @@ async function leaveMeeting() {
   min-height: 52px;
   flex-shrink: 0;
 }
+
+/* 홈 버튼 */
+.home-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.home-btn:hover { background: #f1f5f9; color: var(--text); }
+.home-btn.active { background: var(--primary); color: #fff; font-weight: 700; }
 
 /* ── 3D 드럼 씬 ── */
 .drum-scene {
@@ -222,6 +267,17 @@ async function leaveMeeting() {
   font-weight: 700;
   cursor: default;
   flex: 1.4;
+}
+
+.tab-item.inactive {
+  color: var(--text-muted);
+  opacity: 0.5;
+  flex: 1.4;
+}
+.tab-item.inactive:hover {
+  background: #f1f5f9;
+  color: var(--text);
+  opacity: 1;
 }
 
 .tab-item.prev,
@@ -282,16 +338,6 @@ async function leaveMeeting() {
   gap: 6px;
   flex-shrink: 0;
 }
-.ended-badge {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: #f1f5f9;
-  border: 1px solid var(--border);
-  padding: 2px 8px;
-  border-radius: 99px;
-  white-space: nowrap;
-}
 .leave-btn {
   color: var(--danger, #ef4444);
   border: 1px solid var(--danger, #ef4444);
@@ -301,4 +347,18 @@ async function leaveMeeting() {
 }
 .leave-btn:hover { background: #fef2f2; }
 .delete-btn { color: var(--text-muted); }
+.btn-nav-end {
+  padding: 4px 12px;
+  border-radius: var(--radius, 6px);
+  border: 1px solid var(--danger, #ef4444);
+  background: transparent;
+  color: var(--danger, #ef4444);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.btn-nav-end:hover { background: var(--danger, #ef4444); color: #fff; }
 </style>

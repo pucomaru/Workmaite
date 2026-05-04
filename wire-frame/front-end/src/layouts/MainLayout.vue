@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
+import { toWsUrl } from '../api'
 import AppHeader from '../components/AppHeader.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import HyeanAgent from '../components/HyeanAgent.vue'
@@ -25,7 +26,7 @@ onMounted(async () => {
 
 function connectNotifWs() {
   if (!auth.user) return
-  ws.value = new WebSocket(`ws://localhost:8000/ws/notifications/${auth.user.id}`)
+  ws.value = new WebSocket(toWsUrl(`/ws/notifications/${auth.user.id}`))
   ws.value.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data)
@@ -58,12 +59,13 @@ watch(() => route.path, (p) => {
       </main>
     </div>
     <HyeanAgent v-if="inMeetingPage && meetingId" :meeting-id="meetingId" />
+    <div class="ai-disclaimer" :class="{ 'sidebar-closed': !sidebarOpen }">Workma!te의 AI는 실수할 수 있으니 반드시 결과를 검토해주세요.</div>
   </div>
 </template>
 
 <style scoped>
 .layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.layout-body { display: flex; flex: 1; overflow: hidden; }
+.layout-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 .layout-main {
   flex: 1;
   overflow-y: auto;
@@ -72,4 +74,16 @@ watch(() => route.path, (p) => {
   transition: margin-left .2s;
 }
 .layout-main.sidebar-closed { margin-left: 0; }
+.ai-disclaimer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 4px 12px;
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+  margin-left: var(--sidebar-w);
+  transition: margin-left .2s;
+}
+.ai-disclaimer.sidebar-closed { margin-left: 0; }
 </style>

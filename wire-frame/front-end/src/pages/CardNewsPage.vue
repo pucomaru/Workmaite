@@ -1,15 +1,14 @@
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '../api'
-import { streamPost } from '../api'
+import api, { streamPost } from '../api'
 import MeetingNav from '../components/MeetingNav.vue'
 import AgentPanel from '../components/AgentPanel.vue'
+import BaseModal from '../components/BaseModal.vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useChatHistory } from '../composables/useChatHistory'
 import naonAvatar from '../assets/agents/naon.png'
-import { marked } from 'marked'
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,15 +18,116 @@ const meetingId = computed(() => Number(route.params.meetingId))
 // ── 상태 ─────────────────────────────────────────────────────────
 const sessions = ref([])
 const cardNewsList = ref([])
-const selectedSessions = ref([])
 const chatInput = ref('')
 const loading = ref(false)
 
+// 스타일 설정 팝업
+const styleSettingsOpen = ref(false)
+const styleSettings = ref({
+  target_audience: null,
+  session_ids: [],
+  include_minutes: true,
+  include_reports: true,
+  include_agendas: true,
+  include_todos: true,
+  include_decisions: true,
+  // 스타일 (널 = 선택안함, 나온이 판단)
+  slide_count: null,
+  first_card: null,
+  tone: null,
+  visual_style: null,
+  // 공통 포함 요소
+  include_cta: false,
+  include_source_date: false,
+  include_brand_logo: false,
+  // 나온에게 직접 요청
+  custom_request: '',
+})
+
+function resetStyleSettings() {
+  Object.assign(styleSettings.value, {
+    target_audience: null,
+    session_ids: [],
+    slide_count: null,
+    first_card: null,
+    tone: null,
+    visual_style: null,
+    include_cta: false,
+    include_source_date: false,
+    include_brand_logo: false,
+    custom_request: '',
+  })
+}
+const TARGET_OPTIONS = [
+  { value: 'c_level',   label: '👔 C레벨',  desc: 'CEO·CFO·CSO — 5~7장, 결론 우선' },
+  { value: 'executive', label: '🏢 임원',    desc: '본부장·이사 — 7~10장, 전략 중심' },
+  { value: 'staff',     label: '👥 구성원',  desc: '팀장·실무자 — 6~10장, 공감·행동 유도' },
+  { value: 'external',  label: '🌐 외부인',  desc: '고객·파트너 — 6~8장, 브랜드·CTA' },
+]
+const SOURCE_OPTIONS = [
+  { key: 'include_minutes',   label: '📝 회의록' },
+  { key: 'include_reports',   label: '📋 보고서' },
+  { key: 'include_agendas',   label: '🗂 아젠다' },
+  { key: 'include_todos',     label: '✅ To-do' },
+]
+
+const AUDIENCE_PRESETS = {
+  c_level:   { slide_count: 6, first_card: 'conclusion', tone: 'concise',   visual_style: 'simple_graph',  include_brand_logo: false },
+  executive: { slide_count: 8, first_card: 'issue_bg',   tone: 'logical',   visual_style: 'roadmap',       include_brand_logo: false },
+  staff:     { slide_count: 7, first_card: 'hook',        tone: 'friendly',  visual_style: 'infographic',   include_brand_logo: false },
+  external:  { slide_count: 7, first_card: 'visual_hook', tone: 'emotional', visual_style: 'image_brand',   include_brand_logo: true  },
+}
+
+const SLIDE_COUNT_OPTIONS = [5, 6, 7, 8, 10]
+
+const FIRST_CARD_OPTIONS = [
+  { value: 'conclusion',  label: '결론·수치 우선',     desc: '핵심 지표를 첫 장에 즉시 노출', badge: 'C레벨' },
+  { value: 'issue_bg',    label: '이슈 배경+메시지',   desc: '발제 배경과 핵심 메시지로 시작', badge: '임원' },
+  { value: 'hook',        label: '공감형 훅 카피',     desc: '"혹시 이런 경험 있으신가요?"',  badge: '구성원' },
+  { value: 'visual_hook', label: '비주얼+궁금증 카피', desc: '강한 비주얼로 시선을 끄는 첫 장', badge: '외부인' },
+]
+
+const TONE_OPTIONS = [
+  { value: 'concise',   label: '간결·단정·객관',     desc: '배경 최소화, 감성 카피 금지', badge: 'C레벨' },
+  { value: 'logical',   label: '논리적·설득적',       desc: '리스크·협조사항 반드시 포함',  badge: '임원' },
+  { value: 'friendly',  label: '친근·명확·동기부여',  desc: '구어체·실생활 예시 활용',       badge: '구성원' },
+  { value: 'emotional', label: '감성적·신뢰·매력',    desc: '스토리텔링·브랜드 일관성',      badge: '외부인' },
+]
+
+const VISUAL_OPTIONS = [
+  { value: 'simple_graph', label: '단순 그래프·아이콘',     desc: '복잡한 표 금지' },
+  { value: 'roadmap',      label: '로드맵·비교표·플로우',   desc: '전략적 시각화' },
+  { value: 'infographic',  label: '인포그래픽·이모지',       desc: '캐릭터·이미지 활용 가능' },
+  { value: 'image_brand',  label: '고품질 이미지·브랜드컬러', desc: '일관된 브랜드 정체성' },
+]
+
+watch(() => styleSettings.value.target_audience, (val) => {
+  const p = AUDIENCE_PRESETS[val]
+  if (p) Object.assign(styleSettings.value, p)
+})
+
+function toggleStyleSession(id) {
+  const idx = styleSettings.value.session_ids.indexOf(id)
+  if (idx >= 0) styleSettings.value.session_ids.splice(idx, 1)
+  else styleSettings.value.session_ids.push(id)
+}
+
+// 현재 설정 요약 레이블 (헤더 버튼 옆에 표시)
+const settingsSummary = computed(() => {
+  const t = TARGET_OPTIONS.find(o => o.value === styleSettings.value.target_audience)?.label
+  const sCount = styleSettings.value.session_ids.length
+  const parts = []
+  if (t) parts.push(t)
+  if (sCount) parts.push(`${sCount}개 차수`)
+  return parts.length ? parts.join(' · ') : '나온이 판단'
+})
+
 // human-in-the-loop 상태 (LangGraph)
-const proposingPlan = ref(false)        // 기획안 요청 중 (propose_node 실행 중)
-const currentPlan = ref(null)           // interrupt() 로 반환된 기획안 (승인 대기)
-const currentThreadId = ref(null)       // LangGraph thread_id (체크포인터 키)
-const generating = ref(false)           // generate_node 실행 중 (resume 후)
+const proposingPlan = ref(false)
+const currentPlan = ref(null)
+const currentThreadId = ref(null)
+const generating = ref(false)
+const clarifyingAnswers = ref({})
 
 // 우측 뷰: 'list' | 'plan' | 'card'
 const rightView = ref('list')
@@ -46,11 +146,6 @@ onMounted(async () => {
   await meetingsStore.fetchMeeting(meetingId.value)
   await Promise.all([loadSessions(), loadCardNews()])
   await loadMessages()
-  if (!messages.value.length) {
-    const greeting = '안녕하세요! 카드뉴스 기획 전문가 나온입니다. 📰\n\n어떤 카드뉴스를 만들고 싶으신가요? 먼저 아래 질문에 답해주시면 최적의 기획안을 제안해 드릴게요.\n\n① 이 카드뉴스를 어디에 사용하실 건가요? (임원 보고 / 팀 공유 / 사내 SNS 등)\n② 주요 독자는 누구인가요?\n③ 특별히 강조하고 싶은 내용이 있으신가요?'
-    messages.value.push({ role: 'agent', content: greeting })
-    saveMessage('agent', greeting)
-  }
 })
 
 async function loadSessions() {
@@ -61,14 +156,6 @@ async function loadSessions() {
 async function loadCardNews() {
   const { data } = await api.get(`/api/meetings/${meetingId.value}/card-news`)
   cardNewsList.value = data
-}
-
-function toggleSession(id) {
-  if (selectedSessions.value.includes(id)) {
-    selectedSessions.value = selectedSessions.value.filter(s => s !== id)
-  } else {
-    selectedSessions.value.push(id)
-  }
 }
 
 // ── 나온과 대화 ───────────────────────────────────────────────────
@@ -95,16 +182,15 @@ async function sendMessage() {
   )
 }
 
-// ── 기획안 요청 (human-in-the-loop) ─────────────────────────────
+// ── 카드뉴스 생성 (스타일 설정 + 채팅 기반) ─────────────────────
 async function requestPlan() {
-  if (!selectedSessions.value.length) {
-    const notice = { role: 'agent', content: '⚠️ 기획안을 작성하려면 먼저 좌측에서 회의 차수를 하나 이상 선택해 주세요.' }
-    messages.value.push(notice)
-    return
-  }
+  if (loading.value || proposingPlan.value) return
   proposingPlan.value = true
   currentPlan.value = null
   rightView.value = 'plan'
+
+  const s = styleSettings.value
+  const sessionIds = s.session_ids.length ? s.session_ids : sessions.value.map(x => x.id)
 
   const userMsg = '지금까지 논의한 내용으로 카드뉴스 기획안을 작성해 주세요.'
   messages.value.push({ role: 'user', content: userMsg })
@@ -119,20 +205,35 @@ async function requestPlan() {
   }))
 
   try {
-    // [LangGraph HITL Step 1]
-    // propose_node 실행 → interrupt() 에서 그래프 일시 정지
-    // thread_id 로 checkpointer 에 상태 보존
     const { data } = await api.post('/api/agent/naon/propose-plan', {
       meeting_id: meetingId.value,
-      session_ids: selectedSessions.value,
+      session_ids: sessionIds,
       chat_history: history,
+      target_audience: s.target_audience,
+      include_minutes: s.include_minutes,
+      include_reports: s.include_reports,
+      include_agendas: s.include_agendas,
+      include_todos: s.include_todos,
+      include_decisions: s.include_decisions,
+      slide_count: s.slide_count,
+      first_card: s.first_card,
+      tone: s.tone,
+      visual_style: s.visual_style,
+      include_cta: s.include_cta,
+      include_source_date: s.include_source_date,
+      include_brand_logo: s.include_brand_logo,
+      custom_request: s.custom_request || undefined,
     })
     if (data.status !== 'plan_ready') throw new Error(data.detail || '기획안 생성 실패')
     currentPlan.value = data.plan
-    currentThreadId.value = data.thread_id   // 그래프 재개 시 필요
-    agentMsg.content = `기획안이 완성되었습니다! 우측에서 슬라이드 구성을 검토해 주세요.\n\n"${data.plan.title}"\n총 ${data.plan.slides?.length || 0}장 슬라이드\n\n마음에 들면 [생성 확정], 수정이 필요하면 [수정 요청]을 눌러 주세요.`
+    currentThreadId.value = data.thread_id
+    clarifyingAnswers.value = {}
+    const hasQ = data.plan.clarifying_questions?.length
+    agentMsg.content = hasQ
+      ? `기획안을 작성했습니다. 확인이 필요한 사항이 있습니다. 우측에서 답변해 주시면 더 정확한 결과를 드릴 수 있습니다.`
+      : `기획안이 완성되었습니다! 우측에서 슬라이드 구성을 검토해 주세요.\n\n"${data.plan.title}"\n총 ${data.plan.slides?.length || 0}장 슬라이드\n\n마음에 들면 [생성 확정], 수정이 필요하면 [수정 요청]을 눌러 주세요.`
     saveMessage('agent', agentMsg.content)
-  } catch (e) {
+  } catch {
     agentMsg.content = '기획안 작성 중 오류가 발생했습니다. 다시 시도해 주세요.'
     saveMessage('agent', agentMsg.content)
     rightView.value = 'list'
@@ -142,7 +243,43 @@ async function requestPlan() {
   }
 }
 
-// ── 기획안 수정 요청 → LangGraph 그래프 거부 후 대화 복귀 ─────────
+// ── HITL 질문 답변 반영 후 재기획 ──────────────────────────────────
+async function replanWithAnswers() {
+  if (!currentThreadId.value) return
+  generating.value = true
+  const questions = currentPlan.value?.clarifying_questions || []
+  const qa = questions.map((q, i) =>
+    `Q: ${q.question}\nA: ${clarifyingAnswers.value[i] || '(미입력)'}`
+  ).join('\n\n')
+  const feedback = `다음 답변을 반영하여 기획안을 다시 작성해 주세요:\n\n${qa}`
+  const agentMsg = { role: 'agent', content: '' }
+  messages.value.push(agentMsg)
+  await nextTick(); scrollChat()
+  try {
+    await api.post('/api/agent/naon/resume-plan', {
+      thread_id: currentThreadId.value,
+      meeting_id: meetingId.value,
+      session_ids: styleSettings.value.session_ids.length
+        ? styleSettings.value.session_ids
+        : sessions.value.map(s => s.id),
+      approved: false,
+      feedback,
+    })
+    agentMsg.content = '답변을 반영하여 재기획 중입니다. [카드뉴스 생성] 버튼을 다시 눌러 주세요.'
+    saveMessage('agent', agentMsg.content)
+  } catch {
+    agentMsg.content = '처리 중 오류가 발생했습니다.'
+  } finally {
+    currentPlan.value = null
+    currentThreadId.value = null
+    clarifyingAnswers.value = {}
+    rightView.value = 'list'
+    generating.value = false
+    scrollChat()
+  }
+}
+
+// ── 기획안 수정 요청 ─────────────────────────────────────────────
 async function requestPlanRevision() {
   if (!currentThreadId.value) { rightView.value = 'list'; return }
   generating.value = true
@@ -151,11 +288,12 @@ async function requestPlanRevision() {
   await nextTick(); scrollChat()
 
   try {
-    // [LangGraph HITL] Command(resume={approved: false}) → 그래프 종료
     await api.post('/api/agent/naon/resume-plan', {
       thread_id: currentThreadId.value,
       meeting_id: meetingId.value,
-      session_ids: selectedSessions.value,
+      session_ids: styleSettings.value.session_ids.length
+        ? styleSettings.value.session_ids
+        : sessions.value.map(s => s.id),
       approved: false,
       feedback: '기획안을 수정해 주세요.',
     })
@@ -182,12 +320,12 @@ async function confirmAndGenerate() {
   await nextTick(); scrollChat()
 
   try {
-    // [LangGraph HITL Step 2]
-    // Command(resume={approved: true}) → generate_node 실행
     const { data } = await api.post('/api/agent/naon/resume-plan', {
       thread_id: currentThreadId.value,
       meeting_id: meetingId.value,
-      session_ids: selectedSessions.value,
+      session_ids: styleSettings.value.session_ids.length
+        ? styleSettings.value.session_ids
+        : sessions.value.map(s => s.id),
       approved: true,
     })
     if (data.status !== 'done') throw new Error('생성 실패')
@@ -266,58 +404,188 @@ function slideColor(type) {
         subtitle="카드뉴스 기획 Agent"
         :messages="messages"
         :loading="loading"
-        placeholder="나온에게 메시지를 보내세요..."
-        accent-color="#8b5cf6"
-        accent-border="#a78bfa"
-        accent-bg="#f5f3ff"
-        bubble-gradient="linear-gradient(135deg,#f5f3ff,#ede9fe)"
-        bubble-color="#4c1d95"
+        greeting="안녕하세요! 카드뉴스 전문가 나온입니다. 🗞
+
+대화를 통해 원하는 내용을 자유롭게 말씀해 주세요.
+(강조할 내용, 빠뜨리면 안 될 항목, 톤앤매너 등 무엇이든!)
+
+대상 독자·회의 차수·활용 자료는 좌측 상단의 [스타일설정]에서 선택하실 수 있습니다.
+설정이 완료되면 아래 [카드뉴스 생성] 버튼을 눌러주세요!"
+        placeholder="나온에게 커스텀 요청사항을 메시지로 보내세요..."
+        accent-color="#f97316"
+        accent-border="#fb923c"
+        accent-bg="#fff7ed"
+        bubble-gradient="linear-gradient(135deg,#fff7ed,#ffedd5)"
+        bubble-color="#7c2d12"
         @send="handleSend"
         @clear="clearHistory"
       >
-        <template #extra-header>
-          <!-- 회의 차수 선택 -->
-          <div class="session-selector">
-            <div class="section-label">회의 차수 선택 <span style="color:var(--text-muted);font-weight:400">(기획안에 반영될 회의록)</span></div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
-              <div v-if="!sessions.length" style="font-size:13px;color:var(--text-muted)">종료된 회의가 없습니다.</div>
-              <button
-                v-for="s in sessions"
-                :key="s.id"
-                class="btn btn-sm"
-                :class="selectedSessions.includes(s.id) ? 'btn-primary' : 'btn-outline'"
-                @click="toggleSession(s.id)"
-              >
-                {{ s.session_number }}차 {{ s.title || '' }}
-              </button>
-            </div>
-          </div>
+        <template #actions>
+          <button class="ap-style-btn" @click="styleSettingsOpen = true" title="대상 독자, 회의 차수, 활용 자료 설정">
+            ⚙ 스타일설정
+          </button>
         </template>
         <template #footer-extra>
-          <!-- 기획안 요청 버튼 -->
           <div style="padding: 0 16px 12px">
             <button
               class="btn btn-outline btn-sm plan-btn"
               :disabled="proposingPlan || generating || loading"
               @click="requestPlan"
-              title="지금까지 나눈 대화와 선택한 회의 차수를 기반으로 기획안을 작성합니다"
+              title="설정과 대화 내용을 바탕으로 카드뉴스 기획안을 생성합니다"
             >
-              {{ proposingPlan ? '기획안 작성 중...' : '📋 기획안 요청' }}
+              {{ proposingPlan ? '기획안 작성 중...' : '🗞 카드뉴스 생성' }}
             </button>
           </div>
         </template>
       </AgentPanel>
 
+      <!-- ── 스타일설정 팝업 모달 ─────────────────────────────── -->
+      <BaseModal v-model="styleSettingsOpen" width="460px">
+        <template #title>⚙ 스타일 설정</template>
+
+        <div class="ss-body">
+              <!-- 1. 대상 독자 -->
+              <div class="ss-section">
+                <div class="ss-section-label">대상 독자 <span class="ss-hint">선택 시 관련 항목 자동 설정 / 다시 누르면 해제</span></div>
+                <div class="ss-target-grid">
+                  <button
+                    v-for="opt in TARGET_OPTIONS"
+                    :key="opt.value"
+                    class="ss-target-btn"
+                    :class="{ active: styleSettings.target_audience === opt.value }"
+                    @click="styleSettings.target_audience = styleSettings.target_audience === opt.value ? null : opt.value"
+                  >
+                    <span class="ss-target-label">{{ opt.label }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 2. 슬라이드 분량 -->
+              <div class="ss-section">
+                <div class="ss-section-label">분량</div>
+                <div class="ss-count-row">
+                  <button
+                    v-for="n in SLIDE_COUNT_OPTIONS"
+                    :key="n"
+                    class="ss-count-btn"
+                    :class="{ active: styleSettings.slide_count === n }"
+                    @click="styleSettings.slide_count = styleSettings.slide_count === n ? null : n"
+                  >{{ n }}장</button>
+                </div>
+              </div>
+
+              <!-- 3. 언어·톤 -->
+              <div class="ss-section">
+                <div class="ss-section-label">언어·톤</div>
+                <div class="ss-radio-grid">
+                  <button
+                    v-for="opt in TONE_OPTIONS"
+                    :key="opt.value"
+                    class="ss-radio-btn"
+                    :class="{ active: styleSettings.tone === opt.value }"
+                    @click="styleSettings.tone = styleSettings.tone === opt.value ? null : opt.value"
+                  >
+                    <span class="ss-radio-label">{{ opt.label }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 4. 회의 차수 -->
+              <div class="ss-section">
+                <div class="ss-section-label">
+                  회의 차수
+                  <span class="ss-hint">미선택 시 전체 회의 활용</span>
+                </div>
+                <div class="ss-session-row">
+                  <div v-if="!sessions.length" class="ss-empty">종료된 회의가 없습니다.</div>
+                  <button
+                    v-for="s in sessions"
+                    :key="s.id"
+                    class="ss-session-btn"
+                    :class="{ active: styleSettings.session_ids.includes(s.id) }"
+                    @click="toggleStyleSession(s.id)"
+                  >
+                    {{ s.session_number }}차<template v-if="s.title"> — {{ s.title }}</template>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 7. 활용 자료 -->
+              <div class="ss-section">
+                <div class="ss-section-label">활용 자료 <span class="ss-hint">기획에 포함할 자료를 선택하세요</span></div>
+                <div class="ss-source-row">
+                  <label v-for="s in SOURCE_OPTIONS" :key="s.key" class="ss-source-opt">
+                    <input type="checkbox" v-model="styleSettings[s.key]" />
+                    <span>{{ s.label }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 8. 공통 포함 요소 -->
+              <div class="ss-section" style="border-bottom:none">
+                <div class="ss-section-label">공통 포함 요소</div>
+                <div class="ss-common-list">
+                  <label class="ss-common-opt">
+                    <input type="checkbox" v-model="styleSettings.include_cta" />
+                    <div>
+                      <span class="ss-common-label">마지막 장 CTA 포함</span>
+                      <span class="ss-common-desc">행동 유도</span>
+                    </div>
+                  </label>
+                  <label class="ss-common-opt">
+                    <input type="checkbox" v-model="styleSettings.include_source_date" />
+                    <div>
+                      <span class="ss-common-label">출처·날짜 명시</span>
+                      <span class="ss-common-desc">수치 데이터 신뢰도 확보</span>
+                    </div>
+                  </label>
+                  <label class="ss-common-opt">
+                    <input type="checkbox" v-model="styleSettings.include_brand_logo" />
+                    <div>
+                      <span class="ss-common-label">브랜드 로고 포함</span>
+                      <span class="ss-common-desc">외부 공개·마케팅용 콘텐츠에 권장</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 9. 나온에게 직접 요청 -->
+              <div class="ss-section" style="border-bottom:none">
+                <div class="ss-section-label">나온에게 직접 요청 <span class="ss-hint">자유롭게 원하는 방향을 적어주세요</span></div>
+                <textarea
+                  v-model="styleSettings.custom_request"
+                  class="ss-custom-input"
+                  placeholder="예: 3분기 실적 강조, 긍정적인 분위기로, 경쟁사 비교 슬라이드 포함..."
+                  rows="3"
+                />
+              </div>
+        </div>
+
+        <template #footer>
+          <button class="btn btn-ghost btn-sm" @click="resetStyleSettings">전체 초기화</button>
+          <button class="btn btn-primary" @click="styleSettingsOpen = false">확인</button>
+        </template>
+      </BaseModal>
+
       <!-- ── 오른쪽: 기획안 / 카드뉴스 목록 ─────────────────── -->
-      <div class="cardnews-right card right-col">
+      <div class="cardnews-right card">
+
+        <!-- 공통 패널 헤더 -->
+        <div class="right-panel-header">
+          <button class="panel-tab" :class="{ active: rightView === 'list' }" @click="rightView = 'list'">
+            목록
+            <span v-if="cardNewsList.length" class="tab-badge">{{ cardNewsList.length }}</span>
+          </button>
+          <button v-if="rightView === 'plan'" class="panel-tab active">
+            📋 기획안 검토
+          </button>
+          <button v-if="rightView === 'card' && selectedCard" class="panel-tab active" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ selectedCard.title }}
+          </button>
+        </div>
 
         <!-- ● 기획안 검토 뷰 -->
         <template v-if="rightView === 'plan'">
-          <div class="card-header">
-            <span style="font-weight:600">📋 기획안 검토</span>
-            <button class="btn btn-ghost btn-sm" @click="rightView = 'list'">목록으로</button>
-          </div>
-
           <div v-if="proposingPlan" class="loading-state">
             <div class="spinner" />
             <p>기획안을 작성하고 있습니다...</p>
@@ -329,9 +597,30 @@ function slideColor(type) {
               <div class="plan-title">{{ currentPlan.title }}</div>
               <div class="plan-tags">
                 <span class="tag">🎯 {{ currentPlan.purpose }}</span>
-                <span class="tag">👥 {{ currentPlan.target }}</span>
+                <span class="tag">{{ TARGET_OPTIONS.find(o=>o.value===currentPlan.target_audience)?.label || '👥 구성원' }}</span>
                 <span class="tag">🎨 {{ currentPlan.tone }}</span>
               </div>
+            </div>
+
+            <!-- 나온의 HITL 확인 질문 -->
+            <div v-if="currentPlan.clarifying_questions?.length" class="plan-questions">
+              <div class="pq-header">💬 나온이 확인이 필요한 사항</div>
+              <div v-for="(q, i) in currentPlan.clarifying_questions" :key="i" class="pq-item">
+                <div class="pq-question">{{ q.question }}</div>
+                <div v-if="q.options?.length" class="pq-opts">
+                  <button
+                    v-for="opt in q.options"
+                    :key="opt"
+                    class="pq-opt-btn"
+                    :class="{ active: clarifyingAnswers[i] === opt }"
+                    @click="clarifyingAnswers[i] = clarifyingAnswers[i] === opt ? undefined : opt"
+                  >{{ opt }}</button>
+                </div>
+                <input v-else v-model="clarifyingAnswers[i]" class="pq-input" placeholder="답변을 입력하세요..." />
+              </div>
+              <button class="btn btn-primary btn-sm" style="margin-top:4px" @click="replanWithAnswers">
+                답변 반영하여 재기획
+              </button>
             </div>
 
             <!-- 슬라이드 목록 (모바일 카드 스타일) -->
@@ -368,14 +657,6 @@ function slideColor(type) {
 
         <!-- ● 카드뉴스 상세 뷰 -->
         <template v-else-if="rightView === 'card' && selectedCard">
-          <div class="card-header">
-            <div>
-              <div style="font-weight:600;font-size:14px">{{ selectedCard.title }}</div>
-              <div style="font-size:11px;color:var(--text-muted)">{{ formatDate(selectedCard.created_at) }}</div>
-            </div>
-            <button class="btn btn-ghost btn-sm" @click="rightView = 'list'">← 목록</button>
-          </div>
-
           <div class="card-slides-view">
             <div
               v-for="slide in selectedCard.content?.slides"
@@ -394,14 +675,10 @@ function slideColor(type) {
 
         <!-- ● 생성된 카드뉴스 목록 -->
         <template v-else>
-          <div class="card-header">
-            <span style="font-weight:600">생성된 카드뉴스 ({{ cardNewsList.length }})</span>
-          </div>
-
           <div class="card-list">
             <div v-if="!cardNewsList.length" class="empty-state">
-              <p>📭 아직 생성된 카드뉴스가 없습니다.</p>
-              <p style="font-size:13px;color:var(--text-muted)">나온과 대화 후 [기획안 요청]을 눌러보세요.</p>
+              <p>📭 아직 생성된 카드뉴스가 없어요</p>
+              <p style="font-size:13px;color:var(--text-muted)">나온과 대화 후 [카드뉴스 생성]을 눌러보세요</p>
             </div>
 
             <div
@@ -435,12 +712,6 @@ function slideColor(type) {
     </div>
   </div>
 
-  <!-- 플로팅 버튼: 계속 진행 (관리자만) -->
-  <div v-if="isAdmin" class="fab-group">
-    <button class="fab fab-primary" @click="router.push(`/meetings/${meetingId}/sessions`)" title="다음 회의 세션으로 이동">
-      ▶ 계속 진행
-    </button>
-  </div>
 </template>
 
 <style scoped>
@@ -448,8 +719,166 @@ function slideColor(type) {
 .cardnews-body { flex: 1; min-height: 0; display: flex; gap: 16px; overflow: hidden; }
 .cardnews-right { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 
-/* 세션 선택기 (AgentPanel extra-header 슬롯 안) */
-.session-selector { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+/* 세션 참고 표시 (AgentPanel extra-header 슬롯 안) */
+.session-ref { padding: 8px 16px 10px; border-bottom: 1px solid var(--border); }
+.session-ref-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.session-ref-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+
+/* ── AgentPanel 헤더 스타일설정 버튼 ── */
+.ap-style-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1.5px solid #fb923c;
+  border-radius: 99px;
+  background: #fff7ed;
+  color: #c2410c;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+.ap-style-btn:hover { background: #ffedd5; border-color: #ea580c; }
+
+/* ── 스타일설정 팝업 모달 ── */
+.ss-body { flex: 1; overflow-y: auto; }
+
+.ss-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ss-section-label {
+  font-size: 12px; font-weight: 700; color: var(--text);
+  margin-bottom: 10px; display: flex; align-items: baseline; gap: 6px;
+}
+.ss-hint { font-size: 11px; font-weight: 400; color: var(--text-muted); }
+
+/* 대상 독자 — 2×2 그리드 */
+.ss-target-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+}
+.ss-target-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border); border-radius: 10px;
+  background: #f8fafc; cursor: pointer; text-align: left;
+  transition: all .15s;
+}
+.ss-target-btn:hover { border-color: #fb923c; background: #fff7ed; }
+.ss-target-btn.active { border-color: #ea580c; background: #ffedd5; }
+.ss-target-label { font-size: 12px; font-weight: 700; color: var(--text); }
+.ss-target-desc { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
+
+/* 슬라이드 분량 */
+.ss-count-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.ss-count-btn {
+  font-size: 13px; font-weight: 600; padding: 5px 14px;
+  border: 1.5px solid var(--border); border-radius: 99px;
+  background: #f8fafc; cursor: pointer; transition: all .15s; color: var(--text);
+}
+.ss-count-btn:hover { border-color: #fb923c; background: #fff7ed; }
+.ss-count-btn.active { border-color: #ea580c; background: #ffedd5; color: #c2410c; }
+
+/* 첫 장 구성 / 언어·톤 / 시각화 — 2×2 라디오 그리드 */
+.ss-radio-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+}
+.ss-radio-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border); border-radius: 10px;
+  background: #f8fafc; cursor: pointer; text-align: left;
+  transition: all .15s;
+}
+.ss-radio-btn:hover { border-color: #fb923c; background: #fff7ed; }
+.ss-radio-btn.active { border-color: #ea580c; background: #ffedd5; }
+.ss-radio-badge {
+  font-size: 9px; font-weight: 700; color: #ea580c;
+  background: #ffedd5; padding: 1px 5px; border-radius: 4px;
+  letter-spacing: .3px;
+}
+.ss-radio-label { font-size: 12px; font-weight: 700; color: var(--text); }
+.ss-radio-desc { font-size: 10px; color: var(--text-muted); line-height: 1.3; }
+
+/* 회의 차수 */
+.ss-session-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ss-empty { font-size: 12px; color: var(--text-muted); }
+.ss-session-btn {
+  font-size: 12px; padding: 4px 12px;
+  border: 1.5px solid var(--border); border-radius: 99px;
+  background: #f8fafc; cursor: pointer; transition: all .15s;
+  color: var(--text);
+}
+.ss-session-btn:hover { border-color: #fb923c; background: #fff7ed; }
+.ss-session-btn.active { border-color: #ea580c; background: #ffedd5; color: #c2410c; font-weight: 600; }
+
+/* 활용 자료 */
+.ss-source-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ss-source-opt {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text);
+  background: #f8fafc; border: 1px solid var(--border);
+  border-radius: 99px; padding: 4px 10px;
+  cursor: pointer; user-select: none; transition: all .15s;
+}
+.ss-source-opt:has(input:checked) { background: #ffedd5; border-color: #fb923c; color: #c2410c; }
+.ss-source-opt input { width: 12px; height: 12px; accent-color: #ea580c; }
+
+/* 공통 포함 요소 */
+.ss-common-list { display: flex; flex-direction: column; gap: 10px; }
+.ss-common-opt {
+  display: flex; align-items: flex-start; gap: 8px;
+  cursor: pointer;
+}
+.ss-common-opt input { margin-top: 2px; accent-color: #ea580c; flex-shrink: 0; }
+.ss-common-label { display: block; font-size: 12px; font-weight: 600; color: var(--text); }
+.ss-common-desc { display: block; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+/* 나온에게 직접 요청 */
+.ss-custom-input {
+  width: 100%; box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 12px; line-height: 1.6; color: var(--text);
+  background: #f8fafc; border: 1.5px solid var(--border);
+  border-radius: 10px; resize: vertical;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.ss-custom-input:focus { outline: none; border-color: #ea580c; background: #fff; }
+
+/* 나온 HITL 확인 질문 */
+.plan-questions {
+  margin: 12px 16px 0;
+  background: #fff7ed; border: 1.5px solid #fdba74;
+  border-radius: 12px; padding: 14px;
+}
+.pq-header { font-size: 12px; font-weight: 700; color: #c2410c; margin-bottom: 12px; }
+.pq-item { margin-bottom: 12px; }
+.pq-item:last-of-type { margin-bottom: 8px; }
+.pq-question { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.pq-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pq-opt-btn {
+  font-size: 12px; padding: 4px 12px;
+  border: 1.5px solid #fdba74; border-radius: 99px;
+  background: #fff; cursor: pointer; color: #c2410c; transition: all .15s;
+}
+.pq-opt-btn:hover { background: #ffedd5; }
+.pq-opt-btn.active { background: #ea580c; color: #fff; border-color: #ea580c; }
+.pq-input {
+  width: 100%; box-sizing: border-box;
+  padding: 7px 10px; font-size: 12px;
+  border: 1.5px solid #fdba74; border-radius: 8px;
+  background: #fff; color: var(--text); font-family: inherit;
+}
+.pq-input:focus { outline: none; border-color: #ea580c; }
+
 .section-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .plan-btn { width: 100%; font-size: 13px; }
 
@@ -459,9 +888,6 @@ function slideColor(type) {
 .typing-indicator span:nth-child(2) { animation-delay: .2s; }
 .typing-indicator span:nth-child(3) { animation-delay: .4s; }
 @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-
-/* ── 오른쪽 열 ── */
-.right-col { display: flex; flex-direction: column; }
 
 /* 기획안 */
 .plan-meta { padding: 16px; border-bottom: 1px solid var(--border); }
@@ -497,10 +923,6 @@ function slideColor(type) {
 .cni-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
 .cni-del-btn { position: absolute; top: 6px; right: 6px; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25); color: #ef4444; width: 20px; height: 20px; border-radius: 50%; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s; }
 .cni-item:hover .cni-del-btn { opacity: 1; }
-.fab-group { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 50; }
-.fab { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 24px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.15); border: none; transition: all .15s; white-space: nowrap; }
-.fab:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.2); }
-.fab-primary { background: var(--primary); color: #fff; }
 .cni-preview { width: 80px; min-height: 80px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; text-align: center; flex-shrink: 0; }
 .cni-prev-no { font-size: 11px; color: rgba(255,255,255,.7); }
 .cni-prev-title { font-size: 11px; font-weight: 700; color: #fff; margin-top: 4px; line-height: 1.3; }
@@ -514,85 +936,4 @@ function slideColor(type) {
 .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
-
-const selectedSessions = ref([])
-const input = ref('')
-const loading = ref(false)
-const generating = ref(false)
-const selectedCard = ref(null)
-
-const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('cardnews', meetingId.value)
-
-onMounted(async () => {
-  await meetingsStore.fetchMeeting(meetingId.value)
-  await loadSessions()
-  await loadCardNews()
-  messages.value.push({ role: 'agent', content: '안녕하세요! 카드뉴스 생성 AI 나온입니다.\n회의 차수를 선택하고 강조할 내용을 알려주시면 카드뉴스를 생성해드립니다.' })
-})
-
-async function loadSessions() {
-  const { data } = await api.get(`/api/meetings/${meetingId.value}/sessions`)
-  sessions.value = data.filter(s => s.status === 'ended')
-}
-
-async function loadCardNews() {
-  const { data } = await api.get(`/api/meetings/${meetingId.value}/card-news`)
-  cardNewsList.value = data
-}
-
-function toggleSession(id) {
-  if (selectedSessions.value.includes(id)) {
-    selectedSessions.value = selectedSessions.value.filter(s => s !== id)
-  } else {
-    selectedSessions.value.push(id)
-  }
-}
-
-async function generateCardNews() {
-  if (!selectedSessions.value.length) {
-    alert('회의 차수를 선택하세요.')
-    return
-  }
-  generating.value = true
-  const userMsg = `${selectedSessions.value.length}개 회의 차수 카드뉴스 생성 요청`
-  messages.value.push({ role: 'user', content: userMsg })
-  saveMessage('user', userMsg)
-  const agentMsg = { role: 'agent', content: '카드뉴스를 생성하고 있습니다...' }
-  messages.value.push(agentMsg)
-
-  try {
-    const { data } = await api.post('/api/agent/naon/generate-card-news', {
-      meeting_id: meetingId.value,
-      session_ids: selectedSessions.value,
-      emphasis_points: input.value,
-    })
-    agentMsg.content = `카드뉴스 "${data.content.title}"가 생성되었습니다! 우측에서 확인하세요.`
-    saveMessage('agent', agentMsg.content)
-    await loadCardNews()
-  } catch {
-    agentMsg.content = '카드뉴스 생성 중 오류가 발생했습니다.'
-    saveMessage('agent', agentMsg.content)
-  } finally {
-    generating.value = false
-  }
-}
-
-async function sendMessage() {
-  if (!input.value.trim() || loading.value) return
-  const text = input.value.trim()
-  messages.value.push({ role: 'user', content: text })
-  saveMessage('user', text)
-  input.value = ''
-  const agentMsg = { role: 'agent', content: '' }
-  messages.value.push(agentMsg)
-  loading.value = true
-
-  const history = messages.value.slice(0,-1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
-  await streamPost(
-    '/api/agent/naon/chat',
-    { meeting_id: meetingId.value, message: text, chat_history: history },
-    (chunk) => { agentMsg.content += chunk },
-    () => { loading.value = false; saveMessage('agent', agentMsg.content) }
-  )
-}
 

@@ -1,16 +1,14 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import api from '../api'
-import { streamPost } from '../api'
+import api, { streamPost } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
 import { useChatHistory } from '../composables/useChatHistory'
 import LiveKitRoom from '../components/LiveKitRoom.vue'
 import PreJoinLobby from '../components/PreJoinLobby.vue'
 import araAvatar from '../assets/agents/ara.png'
-import { marked } from 'marked'
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 const route = useRoute()
 const router = useRouter()

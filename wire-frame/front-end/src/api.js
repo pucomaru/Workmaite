@@ -1,6 +1,14 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: 'http://localhost:8000' })
+export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+/** HTTP BASE_URL을 WebSocket URL로 변환합니다. */
+export function toWsUrl(path) {
+  const base = BASE_URL.replace(/^http/, 'ws')
+  return `${base}${path}`
+}
+
+const api = axios.create({ baseURL: BASE_URL })
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
@@ -21,21 +29,6 @@ api.interceptors.response.use(
 
 export default api
 
-export const BASE_URL = 'http://localhost:8000'
-
-export function sseStream(path, onChunk, onDone) {
-  const token = localStorage.getItem('token')
-  fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({}),
-  })
-  return null
-}
-
 export async function streamPost(path, body, onChunk, onDone) {
   const token = localStorage.getItem('token')
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -46,6 +39,11 @@ export async function streamPost(path, body, onChunk, onDone) {
     },
     body: JSON.stringify(body),
   })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
+
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -60,9 +58,10 @@ export async function streamPost(path, body, onChunk, onDone) {
       if (line.startsWith('data: ')) {
         const data = line.slice(6)
         if (data === '[DONE]') { onDone?.(); return }
-        onChunk(data)
+        onChunk(data.replace(/\\n/g, '\n'))
       }
     }
   }
   onDone?.()
 }
+

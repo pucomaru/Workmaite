@@ -5,6 +5,7 @@ import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
 import HyeanAgent from '../components/HyeanAgent.vue'
+import BaseModal from '../components/BaseModal.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -17,6 +18,10 @@ const memberSearch = ref('')
 const searchResults = ref([])
 const selectedMembers = ref([])
 const creating = ref(false)
+
+const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'presenter' | null }
+const endingMeeting = ref(null)
+const deletingMeeting = ref(null)
 
 // ── Calendar state ──────────────────────────────────────────
 const calView = ref('month')
@@ -45,7 +50,7 @@ const calTitle = computed(() => {
   const d = cursor.value
   const y = d.getFullYear()
   const m = d.getMonth() + 1
-  if (calView.value === 'day') return `${y}년 ${m}월 ${d.getDate()}일 (${WEEKDAYS_KO[d.getDay()]})`
+  if (calView.value === 'day') return `${y}년 ${m}월 ${d.getDate()}일 (${WEEKDAYS_KO[d.getDay()] ?? ''})`
   if (calView.value === 'week') {
     const { start, end } = weekRange(d)
     const sm = start.getMonth() + 1, em = end.getMonth() + 1
@@ -101,7 +106,7 @@ const weekDays = computed(() => {
 const yearMonths = computed(() => {
   const y = cursor.value.getFullYear()
   return Array.from({ length: 12 }, (_, m) => {
-    const firstWd = new Date(y, m, 1).getDay()
+    const firstWd = (new Date(y, m, 1).getDay() + 6) % 7
     const lastDay = new Date(y, m + 1, 0).getDate()
     const cells = []
     for (let i = 0; i < firstWd; i++) cells.push(null)
@@ -134,7 +139,41 @@ onMounted(async () => {
     const calRes = await api.get('/api/calendar/events')
     calendarEvents.value = calRes.data
   } catch {}
+  // 각 회의체에 대한 내 권한 병렬 조회
+  await Promise.all(
+    meetingsStore.meetings.map(async (m) => {
+      try {
+        const { data } = await api.get(`/api/meetings/${m.id}/my-role`)
+        meetingRoles.value[m.id] = data.role
+      } catch {
+        meetingRoles.value[m.id] = null
+      }
+    })
+  )
 })
+
+// ── 회의체 종료 / 삭제 ─────────────────────────────────────────
+async function endMeeting(m, e) {
+  e.stopPropagation()
+  if (!confirm(`"${m.title}" 회의체를 종료하시겠습니까?\n종료 후에는 새 회의를 추가할 수 없습니다.`)) return
+  endingMeeting.value = m.id
+  try {
+    await meetingsStore.terminateMeeting(m.id)
+  } finally {
+    endingMeeting.value = null
+  }
+}
+
+async function deleteMeeting(m, e) {
+  e.stopPropagation()
+  if (!confirm(`"${m.title}" 회의체를 삭제하시겠습니까?\n모든 회의록과 데이터가 함께 삭제됩니다.`)) return
+  deletingMeeting.value = m.id
+  try {
+    await meetingsStore.deleteMeeting(m.id)
+  } finally {
+    deletingMeeting.value = null
+  }
+}
 
 // ── Modal ────────────────────────────────────────────────────
 async function searchMembers() {
@@ -189,6 +228,9 @@ function statusLabel(s) {
 const activeMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'active')
 )
+const endedMeetings = computed(() =>
+  meetingsStore.meetings.filter(m => m.status === 'ended')
+)
 
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const upcomingSessions = computed(() => {
@@ -228,8 +270,9 @@ const upcomingSessions = computed(() => {
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
     <div class="main-grid">
 
-    <!-- ② 진행중인 회의체 -->
+    <!-- ② 회의체 섹션 (진행중 + 종료) -->
     <div class="meetings-section">
+      <!-- 진행중인 회의체 -->
       <div class="section-title-row">
         <span class="section-title">진행중인 회의체</span>
         <button class="btn btn-primary btn-sm" @click="showCreateModal = true">+ 회의체 만들기</button>
@@ -239,7 +282,7 @@ const upcomingSessions = computed(() => {
           v-for="m in activeMeetings"
           :key="m.id"
           class="meeting-card card"
-          @click="router.push(`/meetings/${m.id}/agenda`)"
+          @click="router.push(`/meetings/${m.id}/home`)"
         >
           <div class="meeting-card-header">
             <span class="meeting-title">{{ m.title }}</span>
@@ -253,6 +296,7 @@ const upcomingSessions = computed(() => {
           <button class="btn btn-primary btn-sm" @click="showCreateModal = true">회의체 만들기</button>
         </div>
       </div>
+
     </div>
 
     <!-- ③ 달력 -->
@@ -295,7 +339,7 @@ const upcomingSessions = computed(() => {
           <div class="week-grid">
             <div v-for="d in weekDays" :key="d.toISOString()" class="week-col" :class="{ today: isToday(d) }" @click="clickDay(d)">
               <div class="week-col-header">
-                <span class="week-wd">{{ WEEKDAYS_KO[d.getDay()] }}</span>
+                <span class="week-wd">{{ WEEKDAYS_KO[(d.getDay() + 6) % 7] }}</span>
                 <span class="week-daynum" :class="{ today: isToday(d) }">{{ d.getDate() }}</span>
               </div>
               <div class="week-evts">
@@ -353,60 +397,55 @@ const upcomingSessions = computed(() => {
     <HyeanAgent />
 
     <!-- 회의체 생성 모달 -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal slide-up">
-        <div class="modal-header">
-          <span class="modal-title">새 회의체 만들기</span>
-          <button class="btn-ghost btn-icon" @click="showCreateModal = false">✕</button>
+    <BaseModal v-model="showCreateModal">
+      <template #title>새 회의체 만들기</template>
+      <div class="modal-inner">
+        <div class="form-group">
+          <label class="form-label">회의체 제목 <span style="color:var(--danger)">*</span></label>
+          <input v-model="form.title" class="form-input" placeholder="예: 경영전략 위원회" />
         </div>
-        <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">회의체 목적</label>
+          <textarea v-model="form.purpose" class="form-input form-textarea" placeholder="회의체의 목적을 입력하세요" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label class="form-label">회의체 제목 <span style="color:var(--danger)">*</span></label>
-            <input v-model="form.title" class="form-input" placeholder="예: 2024 경영전략 위원회" />
+            <label class="form-label">시작일</label>
+            <input type="date" v-model="form.start_date" class="form-input" />
           </div>
           <div class="form-group">
-            <label class="form-label">회의체 목적</label>
-            <textarea v-model="form.purpose" class="form-input form-textarea" placeholder="회의체의 목적을 입력하세요" />
+            <label class="form-label">종료일</label>
+            <input type="date" v-model="form.end_date" class="form-input" />
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="form-group">
-              <label class="form-label">시작일</label>
-              <input type="date" v-model="form.start_date" class="form-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">종료일</label>
-              <input type="date" v-model="form.end_date" class="form-input" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">멤버 초대</label>
-            <input v-model="memberSearch" class="form-input" placeholder="사번 또는 이름 검색" @input="searchMembers" />
-            <div v-if="searchResults.length" class="search-dropdown">
-              <div v-for="u in searchResults" :key="u.id" class="search-item">
-                <span>{{ u.name }} ({{ u.employee_id }})</span>
-                <div style="display:flex;gap:4px">
-                  <button class="btn btn-sm btn-primary" @click="addMember(u, 'admin')">Admin</button>
-                  <button class="btn btn-sm btn-outline" @click="addMember(u, 'presenter')">Presenter</button>
-                </div>
-              </div>
-            </div>
-            <div v-if="selectedMembers.length" class="selected-members">
-              <div v-for="m in selectedMembers" :key="m.id" class="member-chip">
-                {{ m.name }}
-                <span class="badge badge-primary" style="font-size:10px">{{ m.role }}</span>
-                <button @click="removeMember(m)" style="background:none;color:var(--text-muted)">✕</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">멤버 초대</label>
+          <input v-model="memberSearch" class="form-input" placeholder="사번 또는 이름 검색" @input="searchMembers" />
+          <div v-if="searchResults.length" class="search-dropdown">
+            <div v-for="u in searchResults" :key="u.id" class="search-item">
+              <span>{{ u.name }} ({{ u.employee_id }})</span>
+              <div style="display:flex;gap:4px">
+                <button class="btn btn-sm btn-primary" @click="addMember(u, 'admin')">Admin</button>
+                <button class="btn btn-sm btn-outline" @click="addMember(u, 'presenter')">Presenter</button>
               </div>
             </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline" @click="showCreateModal = false">취소</button>
-          <button class="btn btn-primary" :disabled="!form.title.trim() || creating" @click="createMeeting">
-            {{ creating ? '생성 중...' : '회의체 생성' }}
-          </button>
+          <div v-if="selectedMembers.length" class="selected-members">
+            <div v-for="m in selectedMembers" :key="m.id" class="member-chip">
+              {{ m.name }}
+              <span class="badge badge-primary" style="font-size:10px">{{ m.role }}</span>
+              <button @click="removeMember(m)" style="background:none;color:var(--text-muted)">✕</button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+      <template #footer>
+        <button class="btn btn-outline" @click="showCreateModal = false">취소</button>
+        <button class="btn btn-primary" :disabled="!form.title.trim() || creating" @click="createMeeting">
+          {{ creating ? '생성 중...' : '회의체 생성' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>
 
@@ -455,12 +494,29 @@ const upcomingSessions = computed(() => {
 /* ── ② 회의체 섹션 ──────────────────────────────────────────── */
 .meetings-section { display: flex; flex-direction: column; gap: 12px; }
 .meeting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.meeting-card { padding: 16px; cursor: pointer; transition: box-shadow .15s; }
+.meeting-card { padding: 16px; cursor: pointer; transition: box-shadow .15s; display: flex; flex-direction: column; gap: 4px; }
 .meeting-card:hover { box-shadow: var(--shadow-md); }
-.meeting-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.meeting-card-ended { opacity: 0.7; background: #f8fafc; }
+.meeting-card-ended:hover { opacity: 0.9; }
+.meeting-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
 .meeting-title { font-size: 14px; font-weight: 600; flex: 1; }
-.meeting-meta { font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 6px; }
+.meeting-meta { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
 .meeting-dates { font-size: 11px; color: var(--text-muted); }
+.meeting-card-actions { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; }
+.btn-meeting-end {
+  padding: 3px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  line-height: 1.5;
+}
+.btn-meeting-end:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.btn-meeting-end:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ── 달력 ──────────────────────────────────────────────────── */
 .cal-card { display: flex; flex-direction: column; }
@@ -524,6 +580,7 @@ const upcomingSessions = computed(() => {
 .dot-todo { background: #f59e0b; }
 
 /* ── 모달 ───────────────────────────────────────────────────── */
+.modal-inner { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
 .search-dropdown { border: 1px solid var(--border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-md); margin-top: 4px; }
 .search-item { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 13px; }
 .search-item:last-child { border-bottom: none; }

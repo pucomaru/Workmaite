@@ -1,14 +1,12 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import api from '../api'
-import { streamPost } from '../api'
+import api, { streamPost } from '../api'
 import MeetingNav from '../components/MeetingNav.vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useChatHistory } from '../composables/useChatHistory'
 import gaonAvatar from '../assets/agents/gaon.png'
-import { marked } from 'marked'
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 const route = useRoute()
 const meetingsStore = useMeetingsStore()
@@ -20,7 +18,34 @@ const input = ref('')
 const loading = ref(false)
 const messagesEl = ref(null)
 const addingTodo = ref(false)
-const newTodo = ref({ content: '', due_date: '' })
+const newTodo = ref({ content: '', assignee_name: '', due_date: '', how: '', why: '', priority: 'normal', tags: [] })
+
+const STATUS_MAP = {
+  pending:     { label: '🔴 미착수',   cls: 'badge-pending' },
+  in_progress: { label: '🟡 진행중',   cls: 'badge-inprogress' },
+  at_risk:     { label: '🟠 지연위험', cls: 'badge-atrisk' },
+  done:        { label: '🟢 완료',     cls: 'badge-success' },
+  on_hold:     { label: '⚫ 보류',     cls: 'badge-onhold' },
+}
+
+const TAG_OPTIONS = ['결재 필요', '타부서 협조', '외부 의존', '보고 연결']
+const PRIORITY_OPTIONS = [
+  { value: 'urgent_important', label: '🔥 긴급+중요' },
+  { value: 'important',       label: '⭐ 중요' },
+  { value: 'urgent',          label: '⚡ 긴급' },
+  { value: 'normal',          label: '🔵 보통' },
+  { value: 'low',             label: '⬇ 낮음' },
+]
+
+function priorityLabel(p) {
+  return PRIORITY_OPTIONS.find(o => o.value === p)?.label || p
+}
+
+function toggleTag(tag) {
+  const i = newTodo.value.tags.indexOf(tag)
+  if (i === -1) newTodo.value.tags.push(tag)
+  else newTodo.value.tags.splice(i, 1)
+}
 
 const { messages, loadMessages, saveMessage, clearHistory } = useChatHistory('todo', meetingId.value)
 
@@ -74,11 +99,16 @@ async function addTodo() {
   if (!newTodo.value.content.trim()) return
   const { data } = await api.post(`/api/meetings/${meetingId.value}/todos`, {
     content: newTodo.value.content,
+    assignee_name: newTodo.value.assignee_name || null,
     due_date: newTodo.value.due_date || null,
+    how: newTodo.value.how || null,
+    why: newTodo.value.why || null,
+    priority: newTodo.value.priority,
+    tags: newTodo.value.tags.length ? newTodo.value.tags : null,
   })
   todos.value.push(data)
   addingTodo.value = false
-  newTodo.value = { content: '', due_date: '' }
+  newTodo.value = { content: '', assignee_name: '', due_date: '', how: '', why: '', priority: 'normal', tags: [] }
 }
 
 async function updateTodoStatus(todo, status) {
@@ -91,16 +121,25 @@ async function deleteTodo(id) {
   todos.value = todos.value.filter(t => t.id !== id)
 }
 
+const WEEKDAYS_KO = ['일','월','화','수','목','금','토']
 function formatDate(d) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('ko-KR')
+  const parts = d.slice(0, 10).split('-').map(Number)
+  const dt = new Date(parts[0], parts[1] - 1, parts[2])
+  return `${parts[1]}월 ${parts[2]}일 (${WEEKDAYS_KO[dt.getDay()]})`
+}
+function fmtWeekday(d) {
+  if (!d) return ''
+  const parts = d.slice(0, 10).split('-').map(Number)
+  const dt = new Date(parts[0], parts[1] - 1, parts[2])
+  return `(${WEEKDAYS_KO[dt.getDay()]})`
 }
 
 function onKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
 }
 
-const statusMap = { pending: { label: '대기', cls: 'badge-warning' }, done: { label: '완료', cls: 'badge-success' }, delayed: { label: '지연', cls: 'badge-danger' } }
+// STATUS_MAP is defined in script setup above
 </script>
 
 <template>
@@ -157,14 +196,29 @@ const statusMap = { pending: { label: '대기', cls: 'badge-warning' }, done: { 
         <div class="card" style="flex:1">
           <div class="card-header">
             <span style="font-weight:600">내 To-do ({{ todos.length }})</span>
-            <button class="btn btn-outline btn-sm" @click="addingTodo = true">+ 추가</button>
+            <button class="btn btn-outline btn-sm" @click="addingTodo = !addingTodo">+ 추가</button>
           </div>
           <div style="padding:16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto">
-            <div v-if="addingTodo" class="todo-add-form card" style="padding:12px">
-              <input v-model="newTodo.content" class="form-input" placeholder="과제 내용" style="margin-bottom:8px" />
-              <input v-model="newTodo.due_date" type="date" class="form-input" style="margin-bottom:8px" />
-              <div style="display:flex;gap:6px">
-                <button class="btn btn-primary btn-sm" @click="addTodo">추가</button>
+            <!-- 5요소 입력 폼 -->
+            <div v-if="addingTodo" class="todo-add-form">
+              <input v-model="newTodo.content" class="form-input" placeholder="할 일 (필수)" />
+              <div class="tf-row">
+                <input v-model="newTodo.assignee_name" class="form-input" placeholder="Who — 담당자" />
+                <div class="date-with-wd">
+                  <input v-model="newTodo.due_date" type="datetime-local" class="form-input" />
+                  <span v-if="newTodo.due_date" class="weekday-hint">{{ fmtWeekday(newTodo.due_date) }}</span>
+                </div>
+              </div>
+              <input v-model="newTodo.how" class="form-input" placeholder="산출물 형태" />
+              <input v-model="newTodo.why" class="form-input" placeholder="목적 / 연결된 의사결정" />
+              <select v-model="newTodo.priority" class="form-input">
+                <option v-for="p in PRIORITY_OPTIONS" :key="p.value" :value="p.value">{{ p.label }}</option>
+              </select>
+              <div class="tf-tags-row">
+                <button v-for="tag in TAG_OPTIONS" :key="tag" class="tag-toggle-btn" :class="{ active: newTodo.tags.includes(tag) }" @click="toggleTag(tag)">[{{ tag }}]</button>
+              </div>
+              <div class="tf-actions">
+                <button class="btn btn-primary btn-sm" @click="addTodo">등록</button>
                 <button class="btn btn-ghost btn-sm" @click="addingTodo=false">취소</button>
               </div>
             </div>
@@ -172,21 +226,23 @@ const statusMap = { pending: { label: '대기', cls: 'badge-warning' }, done: { 
               <p>등록된 To-do가 없습니다.</p>
             </div>
             <div v-for="t in todos" :key="t.id" class="todo-item fade-in" :class="t.status">
-              <div style="display:flex;align-items:flex-start;gap:10px">
-                <input
-                  type="checkbox"
-                  :checked="t.status === 'done'"
-                  @change="updateTodoStatus(t, t.status === 'done' ? 'pending' : 'done')"
-                  style="margin-top:2px;width:16px;height:16px;cursor:pointer"
-                />
-                <div style="flex:1">
-                  <div :style="{ textDecoration: t.status === 'done' ? 'line-through' : 'none', color: t.status === 'done' ? 'var(--text-muted)' : '' }">
-                    {{ t.content }}
-                  </div>
-                  <div v-if="t.due_date" style="font-size:11px;color:var(--text-muted);margin-top:2px">마감: {{ formatDate(t.due_date) }}</div>
-                </div>
-                <span class="badge" :class="statusMap[t.status]?.cls">{{ statusMap[t.status]?.label }}</span>
+              <div class="todo-item-header">
+                <span class="todo-status-icon">{{ { pending:'🔴', in_progress:'🟡', at_risk:'🟠', done:'🟢', on_hold:'⚫' }[t.status] || '🔴' }}</span>
+                <span class="todo-item-content" :style="{ textDecoration: t.status==='done' ? 'line-through' : 'none' }">{{ t.content }}</span>
+                <select class="status-select" :value="t.status" @change="updateTodoStatus(t, $event.target.value)">
+                  <option v-for="(v, k) in STATUS_MAP" :key="k" :value="k">{{ v.label }}</option>
+                </select>
                 <button class="btn btn-ghost btn-sm" @click="deleteTodo(t.id)" style="padding:2px 6px">✕</button>
+              </div>
+              <div class="todo-item-meta">
+                <span v-if="t.assignee_name" class="todo-meta-chip">👤 {{ t.assignee_name }}</span>
+                <span v-if="t.due_date" class="todo-meta-chip" :style="{ color: new Date(t.due_date) < new Date() && t.status !== 'done' ? '#ef4444' : '' }">📅 {{ formatDate(t.due_date) }}</span>
+                <span v-if="t.priority && t.priority !== 'normal'" class="todo-meta-chip">{{ priorityLabel(t.priority) }}</span>
+                <span v-for="tag in (t.tags || [])" :key="tag" class="todo-tag-chip">[{{ tag }}]</span>
+              </div>
+              <div v-if="t.how || t.why" class="todo-item-details">
+                <span v-if="t.how">📋 {{ t.how }}</span>
+                <span v-if="t.why">🎯 {{ t.why }}</span>
               </div>
             </div>
           </div>
@@ -198,6 +254,50 @@ const statusMap = { pending: { label: '대기', cls: 'badge-warning' }, done: { 
 
 <style scoped>
 .agenda-chip { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 13px; }
-.todo-item { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+
+/* ── Todo item ── */
+.todo-item { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; }
 .todo-item.done { opacity: .7; }
+.todo-item.at_risk { border-color: #fb923c; background: #fff7ed; }
+.todo-item.on_hold { opacity: .55; }
+
+.todo-item-header { display: flex; align-items: center; gap: 8px; }
+.todo-status-icon { font-size: 13px; flex-shrink: 0; }
+.todo-item-content { flex: 1; font-size: 13px; font-weight: 500; }
+
+.status-select {
+  font-size: 11px; border: 1px solid var(--border); border-radius: 99px;
+  padding: 2px 6px; background: #f8fafc; cursor: pointer; flex-shrink: 0;
+}
+
+.todo-item-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.todo-meta-chip { font-size: 11px; color: var(--text-muted); background: #f1f5f9; padding: 1px 6px; border-radius: 99px; }
+.todo-tag-chip { font-size: 11px; color: #7c3aed; background: #ede9fe; padding: 1px 6px; border-radius: 99px; font-weight: 600; }
+.todo-item-details { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
+
+/* ── Add form ── */
+.todo-add-form {
+  background: #f8fafc; border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.tf-row { display: flex; gap: 6px; }
+.date-with-wd {
+  display: flex; align-items: center; flex: 1;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #fff; transition: border-color .15s; overflow: hidden;
+}
+.date-with-wd:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
+.date-with-wd input[type="datetime-local"] {
+  flex: 1; border: none !important; box-shadow: none !important;
+  padding: 8px 12px; font-size: 13px; background: transparent; outline: none;
+}
+.weekday-hint { padding-right: 12px; font-size: 13px; color: var(--text-muted); white-space: nowrap; font-weight: 600; pointer-events: none; }
+.tf-tags-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag-toggle-btn {
+  padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border);
+  cursor: pointer; transition: all .15s;
+}
+.tag-toggle-btn.active { background: #ede9fe; color: #7c3aed; border-color: #c4b5fd; }
+.tf-actions { display: flex; gap: 6px; margin-top: 2px; }
 </style>

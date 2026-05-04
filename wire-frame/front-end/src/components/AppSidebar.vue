@@ -25,7 +25,7 @@ const filteredEnded = computed(() =>
 )
 
 function goMeeting(m) {
-  router.push(`/meetings/${m.id}/agenda`)
+  router.push(`/meetings/${m.id}/home`)
 }
 
 const isAdmin = computed(() => meetingsStore.myRole === 'admin')

@@ -1,8 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { marked } from 'marked'
-
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 const props = defineProps({
   avatar:        { type: String, required: true },
@@ -12,8 +10,10 @@ const props = defineProps({
   messages:      { type: Array,  default: () => [] },
   loading:       { type: Boolean, default: false },
   quickQuestions:{ type: Array,  default: () => [] },
+  greeting:      { type: String, default: '' },
   placeholder:   { type: String, default: '질문하세요...' },
   initialWidth:  { type: Number, default: 380 },
+  pendingFiles:  { type: Array,  default: () => [] }, // [{ name: string }]
   // 에이전트별 색상 테마
   accentColor:   { type: String, default: '#f59e0b' },  // label color
   accentBorder:  { type: String, default: '#fbbf24' },  // border / ring
@@ -22,10 +22,31 @@ const props = defineProps({
   bubbleColor:   { type: String, default: '#92400e' },
 })
 
-const emit = defineEmits(['send', 'clear'])
+const emit = defineEmits(['send', 'clear', 'remove-file', 'add-files'])
 
 const input = ref('')
 const messagesEl = ref(null)
+const fileInput = ref(null)
+const isDragging = ref(false)
+
+function onFileSelected(e) {
+  const files = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (files.length) emit('add-files', files)
+}
+function onDragOver(e) {
+  e.preventDefault()
+  isDragging.value = true
+}
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) isDragging.value = false
+}
+function onDrop(e) {
+  e.preventDefault()
+  isDragging.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length) emit('add-files', files)
+}
 
 // ── 리사이즈 ──────────────────────────────────
 const panelWidth = ref(props.initialWidth)
@@ -47,7 +68,7 @@ function onResizeEnd() {
 }
 
 function send() {
-  if (!input.value.trim() || props.loading) return
+  if ((!input.value.trim() && !props.pendingFiles.length) || props.loading) return
   emit('send', input.value.trim())
   input.value = ''
 }
@@ -72,6 +93,9 @@ defineExpose({ scrollBottom })
       '--ap-bubble-grad':   bubbleGradient,
       '--ap-bubble-color':  bubbleColor,
     }"
+    @dragover.prevent="onDragOver"
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
   >
     <!-- ── 헤더 ── -->
     <div class="ap-header">
@@ -87,31 +111,18 @@ defineExpose({ scrollBottom })
       </div>
       <div class="ap-actions">
         <slot name="actions" />
-        <button
-          class="btn btn-ghost btn-sm"
-          style="color:var(--text-muted)"
-          title="대화 초기화"
-          @click="$emit('clear')"
-        >🗑</button>
+        <button class="ap-new-chat-btn" @click="$emit('clear')" title="새 채팅">새 채팅</button>
       </div>
-    </div>
-
-    <!-- ── 빠른 질문 ── -->
-    <div v-if="quickQuestions.length" class="ap-quick">
-      <button
-        v-for="q in quickQuestions"
-        :key="q"
-        class="ap-quick-btn"
-        :disabled="loading"
-        @click="sendQuick(q)"
-      >{{ q }}</button>
     </div>
 
     <!-- ── extra-header 슬롯 (세션 선택기 등) ── -->
     <slot name="extra-header" />
 
-    <!-- ── overlay 슬롯 (드래그 오버레이 등) ── -->
+    <!-- ── overlay 슬롯 + 내장 드래그 오버레이 ── -->
     <slot name="overlay" />
+    <div v-if="isDragging" class="ap-drag-overlay">
+      <div class="ap-drag-hint">📎 파일을 여기에 놓으세요</div>
+    </div>
 
     <!-- ── 메시지 영역 ── -->
     <div class="ap-messages" ref="messagesEl">
@@ -121,15 +132,35 @@ defineExpose({ scrollBottom })
         class="ap-msg-row fade-in"
         :class="msg.role"
       >
-        <div v-if="msg.role === 'agent'" class="ap-agent-label">
-          <img :src="avatar" class="ap-mini" :alt="name" />{{ name }}
+        <template v-if="msg.role === 'agent' && msg.content">
+          <div class="ap-agent-label">
+            <img :src="avatar" class="ap-mini" :alt="name" />{{ name }}
+          </div>
+          <div
+            class="ap-bubble ap-bubble-agent"
+            v-html="renderMd(msg.content)"
+          ></div>
+        </template>
+        <div v-else-if="msg.role !== 'agent'" class="ap-bubble ap-bubble-user">{{ msg.content }}</div>
+      </div>
+
+      <!-- 인사말 버블 (사용자 메시지 없을 때 항상 표시) -->
+      <template v-if="greeting && !messages.some(m => m.role === 'user')">
+        <div class="ap-msg-row fade-in agent">
+          <div class="ap-agent-label"><img :src="avatar" class="ap-mini" :alt="name" />{{ name }}</div>
+          <div class="ap-bubble ap-bubble-agent" style="white-space:pre-line" v-html="renderMd(greeting)"></div>
         </div>
-        <div
-          v-if="msg.role === 'agent'"
-          class="ap-bubble ap-bubble-agent"
-          v-html="renderMd(msg.content)"
-        ></div>
-        <div v-else class="ap-bubble ap-bubble-user">{{ msg.content }}</div>
+      </template>
+
+      <!-- 추천 질문 (사용자가 아직 메시지를 보내지 않은 경우 항상 표시) -->
+      <div v-if="quickQuestions.length && !messages.some(m => m.role === 'user')" class="ap-inline-quick">
+        <button
+          v-for="q in quickQuestions"
+          :key="q"
+          class="ap-inline-btn"
+          :disabled="loading"
+          @click="sendQuick(q)"
+        >{{ q }}</button>
       </div>
 
       <!-- 타이핑 인디케이터 -->
@@ -148,16 +179,29 @@ defineExpose({ scrollBottom })
 
     <!-- ── 입력창 ── -->
     <div class="ap-input-area">
-      <textarea
-        v-model="input"
-        class="ap-input"
-        :placeholder="placeholder"
-        rows="2"
-        @keydown.enter.exact.prevent="send"
-      />
+      <div class="ap-input-wrap">
+        <div v-if="pendingFiles.length" class="ap-file-chips">
+          <span v-for="(f, i) in pendingFiles" :key="i" class="ap-file-chip">
+            <span class="ap-chip-icon">📎</span>
+            <span class="ap-chip-name">{{ f.name }}</span>
+            <button class="ap-chip-remove" @click="$emit('remove-file', i)" title="제거">×</button>
+          </span>
+        </div>
+        <div class="ap-input-row">
+          <button class="ap-attach-btn" :disabled="loading" title="파일 첨부" @click="fileInput.click()">＋</button>
+          <textarea
+            v-model="input"
+            class="ap-input"
+            :placeholder="pendingFiles.length ? '파일에 대한 메시지를 입력하세요 (선택)...' : placeholder"
+            rows="2"
+            @keydown.enter.exact.prevent="send"
+          />
+        </div>
+        <input ref="fileInput" type="file" multiple style="display:none" @change="onFileSelected" />
+      </div>
       <button
         class="ap-send-btn"
-        :disabled="loading || !input.trim()"
+        :disabled="loading || (!input.trim() && !pendingFiles.length)"
         @click="send"
       >전송</button>
     </div>
@@ -177,6 +221,8 @@ defineExpose({ scrollBottom })
   min-height: 0;
   overflow: hidden;
   flex-shrink: 0;
+  flex-grow: 0;     /* 부모 flex에 의해 늘어나지 않음 — 너비는 내부 panelWidth가 전담 */
+  min-width: 0;     /* flex 오버플로우 방지 */
   position: relative;
 }
 
@@ -201,28 +247,47 @@ defineExpose({ scrollBottom })
 .ap-subtitle { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 .ap-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
-/* ── 빠른 질문 ── */
-.ap-quick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+/* ── 새 채팅 버튼 ── */
+.ap-new-chat-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
 }
-.ap-quick-btn {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 99px;
-  border: 1px solid var(--ap-accent-border, #fbbf24);
+.ap-new-chat-btn:hover {
   background: var(--ap-accent-bg, #fffbeb);
-  color: var(--text);
+  border-color: var(--ap-accent-border, #fbbf24);
+  color: var(--ap-accent, #f59e0b);
+}
+
+/* ── 인라인 추천 버튼 ── */
+.ap-inline-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+.ap-inline-btn {
+  text-align: left;
+  background: var(--ap-accent-bg, #fffbeb);
+  border: 1px solid var(--ap-accent-border, #fbbf24);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--ap-accent, #f59e0b);
   cursor: pointer;
   transition: filter .15s;
-  white-space: nowrap;
+  line-height: 1.4;
+  font-weight: 500;
 }
-.ap-quick-btn:hover:not(:disabled) { filter: brightness(.93); }
-.ap-quick-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ap-inline-btn:hover:not(:disabled) { filter: brightness(.92); }
+.ap-inline-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ── 메시지 ── */
 .ap-messages {
@@ -261,16 +326,30 @@ defineExpose({ scrollBottom })
   white-space: normal;
 }
 /* 마크다운 스타일 */
-.ap-bubble-agent :deep(p)          { margin: 0 0 6px; }
-.ap-bubble-agent :deep(p:last-child){ margin-bottom: 0; }
+.ap-bubble-agent :deep(p)             { margin: 0 0 6px; }
+.ap-bubble-agent :deep(p:last-child)  { margin-bottom: 0; }
 .ap-bubble-agent :deep(ul),
-.ap-bubble-agent :deep(ol)         { margin: 4px 0 6px 18px; padding: 0; }
-.ap-bubble-agent :deep(li)         { margin-bottom: 2px; }
-.ap-bubble-agent :deep(strong)     { font-weight: 700; }
+.ap-bubble-agent :deep(ol)            { margin: 4px 0 6px 18px; padding: 0; }
+.ap-bubble-agent :deep(li)            { margin-bottom: 2px; }
+.ap-bubble-agent :deep(strong)        { font-weight: 700; }
+.ap-bubble-agent :deep(em)            { font-style: italic; }
 .ap-bubble-agent :deep(h1),
 .ap-bubble-agent :deep(h2),
-.ap-bubble-agent :deep(h3)         { font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
-.ap-bubble-agent :deep(code)       { background: rgba(0,0,0,.08); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.ap-bubble-agent :deep(h3),
+.ap-bubble-agent :deep(h4)            { font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
+.ap-bubble-agent :deep(h1)            { font-size: 15px; }
+.ap-bubble-agent :deep(h2)            { font-size: 14px; border-bottom: 1px solid rgba(0,0,0,.1); padding-bottom: 2px; }
+.ap-bubble-agent :deep(h3)            { font-size: 13px; }
+.ap-bubble-agent :deep(h4)            { font-size: 13px; font-style: italic; }
+.ap-bubble-agent :deep(code)          { background: rgba(0,0,0,.08); padding: 1px 5px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+.ap-bubble-agent :deep(pre)           { background: #1e293b; color: #e2e8f0; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; font-size: 12px; }
+.ap-bubble-agent :deep(pre code)      { background: none; padding: 0; }
+.ap-bubble-agent :deep(blockquote)    { border-left: 3px solid rgba(0,0,0,.2); padding-left: 10px; margin: 6px 0; opacity: .8; }
+.ap-bubble-agent :deep(hr)            { border: none; border-top: 1px solid rgba(0,0,0,.15); margin: 8px 0; }
+.ap-bubble-agent :deep(table)         { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12px; }
+.ap-bubble-agent :deep(th),
+.ap-bubble-agent :deep(td)            { border: 1px solid rgba(0,0,0,.15); padding: 4px 8px; }
+.ap-bubble-agent :deep(th)            { background: rgba(0,0,0,.06); font-weight: 600; }
 
 .ap-bubble-user {
   background: var(--primary);
@@ -303,6 +382,47 @@ defineExpose({ scrollBottom })
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
+.ap-input-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ap-file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ap-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--ap-accent-bg, #fef3c7);
+  border: 1px solid var(--ap-accent-border, #fbbf24);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text);
+  max-width: 200px;
+}
+.ap-chip-icon { flex-shrink: 0; }
+.ap-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.ap-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.ap-chip-remove:hover { color: #ef4444; }
 .ap-input {
   flex: 1;
   resize: none;
@@ -333,6 +453,53 @@ defineExpose({ scrollBottom })
 }
 .ap-send-btn:disabled { opacity: .45; cursor: not-allowed; }
 .ap-send-btn:not(:disabled):hover { opacity: .88; }
+
+.ap-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.ap-attach-btn {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s, border-color .15s;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+.ap-attach-btn:hover:not(:disabled) {
+  background: var(--ap-accent-bg, #fef3c7);
+  border-color: var(--ap-accent-border, #fbbf24);
+  color: var(--ap-accent, #f59e0b);
+}
+.ap-attach-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 드래그 오버레이 */
+.ap-drag-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  background: rgba(99,102,241,.07);
+  border: 2px dashed var(--ap-accent-border, #fbbf24);
+  border-radius: var(--radius, 10px);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.ap-drag-hint {
+  background: white;
+  border: 1px solid var(--ap-accent-border, #fbbf24);
+  border-radius: var(--radius, 10px);
+  padding: 12px 24px;
+  font-size: 14px; font-weight: 600;
+  color: var(--ap-accent, #f59e0b);
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  display: flex; align-items: center; gap: 8px;
+}
 
 /* ── 리사이즈 핸들 ── */
 .ap-resize-handle {

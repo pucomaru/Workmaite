@@ -38,7 +38,7 @@ const filtered = computed(() =>
   })
 )
 
-const statusMap = { draft: '미제출', submitted: '제출됨', approved: '승인', rejected: '반려' }
+const statusMap = { draft: '검토전', submitted: '검토중', approved: '승인', rejected: '반려' }
 const statusCls = { draft: 'badge-muted', submitted: 'badge-primary', approved: 'badge-success', rejected: 'badge-danger' }
 
 function formatDate(d) {
@@ -46,12 +46,19 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const stats = computed(() => ({
-  total: reports.value.length,
-  submitted: reports.value.filter(r => r.status === 'submitted').length,
-  approved: reports.value.filter(r => r.status === 'approved').length,
-  rejected: reports.value.filter(r => r.status === 'rejected').length,
-}))
+async function deleteReport(r) {
+  if (!confirm(`"${r.file_name || '보고서'}" 보고서를 삭제하시겠습니까?`)) return
+  try {
+    await api.delete(`/api/reports/${r.id}`)
+  } catch (e) {
+    if (e?.response?.status !== 404) {
+      alert(e?.response?.data?.detail || '삭제 중 오류가 발생했습니다.')
+      return
+    }
+  }
+  reports.value = reports.value.filter(x => x.id !== r.id)
+}
+
 </script>
 
 <template>
@@ -63,26 +70,6 @@ const stats = computed(() => ({
       </div>
     </div>
 
-    <!-- 통계 카드 -->
-    <div v-if="!loading" class="stat-row">
-      <div class="stat-card">
-        <div class="stat-num">{{ stats.total }}</div>
-        <div class="stat-label">전체</div>
-      </div>
-      <div class="stat-card submitted">
-        <div class="stat-num">{{ stats.submitted }}</div>
-        <div class="stat-label">제출됨</div>
-      </div>
-      <div class="stat-card approved">
-        <div class="stat-num">{{ stats.approved }}</div>
-        <div class="stat-label">승인</div>
-      </div>
-      <div class="stat-card rejected">
-        <div class="stat-num">{{ stats.rejected }}</div>
-        <div class="stat-label">반려</div>
-      </div>
-    </div>
-
     <div class="filter-bar">
       <input v-model="search" class="form-input" placeholder="회의체명, 발제자, 파일명 검색..." style="flex:1;max-width:280px" />
       <select v-model="selectedMeeting" class="form-input" style="max-width:180px">
@@ -91,8 +78,8 @@ const stats = computed(() => ({
       </select>
       <select v-model="selectedStatus" class="form-input" style="max-width:130px">
         <option value="">전체 상태</option>
-        <option value="draft">미제출</option>
-        <option value="submitted">제출됨</option>
+        <option value="draft">검토전</option>
+        <option value="submitted">검토중</option>
         <option value="approved">승인</option>
         <option value="rejected">반려</option>
       </select>
@@ -130,9 +117,12 @@ const stats = computed(() => ({
             </td>
             <td style="font-size:12px;white-space:nowrap">{{ formatDate(r.submitted_at) }}</td>
             <td style="font-size:12px;white-space:nowrap">{{ formatDate(r.approved_at) }}</td>
-            <td>
+            <td style="text-align:right;white-space:nowrap">
               <button class="btn btn-ghost btn-sm" @click="router.push(`/meetings/${r.meeting_id}/prepare`)">
                 이동 →
+              </button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--danger)" @click="deleteReport(r)">
+                삭제
               </button>
             </td>
           </tr>
@@ -147,13 +137,6 @@ const stats = computed(() => ({
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .page-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
 .page-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
-.stat-row { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
-.stat-card { flex: 1; min-width: 80px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; text-align: center; }
-.stat-card.submitted { border-top: 3px solid var(--primary); }
-.stat-card.approved { border-top: 3px solid var(--success); }
-.stat-card.rejected { border-top: 3px solid var(--danger); }
-.stat-num { font-size: 26px; font-weight: 700; line-height: 1; }
-.stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
 .filter-bar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
 .table-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 </style>

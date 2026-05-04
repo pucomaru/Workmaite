@@ -1,157 +1,155 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { streamPost } from '../api'
-import { useAuthStore } from '../stores/auth'
 import { useMeetingsStore } from '../stores/meetings'
 import { useRoute } from 'vue-router'
 import api from '../api'
 import hyeanAvatar from '../assets/agents/hyean.png'
-import { marked } from 'marked'
-const renderMd = (text) => marked.parse(text || '', { breaks: true })
+import { useChatHistory } from '../composables/useChatHistory'
+import { renderMd } from '../composables/useMarkdown'
 
 const props = defineProps({ meetingId: { type: Number, default: 0 } })
 const route = useRoute()
-const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 // ── 패널 상태 ─────────────────────────────────────────────────
 const open = ref(false)
-const activeTab = ref('status')
 
 // ── 채팅 ─────────────────────────────────────────────────────
-const messages = ref([])
+const { messages, saveMessage } = useChatHistory('hyean', null)
 const input = ref('')
 const loading = ref(false)
-const knowledgeSummary = ref(null)
 const messagesEl = ref(null)
-
-// ── 메모리 ───────────────────────────────────────────────────
-const memory = ref([])
-const memLoading = ref(false)
-const refreshing = ref(false)
-const refreshDone = ref(false)
-const editingId = ref(null)
-const editTitle = ref('')
-const editContent = ref('')
-const showAdd = ref(false)
-const newItem = ref({ category: 'meeting_standard', title: '', content: '' })
-const savingMem = ref(false)
-
-const categories = [
-  { value: 'report_standard',  label: '📋 보고서 기준',  color: '#dbeafe', border: '#93c5fd', text: '#1d4ed8' },
-  { value: 'agenda_standard',  label: '📌 아젠다 기준',  color: '#fef9c3', border: '#fde047', text: '#854d0e' },
-  { value: 'todo_standard',    label: '✅ 과제 기준',    color: '#dcfce7', border: '#86efac', text: '#166534' },
-  { value: 'meeting_standard', label: '🎙 회의 기준',    color: '#f3e8ff', border: '#d8b4fe', text: '#6b21a8' },
-]
 
 const currentMeetingId = computed(() => {
   if (props.meetingId) return props.meetingId
   return Number(route.params?.meetingId) || 0
 })
 
-const grouped = computed(() => {
-  const map = {}
-  for (const cat of categories) {
-    const items = memory.value.filter(m => m.category === cat.value)
-    if (items.length) map[cat.value] = { ...cat, items }
-  }
-  return map
-})
-
-async function loadMemory() {
-  if (!currentMeetingId.value) return
-  memLoading.value = true
+async function reloadHistory(meetingId) {
+  if (!meetingId) return
+  messages.value = []
   try {
-    const { data } = await api.get(`/api/tacit-knowledge/meeting/${currentMeetingId.value}`)
-    memory.value = data
-  } finally { memLoading.value = false }
+    const res = await api.get(`/api/chats/hyean/${meetingId}`)
+    messages.value = res.data.map(m => ({ role: m.role, content: m.content }))
+  } catch { /* silent */ }
 }
-
-async function refreshMemory() {
-  if (!currentMeetingId.value) return
-  refreshing.value = true; refreshDone.value = false
-  try {
-    await api.post(`/api/tacit-knowledge/meeting/${currentMeetingId.value}/refresh`)
-    setTimeout(async () => {
-      await loadMemory()
-      refreshing.value = false; refreshDone.value = true
-      setTimeout(() => { refreshDone.value = false }, 4000)
-    }, 4000)
-  } catch { refreshing.value = false }
-}
-
-async function saveEdit(item) {
-  savingMem.value = true
-  try {
-    await api.patch(`/api/tacit-knowledge/meeting-item/${item.id}`, { title: editTitle.value, content: editContent.value })
-    await loadMemory(); editingId.value = null
-  } finally { savingMem.value = false }
-}
-
-async function deleteItem(item) {
-  if (!confirm(`"${item.title}" 메모리를 삭제하시겠습니까?`)) return
-  await api.delete(`/api/tacit-knowledge/meeting-item/${item.id}`)
-  await loadMemory()
-}
-
-async function addItem() {
-  if (!newItem.value.title.trim() || !newItem.value.content.trim()) return
-  savingMem.value = true
-  try {
-    await api.post(`/api/tacit-knowledge/meeting/${currentMeetingId.value}`, newItem.value)
-    await loadMemory(); showAdd.value = false
-    newItem.value = { category: 'meeting_standard', title: '', content: '' }
-  } finally { savingMem.value = false }
-}
-
-function startEdit(item) { editingId.value = item.id; editTitle.value = item.title; editContent.value = item.content }
-function formatDate(d) { if (!d) return ''; return new Date(d).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) }
-
-function switchTab(tab) {
-  activeTab.value = tab
-  if (tab === 'memory' && !memory.value.length) loadMemory()
-}
-function toggleOpen() {
-  open.value = !open.value
-  if (open.value && activeTab.value === 'memory' && !memory.value.length) loadMemory()
-}
-
-onMounted(async () => {
-  try {
-    const { data } = await api.get(`/api/tacit-knowledge/summary?meeting_id=${currentMeetingId.value}`)
-    knowledgeSummary.value = data
-  } catch {}
-})
 
 // ── 채팅 ─────────────────────────────────────────────────────
-async function sendMessage() {
-  if (!input.value.trim() || loading.value) return
-  const text = input.value.trim()
+async function _stream(text) {
   messages.value.push({ role: 'user', content: text })
-  input.value = ''
+  saveMessage('user', text)
   const agentMsg = { role: 'agent', content: '' }
   messages.value.push(agentMsg)
   loading.value = true
   await streamPost(
     '/api/agent/hyean/chat',
     { meeting_id: currentMeetingId.value, message: text,
-      chat_history: messages.value.slice(0,-1).map(m => ({ role: m.role==='user'?'user':'assistant', content: m.content })) },
-    (chunk) => { agentMsg.content += chunk },
-    () => { loading.value = false }
+      chat_history: messages.value.slice(0, -2).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })) },
+    (chunk) => {
+      agentMsg.content += chunk
+      setTimeout(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }, 30)
+    },
+    () => {
+      loading.value = false
+      saveMessage('agent', agentMsg.content)
+    }
   )
 }
 
-async function askStatus() {
+async function sendMessage() {
+  const hasFiles = pendingFiles.value.length > 0
+  if (!input.value.trim() && !hasFiles || loading.value) return
+  const text = input.value.trim()
+  input.value = ''
+  if (textareaEl.value) { textareaEl.value.style.height = 'auto' }
+  let fullText = text
+  if (hasFiles) {
+    const names = pendingFiles.value.map(f => f.name).join(', ')
+    fullText = text ? `📎 ${names}\n${text}` : `📎 ${names}`
+    pendingFiles.value = []
+  }
+  await _stream(fullText)
+}
+
+const SUGGESTED = [
+  '이 회의체 운영 현황을 전반적으로 분석해줘',
+  '회의체 참여율과 이행률 현황은 어때?',
+  '최근 의사결정 패턴에서 개선할 점이 있어?',
+  '회의 운영 효율을 높이려면 어떻게 해야 할까?',
+]
+
+function toggleOpen() {
+  open.value = !open.value
+}
+
+function clearChat() {
+  messages.value = []
+  input.value = ''
+  pendingFiles.value = []
+  briefingDone.value = false
+}
+
+// ── 파일 첨부 ─────────────────────────────────────────────────
+const pendingFiles = ref([]) // File[]
+const fileInputEl = ref(null)
+const isDragging = ref(false)
+const textareaEl = ref(null)
+
+function autoResize() {
+  const el = textareaEl.value
+  if (!el) return
+  el.style.height = '36px'
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px'
+}
+
+function onFileSelected(e) {
+  const files = Array.from(e.target.files || [])
+  e.target.value = ''
+  if (files.length) pendingFiles.value.push(...files)
+}
+function onDragOver(e) {
+  e.preventDefault()
+  isDragging.value = true
+}
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) isDragging.value = false
+}
+function onDrop(e) {
+  e.preventDefault()
+  isDragging.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length) pendingFiles.value.push(...files)
+}
+function removeFile(i) { pendingFiles.value.splice(i, 1) }
+
+// ── 자동 브리핑 ──────────────────────────────────────────────
+const briefingDone = ref(false)
+
+async function loadBriefing(force = false) {
+  if (loading.value) return
+  if (briefingDone.value && !force) return
+  briefingDone.value = false
+  loading.value = true
   const agentMsg = { role: 'agent', content: '' }
-  messages.value.push(agentMsg); loading.value = true
-  await streamPost('/api/agent/hyean/status',
-    { meeting_id: currentMeetingId.value, user_role: meetingsStore.myRole || 'presenter' },
-    (chunk) => { agentMsg.content += chunk },
-    () => { loading.value = false }
-  )
+  messages.value.push(agentMsg)
+  try {
+    await streamPost(
+      '/api/agent/hyean/status',
+      { meeting_id: currentMeetingId.value, user_role: meetingsStore.myRole || 'presenter' },
+      (chunk) => {
+        agentMsg.content += chunk
+        setTimeout(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }, 30)
+      },
+      () => { loading.value = false; saveMessage('agent', agentMsg.content) },
+    )
+    briefingDone.value = true
+  } catch {
+    agentMsg.content = '현황 브리핑을 불러오는 중 오류가 발생했습니다.'
+    loading.value = false
+  }
 }
 
-// ── 리사이즈 (왼쪽 위 모서리) ─────────────────────────────────
 const panelW = ref(380)
 const panelH = ref(520)
 let resizing = false, rsX = 0, rsY = 0, rsW = 0, rsH = 0
@@ -167,19 +165,29 @@ function onMouseMove(e) {
 }
 function onMouseUp() { resizing = false }
 
-onMounted(() => { window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp) })
+onMounted(async () => {
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+  await reloadHistory(currentMeetingId.value)
+})
+
+watch(currentMeetingId, (id) => {
+  reloadHistory(id)
+})
 onUnmounted(() => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) })
 </script>
 
 <template>
   <div class="hyean-wrap">
-    <button class="hyean-fab" @click="toggleOpen" :class="{ active: open }">
-      <img v-if="!open" :src="hyeanAvatar" class="hyean-fab-avatar" alt="혜안" />
-      <svg v-else width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-      <span class="hyean-label">혜안</span>
+    <button v-if="!open" class="hyean-fab" @click="toggleOpen" title="혜안">
+      <img :src="hyeanAvatar" class="hyean-fab-avatar" alt="혜안" />
     </button>
 
-    <div v-if="open" class="hyean-panel slide-up" :style="{ width: panelW + 'px', height: panelH + 'px' }">
+    <div v-if="open" class="hyean-panel slide-up" :style="{ width: panelW + 'px', height: panelH + 'px' }"
+      @dragover.prevent="onDragOver"
+      @dragleave="onDragLeave"
+      @drop.prevent="onDrop"
+    >
 
       <!-- 리사이즈 핸들 (왼쪽 위 모서리) -->
       <div class="resize-handle" @mousedown="onResizeStart" title="드래그해서 크기 조정">
@@ -195,116 +203,65 @@ onUnmounted(() => { window.removeEventListener('mousemove', onMouseMove); window
           <img :src="hyeanAvatar" class="agent-header-avatar" alt="혜안" />
           <div>
             <div style="font-weight:700;font-size:14px;color:var(--primary)">혜안 (Hyean)</div>
-            <div style="font-size:11px;color:var(--text-muted)">회의체 운영 어시스턴트</div>
+            <div style="font-size:11px;color:var(--text-muted)">회의체 운영 AI 비서</div>
           </div>
         </div>
-        <div class="tabs" style="margin:0">
-          <button class="tab-btn" :class="{ active: activeTab==='status' }" @click="switchTab('status')">현황 안내</button>
-          <button class="tab-btn" :class="{ active: activeTab==='memory' }" @click="switchTab('memory')">운영 메모리</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="hy-new-chat-btn" @click="clearChat" title="새 채팅">새 채팅</button>
+          <button class="btn btn-ghost btn-xs" @click="toggleOpen" title="닫기" style="color:var(--text-muted)">✕</button>
         </div>
       </div>
 
       <!-- 패널 바디 -->
       <div class="panel-body">
 
-        <!-- ① 현황 안내 탭 -->
-        <div v-if="activeTab === 'status'" class="chat-container">
+        <!-- 채팅 컨테이너 -->
+        <div class="chat-container">
+          <!-- 추천 요청 버튼 (항상 상단 고정) -->
           <div ref="messagesEl" class="chat-messages">
-            <div v-if="!messages.length" class="empty-state" style="padding:24px">
-              <p>현재 회의체 현황을 분석해드립니다.</p>
-              <button class="btn btn-primary btn-sm" @click="askStatus">현황 분석하기</button>
-            </div>
-            <div v-for="(msg, i) in messages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
-              <div v-if="msg.role==='agent'" class="chat-agent-label">
-                <img :src="hyeanAvatar" class="chat-avatar-sm" alt="혜안" />혜안
+            <!-- 빈 대화일 때 인사 멘트 -->
+            <template v-if="messages.length === 0">
+              <div class="chat-msg-row fade-in agent">
+                <div class="chat-agent-label"><img :src="hyeanAvatar" class="chat-avatar-sm" alt="혜안" />혜안</div>
+                <div class="chat-bubble agent">
+                  안녕하세요! 회의체 운영 AI 비서 <strong>혜안</strong>입니다.<br>현황 브리핑이 필요하시면 아래 버튼을 눌러주세요.
+                  <div class="hy-inline-quick">
+                    <button v-for="s in SUGGESTED" :key="s" class="hy-inline-btn" :disabled="loading" @click="_stream(s)">{{ s }}</button>
+                  </div>
+                </div>
               </div>
-              <div v-if="msg.role === 'agent'" class="chat-bubble agent" v-html="renderMd(msg.content)"></div>
-              <div v-else class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
+            </template>
+            <div v-for="(msg, i) in messages" :key="i" class="chat-msg-row fade-in" :class="msg.role">
+              <template v-if="msg.role === 'agent' && msg.content">
+                <div class="chat-agent-label">
+                  <img :src="hyeanAvatar" class="chat-avatar-sm" alt="혜안" />혜안
+                </div>
+                <div class="chat-bubble agent" v-html="renderMd(msg.content)"></div>
+              </template>
+              <div v-else-if="msg.role !== 'agent'" class="chat-bubble" :class="msg.role">{{ msg.content }}</div>
             </div>
           </div>
           <div class="chat-input-area">
-            <textarea v-model="input" class="chat-input" placeholder="질문하세요..." rows="1"
-              @keydown.enter.exact.prevent="sendMessage" />
-            <button class="btn btn-primary btn-sm" :disabled="loading || !input.trim()" @click="sendMessage">전송</button>
+            <div v-if="pendingFiles.length" class="chat-file-chips">
+              <span v-for="(f, i) in pendingFiles" :key="i" class="chat-file-chip">
+                <span>📎 {{ f.name }}</span>
+                <button class="chip-remove" @click="removeFile(i)">×</button>
+              </span>
+            </div>
+            <div class="chat-input-row">
+              <button class="chat-attach-btn" :disabled="loading" title="파일 첨부" @click="fileInputEl.click()">＋</button>
+              <textarea ref="textareaEl" v-model="input" class="chat-input" :placeholder="pendingFiles.length ? '파일에 대한 메시지... (선택)' : '질문하세요...'" rows="1"
+                @input="autoResize"
+                @keydown.enter.exact.prevent="sendMessage" />
+              <button class="btn btn-primary btn-sm" :disabled="loading || (!input.trim() && !pendingFiles.length)" @click="sendMessage">전송</button>
+            </div>
+            <input ref="fileInputEl" type="file" multiple style="display:none" @change="onFileSelected" />
           </div>
         </div>
-
-        <!-- ② 운영 메모리 탭 -->
-        <div v-else class="memory-tab">
-          <div class="mem-toolbar">
-            <div style="font-size:12px;color:var(--text-muted)">
-              <span v-if="!currentMeetingId" style="color:var(--danger)">⚠ 회의체 페이지에서 사용 가능</span>
-              <span v-else>{{ memory.length }}개 메모리</span>
-            </div>
-            <div style="display:flex;gap:6px">
-              <button v-if="currentMeetingId" class="mem-add-btn" @click="showAdd = !showAdd">＋ 추가</button>
-              <button v-if="currentMeetingId" class="mem-refresh-btn" :disabled="refreshing" @click="refreshMemory">
-                <span v-if="refreshing" class="spin">⟳</span>
-                <span v-else-if="refreshDone">✓</span>
-                <span v-else>🔄</span>
-                {{ refreshing ? '분석 중...' : refreshDone ? '완료' : 'AI 갱신' }}
-              </button>
-            </div>
-          </div>
-
-          <div v-if="refreshing" class="mem-status-bar refreshing">
-            <span class="dot-anim">●</span><span class="dot-anim" style="animation-delay:.2s">●</span><span class="dot-anim" style="animation-delay:.4s">●</span>
-            혜안이 회의 활동을 분석 중입니다...
-          </div>
-          <div v-else-if="refreshDone" class="mem-status-bar done">✓ 메모리 갱신 완료</div>
-
-          <div v-if="showAdd && currentMeetingId" class="mem-add-form">
-            <select v-model="newItem.category" class="form-input" style="font-size:12px;margin-bottom:6px">
-              <option v-for="c in categories" :key="c.value" :value="c.value">{{ c.label }}</option>
-            </select>
-            <input v-model="newItem.title" class="form-input" placeholder="제목" style="font-size:12px;margin-bottom:6px" />
-            <textarea v-model="newItem.content" class="form-input" placeholder="내용" rows="3"
-              style="font-size:12px;resize:none;margin-bottom:6px" />
-            <div style="display:flex;gap:6px">
-              <button class="btn btn-primary btn-sm" :disabled="savingMem" @click="addItem">저장</button>
-              <button class="btn btn-ghost btn-sm" @click="showAdd=false">취소</button>
-            </div>
-          </div>
-
-          <div class="mem-scroll">
-            <div v-if="!currentMeetingId" class="mem-empty">
-              <div>🧠</div><p>회의체 페이지에서 메모리를 관리할 수 있습니다.</p>
-            </div>
-            <div v-else-if="memLoading" class="mem-empty">
-              <div class="spin" style="font-size:24px">⟳</div><p>불러오는 중...</p>
-            </div>
-            <div v-else-if="!memory.length" class="mem-empty">
-              <div>🧠</div>
-              <p>아직 기억된 내용이 없습니다.<br>루프 시작 시 자동 분석됩니다.</p>
-              <button class="mem-refresh-btn" style="margin-top:10px" @click="refreshMemory">지금 분석하기</button>
-            </div>
-            <div v-for="(group, catKey) in grouped" :key="catKey" class="mem-group">
-              <div class="mem-cat-header" :style="{ background: group.color, borderColor: group.border, color: group.text }">
-                {{ group.label }} <span class="mem-cat-count">{{ group.items.length }}</span>
-              </div>
-              <div v-for="item in group.items" :key="item.id" class="mem-card" :style="{ borderLeftColor: group.border }">
-                <div v-if="editingId !== item.id">
-                  <div class="mem-card-head">
-                    <div class="mem-title">{{ item.title }}</div>
-                    <div class="mem-card-acts">
-                      <button class="act-btn" @click="startEdit(item)" title="편집">✏️</button>
-                      <button class="act-btn del" @click="deleteItem(item)" title="삭제">🗑</button>
-                    </div>
-                  </div>
-                  <div class="mem-content">{{ item.content }}</div>
-                </div>
-                <div v-else>
-                  <input v-model="editTitle" class="form-input" style="font-size:12px;font-weight:600;margin-bottom:6px" />
-                  <textarea v-model="editContent" class="form-input" rows="3" style="font-size:12px;resize:none;margin-bottom:6px" />
-                  <div style="display:flex;gap:6px">
-                    <button class="btn btn-primary btn-sm" :disabled="savingMem" @click="saveEdit(item)">저장</button>
-                    <button class="btn btn-ghost btn-sm" @click="editingId=null">취소</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      </div>
+      <!-- 드래그 오버레이 -->
+      <div v-if="isDragging" class="hy-drag-overlay">
+        <div class="hy-drag-hint">📎 파일을 여기에 놓으세요</div>
       </div>
     </div>
   </div>
@@ -312,11 +269,9 @@ onUnmounted(() => { window.removeEventListener('mousemove', onMouseMove); window
 
 <style scoped>
 .hyean-wrap { position: fixed; bottom: 24px; right: 24px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
-.hyean-fab { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--primary); color: #fff; border-radius: 99px; box-shadow: var(--shadow-lg); transition: all .2s; }
+.hyean-fab { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; padding: 0; background: var(--primary); color: #fff; border-radius: 50%; box-shadow: var(--shadow-lg); transition: all .2s; border: none; cursor: pointer; }
 .hyean-fab:hover { background: var(--primary-light); transform: scale(1.04); }
-.hyean-fab.active { background: var(--primary-dark); }
-.hyean-fab-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1.5px solid rgba(255,255,255,.4); }
-.hyean-label { font-size: 14px; font-weight: 600; }
+.hyean-fab-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
 
 .hyean-panel {
   background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
@@ -331,6 +286,8 @@ onUnmounted(() => { window.removeEventListener('mousemove', onMouseMove); window
 }
 .resize-handle:hover { color: var(--primary); background: #f1f5f9; }
 
+.hy-new-chat-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 500; color: var(--text-muted); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.hy-new-chat-btn:hover { background: #eff6ff; border-color: #93c5fd; color: var(--primary); }
 .panel-header { padding: 10px 16px 10px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 10px; flex-wrap: wrap; }
 .agent-header-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
 .panel-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -345,9 +302,23 @@ onUnmounted(() => { window.removeEventListener('mousemove', onMouseMove); window
 .chat-bubble { padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; max-width: 90%; word-break: break-word; }
 .chat-bubble.user { background: var(--primary); color: #fff; border-radius: 12px 12px 2px 12px; }
 .chat-bubble.agent { background: #f8fafc; border: 1px solid var(--border); border-radius: 2px 12px 12px 12px; }
-.chat-input-area { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
-.chat-input { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none; font-family: inherit; }
+.chat-input-area { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0; width: 100%; box-sizing: border-box; }
+.chat-file-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chat-file-chip { display: inline-flex; align-items: center; gap: 4px; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; padding: 2px 8px; font-size: 11px; color: #1e40af; max-width: 200px; }
+.chip-remove { background: none; border: none; cursor: pointer; font-size: 13px; color: #6b7280; padding: 0 2px; line-height: 1; }
+.chip-remove:hover { color: #ef4444; }
+.chat-input-row { display: flex; align-items: flex-end; gap: 6px; width: 100%; }
+.chat-attach-btn { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: #f8fafc; color: var(--text-muted); font-size: 18px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s; margin-bottom: 1px; }
+.chat-attach-btn:hover:not(:disabled) { background: #eff6ff; border-color: #93c5fd; color: var(--primary); }
+.chat-attach-btn:disabled { opacity: .4; cursor: not-allowed; }
+.chat-input { flex: 1; resize: none; overflow: hidden; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none; font-family: inherit; line-height: 1.5; box-sizing: border-box; }
 .chat-input:focus { border-color: var(--primary); }
+.hy-drag-overlay { position: absolute; inset: 0; z-index: 20; background: rgba(99,102,241,.07); border: 2px dashed var(--primary); border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.hy-drag-hint { background: white; border: 1px solid var(--primary); border-radius: 10px; padding: 12px 24px; font-size: 14px; font-weight: 600; color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.hy-inline-quick { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.hy-inline-btn { text-align: left; background: rgba(255,255,255,.55); border: 1px solid #c7d2fe; border-radius: 7px; padding: 6px 10px; font-size: 12px; color: var(--primary); cursor: pointer; transition: background .15s; line-height: 1.4; font-weight: 500; }
+.hy-inline-btn:hover:not(:disabled) { background: rgba(255,255,255,.9); }
+.hy-inline-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 운영 메모리 탭 */
 .memory-tab { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
