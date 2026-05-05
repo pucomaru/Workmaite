@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(pip install *)",
+      "Bash(python *)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/register -H \"Content-Type: application/json\" -d '{\"name\":\"테스트 관리자\",\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
+      "Bash(curl -sv -X POST http://localhost:8000/api/auth/register -H 'Content-Type: application/json' -d '{\"name\":\"테스트 관리자\",\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
+      "Bash(pkill -f \"uvicorn main:app\")"
+    ]
+  }
+}

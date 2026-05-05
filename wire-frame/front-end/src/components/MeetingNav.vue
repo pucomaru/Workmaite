@@ -15,12 +15,12 @@ const role    = computed(() => meetingsStore.myRole)
 const isEnded = computed(() => meetingsStore.currentMeeting?.status === 'ended')
 
 const adminTabs = [
-  { label: '아젠다',  path: 'agenda',   icon: '📋' },
+  { label: '과제추출',  path: 'agenda',   icon: '📋' },
   { label: '회의준비', path: 'prepare',  icon: '📝' },
   { label: '회의',    path: 'sessions', icon: '🎤' },
 ]
 const presenterTabs = [
-  { label: '아젠다',  path: 'agenda',   icon: '📋' },
+  { label: '과제추출',  path: 'agenda',   icon: '📋' },
   { label: '회의준비', path: 'prepare',  icon: '📝' },
   { label: '회의',   path: 'sessions', icon: '🎤' },
 ]
