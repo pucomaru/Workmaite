@@ -1,19 +1,37 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # Auth
 class UserCreate(BaseModel):
-    name: str
-    employee_id: str
+    name: Optional[str] = None
+    employee_id: Optional[str] = None
+    email: Optional[str] = None        # frontend may send email instead of employee_id
     password: str
     department: Optional[str] = None
 
+    @model_validator(mode='after')
+    def fill_defaults(self):
+        # email → employee_id fallback
+        if not self.employee_id:
+            self.employee_id = self.email or ''
+        # name fallback
+        if not self.name:
+            self.name = (self.employee_id or self.email or '').split('@')[0]
+        return self
+
 
 class UserLogin(BaseModel):
-    employee_id: str
+    employee_id: Optional[str] = None
+    email: Optional[str] = None        # frontend may send email instead of employee_id
     password: str
+
+    @model_validator(mode='after')
+    def fill_employee_id(self):
+        if not self.employee_id:
+            self.employee_id = self.email or ''
+        return self
 
 
 class UserUpdate(BaseModel):

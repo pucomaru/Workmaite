@@ -19,6 +19,14 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('user', JSON.stringify(data.user))
   }
 
+  async function loginWithEmail(email, password) {
+    const { data } = await api.post('/api/auth/login', { employee_id: email, password })
+    token.value = data.access_token
+    user.value = data.user
+    localStorage.setItem('token', data.access_token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+  }
+
   async function register(form) {
     await api.post('/api/auth/register', form)
   }
@@ -36,5 +44,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  return { user, token, login, register, updateProfile, logout }
+  return { user, token, login, loginWithEmail, register, updateProfile, logout }
 })

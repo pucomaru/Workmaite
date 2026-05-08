@@ -129,6 +129,54 @@ function logout() {
   auth.logout()
   router.push('/login')
 }
+
+// ── 개인설정 모달 ──────────────────────────────────────────────
+const showProfileSettings = ref(false)
+const profileForm = ref({ name: '', organization: '', department: '', position: '', password: '', passwordConfirm: '' })
+const profileSaving = ref(false)
+const profileMsg = ref('')
+const showNewPw = ref(false)
+const showConfirmPw = ref(false)
+
+function openProfileSettings() {
+  const extra = JSON.parse(localStorage.getItem('profileExtra') || '{}')
+  profileForm.value = {
+    name: auth.user?.name || '',
+    organization: extra.organization || '',
+    department: auth.user?.department || '',
+    position: extra.position || '',
+    password: '',
+    passwordConfirm: '',
+  }
+  profileMsg.value = ''
+  showProfile.value = false
+  showProfileSettings.value = true
+}
+
+async function saveProfileSettings() {
+  if (profileForm.value.password && profileForm.value.password !== profileForm.value.passwordConfirm) {
+    profileMsg.value = 'error:비밀번호가 일치하지 않습니다.'
+    return
+  }
+  profileSaving.value = true
+  profileMsg.value = ''
+  try {
+    const payload = { name: profileForm.value.name, department: profileForm.value.department }
+    if (profileForm.value.password) payload.password = profileForm.value.password
+    await auth.updateProfile(payload)
+    localStorage.setItem('profileExtra', JSON.stringify({
+      organization: profileForm.value.organization,
+      position: profileForm.value.position,
+    }))
+    profileMsg.value = 'ok:저장되었습니다.'
+    profileForm.value.password = ''
+    profileForm.value.passwordConfirm = ''
+  } catch (e) {
+    profileMsg.value = 'error:' + (e.response?.data?.detail || '저장에 실패했습니다.')
+  } finally {
+    profileSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -234,9 +282,9 @@ function logout() {
               <div v-if="auth.user.department" style="color:var(--text-muted);font-size:11px;margin-top:2px">{{ auth.user.department }}</div>
             </div>
           </div>
-          <router-link to="/profile" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex;text-decoration:none" @click="showProfile=false">
+          <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex" @click="openProfileSettings">
             개인설정
-          </router-link>
+          </button>
           <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">로그아웃</button>
         </div>
       </div>
@@ -301,6 +349,84 @@ function logout() {
 
     <div v-if="showNotif || showProfile || showMemberMgmt" class="backdrop"
       @click="showNotif=false; showProfile=false; showMemberMgmt=false" />
+
+    <!-- 개인설정 모달 -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div v-if="showProfileSettings" class="ps-backdrop" @click.self="showProfileSettings=false">
+          <div class="ps-modal">
+            <div class="ps-header">
+              <h5 class="mb-0 fw-bold" style="color:var(--primary)">개인설정</h5>
+              <button class="ps-close" @click="showProfileSettings=false"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="ps-body">
+              <!-- 이름 -->
+              <div class="ps-field">
+                <label class="ps-label">이름</label>
+                <input v-model="profileForm.name" class="form-control" placeholder="홍길동" />
+              </div>
+              <!-- 조직 -->
+              <div class="ps-field">
+                <label class="ps-label">조직</label>
+                <input v-model="profileForm.organization" class="form-control" placeholder="예: SK텔레콤" />
+              </div>
+              <!-- 부서 -->
+              <div class="ps-field">
+                <label class="ps-label">부서</label>
+                <input v-model="profileForm.department" class="form-control" placeholder="예: 경영지원팀" />
+              </div>
+              <!-- 직위 -->
+              <div class="ps-field">
+                <label class="ps-label">직위</label>
+                <input v-model="profileForm.position" class="form-control" placeholder="예: 과장" />
+              </div>
+              <!-- 이메일 (readonly) -->
+              <div class="ps-field">
+                <label class="ps-label">이메일 <span class="ps-readonly-tag">변경 불가</span></label>
+                <input :value="auth.user?.employee_id" class="form-control" readonly style="background:#f8fafc;color:#94a3b8" />
+              </div>
+              <!-- 비밀번호 -->
+              <div class="ps-divider">비밀번호 변경</div>
+              <div class="ps-field">
+                <label class="ps-label">새 비밀번호</label>
+                <div class="input-group">
+                  <input v-model="profileForm.password" :type="showNewPw ? 'text' : 'password'"
+                    class="form-control" placeholder="새 비밀번호 입력 (변경 시만)" />
+                  <button type="button" class="input-group-text bg-light" @click="showNewPw=!showNewPw">
+                    <i :class="showNewPw ? 'bi bi-eye-slash' : 'bi bi-eye'" class="text-muted"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="ps-field">
+                <label class="ps-label">비밀번호 확인</label>
+                <div class="input-group">
+                  <input v-model="profileForm.passwordConfirm" :type="showConfirmPw ? 'text' : 'password'"
+                    class="form-control"
+                    :class="profileForm.passwordConfirm ? (profileForm.password === profileForm.passwordConfirm ? 'is-valid' : 'is-invalid') : ''"
+                    placeholder="비밀번호 재입력" />
+                  <button type="button" class="input-group-text bg-light" @click="showConfirmPw=!showConfirmPw">
+                    <i :class="showConfirmPw ? 'bi bi-eye-slash' : 'bi bi-eye'" class="text-muted"></i>
+                  </button>
+                </div>
+              </div>
+              <!-- 메시지 -->
+              <div v-if="profileMsg" class="alert py-2 small mt-2"
+                :class="profileMsg.startsWith('ok') ? 'alert-success' : 'alert-danger'">
+                <i :class="profileMsg.startsWith('ok') ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-circle'" class="me-1"></i>
+                {{ profileMsg.split(':').slice(1).join(':') }}
+              </div>
+            </div>
+            <div class="ps-footer">
+              <button class="btn btn-outline-secondary" @click="showProfileSettings=false">취소</button>
+              <button class="btn btn-primary" :disabled="profileSaving" @click="saveProfileSettings">
+                <span v-if="profileSaving" class="spinner-border spinner-border-sm me-1"></span>
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </header>
 </template>
 
@@ -422,5 +548,20 @@ function logout() {
 .profile-dropdown { position: absolute; top: calc(100% + 8px); right: 0; width: 220px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: 200; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .profile-info { display: flex; align-items: center; gap: 10px; }
 .backdrop { position: fixed; inset: 0; z-index: 190; }
+
+/* 개인설정 모달 */
+.ps-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(3px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.ps-modal { background: #fff; border-radius: 16px; width: 100%; max-width: 480px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.ps-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ps-close { background: none; border: none; font-size: 16px; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 6px; line-height: 1; }
+.ps-close:hover { color: #475569; background: #f1f5f9; }
+.ps-body { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.ps-field { display: flex; flex-direction: column; gap: 5px; }
+.ps-label { font-size: 12px; font-weight: 600; color: #475569; display: flex; align-items: center; gap: 6px; }
+.ps-readonly-tag { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 99px; background: #f1f5f9; color: #94a3b8; }
+.ps-divider { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; padding: 4px 0 0; border-top: 1px solid var(--border); }
+.ps-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>
 

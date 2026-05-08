@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
+  { path: '/landing', component: () => import('./pages/LandingPage.vue') },
   { path: '/login', component: () => import('./pages/LoginPage.vue') },
   { path: '/register', component: () => import('./pages/RegisterPage.vue') },
   // 회의실: 새 탭 전체화면 (헤더/사이드바 없음)
@@ -37,8 +38,8 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const token = localStorage.getItem('token')
-  if (to.meta.requiresAuth && !token) return '/login'
-  if ((to.path === '/login' || to.path === '/register') && token) return '/'
+  if (to.meta.requiresAuth && !token) return '/landing'
+  if ((to.path === '/login' || to.path === '/register' || to.path === '/landing') && token) return '/'
 })
 
 export default router

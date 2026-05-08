@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -10,6 +10,7 @@ import { useMeetingsStore } from '../stores/meetings'
 import { useChatHistory } from '../composables/useChatHistory'
 import araAvatar from '../assets/agents/ara.png'
 import { marked } from 'marked'
+import { useSTT } from '../composables/useSTT'
 
 const renderMd = (text) => marked.parse(text || '', { breaks: true })
 
@@ -44,6 +45,169 @@ const araInput = ref('')
 const araLoading = ref(false)
 const messagesEl = ref(null)
 const { messages: araMessages, loadMessages, saveMessage, clearHistory } = useChatHistory('sessions', meetingId.value)
+
+// 진행 패널 state
+const activeSession = ref(null)
+const activeTab = ref('transcript')
+const transcriptLang = ref('ko')
+const scriptLang = ref('ko')
+const recordingState = ref('idle')   // 'idle' | 'recording' | 'paused'
+const transcriptLines = ref([])
+const scriptLines = ref([])
+const generatedMinutes = ref(null)
+const showMinutesTab = ref(false)
+const generatingMinutes = ref(false)
+const showPopover = ref(null)
+const micSensitivity = ref(70)
+const noiseReduction = ref(true)
+const transcriptAreaRef = ref(null)
+// 대화기록 AI 요약
+const transcriptSummary = ref('')
+const summarizingTranscript = ref(false)
+const showSummary = ref(false)
+// 회의록 편집
+const minutesEditing = ref(false)
+const minutesEditText = ref('')
+
+// 세션별 기록 영속 저장 (Map: sessionId → { transcriptLines, scriptLines, minutes, showMinutesTab })
+const sessionRecords = ref(new Map())
+
+function getOrCreateRecord(sessionId) {
+  if (!sessionRecords.value.has(sessionId)) {
+    sessionRecords.value.set(sessionId, {
+      transcriptLines: [],
+      scriptLines: [],
+      generatedMinutes: null,
+      showMinutesTab: false,
+    })
+  }
+  return sessionRecords.value.get(sessionId)
+}
+
+const stt = useSTT({
+  onResult: (text) => {
+    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    const entry = { time, text }
+    transcriptLines.value.push(entry)
+    scriptLines.value.push(entry)
+    // 세션 기록에도 동기화
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      rec.transcriptLines.push(entry)
+      rec.scriptLines.push(entry)
+    }
+    nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
+  },
+  getLang: () => transcriptLang.value === 'ko' ? 'ko-KR' : 'en-US',
+})
+
+function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
+function closePopover() { showPopover.value = null }
+
+function enterRoom(s) {
+  activeSession.value = s
+  activeTab.value = 'transcript'
+  recordingState.value = 'idle'
+  showPopover.value = null
+  // 이전 기록 복원
+  const rec = getOrCreateRecord(s.id)
+  transcriptLines.value = rec.transcriptLines
+  scriptLines.value = rec.scriptLines
+  generatedMinutes.value = rec.generatedMinutes
+  showMinutesTab.value = rec.showMinutesTab
+  minutesEditText.value = rec.generatedMinutes?.content_summary || ''
+  minutesEditing.value = false
+  transcriptSummary.value = ''
+  showSummary.value = false
+}
+
+function toggleRecording() {
+  if (recordingState.value === 'idle') {
+    recordingState.value = 'recording'
+    stt.start()
+  } else if (recordingState.value === 'recording') {
+    recordingState.value = 'paused'
+    stt.stop()
+    fetchTranscriptSummary()
+  } else {
+    recordingState.value = 'recording'
+    stt.start()
+  }
+}
+
+function stopRecording() {
+  const wasRecording = recordingState.value === 'recording'
+  recordingState.value = 'idle'
+  stt.stop()
+  if (wasRecording) fetchTranscriptSummary()
+}
+
+async function fetchTranscriptSummary() {
+  if (!transcriptLines.value.length) return
+  summarizingTranscript.value = true
+  showSummary.value = true
+  transcriptSummary.value = ''
+  const text = transcriptLines.value.map(l => `[${l.time}] ${l.text}`).join('\n')
+  await streamPost(
+    '/api/agent/ara/sessions-chat',
+    { meeting_id: meetingId.value, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
+    (chunk) => { transcriptSummary.value += chunk },
+    () => { summarizingTranscript.value = false },
+  )
+}
+
+async function endMeeting() {
+  if (!confirm('회의를 종료하시겠습니까?')) return
+  stopRecording()
+  try {
+    await api.patch(`/api/sessions/${activeSession.value.id}`, { status: 'ended' })
+    await loadSessions()
+  } catch {}
+  activeSession.value = null
+}
+
+async function generateMinutes() {
+  if (generatingMinutes.value) return
+  generatingMinutes.value = true
+  showMinutesTab.value = true
+  activeTab.value = 'minutes'
+  try {
+    const { data } = await api.get(`/api/sessions/${activeSession.value.id}/minutes`)
+    generatedMinutes.value = data
+  } catch {
+    try {
+      const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
+      const res = await api.post(`/api/sessions/${activeSession.value.id}/minutes`, {
+        content_summary: transcriptText || '(녹음 내용 없음)',
+      })
+      generatedMinutes.value = res.data
+    } catch {
+      generatedMinutes.value = { content_summary: '회의록 생성에 실패했습니다.' }
+    }
+  } finally {
+    generatingMinutes.value = false
+    minutesEditText.value = generatedMinutes.value?.content_summary || ''
+    minutesEditing.value = false
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      rec.generatedMinutes = generatedMinutes.value
+      rec.showMinutesTab = true
+    }
+  }
+}
+
+function saveMinutesEdit() {
+  if (generatedMinutes.value) {
+    generatedMinutes.value = { ...generatedMinutes.value, content_summary: minutesEditText.value }
+  } else {
+    generatedMinutes.value = { content_summary: minutesEditText.value }
+  }
+  minutesEditing.value = false
+  if (activeSession.value) {
+    const rec = getOrCreateRecord(activeSession.value.id)
+    rec.generatedMinutes = generatedMinutes.value
+  }
+}
 
 // 빠른 질문 목록
 const quickQuestions = [
@@ -156,17 +320,7 @@ async function viewMinutes(s) {
   }
 }
 
-async function joinRoom(s) {
-  try {
-    const { data } = await api.get(`/api/livekit/token/${meetingId.value}/${s.id}`)
-    const url = router.resolve(`/meetings/${meetingId.value}/sessions/${s.id}/room`).href
-    const params = new URLSearchParams({ lkToken: data.token, lkUrl: data.url })
-    const win = window.open(`${url}?${params.toString()}`, '_blank', 'noopener,noreferrer')
-    if (win) win.opener = null
-  } catch (e) {
-    alert(e.response?.data?.detail || 'LiveKit 토큰 발급 실패')
-  }
-}
+function joinRoom(s) { enterRoom(s) }
 
 // ── 아라 전송 ─────────────────────────────────
 async function sendAra() {
@@ -210,8 +364,6 @@ function scrollMessages() {
   }
 }
 
-import { nextTick } from 'vue'
-
 function formatDate(d) {
   if (!d) return '일정 미정'
   return new Date(d).toLocaleString('ko-KR', {
@@ -253,8 +405,171 @@ function statusCls(s) {
         @clear="clearHistory"
       />
 
-      <!-- 오른쪽: 회의 목록 -->
-      <div class="card sessions-panel">
+      <!-- 오른쪽 패널 -->
+
+      <!-- ── 회의 진행 중 뷰 ── -->
+      <div v-if="activeSession" class="card sessions-panel in-meeting" @click="closePopover">
+        <!-- 헤더: 제목 + 탭 -->
+        <div class="right-panel-header in-meeting-header">
+          <div class="in-mtitle">
+            <span class="fw-semibold" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">{{ activeSession.title }}</span>
+            <span v-if="recordingState === 'recording'" class="rec-live"><i class="bi bi-record-fill"></i> REC</span>
+          </div>
+          <div class="mtabs">
+            <button class="mtab" :class="{ active: activeTab === 'transcript' }" @click.stop="activeTab = 'transcript'">대화 기록</button>
+            <button class="mtab" :class="{ active: activeTab === 'script' }" @click.stop="activeTab = 'script'">스크립트</button>
+            <button v-if="showMinutesTab" class="mtab" :class="{ active: activeTab === 'minutes' }" @click.stop="activeTab = 'minutes'">회의록</button>
+          </div>
+        </div>
+
+        <!-- 탭 본문 -->
+        <div ref="transcriptAreaRef" class="tab-body in-meeting-body">
+          <template v-if="activeTab === 'transcript'">
+            <!-- AI 요약 섹션 -->
+            <div v-if="showSummary" class="ts-summary-box">
+              <div class="ts-summary-header">
+                <span><i class="bi bi-stars"></i> AI 요약</span>
+                <button class="ts-summary-close" @click.stop="showSummary = false">✕</button>
+              </div>
+              <div v-if="summarizingTranscript" class="ts-summary-body">
+                <span class="spinner-border spinner-border-sm text-primary"></span>
+                <span style="font-size:12px;color:var(--text-muted);margin-left:6px">요약 중...</span>
+              </div>
+              <div v-else class="ts-summary-body minutes-md" v-html="renderMd(transcriptSummary)"></div>
+            </div>
+            <div v-if="!transcriptLines.length" class="empty-state">
+              <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
+              <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
+            </div>
+            <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
+              <span class="tline-time">{{ line.time }}</span>
+              <span class="tline-text">{{ line.text }}</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'script'">
+            <div v-if="!scriptLines.length" class="empty-state">
+              <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
+              <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
+            </div>
+            <div v-for="(line, idx) in scriptLines" :key="idx" class="tline">
+              <span class="tline-time">{{ line.time }}</span>
+              <span class="tline-text">{{ line.text }}</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'minutes'">
+            <div v-if="generatingMinutes" class="empty-state">
+              <span class="spinner-border spinner-border-sm text-primary mb-2"></span>
+              <p class="text-muted small">AI가 회의록을 생성 중입니다...</p>
+            </div>
+            <template v-else-if="generatedMinutes">
+              <div class="minutes-edit-toolbar">
+                <template v-if="!minutesEditing">
+                  <button class="minutes-tool-btn" @click.stop="minutesEditing = true; minutesEditText = generatedMinutes.content_summary || ''">
+                    <i class="bi bi-pencil"></i> 편집
+                  </button>
+                </template>
+                <template v-else>
+                  <button class="minutes-tool-btn primary" @click.stop="saveMinutesEdit">
+                    <i class="bi bi-check-lg"></i> 저장
+                  </button>
+                  <button class="minutes-tool-btn" @click.stop="minutesEditing = false">
+                    취소
+                  </button>
+                </template>
+              </div>
+              <textarea v-if="minutesEditing" v-model="minutesEditText" class="minutes-edit-area"></textarea>
+              <div v-else class="minutes-md" v-html="renderMd(generatedMinutes.content_summary || '')"></div>
+            </template>
+            <div v-else class="empty-state"><p class="text-muted small">회의록이 없습니다.</p></div>
+          </template>
+        </div>
+
+        <!-- 하단 컨트롤 바 -->
+        <div class="meeting-ctrl-bar" @click.stop>
+          <div class="ctrl-group-left">
+            <!-- 🎤 마이크 설정 -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover === 'mic' }"
+                @click.stop="togglePopover('mic')" title="녹음 설정">
+                <i class="bi bi-mic"></i><i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover === 'mic'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">마이크 설정</div>
+                <div class="cpop-row">
+                  <span class="cpop-label">감도</span>
+                  <input type="range" v-model.number="micSensitivity" min="0" max="100" class="cpop-range" />
+                  <span class="cpop-val">{{ micSensitivity }}%</span>
+                </div>
+                <div class="cpop-row">
+                  <span class="cpop-label">노이즈 제거</span>
+                  <input type="checkbox" v-model="noiseReduction" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 🎧 대화기록 언어 -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover === 'tLang' }"
+                @click.stop="togglePopover('tLang')" title="대화기록 언어">
+                <i class="bi bi-headphones"></i>
+                <span>{{ transcriptLang === 'ko' ? '한국어' : 'English' }}</span>
+                <i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover === 'tLang'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">대화기록 언어</div>
+                <button class="cpop-opt" :class="{ selected: transcriptLang === 'ko' }"
+                  @click="transcriptLang = 'ko'; closePopover()">🇰🇷 한국어</button>
+                <button class="cpop-opt" :class="{ selected: transcriptLang === 'en' }"
+                  @click="transcriptLang = 'en'; closePopover()">🇺🇸 English</button>
+              </div>
+            </div>
+
+            <!-- 📝 스크립트 언어 -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover === 'sLang' }"
+                @click.stop="togglePopover('sLang')" title="스크립트 언어">
+                <i class="bi bi-file-earmark-text"></i>
+                <span>{{ scriptLang === 'ko' ? '한국어' : 'English' }}</span>
+                <i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover === 'sLang'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">스크립트 언어</div>
+                <button class="cpop-opt" :class="{ selected: scriptLang === 'ko' }"
+                  @click="scriptLang = 'ko'; closePopover()">🇰🇷 한국어</button>
+                <button class="cpop-opt" :class="{ selected: scriptLang === 'en' }"
+                  @click="scriptLang = 'en'; closePopover()">🇺🇸 English</button>
+              </div>
+            </div>
+
+            <!-- ▶/⏸ 녹음 버튼 -->
+            <button class="ctrl-rec-btn" :class="{ recording: recordingState === 'recording' }"
+              @click.stop="toggleRecording"
+              :title="recordingState === 'idle' ? '녹음 시작' : recordingState === 'recording' ? '일시정지' : '재개'">
+              <i v-if="recordingState !== 'recording'" class="bi bi-play-fill"></i>
+              <i v-else class="bi bi-pause-fill"></i>
+            </button>
+
+            <!-- ⏹ 중지 -->
+            <button v-if="recordingState !== 'idle'" class="ctrl-btn ctrl-stop"
+              @click.stop="stopRecording" title="중지">
+              <i class="bi bi-stop-fill"></i>
+            </button>
+
+            <!-- 기록 종료 -->
+            <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
+          </div>
+          <div class="ctrl-group-right">
+            <button class="ctrl-minutes" :disabled="generatingMinutes" @click.stop="generateMinutes">
+              <i class="bi bi-stars"></i> 회의록 생성
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 회의 목록 뷰 ── -->
+      <div v-else class="card sessions-panel">
         <div class="right-panel-header">
           <span class="panel-tab active" style="cursor:default">회의 목록</span>
           <button class="btn btn-outline btn-sm" style="margin-left:auto;margin-right:6px" @click="showCreateModal = true">+ 회의 등록</button>
@@ -343,7 +658,7 @@ function statusCls(s) {
           </div>
         </div>
 
-      </div>
+      </div><!-- end v-else list panel -->
 
     </div>
   </div>
@@ -723,4 +1038,142 @@ function statusCls(s) {
 }
 .btn-ara:disabled { opacity: .45; cursor: not-allowed; }
 .btn-ara:not(:disabled):hover { opacity: .88; }
+
+/* ── 회의 진행 패널 ────────────────────────────────────────── */
+.in-meeting { position: relative; }
+.in-meeting-header { flex-direction: column !important; align-items: flex-start !important; padding: 0 !important; }
+.in-mtitle { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; width: 100%; box-sizing: border-box; }
+.rec-live { font-size: 11px; font-weight: 700; color: #ef4444; animation: blink-rec 1.2s infinite; flex-shrink: 0; }
+@keyframes blink-rec { 0%,100%{opacity:1} 50%{opacity:.3} }
+.mtabs { display: flex; border-bottom: 1px solid var(--border); width: 100%; padding: 0 6px; }
+.mtab { padding: 7px 12px; font-size: 13px; font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all .15s; white-space: nowrap; margin-bottom: -1px; }
+.mtab:hover { color: var(--primary); }
+.mtab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+.in-meeting-body { padding: 12px 14px; gap: 2px !important; }
+.tline { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.tline:last-child { border-bottom: none; }
+.tline-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; margin-top: 3px; font-variant-numeric: tabular-nums; min-width: 62px; }
+.tline-text { flex: 1; line-height: 1.65; }
+
+/* 하단 컨트롤 바 */
+.meeting-ctrl-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border-top: 1px solid var(--border);
+  background: #fff; flex-shrink: 0; gap: 8px; flex-wrap: wrap; border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.ctrl-group-left { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.ctrl-group-right { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+.ctrl-btn {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border);
+  background: #f8fafc; color: #475569; font-size: 13px; cursor: pointer;
+  transition: all .15s; white-space: nowrap; line-height: 1;
+}
+.ctrl-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+.ctrl-active { background: #eff6ff !important; border-color: var(--primary) !important; color: var(--primary) !important; }
+.ctrl-chev { font-size: 9px; opacity: .6; }
+.ctrl-lang { gap: 5px; }
+.ctrl-lang span { font-size: 12px; }
+.ctrl-stop { color: #dc2626 !important; }
+.ctrl-stop:hover { background: #fef2f2 !important; border-color: #fca5a5 !important; }
+
+.ctrl-rec-btn {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--primary); background: var(--primary); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; cursor: pointer; transition: all .15s;
+}
+.ctrl-rec-btn:hover { opacity: .85; }
+.ctrl-rec-btn.recording { background: #ef4444; border-color: #ef4444; animation: pulse-rec .9s infinite; }
+@keyframes pulse-rec { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)} 50%{box-shadow:0 0 0 5px rgba(239,68,68,0)} }
+
+.ctrl-end {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid #cbd5e1;
+  background: #f8fafc; color: #475569; font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all .15s;
+}
+.ctrl-end:hover { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+
+.ctrl-minutes {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 8px 14px; border-radius: 8px;
+  background: linear-gradient(135deg, #1e3a5f, #3b82f6);
+  color: #fff; font-size: 13px; font-weight: 600; border: none; cursor: pointer;
+  transition: opacity .15s; white-space: nowrap;
+}
+.ctrl-minutes:disabled { opacity: .5; cursor: not-allowed; }
+.ctrl-minutes:not(:disabled):hover { opacity: .88; }
+
+/* 대화기록 AI 요약 박스 */
+.ts-summary-box {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  margin-bottom: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.ts-summary-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: #dbeafe;
+  font-size: 12px; font-weight: 700; color: #1e40af;
+}
+.ts-summary-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; color: #3b82f6; padding: 0 2px;
+  line-height: 1;
+}
+.ts-summary-body {
+  padding: 10px 14px;
+  font-size: 13px; line-height: 1.7; color: #1e3a5f;
+  display: flex; align-items: center;
+}
+
+/* 회의록 편집 */
+.minutes-edit-toolbar {
+  display: flex; gap: 6px; padding: 6px 0 8px;
+  flex-shrink: 0; border-bottom: 1px solid var(--border); margin-bottom: 10px;
+}
+.minutes-tool-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+  background: #f8fafc; color: #475569; font-size: 12px; cursor: pointer;
+  transition: all .15s;
+}
+.minutes-tool-btn:hover { background: #f1f5f9; }
+.minutes-tool-btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.minutes-tool-btn.primary:hover { opacity: .88; }
+.minutes-edit-area {
+  flex: 1; width: 100%; min-height: 200px;
+  border: 1px solid #93c5fd; border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; line-height: 1.7;
+  font-family: inherit; resize: vertical; outline: none;
+  background: #fff; color: var(--text);
+  box-sizing: border-box;
+}
+.minutes-edit-area:focus { border-color: var(--primary); box-shadow: 0 0 0 2px #bfdbfe; }
+
+/* 팝오버 */
+.ctrl-pop-wrap { position: relative; }
+.ctrl-popover {
+  position: absolute; bottom: calc(100% + 8px); left: 0;
+  background: #fff; border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  min-width: 180px; padding: 8px; z-index: 300;
+}
+.cpop-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.cpop-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; }
+.cpop-label { font-size: 12px; color: #475569; min-width: 60px; flex-shrink: 0; }
+.cpop-range { flex: 1; height: 4px; accent-color: var(--primary); cursor: pointer; }
+.cpop-val { font-size: 12px; color: var(--text-muted); min-width: 32px; text-align: right; }
+.cpop-opt {
+  display: flex; width: 100%; padding: 7px 10px;
+  background: none; border: none; cursor: pointer; font-size: 13px;
+  color: #334155; border-radius: 6px; text-align: left; transition: background .1s;
+}
+.cpop-opt:hover { background: #f1f5f9; }
+.cpop-opt.selected { background: #eff6ff; color: var(--primary); font-weight: 600; }
 </style>

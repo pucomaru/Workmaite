@@ -245,24 +245,29 @@ const upcomingSessions = computed(() => {
   <div class="home">
 
     <!-- ① 예정된 회의 -->
-    <div class="card todo-section">
-      <div class="section-title-row">
-        <span class="section-title">예정된 회의</span>
-        <span class="badge badge-muted" style="font-size:11px">{{ upcomingSessions.length }}건</span>
-      </div>
-      <div v-if="!upcomingSessions.length" class="empty-inline">예정된 회의가 없습니다.</div>
-      <div v-else class="todo-list">
-        <div v-for="s in upcomingSessions" :key="s.id" class="todo-row">
-          <span style="font-size:15px;flex-shrink:0">🎙</span>
-          <div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:0">
-            <span class="todo-content">{{ s.title }}</span>
-            <span v-if="s.meeting_title" style="font-size:11px;color:var(--text-muted)">{{ s.meeting_title }}</span>
+    <div class="card">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의</h6>
+          <span class="badge badge-app-muted">{{ upcomingSessions.length }}건</span>
+        </div>
+        <div v-if="!upcomingSessions.length" class="text-muted small py-2">예정된 회의가 없습니다.</div>
+        <div v-else class="d-flex flex-column gap-2">
+          <div v-for="s in upcomingSessions" :key="s.id"
+            class="d-flex align-items-center gap-2 p-2 rounded border"
+            style="background:#f8fafc;font-size:13px">
+            <span style="font-size:15px;flex-shrink:0">🎙</span>
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-medium text-truncate">{{ s.title }}</div>
+              <div v-if="s.meeting_title" class="text-muted" style="font-size:11px">{{ s.meeting_title }}</div>
+            </div>
+            <span class="badge rounded-pill"
+              :style="{ background: getDday(s.date) <= 3 ? '#fef3c7' : '#f1f5f9', color: getDday(s.date) <= 3 ? '#92400e' : '#64748b' }">
+              {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
+            </span>
+            <span class="badge badge-app-primary">{{ formatDate(s.date) }}</span>
+            <button v-if="s.meeting_id" class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px" @click="router.push(`/meetings/${s.meeting_id}/agenda`)">이동 ›</button>
           </div>
-          <span class="todo-dday" :class="getDday(s.date) === 0 ? 'urgent' : getDday(s.date) <= 3 ? 'urgent' : ''">
-            {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
-          </span>
-          <span class="todo-meeting">{{ formatDate(s.date) }}</span>
-          <button v-if="s.meeting_id" class="btn btn-sm btn-outline" style="font-size:11px;padding:2px 8px;flex-shrink:0" @click="router.push(`/meetings/${s.meeting_id}/agenda`)">이동 ›</button>
         </div>
       </div>
     </div>
@@ -270,46 +275,94 @@ const upcomingSessions = computed(() => {
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
     <div class="main-grid">
 
-    <!-- ② 회의체 섹션 (진행중 + 종료) -->
+    <!-- ② 회의체 섹션 -->
     <div class="meetings-section">
-      <!-- 진행중인 회의체 -->
-      <div class="section-title-row">
-        <span class="section-title">진행중인 회의체</span>
-        <button class="btn btn-primary btn-sm" @click="showCreateModal = true">+ 회의체 만들기</button>
-      </div>
-      <div class="meeting-grid">
-        <div
-          v-for="m in activeMeetings"
-          :key="m.id"
-          class="meeting-card card"
-          @click="router.push(`/meetings/${m.id}/home`)"
-        >
-          <div class="meeting-card-header">
-            <span class="meeting-title">{{ m.title }}</span>
-            <span class="badge badge-success">진행중</span>
-          </div>
-          <div v-if="m.purpose" class="meeting-meta">{{ m.purpose.slice(0, 60) }}{{ m.purpose.length > 60 ? '...' : '' }}</div>
-          <div v-if="m.start_date" class="meeting-dates">{{ formatDate(m.start_date) }} ~ {{ formatDate(m.end_date) }}</div>
-        </div>
-        <div v-if="!activeMeetings.length" class="empty-state" style="grid-column:1/-1">
-          <p>진행중인 회의체가 없습니다.</p>
-          <button class="btn btn-primary btn-sm" @click="showCreateModal = true">회의체 만들기</button>
-        </div>
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-people me-2"></i>진행중인 회의체</h6>
+        <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
+          <i class="bi bi-plus-lg me-1"></i>회의체 만들기
+        </button>
       </div>
 
+      <!-- 회의체 테이블 -->
+      <div class="card">
+        <div v-if="!activeMeetings.length" class="empty-state">
+          <i class="bi bi-people" style="font-size:32px;opacity:.3"></i>
+          <p class="mb-2">진행중인 회의체가 없습니다.</p>
+          <button class="btn btn-primary btn-sm" @click="showCreateModal = true">회의체 만들기</button>
+        </div>
+        <div v-else class="table-responsive">
+          <table class="table table-hover mb-0" style="font-size:13px">
+            <thead>
+              <tr>
+                <th>회의체명</th>
+                <th>우선순위</th>
+                <th>담당자</th>
+                <th>마감일</th>
+                <th>유형</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in activeMeetings" :key="m.id"
+                style="cursor:pointer" @click="router.push(`/meetings/${m.id}/home`)">
+                <td>
+                  <div class="fw-semibold">{{ m.title }}</div>
+                  <div v-if="m.purpose" class="text-muted" style="font-size:11px">
+                    {{ m.purpose.slice(0,50) }}{{ m.purpose.length > 50 ? '...' : '' }}
+                  </div>
+                </td>
+                <td>
+                  <span v-if="m.priority === 'high'" class="priority-badge high">
+                    <i class="bi bi-fire"></i> 상
+                  </span>
+                  <span v-else-if="m.priority === 'low'" class="priority-badge low">
+                    <i class="bi bi-arrow-down-circle"></i> 하
+                  </span>
+                  <span v-else class="priority-badge mid">
+                    <i class="bi bi-dash-circle"></i> 중
+                  </span>
+                </td>
+                <td class="text-muted">{{ m.owner_name || '-' }}</td>
+                <td>
+                  <span v-if="m.end_date" :class="getDday(m.end_date) !== null && getDday(m.end_date) <= 7 ? 'text-danger fw-semibold' : ''">
+                    {{ formatDate(m.end_date) }}
+                    <span v-if="getDday(m.end_date) !== null && getDday(m.end_date) <= 7" class="ms-1" style="font-size:11px">
+                      (D-{{ getDday(m.end_date) }})
+                    </span>
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </td>
+                <td>
+                  <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
+                </td>
+                <td>
+                  <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px"
+                    @click.stop="router.push(`/meetings/${m.id}/agenda`)">
+                    의제 ›
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ③ 달력 -->
     <div class="card cal-card">
         <div class="cal-header">
-          <div class="cal-nav">
-            <button class="nav-btn" @click="navigate(-1)">‹</button>
-            <button class="today-btn" @click="goToday">오늘</button>
-            <button class="nav-btn" @click="navigate(1)">›</button>
+          <div class="d-flex align-items-center gap-1">
+            <button class="btn btn-sm btn-outline-secondary px-2" @click="navigate(-1)">‹</button>
+            <button class="btn btn-sm btn-outline-secondary px-2" @click="goToday">오늘</button>
+            <button class="btn btn-sm btn-outline-secondary px-2" @click="navigate(1)">›</button>
           </div>
           <span class="cal-title">{{ calTitle }}</span>
-          <div class="view-switch">
-            <button v-for="v in views" :key="v.key" class="view-btn" :class="{ active: calView === v.key }" @click="calView = v.key">{{ v.label }}</button>
+          <div class="btn-group btn-group-sm">
+            <button v-for="v in views" :key="v.key"
+              class="btn"
+              :class="calView === v.key ? 'btn-primary' : 'btn-outline-secondary'"
+              @click="calView = v.key">{{ v.label }}</button>
           </div>
         </div>
 
@@ -358,7 +411,7 @@ const upcomingSessions = computed(() => {
               <div class="day-evt-bar" :class="evtCls(e.type)" />
               <div class="day-evt-info">
                 <div class="day-evt-title">{{ e.title }}</div>
-                <span class="badge" :class="e.type === 'session' ? 'badge-primary' : 'badge-warning'">
+                <span class="badge" :class="e.type === 'session' ? 'badge-app-primary' : 'badge-app-warning'">
                   {{ e.type === 'session' ? '회의' : 'To-do 마감' }}
                 </span>
               </div>
@@ -440,7 +493,7 @@ const upcomingSessions = computed(() => {
         </div>
       </div>
       <template #footer>
-        <button class="btn btn-outline" @click="showCreateModal = false">취소</button>
+        <button class="btn btn-outline-secondary" @click="showCreateModal = false">취소</button>
         <button class="btn btn-primary" :disabled="!form.title.trim() || creating" @click="createMeeting">
           {{ creating ? '생성 중...' : '회의체 생성' }}
         </button>
@@ -571,6 +624,14 @@ const upcomingSessions = computed(() => {
 .mini-cell.has-evt { font-weight: 700; color: var(--accent); }
 .evt-pill { font-size: 10px; font-weight: 500; border-radius: 3px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .evt-pill.evt-session { background: #dbeafe; color: #1d4ed8; }
+
+/* 우선순위 배지 */
+.priority-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.priority-badge.high { background: #fef2f2; color: #dc2626; }
+.priority-badge.mid  { background: #fffbeb; color: #d97706; }
+.priority-badge.low  { background: #f0fdf4; color: #16a34a; }
+/* 유형 배지 */
+.type-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: #f1f5f9; color: #475569; }
 .evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }

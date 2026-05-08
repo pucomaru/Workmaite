@@ -9,8 +9,10 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=schemas.UserOut)
 def register(data: schemas.UserCreate, db: Session = Depends(get_db)):
+    if not data.employee_id:
+        raise HTTPException(status_code=400, detail="이메일(employee_id)은 필수입니다.")
     if db.query(models.User).filter(models.User.employee_id == data.employee_id).first():
-        raise HTTPException(status_code=400, detail="이미 등록된 사번입니다.")
+        raise HTTPException(status_code=400, detail="이미 등록된 계정입니다.")
     user = models.User(
         name=data.name,
         employee_id=data.employee_id,

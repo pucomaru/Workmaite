@@ -3,7 +3,7 @@
  * - 최종 확정된 문장(isFinal)만 onResult 콜백으로 반환
  * - 마이크 off 시 중단, on 시 재시작
  */
-export function useSTT({ onResult }) {
+export function useSTT({ onResult, getLang = null }) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SpeechRecognition) return { start: () => {}, stop: () => {}, supported: false }
 
@@ -12,7 +12,7 @@ export function useSTT({ onResult }) {
 
   function build() {
     const r = new SpeechRecognition()
-    r.lang = 'ko-KR'
+    r.lang = typeof getLang === 'function' ? getLang() : 'ko-KR'
     r.continuous = true
     r.interimResults = false  // 최종 결과만
 
@@ -26,9 +26,10 @@ export function useSTT({ onResult }) {
     }
 
     r.onend = () => {
-      // 활성 상태면 자동 재시작 (continuous가 중단될 수 있음)
+      // 활성 상태면 자동 재시작 — 새 인스턴스 생성으로 중복 결과 방지
       if (active) {
-        try { r.start() } catch (_) {}
+        recognition = build()
+        try { recognition.start() } catch (_) {}
       }
     }
 
