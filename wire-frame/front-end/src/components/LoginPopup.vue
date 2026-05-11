@@ -20,7 +20,7 @@ async function submit() {
     emit('close')
     router.push('/')
   } catch (e) {
-    error.value = e.response?.data?.detail || '이메일 또는 비밀번호가 올바르지 않습니다.'
+    error.value = e.message?.includes('서버') ? e.message : (e.response?.data?.detail || '이메일 또는 비밀번호가 올바르지 않습니다.')
   } finally {
     loading.value = false
   }

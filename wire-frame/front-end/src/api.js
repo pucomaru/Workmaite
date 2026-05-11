@@ -8,7 +8,7 @@ export function toWsUrl(path) {
   return `${base}${path}`
 }
 
-const api = axios.create({ baseURL: BASE_URL })
+const api = axios.create({ baseURL: BASE_URL, timeout: 10000 })
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
@@ -19,6 +19,9 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   res => res,
   err => {
+    if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
+      return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
+    }
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
       window.location.href = '/login'

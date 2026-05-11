@@ -16,9 +16,11 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: '', component: () => import('./pages/HomePage.vue') },
-      { path: 'minutes', component: () => import('./pages/AllMinutesPage.vue') },
+      { path: 'archive', component: () => import('./pages/ArchivePage.vue') },
+      { path: 'organization', component: () => import('./pages/OrganizationPage.vue') },
+      { path: 'minutes', redirect: '/archive' },
+      { path: 'reports', redirect: '/archive' },
       { path: 'past-meetings', component: () => import('./pages/PastMeetingsPage.vue') },
-      { path: 'reports', component: () => import('./pages/AllReportsPage.vue') },
       { path: 'meetings/:meetingId', redirect: to => `/meetings/${to.params.meetingId}/home` },
       { path: 'meetings/:meetingId/home', component: () => import('./pages/MeetingHomePage.vue') },
       { path: 'meetings/:meetingId/agenda', component: () => import('./pages/AgendaPage.vue') },
