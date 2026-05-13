@@ -232,6 +232,18 @@ const endedMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'ended')
 )
 
+const DEMO_MEETINGS = [
+  { id: 'demo-1', title: '전략기획위원회', purpose: '중장기 경영전략 수립 및 주요 의사결정', status: 'active', priority: 'high', meeting_type: '위원회', owner_name: '김철수', start_date: '2025-01-01', end_date: '2025-12-31' },
+  { id: 'demo-2', title: '운영위원회', purpose: '조직 운영 전반의 정책 심의 및 의결', status: 'active', priority: 'mid', meeting_type: '위원회', owner_name: '이영희', start_date: '2025-01-01', end_date: '2025-12-31' },
+  { id: 'demo-3', title: '개발팀 주간회의', purpose: '개발 진척 현황 공유 및 이슈 해소', status: 'active', priority: 'mid', meeting_type: 'Weekly', owner_name: '박민준', start_date: '2025-03-01', end_date: null },
+  { id: 'demo-4', title: '마케팅 전략회의', purpose: '마케팅 캠페인 기획 및 성과 분석', status: 'active', priority: 'low', meeting_type: '전략회의', owner_name: '최지수', start_date: '2025-02-01', end_date: '2025-06-30' },
+  { id: 'demo-5', title: '인사위원회', purpose: '인사 정책 수립 및 주요 인사 사항 심의', status: 'active', priority: 'high', meeting_type: '위원회', owner_name: '정수현', start_date: '2025-01-15', end_date: '2025-12-31' },
+]
+
+const displayActiveMeetings = computed(() =>
+  activeMeetings.value.length > 0 ? activeMeetings.value : DEMO_MEETINGS
+)
+
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const upcomingSessions = computed(() => {
   const todayStr = fmtISO(new Date())
@@ -286,12 +298,7 @@ const upcomingSessions = computed(() => {
 
       <!-- 회의체 테이블 -->
       <div class="card">
-        <div v-if="!activeMeetings.length" class="empty-state">
-          <i class="bi bi-people" style="font-size:32px;opacity:.3"></i>
-          <p class="mb-2">진행중인 회의체가 없습니다.</p>
-          <button class="btn btn-primary btn-sm" @click="showCreateModal = true">회의체 만들기</button>
-        </div>
-        <div v-else class="table-responsive">
+        <div class="table-responsive">
           <table class="table table-hover mb-0" style="font-size:13px">
             <thead>
               <tr>
@@ -304,7 +311,7 @@ const upcomingSessions = computed(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="m in activeMeetings" :key="m.id"
+              <tr v-for="m in displayActiveMeetings" :key="m.id"
                 style="cursor:pointer" @click="router.push(`/meetings/${m.id}/home`)">
                 <td>
                   <div class="fw-semibold">{{ m.title }}</div>

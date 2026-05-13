@@ -18,6 +18,8 @@ const routes = [
       { path: '', component: () => import('./pages/HomePage.vue') },
       { path: 'archive', component: () => import('./pages/ArchivePage.vue') },
       { path: 'organization', component: () => import('./pages/OrganizationPage.vue') },
+      { path: 'meeting-groups', component: () => import('./pages/MeetingGroupsPage.vue') },
+      { path: 'session-record', component: () => import('./pages/SessionPage.vue') },
       { path: 'minutes', redirect: '/archive' },
       { path: 'reports', redirect: '/archive' },
       { path: 'past-meetings', component: () => import('./pages/PastMeetingsPage.vue') },
