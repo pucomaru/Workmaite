@@ -9,6 +9,9 @@ import { useAuthStore } from '../stores/auth'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import gaonAvatar from '../assets/agents/gaon.png'
 import naruAvatar from '../assets/agents/naru.png'
+import araAvatar from '../assets/agents/ara.png'
+import naonAvatar from '../assets/agents/naon.png'
+import agentHierarchyIcon from '../assets/agents/agent_hierarchy_icon.svg'
 
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
@@ -20,7 +23,6 @@ const reports = ref([])
 const membersData = ref([])
 const loading = ref(true)
 const search = ref('')
-const showPersonNodes = ref(true)
 const expandedMeeting = ref(null)
 
 // ─── View mode ────────────────────────────────────────────────
@@ -53,7 +55,7 @@ function toggleRelated(id) {
   idx >= 0 ? relatedMeetingIds.value.splice(idx, 1) : relatedMeetingIds.value.push(id)
 }
 
-function openCreateModal() { showCreateModal.value = true; agentOpen.value = false }
+function openCreateModal() { showCreateModal.value = true; agentSidebarOpen.value = false }
 
 async function doCreateMeeting() {
   if (!createForm.value.title.trim()) return
@@ -87,7 +89,7 @@ const AGENTS = {
   gaon: {
     name: '가온', nameEn: 'Gaon', subtitle: 'To-do 추출·아젠다 어시스턴트', avatar: gaonAvatar,
     accentColor: '#92400e', accentBg: '#fef3c7', accentBorder: '#fcd34d',
-    greeting: '안녕하세요! 저는 가온이에요 😊\n회의 준비자료나 보고서, 이전 회의록 같은 거 업로드해주시면 아젠다랑 To-do 뽑아드릴게요. 파일 드래그해서 올려주시거나 아래 질문 눌러보세요!',
+    greeting: '안녕하세요! 저는 가온이에요 😊\n회의 준비자료나 보고서, 이전 회의록 같은 거 업로드해주시면 아젠다랑 To-do 뽑아드릴게요.',
     suggested: ['회의록에서 과제를 추출해줘', '담당자별 할 일을 정리해줘', '이번 회의 아젠다를 만들어줘'],
     endpoint: '/api/agent/gaon/chat',
   },
@@ -98,12 +100,26 @@ const AGENTS = {
     suggested: ['이 보고서의 핵심 내용을 요약해줘', '자료에서 문제점을 찾아줘', '개선 방향을 제안해줘'],
     endpoint: '/api/agent/naru/chat',
   },
+  ara: {
+    name: '아라', nameEn: 'Ara', subtitle: '실시간 회의 보조 어시스턴트', avatar: araAvatar,
+    accentColor: '#185fa5', accentBg: '#e6f1fb', accentBorder: '#85b7eb',
+    greeting: '안녕하세요! 저는 아라예요 😊\n실시간 회의 보조와 다국어 통역을 도와드릴게요.',
+    suggested: ['회의 인사이트를 분석해줘', '다국어 회의록 번역해줘', '회의 흐름을 정리해줘'],
+    endpoint: '/api/agent/ara/chat',
+  },
+  naon: {
+    name: '나온', nameEn: 'Naon', subtitle: '카드뉴스 생성 어시스턴트', avatar: naonAvatar,
+    accentColor: '#993c1d', accentBg: '#faece7', accentBorder: '#f0997b',
+    greeting: '안녕하세요! 저는 나온이에요 😊\n회의 내용을 카드뉴스나 콘텐츠로 만들어드릴게요.',
+    suggested: ['카드뉴스를 만들어줘', '주요 결정 사항을 정리해줘', '보고용 자료를 만들어줘'],
+    endpoint: '/api/agent/naon/chat',
+  },
 }
 
-const agentOpen = ref(true)
+const agentSidebarOpen = ref(false)
 const currentAgent = ref('hyean')
 const agentInfo = computed(() => AGENTS[currentAgent.value])
-const allMessages = ref({ hyean: [], gaon: [], naru: [] })
+const allMessages = ref({ hyean: [], gaon: [], naru: [], ara: [], naon: [] })
 const currentMessages = computed(() => allMessages.value[currentAgent.value])
 const agentInput = ref('')
 const agentLoading = ref(false)
@@ -112,57 +128,13 @@ const agentFileInput = ref(null)
 const agentPendingFiles = ref([])
 const agentTextareaEl = ref(null)
 
-// Agent panel resize + drag-to-move
-const panelW = ref(360)
-const panelH = ref(440)
-let agentResizing = false, arStartX = 0, arStartY = 0, arStartW = 0, arStartH = 0
-let agentBottomResizing = false, abStartY = 0, abStartH = 0
-let agentDragging = false, adStartX = 0, adStartY = 0, adStartLeft = 0, adStartTop = 0
-
-const floatingWrapRef = ref(null)
-const agentPos = ref({ top: 60, left: null })  // left: null = use right:12
-
-function onAgentResizeStart(e) {
-  agentResizing = true
-  arStartX = e.clientX; arStartY = e.clientY
-  arStartW = panelW.value; arStartH = panelH.value
-  e.preventDefault(); e.stopPropagation()
-}
-
-function onAgentBottomResizeStart(e) {
-  agentBottomResizing = true
-  abStartY = e.clientY; abStartH = panelH.value
-  e.preventDefault(); e.stopPropagation()
-}
-
-function onAgentDragStart(e) {
-  if (e.target.closest('.agent-header-actions') || e.target.closest('.agent-resize-handle') || agentResizing) return
-  agentDragging = true
-  const el = floatingWrapRef.value
-  if (el && el.parentElement) {
-    const rect = el.getBoundingClientRect()
-    const parentRect = el.parentElement.getBoundingClientRect()
-    adStartLeft = rect.left - parentRect.left
-    adStartTop = rect.top - parentRect.top
-    agentPos.value = { top: adStartTop, left: adStartLeft }
-  }
-  adStartX = e.clientX; adStartY = e.clientY
-  e.preventDefault()
-}
-
-// Auto-shrink when bottom panel is open
-const effectivePanelH = computed(() => {
-  if (bottomMode.value) return Math.min(panelH.value, 220)
-  return panelH.value
-})
-
 function initAgentGreeting(key) {
   if (!allMessages.value[key].length)
     allMessages.value[key] = [{ role: 'agent', content: AGENTS[key].greeting }]
 }
 
 function switchAgent(key) {
-  currentAgent.value = key; agentOpen.value = true
+  currentAgent.value = key; agentSidebarOpen.value = true
   initAgentGreeting(key)
 }
 
@@ -241,24 +213,18 @@ function activateReviewMode() {
 }
 function closeBottomPanel() { bottomMode.value = null; currentAgent.value = 'hyean' }
 
-// ─── Global mouse handler (resize) ─────────────────────────────
+// ─── Detail sidebar resize ─────────────────────────────────────
+const sidebarW = ref(260)
+let sidebarResizing = false, srStartX = 0, srStartW = 0
+function onSidebarResizeStart(e) {
+  sidebarResizing = true; srStartX = e.clientX; srStartW = sidebarW.value
+  e.preventDefault()
+}
+
+// ─── Global mouse handler ───────────────────────────────────────
 function onGlobalMouseMove(e) {
-  if (agentResizing) {
-    panelW.value = Math.min(600, Math.max(260, arStartW + (arStartX - e.clientX)))
-    panelH.value = Math.min(680, Math.max(200, arStartH + (arStartY - e.clientY)))
-  }
-  if (agentBottomResizing) {
-    panelH.value = Math.min(680, Math.max(200, abStartH + (e.clientY - abStartY)))
-  }
-  if (agentDragging) {
-    const el = floatingWrapRef.value
-    const parent = el?.parentElement
-    const maxL = parent ? parent.offsetWidth - 10 : 1200
-    const maxT = parent ? parent.offsetHeight - 10 : 800
-    agentPos.value = {
-      top: Math.max(0, Math.min(maxT, adStartTop + (e.clientY - adStartY))),
-      left: Math.max(0, Math.min(maxL, adStartLeft + (e.clientX - adStartX))),
-    }
+  if (sidebarResizing) {
+    sidebarW.value = Math.max(200, Math.min(480, srStartW + (e.clientX - srStartX)))
   }
   if (bottomResizing) {
     const el = mainAreaRef.value
@@ -266,7 +232,7 @@ function onGlobalMouseMove(e) {
     bottomH.value = Math.max(90, Math.min(maxH, brStartH + (brStartY - e.clientY)))
   }
 }
-function onGlobalMouseUp() { agentResizing = false; agentBottomResizing = false; agentDragging = false; bottomResizing = false }
+function onGlobalMouseUp() { sidebarResizing = false; bottomResizing = false }
 
 // ─── Hover tooltip ────────────────────────────────────────────
 const hoverNode = ref(null)
@@ -306,16 +272,17 @@ let camX = 0, camY = 0, camZ = 0
 let worldZoom = 1.0, targetZoom = 1.0, dpr = 1
 let gNodes = [], gEdges = []
 let expandedHubIdx = null
+let expandedDeptIdx = null
 let rotationPaused = false
 
 // Demo data used when no real data available
 function getDemoData() {
   return [
-    { id: 1, title: '전략기획위원회', status: 'active', urgency: 'critical', minutes: [{ session_title: '2025 전략 수립', session_number: 1 }, { session_title: '예산 계획 검토', session_number: 2 }], reports: [{ file_name: '전략보고서_Q1.pdf' }], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
-    { id: 2, title: '운영위원회', status: 'active', urgency: 'warning', minutes: [{ session_title: '운영 현황 보고', session_number: 1 }], reports: [{ file_name: '운영보고서_5월.pdf' }, { file_name: '성과보고서.pdf' }], members: [{ userId: 4, userName: '최지영', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }] },
-    { id: 3, title: '개발팀 주간회의', status: 'active', urgency: 'normal', minutes: [{ session_title: '스프린트 계획', session_number: 1 }, { session_title: '기술 검토', session_number: 2 }], reports: [], members: [{ userId: 5, userName: '정도현', role: 'admin' }, { userId: 6, userName: '한소희', role: 'presenter' }] },
-    { id: 4, title: '마케팅 전략회의', status: 'ended', urgency: 'normal', minutes: [{ session_title: '캠페인 기획', session_number: 1 }], reports: [{ file_name: '마케팅보고서.pdf' }], members: [{ userId: 7, userName: '윤재원', role: 'admin' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
-    { id: 5, title: '인사위원회', status: 'ended', urgency: 'normal', minutes: [{ session_title: '채용 검토', session_number: 1 }], reports: [], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 8, userName: '오세진', role: 'presenter' }] },
+    { id: 1, title: '전략기획위원회', status: 'active', urgency: 'critical', minutes: [{ session_title: '2025 전략 수립', session_number: 1 }, { session_title: '예산 계획 검토', session_number: 2 }], reports: [{ file_name: '전략보고서_Q1.pdf' }], members: [{ userId: 1, userName: '김철수', role: 'admin', department: '기획팀' }, { userId: 2, userName: '이영희', role: 'presenter', department: '운영팀' }, { userId: 3, userName: '박민준', role: 'presenter', department: '기획팀' }] },
+    { id: 2, title: '운영위원회', status: 'active', urgency: 'warning', minutes: [{ session_title: '운영 현황 보고', session_number: 1 }], reports: [{ file_name: '운영보고서_5월.pdf' }, { file_name: '성과보고서.pdf' }], members: [{ userId: 4, userName: '최지영', role: 'admin', department: '경영지원팀' }, { userId: 2, userName: '이영희', role: 'presenter', department: '운영팀' }] },
+    { id: 3, title: '개발팀 주간회의', status: 'active', urgency: 'normal', minutes: [{ session_title: '스프린트 계획', session_number: 1 }, { session_title: '기술 검토', session_number: 2 }], reports: [], members: [{ userId: 5, userName: '정도현', role: 'admin', department: '개발팀' }, { userId: 6, userName: '한소희', role: 'presenter', department: '개발팀' }] },
+    { id: 4, title: '마케팅 전략회의', status: 'ended', urgency: 'normal', minutes: [{ session_title: '캠페인 기획', session_number: 1 }], reports: [{ file_name: '마케팅보고서.pdf' }], members: [{ userId: 7, userName: '윤재원', role: 'admin', department: '마케팅팀' }, { userId: 3, userName: '박민준', role: 'presenter', department: '기획팀' }] },
+    { id: 5, title: '인사위원회', status: 'ended', urgency: 'normal', minutes: [{ session_title: '채용 검토', session_number: 1 }], reports: [], members: [{ userId: 1, userName: '김철수', role: 'admin', department: '기획팀' }, { userId: 8, userName: '오세진', role: 'presenter', department: '인사팀' }] },
   ]
 }
 
@@ -358,28 +325,39 @@ const filteredGroups = computed(() => {
 function buildGraphNodes() {
   const nodes = [], edges = []
   const groups = meetingGroups.value
-  const personMap = {}
   groups.forEach((g, gi) => {
     const phi = (gi / Math.max(groups.length, 1)) * Math.PI * 2
     const hubIdx = nodes.length
     nodes.push({ id: `meeting-${g.id||gi}`, label: g.title||`회의체 ${gi+1}`, type: 'hub', x: Math.cos(phi)*140, y: (Math.random()-.5)*40, z: Math.sin(phi)*140, groupIdx: gi, data: g })
+    // Doc nodes
     const docs = [...(g.minutes||[]).map(m=>({label:m.session_title||`${m.session_number}차 회의록`,kind:'minutes'})), ...(g.reports||[]).map(r=>({label:r.file_name||'보고서',kind:'report'}))]
     docs.forEach((doc, di) => {
-      const dphi = phi + (di - docs.length/2)*0.42, dr = 210 + Math.random()*60
+      const dphi = phi + (di - docs.length/2)*0.42, dr = 200 + Math.random()*55
       edges.push([hubIdx, nodes.length])
-      nodes.push({ id: `doc-${g.id||gi}-${di}`, label: doc.label, type: 'doc', kind: doc.kind, x: Math.cos(dphi)*dr, y: (Math.random()-.5)*80, z: Math.sin(dphi)*dr, groupIdx: gi })
+      nodes.push({ id: `doc-${g.id||gi}-${di}`, label: doc.label, type: 'doc', kind: doc.kind, x: Math.cos(dphi)*dr, y: (Math.random()-.5)*70, z: Math.sin(dphi)*dr, groupIdx: gi })
     })
-    if (showPersonNodes.value) {
-      (g.members||[]).forEach((mb, mi) => {
-        if (personMap[mb.userId] !== undefined) { edges.push([hubIdx, personMap[mb.userId]]) }
-        else {
-          const mphi = phi - 0.7 + (mi - (g.members||[]).length/2)*0.38, mr = 175 + Math.random()*35
-          personMap[mb.userId] = nodes.length
-          edges.push([hubIdx, nodes.length])
-          nodes.push({ id: `person-${mb.userId}`, label: mb.userName, type: 'person', userId: mb.userId, role: mb.role, x: Math.cos(mphi)*mr, y: (Math.random()-.5)*55, z: Math.sin(mphi)*mr, groupIdx: gi })
-        }
+    // Department nodes (group members by dept)
+    const deptMap = {}
+    ;(g.members||[]).forEach(mb => {
+      const dept = mb.department || '미지정'
+      if (!deptMap[dept]) deptMap[dept] = []
+      deptMap[dept].push(mb)
+    })
+    const deptEntries = Object.entries(deptMap)
+    deptEntries.forEach(([deptName, members], di) => {
+      const dphi = phi + 0.9 + (di - deptEntries.length/2)*0.55
+      const dr = 175 + Math.random()*30
+      const deptIdx = nodes.length
+      edges.push([hubIdx, deptIdx])
+      nodes.push({ id: `dept-${g.id||gi}-${deptName}`, label: deptName, type: 'dept', hubIdx, members, x: Math.cos(dphi)*dr, y: (Math.random()-.5)*50, z: Math.sin(dphi)*dr, groupIdx: gi })
+      // Person nodes (connected to dept)
+      members.forEach((mb, mi) => {
+        const mphi = dphi + (mi - members.length/2)*0.38
+        const mr = dr + 60 + Math.random()*20
+        edges.push([deptIdx, nodes.length])
+        nodes.push({ id: `person-${mb.userId}-${g.id||gi}`, label: mb.userName, type: 'person', userId: mb.userId, role: mb.role, deptIdx, x: Math.cos(mphi)*mr, y: (Math.random()-.5)*45, z: Math.sin(mphi)*mr, groupIdx: gi })
       })
-    }
+    })
   })
   const hubs = nodes.filter(n => n.type === 'hub')
   hubs.forEach((h, i) => { if (i < hubs.length-1) edges.push([nodes.indexOf(h), nodes.indexOf(hubs[i+1])]) })
@@ -428,33 +406,31 @@ function getHubFill(g) {
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
-    // Initial state: only active hubs
+    // Initial: only active hubs
     gNodes.forEach((n, i) => {
       if (n.type === 'hub' && n.data?.status !== 'ended') vis.add(i)
     })
   } else {
-    // Expanded state: only the selected hub + its directly connected nodes
+    // Expanded: selected hub + its doc & dept nodes
     vis.add(expandedHubIdx)
     gEdges.forEach(([a, b]) => {
       if (a === expandedHubIdx) {
-        const nb = gNodes[b]
-        if (nb?.type === 'doc' || (nb?.type === 'person' && showPersonNodes.value) || nb?.type === 'hub') vis.add(b)
+        const t = gNodes[b]?.type
+        if (t === 'doc' || t === 'dept') vis.add(b)
       }
       if (b === expandedHubIdx) {
-        const na = gNodes[a]
-        if (na?.type === 'doc' || (na?.type === 'person' && showPersonNodes.value) || na?.type === 'hub') vis.add(a)
+        const t = gNodes[a]?.type
+        if (t === 'doc' || t === 'dept') vis.add(a)
       }
     })
-    // Also include ended hubs that share persons with the expanded hub
-    const hubPersons = new Set()
-    gEdges.forEach(([a, b]) => {
-      if (a === expandedHubIdx && gNodes[b]?.type === 'person') hubPersons.add(b)
-      if (b === expandedHubIdx && gNodes[a]?.type === 'person') hubPersons.add(a)
-    })
-    gEdges.forEach(([a, b]) => {
-      if (gNodes[a]?.type === 'hub' && hubPersons.has(b)) vis.add(a)
-      if (gNodes[b]?.type === 'hub' && hubPersons.has(a)) vis.add(b)
-    })
+    // If a dept is expanded, show its person nodes
+    if (expandedDeptIdx !== null) {
+      vis.add(expandedDeptIdx)
+      gEdges.forEach(([a, b]) => {
+        if (a === expandedDeptIdx && gNodes[b]?.type === 'person') vis.add(b)
+        if (b === expandedDeptIdx && gNodes[a]?.type === 'person') vis.add(a)
+      })
+    }
   }
   return vis
 }
@@ -542,6 +518,25 @@ function drawArchiveGraph() {
         ctx.textAlign='center';ctx.textBaseline='top'
         ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)
       }
+    } else if(n.type==='dept'){
+      const isExpanded=expandedDeptIdx===p.idx
+      const r=Math.min(18,(isFocused||isExpanded?14:11)*p.scale*zf)
+      // Hexagon shape for dept
+      ctx.beginPath()
+      for(let a=0;a<6;a++){
+        const ang=a*Math.PI/3-Math.PI/6
+        const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang)
+        a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)
+      }
+      ctx.closePath()
+      ctx.fillStyle=isDark?'rgba(71,85,105,0.75)':'rgba(148,163,184,0.85)';ctx.fill()
+      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)';ctx.lineWidth=isExpanded?1.5:0.8;ctx.stroke()
+      if(p.scale>.32){
+        const fs=Math.max(8,Math.min(13,Math.round(10*zf)))
+        ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`
+        ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle'
+        ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy)
+      }
     } else if(n.type==='person'){
       const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
@@ -575,7 +570,7 @@ function animateGraph() {
 function onMouseDown(e) { isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY }
 
 function onMouseMove(e) {
-  if (agentResizing || bottomResizing) return
+  if (bottomResizing) return
   if(isDragging){
     rotY+=(e.clientX-lastMx)*.004;rotX+=(e.clientY-lastMy)*.004
     rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.clientX;lastMy=e.clientY
@@ -626,7 +621,7 @@ function onCanvasClick(e) {
     if(!getVisibleSet().has(i)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='hub'?22:n.type==='person'?11:9
+    const baseR=n.type==='hub'?22:n.type==='dept'?13:n.type==='person'?11:9
     const d=Math.hypot(p.sx-mx,p.sy-my)
     if(d<baseR*p.scale*zf+6&&d<minDist){minDist=d;closest=i}
   })
@@ -634,20 +629,26 @@ function onCanvasClick(e) {
     const n=gNodes[closest]
     if(n.type==='hub') {
       if(selectedNodeIdx.value===closest) {
-        selectedNodeIdx.value=null; expandedHubIdx=null
+        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null
         targetZoom=Math.max(1.0,targetZoom/1.6)
         targetCamX=0;targetCamY=0;targetCamZ=0
       } else {
-        selectedNodeIdx.value=closest; expandedHubIdx=closest
+        selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
         targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
         targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
+      }
+    } else if(n.type==='dept') {
+      expandedDeptIdx = expandedDeptIdx===closest ? null : closest
+      if(expandedDeptIdx!==null) {
+        targetCamX=n.x*.6;targetCamY=n.y*.6;targetCamZ=n.z*.6
+        targetZoom=Math.min(3.5,targetZoom*1.2)
       }
     }
     focusNode=closest
   } else {
     // Background click: toggle rotation pause
     rotationPaused=!rotationPaused
-    focusNode=null;selectedNodeIdx.value=null;expandedHubIdx=null
+    focusNode=null;selectedNodeIdx.value=null;expandedHubIdx=null;expandedDeptIdx=null
     targetCamX=0;targetCamY=0;targetCamZ=0
     targetZoom=Math.max(1.0,targetZoom/1.5)
   }
@@ -711,8 +712,6 @@ watch(search, q=>{
   }
 })
 
-watch(showPersonNodes,()=>{expandedHubIdx=null;selectedNodeIdx.value=null;const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges})
-
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
 function downloadDummy(name){alert(`"${name}" 다운로드 기능은 준비 중입니다.`)}
@@ -760,6 +759,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
           회의체 생성
         </button>
       </div>
+
+      <button class="agent-header-btn" :class="{ active: agentSidebarOpen }" @click="agentSidebarOpen=!agentSidebarOpen" title="AI 에이전트">
+        <svg class="ai-btn-icon" viewBox="0 0 40 20" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#93c5fd"/>
+              <stop offset="100%" stop-color="#7b80cc"/>
+            </linearGradient>
+          </defs>
+          <text x="20" y="15" text-anchor="middle" font-family="'SF Pro Display',system-ui,sans-serif" font-weight="800" font-size="15" fill="url(#aiGrad)" letter-spacing="-0.5">AI</text>
+        </svg>
+      </button>
     </div>
 
     <!-- ── Body ── -->
@@ -767,7 +778,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
       <!-- Detail sidebar -->
       <Transition name="sidebar-slide">
-        <div v-if="detailOpen" class="detail-sidebar">
+        <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
+          <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
           <div class="detail-header">
             <div>
               <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
@@ -839,10 +851,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="legend-item"><div class="legend-dot hub-ended"></div><span>종료</span></div>
           <div class="legend-sep"></div>
           <div class="legend-item"><div class="legend-dot doc-dot"></div><span>자료</span></div>
-          <div class="legend-item">
-            <div class="legend-dot person-dot" :style="{ opacity: showPersonNodes?1:.3 }"></div>
-            <button class="person-toggle" @click="showPersonNodes=!showPersonNodes">{{ showPersonNodes?'구성원 숨기기':'구성원 표시' }}</button>
-          </div>
+          <div class="legend-item"><div class="legend-dot dept-dot"></div><span>부서</span></div>
+          <div class="legend-item"><div class="legend-dot person-dot"></div><span>구성원 (부서 클릭 시)</span></div>
           <div class="legend-sep"></div>
           <span class="legend-hint">클릭으로 연관 자료 확장 · 드래그 회전 · 스크롤 확대/축소</span>
         </div>
@@ -971,74 +981,68 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </div>
 
       </div><!-- /main-area -->
-    </div><!-- /archive-body -->
 
-    <!-- ── Floating Agent (draggable, top-right of archive area) ── -->
-    <div ref="floatingWrapRef" class="floating-agent-wrap"
-      :style="agentPos.left !== null
-        ? { top: agentPos.top+'px', left: agentPos.left+'px', right: 'unset' }
-        : { top: agentPos.top+'px', right: '12px' }">
-      <button v-if="!agentOpen" class="agent-fab" @click="agentOpen=true" :title="agentInfo.name">
-        <img :src="agentInfo.avatar" class="agent-fab-img" :alt="agentInfo.name" />
-      </button>
-      <div v-else class="agent-panel" :style="{ width: panelW+'px', height: effectivePanelH+'px' }">
-        <!-- Resize handle (top-left, nw) -->
-        <div class="agent-resize-handle" @mousedown="onAgentResizeStart" title="크기 조정">
-          <svg width="10" height="10" viewBox="0 0 10 10">
-            <line x1="1" y1="9" x2="9" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="1" y1="5" x2="5" y2="1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <!-- Draggable header -->
-        <div class="agent-panel-header" style="cursor:move" @mousedown="onAgentDragStart">
-          <div class="agent-header-info">
-            <img :src="agentInfo.avatar" class="agent-avatar" />
-            <div>
-              <div class="agent-name">{{ agentInfo.name }} ({{ agentInfo.nameEn }})</div>
-              <div class="agent-subtitle">{{ agentInfo.subtitle }}</div>
+      <!-- Agent right sidebar -->
+      <Transition name="agent-sidebar-slide">
+        <div v-if="agentSidebarOpen" class="agent-right-sidebar">
+          <!-- Agent tabs -->
+          <div class="agent-tabs-bar">
+            <div class="agent-tabs">
+              <button v-for="(agent, key) in AGENTS" :key="key"
+                class="agent-tab" :class="{ active: currentAgent === key }"
+                @click="switchAgent(key)" :title="agent.name">
+                <img :src="agent.avatar" class="agent-tab-avatar" />
+                <span class="agent-tab-label">{{ agent.name }}</span>
+              </button>
+            </div>
+            <button class="agent-sidebar-close" @click="agentSidebarOpen=false">✕</button>
+          </div>
+          <!-- Current agent info bar -->
+          <div class="agent-sidebar-info">
+            <img :src="agentInfo.avatar" class="agent-sidebar-avatar" />
+            <div class="agent-sidebar-text">
+              <div class="agent-sidebar-name">{{ agentInfo.name }} <span class="agent-sidebar-en">({{ agentInfo.nameEn }})</span></div>
+              <div class="agent-sidebar-subtitle">{{ agentInfo.subtitle }}</div>
+            </div>
+            <button class="agent-new-chat-btn" @click="clearAgentChat">새 채팅</button>
+          </div>
+          <!-- Messages -->
+          <div ref="agentMessagesEl" class="agent-messages">
+            <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role">
+              <template v-if="msg.role==='agent'&&msg.content">
+                <div class="agent-msg-label">
+                  <img :src="agentInfo.avatar" class="agent-msg-avatar" />
+                  {{ agentInfo.name }}
+                </div>
+                <div class="agent-bubble agent" :class="`theme-${currentAgent}`" v-html="renderMd(msg.content)"></div>
+                <div v-if="i===0&&agentInfo.suggested?.length" class="agent-suggested">
+                  <button v-for="s in agentInfo.suggested" :key="s" class="suggested-btn" :disabled="agentLoading" @click="agentInput=s;sendAgentMsg()">{{ s }}</button>
+                </div>
+              </template>
+              <div v-else-if="msg.role==='user'" class="agent-bubble user">{{ msg.content }}</div>
+            </div>
+            <div v-if="agentLoading&&currentMessages[currentMessages.length-1]?.content===''" class="agent-msg-row agent">
+              <div class="agent-bubble agent typing"><span></span><span></span><span></span></div>
             </div>
           </div>
-          <div class="agent-header-actions">
-            <button class="agent-new-chat-btn" @click="clearAgentChat">새 채팅</button>
-            <button class="agent-close-btn" @click="agentOpen=false">✕</button>
+          <!-- Input -->
+          <div class="agent-input-area">
+            <div v-if="agentPendingFiles.length" class="agent-file-chips">
+              <span v-for="f in agentPendingFiles" :key="f.name" class="agent-file-chip">📎 {{ f.name }}</span>
+            </div>
+            <div class="agent-input-row">
+              <button class="agent-attach-btn" @click="agentFileInput?.click()">＋</button>
+              <textarea ref="agentTextareaEl" v-model="agentInput" class="agent-textarea"
+                placeholder="질문하세요..." rows="1"
+                @input="agentAutoResize" @keydown="onAgentKeydown" />
+              <button class="agent-send-btn" :disabled="agentLoading||(!agentInput.trim()&&!agentPendingFiles.length)" @click="sendAgentMsg">전송</button>
+            </div>
+            <input ref="agentFileInput" type="file" multiple style="display:none" @change="onAgentFileSelected" />
           </div>
         </div>
+      </Transition>
 
-        <div ref="agentMessagesEl" class="agent-messages">
-          <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role">
-            <template v-if="msg.role==='agent'&&msg.content">
-              <div class="agent-msg-label">
-                <img :src="agentInfo.avatar" class="agent-msg-avatar" />
-                {{ agentInfo.name }}
-              </div>
-              <div class="agent-bubble agent" :class="`theme-${currentAgent}`" v-html="renderMd(msg.content)"></div>
-              <div v-if="i===0&&agentInfo.suggested?.length" class="agent-suggested">
-                <button v-for="s in agentInfo.suggested" :key="s" class="suggested-btn" :disabled="agentLoading" @click="agentInput=s;sendAgentMsg()">{{ s }}</button>
-              </div>
-            </template>
-            <div v-else-if="msg.role==='user'" class="agent-bubble user">{{ msg.content }}</div>
-          </div>
-          <div v-if="agentLoading&&currentMessages[currentMessages.length-1]?.content===''" class="agent-msg-row agent">
-            <div class="agent-bubble agent typing"><span></span><span></span><span></span></div>
-          </div>
-        </div>
-
-        <div class="agent-input-area">
-          <div class="agent-input-row">
-            <button class="agent-attach-btn" @click="agentFileInput?.click()">＋</button>
-            <textarea ref="agentTextareaEl" v-model="agentInput" class="agent-textarea"
-              placeholder="질문하세요..." rows="1"
-              @input="agentAutoResize" @keydown="onAgentKeydown" />
-            <button class="agent-send-btn" :disabled="agentLoading||(!agentInput.trim()&&!agentPendingFiles.length)" @click="sendAgentMsg">전송</button>
-          </div>
-          <input ref="agentFileInput" type="file" multiple style="display:none" @change="onAgentFileSelected" />
-        </div>
-        <!-- Bottom resize handle -->
-        <div class="agent-resize-bottom" @mousedown="onAgentBottomResizeStart" title="높이 조정">
-          <div class="agent-resize-bottom-bar"></div>
-        </div>
-      </div>
-    </div>
+    </div><!-- /archive-body -->
 
     <!-- ── Hover Tooltip ── -->
     <Teleport to="body">
@@ -1143,7 +1147,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-body { flex:1;display:flex;overflow:hidden;min-height:0; }
 
 /* Detail sidebar */
-.detail-sidebar { width:260px;flex-shrink:0;background:#0a0f1e;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;overflow:hidden; }
+.detail-sidebar { flex-shrink:0;background:#0a0f1e;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;overflow:hidden;position:relative; }
+.sidebar-resize-handle { position:absolute;top:0;right:0;bottom:0;width:5px;cursor:ew-resize;z-index:10;background:transparent;transition:background .15s; }
+.sidebar-resize-handle:hover { background:rgba(96,165,250,.25); }
 .sidebar-slide-enter-active,.sidebar-slide-leave-active { transition:width .25s ease,opacity .2s; }
 .sidebar-slide-enter-from,.sidebar-slide-leave-to { width:0;opacity:0; }
 .detail-header { display:flex;align-items:flex-start;justify-content:space-between;padding:14px 12px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0; }
@@ -1185,9 +1191,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .hub-dot { background:#3b82f6; }
 .hub-ended { background:#475569;opacity:.5; }
 .doc-dot { background:#1e3a8a;border:1px solid #60a5fa; }
-.person-dot { background:#7c3aed;border:1px solid #a78bfa;transition:opacity .2s; }
-.person-toggle { background:none;border:none;cursor:pointer;color:#64748b;font-size:11px;padding:0; }
-.person-toggle:hover { color:#a78bfa; }
+.dept-dot { background:#475569;border:1px solid #94a3b8;clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%); }
+.person-dot { background:#7c3aed;border:1px solid #a78bfa; }
 .legend-sep { width:1px;height:14px;background:rgba(255,255,255,.08); }
 .legend-hint { opacity:.55;font-size:10px; }
 
@@ -1263,26 +1268,34 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .btn-approve { padding:7px 18px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer; }
 .btn-reject { padding:7px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:13px;cursor:pointer; }
 
-/* ── Floating agent (draggable, top-right of archive area) ── */
-.floating-agent-wrap { position:absolute;z-index:100;display:flex;flex-direction:column;align-items:flex-end;user-select:none; }
-.agent-fab { width:48px;height:48px;border-radius:50%;border:none;background:var(--primary);padding:0;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);transition:transform .2s; }
-.agent-fab:hover { transform:scale(1.05); }
-.agent-fab-img { width:40px;height:40px;border-radius:50%;object-fit:cover; }
-.agent-panel { background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;position:relative;min-width:260px;min-height:200px; }
-.agent-resize-handle { position:absolute;top:0;left:0;width:22px;height:22px;cursor:nw-resize;z-index:10;display:flex;align-items:center;justify-content:center;color:#cbd5e1;border-radius:0 0 6px 0;user-select:none;transition:color .15s,background .15s; }
-.agent-resize-handle:hover { color:var(--primary);background:#f1f5f9; }
-.agent-resize-bottom { flex-shrink:0;height:10px;display:flex;align-items:center;justify-content:center;cursor:s-resize;background:#f8fafc;border-top:1px solid var(--border);user-select:none; }
-.agent-resize-bottom-bar { width:32px;height:3px;border-radius:2px;background:#cbd5e1; }
-.agent-resize-bottom:hover .agent-resize-bottom-bar { background:#94a3b8; }
-.agent-panel-header { display:flex;align-items:center;justify-content:space-between;padding:10px 12px 8px 22px;border-bottom:1px solid var(--border);flex-shrink:0; }
-.agent-header-info { display:flex;align-items:center;gap:8px; }
-.agent-avatar { width:30px;height:30px;border-radius:50%;object-fit:cover; }
-.agent-name { font-size:13px;font-weight:700;color:var(--primary);line-height:1.2; }
-.agent-subtitle { font-size:10px;color:var(--text-muted); }
-.agent-header-actions { display:flex;align-items:center;gap:5px; }
-.agent-new-chat-btn { background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:all .15s; }
+/* ── Agent header button ── */
+.agent-header-btn { width:42px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s;padding:0; }
+.agent-header-btn:hover { background:rgba(123,128,204,.25);border-color:rgba(123,128,204,.5); }
+.agent-header-btn.active { background:rgba(123,128,204,.3);border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.2); }
+.ai-btn-icon { width:36px;height:18px; }
+
+/* ── Agent right sidebar ── */
+.agent-right-sidebar { width:320px;flex-shrink:0;background:#fff;border-left:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;overflow:hidden;z-index:10; }
+.agent-sidebar-slide-enter-active,.agent-sidebar-slide-leave-active { transition:width .25s ease,opacity .2s; }
+.agent-sidebar-slide-enter-from,.agent-sidebar-slide-leave-to { width:0;opacity:0; }
+.agent-tabs-bar { display:flex;align-items:center;border-bottom:1px solid var(--border);padding:6px 8px 0;gap:0;flex-shrink:0;background:#f8fafc; }
+.agent-tabs { display:flex;gap:2px;flex:1;overflow-x:auto; }
+.agent-tabs::-webkit-scrollbar { display:none; }
+.agent-tab { display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px 6px;border-radius:7px 7px 0 0;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:9px;font-weight:600;transition:all .15s;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px; }
+.agent-tab:hover { background:rgba(96,165,250,.08);color:#64748b; }
+.agent-tab.active { background:#fff;color:var(--primary);border-bottom-color:var(--primary);border:1px solid var(--border);border-bottom-color:#fff; }
+.agent-tab-avatar { width:22px;height:22px;border-radius:50%;object-fit:cover; }
+.agent-tab-label { font-size:9px;font-weight:600; }
+.agent-sidebar-close { width:26px;height:26px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:4px;margin-bottom:2px; }
+.agent-sidebar-close:hover { background:#e2e8f0;color:#1e293b; }
+.agent-sidebar-info { display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.agent-sidebar-avatar { width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0; }
+.agent-sidebar-text { flex:1;min-width:0; }
+.agent-sidebar-name { font-size:12px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.agent-sidebar-en { font-weight:400;color:#64748b;font-size:11px; }
+.agent-sidebar-subtitle { font-size:10px;color:#94a3b8; }
+.agent-new-chat-btn { background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:all .15s;flex-shrink:0;white-space:nowrap; }
 .agent-new-chat-btn:hover { background:#eff6ff;border-color:#93c5fd;color:var(--primary); }
-.agent-close-btn { width:24px;height:24px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center; }
 .agent-messages { flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px; }
 .agent-messages::-webkit-scrollbar { width:3px; }
 .agent-messages::-webkit-scrollbar-thumb { background:#e2e8f0; }
@@ -1292,10 +1305,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .agent-msg-avatar { width:15px;height:15px;border-radius:50%;object-fit:cover; }
 .agent-bubble { padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.55;max-width:90%;word-break:break-word;border:1px solid transparent; }
 .agent-bubble.user { background:var(--primary);color:#fff;border-radius:10px 10px 2px 10px; }
-/* Agent bubble colors per agent type */
 .agent-bubble.agent.theme-hyean { background:#eff6ff;border-color:#93c5fd;color:#1e40af;border-radius:2px 10px 10px 10px; }
 .agent-bubble.agent.theme-gaon  { background:#fef3c7;border-color:#fcd34d;color:#78350f;border-radius:2px 10px 10px 10px; }
 .agent-bubble.agent.theme-naru  { background:#ecfdf5;border-color:#6ee7b7;color:#064e3b;border-radius:2px 10px 10px 10px; }
+.agent-bubble.agent.theme-ara   { background:#e6f1fb;border-color:#85b7eb;color:#185fa5;border-radius:2px 10px 10px 10px; }
+.agent-bubble.agent.theme-naon  { background:#faece7;border-color:#f0997b;color:#993c1d;border-radius:2px 10px 10px 10px; }
 .agent-suggested { display:flex;flex-direction:column;gap:3px;margin-top:5px; }
 .suggested-btn { text-align:left;background:rgba(255,255,255,.7);border:1px solid #c7d2fe;border-radius:6px;padding:4px 9px;font-size:11px;color:var(--primary);cursor:pointer;font-weight:500;transition:background .15s; }
 .suggested-btn:hover:not(:disabled) { background:#fff; }
@@ -1305,6 +1319,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
+.agent-file-chips { display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px; }
+.agent-file-chip { font-size:11px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;padding:2px 7px;color:#1d4ed8; }
 .agent-input-area { padding:7px 9px;border-top:1px solid var(--border);flex-shrink:0; }
 .agent-input-row { display:flex;align-items:flex-end;gap:4px; }
 .agent-attach-btn { width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:#f8fafc;color:var(--text-muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0; }

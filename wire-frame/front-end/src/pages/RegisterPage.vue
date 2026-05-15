@@ -2,22 +2,16 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import api from '../api'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const step = ref(1)
-const form = ref({ email: '', code: '', name: '', password: '', confirm: '' })
+const form = ref({ email: '', name: '', password: '', confirm: '' })
 const error = ref('')
 const loading = ref(false)
 const showPw = ref(false)
 const showConfirm = ref(false)
-const codeSent = ref(false)
-const codeVerified = ref(false)
-const sendingCode = ref(false)
-const verifyingCode = ref(false)
-const codeError = ref('')
 
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email))
 const pwStrength = computed(() => {
@@ -33,48 +27,13 @@ const pwStrength = computed(() => {
 const pwStrengthLabel = computed(() => ['', '매우 약함', '약함', '보통', '강함'][pwStrength.value] || '')
 const pwStrengthColor = computed(() => ['', '#ef4444', '#f59e0b', '#3b82f6', '#10b981'][pwStrength.value] || '')
 const pwMatch = computed(() => form.value.confirm && form.value.password === form.value.confirm)
-const step3Valid = computed(() =>
+const step2Valid = computed(() =>
   form.value.name.trim() && form.value.password.length >= 8 && pwStrength.value >= 2 && pwMatch.value
 )
 const steps = [
   { label: '이메일 입력' },
-  { label: '이메일 인증' },
   { label: '세부 정보' },
 ]
-
-async function sendCode() {
-  if (!emailValid.value) return
-  sendingCode.value = true
-  codeError.value = ''
-  try {
-    await api.post('/api/auth/send-code', { email: form.value.email })
-    codeSent.value = true
-    step.value = 2
-  } catch {
-    codeSent.value = true
-    step.value = 2
-  } finally {
-    sendingCode.value = false
-  }
-}
-
-async function verifyCode() {
-  if (!form.value.code.trim()) return
-  verifyingCode.value = true
-  codeError.value = ''
-  try {
-    await api.post('/api/auth/verify-code', { email: form.value.email, code: form.value.code })
-    codeVerified.value = true
-  } catch (e) {
-    if (e.response?.status === 404 || e.response?.status === 405) {
-      codeVerified.value = true
-    } else {
-      codeError.value = '인증 코드가 올바르지 않습니다.'
-    }
-  } finally {
-    verifyingCode.value = false
-  }
-}
 
 async function submit() {
   error.value = ''
@@ -87,7 +46,7 @@ async function submit() {
       employee_id: form.value.email,
     })
     await auth.loginWithEmail(form.value.email, form.value.password)
-    step.value = 4
+    step.value = 3
   } catch (e) {
     error.value = e.response?.data?.detail || '회원가입에 실패했습니다.'
   } finally {
@@ -112,7 +71,7 @@ async function submit() {
       </div>
 
       <!-- Step indicator -->
-      <div v-if="step < 4" class="step-bar mb-4">
+      <div v-if="step < 3" class="step-bar mb-4">
         <div v-for="(s, i) in steps" :key="i" class="step-dot-wrap">
           <div class="step-node" :class="{ active: step === i+1, done: step > i+1 }">
             <i v-if="step > i+1" class="bi bi-check-lg"></i>
@@ -143,58 +102,14 @@ async function submit() {
           </div>
         </div>
         <button class="btn btn-primary w-100 py-2 fw-semibold"
-          :disabled="!emailValid || sendingCode" @click="sendCode">
-          <span v-if="sendingCode" class="spinner-border spinner-border-sm me-2" />
-          {{ sendingCode ? '전송 중...' : '인증 코드 전송' }}
-          <i v-if="!sendingCode" class="bi bi-arrow-right ms-1"></i>
+          :disabled="!emailValid" @click="step = 2">
+          다음
+          <i class="bi bi-arrow-right ms-1"></i>
         </button>
       </div>
 
       <!-- ── STEP 2 ── -->
       <div v-else-if="step === 2">
-        <h5 class="fw-bold mb-1" style="color:var(--primary)">이메일 인증</h5>
-        <p class="text-muted small mb-4"><strong>{{ form.email }}</strong>으로 인증 코드를 전송했습니다.</p>
-        <div class="mb-3">
-          <label class="form-label">인증 코드</label>
-          <div class="input-group">
-            <span class="input-group-text bg-light border-end-0">
-              <i class="bi bi-shield-check text-muted"></i>
-            </span>
-            <input v-model="form.code" type="text"
-              class="form-control border-start-0 border-end-0 text-center fw-bold ls-wide"
-              placeholder="6자리 코드" maxlength="6"
-              @keyup.enter="form.code.trim() && verifyCode()" />
-            <button class="btn btn-outline-secondary border-start-0"
-              :disabled="!form.code.trim() || verifyingCode || codeVerified"
-              @click="verifyCode">
-              <span v-if="verifyingCode" class="spinner-border spinner-border-sm" />
-              <span v-else-if="codeVerified"><i class="bi bi-check-lg text-success"></i></span>
-              <span v-else>확인</span>
-            </button>
-          </div>
-          <div v-if="codeError" class="text-danger small mt-1">{{ codeError }}</div>
-        </div>
-        <div v-if="codeVerified" class="alert alert-success py-2 small mb-3">
-          <i class="bi bi-check-circle-fill me-1"></i>이메일이 인증되었습니다!
-        </div>
-        <div class="d-flex gap-2">
-          <button class="btn btn-outline-secondary" @click="step = 1">
-            <i class="bi bi-arrow-left"></i>
-          </button>
-          <button class="btn btn-primary flex-grow-1 py-2 fw-semibold"
-            :disabled="!codeVerified" @click="step = 3">
-            다음 <i class="bi bi-arrow-right ms-1"></i>
-          </button>
-        </div>
-        <div class="text-center mt-3">
-          <button class="btn btn-link btn-sm text-muted p-0" @click="step = 3">
-            코드를 못 받으셨나요? 건너뛰기
-          </button>
-        </div>
-      </div>
-
-      <!-- ── STEP 3 ── -->
-      <div v-else-if="step === 3">
         <h5 class="fw-bold mb-1" style="color:var(--primary)">세부 정보 입력</h5>
         <p class="text-muted small mb-4">이름과 비밀번호를 설정하세요</p>
         <div class="mb-3">
@@ -265,19 +180,19 @@ async function submit() {
           <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
         </div>
         <div class="d-flex gap-2">
-          <button class="btn btn-outline-secondary" @click="step = 2">
+          <button class="btn btn-outline-secondary" @click="step = 1">
             <i class="bi bi-arrow-left"></i>
           </button>
           <button class="btn btn-primary flex-grow-1 py-2 fw-semibold"
-            :disabled="!step3Valid || loading" @click="submit">
+            :disabled="!step2Valid || loading" @click="submit">
             <span v-if="loading" class="spinner-border spinner-border-sm me-2" />
             {{ loading ? '가입 중...' : '회원가입 완료' }}
           </button>
         </div>
       </div>
 
-      <!-- ── STEP 4 ── -->
-      <div v-else-if="step === 4" class="text-center py-3">
+      <!-- ── STEP 3 (success) ── -->
+      <div v-else-if="step === 3" class="text-center py-3">
         <div class="success-icon mb-3">
           <i class="bi bi-check-lg text-white fs-2"></i>
         </div>
@@ -291,7 +206,7 @@ async function submit() {
         </button>
       </div>
 
-      <div v-if="step < 4" class="text-center mt-4 small text-muted">
+      <div v-if="step < 3" class="text-center mt-4 small text-muted">
         이미 계정이 있으신가요?
         <router-link to="/login" class="fw-semibold" style="color:var(--accent)">로그인</router-link>
       </div>

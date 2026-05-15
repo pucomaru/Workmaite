@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 64">
+  <!-- 혜안 orchestrator center -->
+  <circle cx="40" cy="14" r="11" fill="#1B1F3B"/>
+  <circle cx="40" cy="14" r="6" fill="none" stroke="#7B80CC" stroke-width="0.8" opacity="0.7"/>
+  <circle cx="40" cy="14" r="3" fill="#7B80CC" opacity="0.9"/>
+  <!-- connector lines -->
+  <line x1="40" y1="25" x2="40" y2="36" stroke="#C0BFCF" stroke-width="1"/>
+  <line x1="10" y1="36" x2="70" y2="36" stroke="#C0BFCF" stroke-width="1"/>
+  <line x1="10" y1="36" x2="10" y2="42" stroke="#C0BFCF" stroke-width="1"/>
+  <line x1="30" y1="36" x2="30" y2="42" stroke="#C0BFCF" stroke-width="1"/>
+  <line x1="50" y1="36" x2="50" y2="42" stroke="#C0BFCF" stroke-width="1"/>
+  <line x1="70" y1="36" x2="70" y2="42" stroke="#C0BFCF" stroke-width="1"/>
+  <!-- 가온 purple -->
+  <circle cx="10" cy="50" r="9" fill="#2A2060"/>
+  <circle cx="10" cy="50" r="4" fill="none" stroke="#7F77DD" stroke-width="0.8" opacity="0.7"/>
+  <circle cx="10" cy="50" r="2" fill="#7F77DD" opacity="0.9"/>
+  <!-- 나루 teal -->
+  <circle cx="30" cy="50" r="9" fill="#062E22"/>
+  <path d="M23,50 Q30,44 37,50" fill="none" stroke="#5DCAA5" stroke-width="1.2" opacity="0.7"/>
+  <circle cx="30" cy="50" r="2.5" fill="#9FE1CB" opacity="0.9"/>
+  <!-- 아라 blue -->
+  <circle cx="50" cy="50" r="9" fill="#041E3A"/>
+  <circle cx="50" cy="50" r="5" fill="none" stroke="#378ADD" stroke-width="0.8" opacity="0.7"/>
+  <circle cx="50" cy="50" r="2" fill="#85B7EB" opacity="0.9"/>
+  <!-- 나온 coral -->
+  <circle cx="70" cy="50" r="9" fill="#2A0E04"/>
+  <rect x="66" y="52" width="3" height="6" rx="0.5" fill="#D85A30" opacity="0.7"/>
+  <rect x="70" y="46" width="3" height="12" rx="0.5" fill="#F0997B" opacity="0.8"/>
+  <rect x="74" y="50" width="3" height="8" rx="0.5" fill="#D85A30" opacity="0.6"/>
+</svg>

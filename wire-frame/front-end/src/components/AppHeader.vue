@@ -17,9 +17,6 @@ function formatTime(ts) {
   return d.toLocaleDateString('ko-KR')
 }
 
-const props = defineProps({ sidebarOpen: Boolean })
-const emit = defineEmits(['toggle-sidebar'])
-
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -182,11 +179,6 @@ async function saveProfileSettings() {
 <template>
   <header class="header">
     <div class="header-left">
-      <button class="btn-ghost btn-icon" @click="emit('toggle-sidebar')">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3 12h18M3 6h18M3 18h18"/>
-        </svg>
-      </button>
       <router-link to="/" class="logo">
         <span class="logo-icon">W</span>
         <span class="logo-text">workma!te</span>
@@ -237,6 +229,30 @@ async function saveProfileSettings() {
         </div>
       </template>
     </div>
+
+    <!-- 중앙 네비게이션 -->
+    <nav class="header-center-nav">
+      <router-link to="/" class="center-nav-item" :class="{ active: route.path === '/' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        홈
+      </router-link>
+      <router-link to="/archive" class="center-nav-item" :class="{ active: route.path === '/archive' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+        아카이브
+      </router-link>
+      <router-link to="/organization" class="center-nav-item" :class="{ active: route.path === '/organization' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        조직
+      </router-link>
+      <router-link to="/meeting-groups" class="center-nav-item" :class="{ active: route.path === '/meeting-groups' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+        회의체
+      </router-link>
+      <router-link to="/session-record" class="center-nav-item" :class="{ active: route.path === '/session-record' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+        회의
+      </router-link>
+    </nav>
 
     <div class="header-right">
       <!-- 알림 -->
@@ -445,6 +461,31 @@ async function saveProfileSettings() {
 .btn-icon { padding: 6px; border-radius: 6px; color: rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center; }
 .btn-icon:hover { background: rgba(255,255,255,.1); color: #fff; }
 .header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; }
+
+/* ── 중앙 네비게이션 ── */
+.header-center-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.center-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 7px;
+  color: rgba(255,255,255,.65);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .15s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
+.center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
 .logo { display: flex; align-items: center; gap: 8px; color: #fff; margin-left: 6px; flex-shrink: 0; }
 .logo-icon { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; }
 .logo-text { font-weight: 700; font-size: 16px; }
@@ -495,7 +536,7 @@ async function saveProfileSettings() {
 .member-mgmt-popup {
   position: absolute;
   top: calc(var(--header-h) + 4px);
-  left: 240px;
+  left: 160px;
   width: 340px;
   background: #fff;
   border: 1px solid var(--border);

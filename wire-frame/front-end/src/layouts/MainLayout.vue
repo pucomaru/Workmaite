@@ -6,7 +6,6 @@ import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
 import { toWsUrl } from '../api'
 import AppHeader from '../components/AppHeader.vue'
-import AppSidebar from '../components/AppSidebar.vue'
 import HyeanAgent from '../components/HyeanAgent.vue'
 
 const router = useRouter()
@@ -15,7 +14,6 @@ const auth = useAuthStore()
 const notifStore = useNotificationsStore()
 const meetingsStore = useMeetingsStore()
 
-const sidebarOpen = ref(true)
 const ws = ref(null)
 
 onMounted(async () => {
@@ -51,29 +49,21 @@ watch(() => route.path, (p) => {
 
 <template>
   <div class="layout">
-    <AppHeader :sidebar-open="sidebarOpen" @toggle-sidebar="sidebarOpen = !sidebarOpen" />
+    <AppHeader />
     <div class="layout-body">
-      <AppSidebar :open="sidebarOpen" />
-      <main class="layout-main" :class="{ 'sidebar-closed': !sidebarOpen }">
+      <main class="layout-main">
         <RouterView :key="route.params.meetingId ?? route.path" />
       </main>
     </div>
     <HyeanAgent v-if="inMeetingPage && meetingId" :meeting-id="meetingId" />
-    <div class="ai-disclaimer" :class="{ 'sidebar-closed': !sidebarOpen }">Workma!te의 AI는 실수할 수 있으니 반드시 결과를 검토해주세요.</div>
+    <div class="ai-disclaimer">Workma!te의 AI는 실수할 수 있으니 반드시 결과를 검토해주세요.</div>
   </div>
 </template>
 
 <style scoped>
 .layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .layout-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
-.layout-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  margin-left: var(--sidebar-w);
-  transition: margin-left .2s;
-}
-.layout-main.sidebar-closed { margin-left: 0; }
+.layout-main { flex: 1; overflow-y: auto; padding: 20px; }
 .ai-disclaimer {
   text-align: center;
   font-size: 11px;
@@ -82,8 +72,5 @@ watch(() => route.path, (p) => {
   padding: 4px 12px;
   flex-shrink: 0;
   letter-spacing: 0.01em;
-  margin-left: var(--sidebar-w);
-  transition: margin-left .2s;
 }
-.ai-disclaimer.sidebar-closed { margin-left: 0; }
 </style>
