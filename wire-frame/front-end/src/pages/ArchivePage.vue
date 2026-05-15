@@ -27,9 +27,7 @@ const expandedMeeting = ref(null)
 const viewMode = ref('graph')
 const nightMode = ref(true)
 
-// ─── Plus snackbar ────────────────────────────────────────────
-const plusOpen = ref(false)
-function closePlus() { plusOpen.value = false }
+// ─── Plus snackbar (removed - replaced by direct button) ──────
 
 // ─── Create meeting modal ─────────────────────────────────────
 const showCreateModal = ref(false)
@@ -55,7 +53,7 @@ function toggleRelated(id) {
   idx >= 0 ? relatedMeetingIds.value.splice(idx, 1) : relatedMeetingIds.value.push(id)
 }
 
-function openCreateModal() { showCreateModal.value = true; agentOpen.value = false; closePlus() }
+function openCreateModal() { showCreateModal.value = true; agentOpen.value = false }
 
 async function doCreateMeeting() {
   if (!createForm.value.title.trim()) return
@@ -234,11 +232,11 @@ function addDept() { if (taskDeptInput.value.trim()) { taskForm.value.depts.push
 function removeDept(i) { taskForm.value.depts.splice(i, 1) }
 
 function activateTaskMode() {
-  bottomMode.value = 'task'; switchAgent('gaon'); closePlus()
+  bottomMode.value = 'task'; switchAgent('gaon')
   nextTick(initBottomH)
 }
 function activateReviewMode() {
-  bottomMode.value = 'review'; switchAgent('naru'); closePlus()
+  bottomMode.value = 'review'; switchAgent('naru')
   nextTick(initBottomH)
 }
 function closeBottomPanel() { bottomMode.value = null; currentAgent.value = 'hyean' }
@@ -307,15 +305,17 @@ let targetCamX = 0, targetCamY = 0, targetCamZ = 0
 let camX = 0, camY = 0, camZ = 0
 let worldZoom = 1.0, targetZoom = 1.0, dpr = 1
 let gNodes = [], gEdges = []
+let expandedHubIdx = null
+let rotationPaused = false
 
 // Demo data used when no real data available
 function getDemoData() {
   return [
-    { id: 1, title: '전략기획위원회', minutes: [{ session_title: '2025 전략 수립', session_number: 1 }, { session_title: '예산 계획 검토', session_number: 2 }], reports: [{ file_name: '전략보고서_Q1.pdf' }], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
-    { id: 2, title: '운영위원회', minutes: [{ session_title: '운영 현황 보고', session_number: 1 }], reports: [{ file_name: '운영보고서_5월.pdf' }, { file_name: '성과보고서.pdf' }], members: [{ userId: 4, userName: '최지영', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }] },
-    { id: 3, title: '개발팀 주간회의', minutes: [{ session_title: '스프린트 계획', session_number: 1 }, { session_title: '기술 검토', session_number: 2 }], reports: [], members: [{ userId: 5, userName: '정도현', role: 'admin' }, { userId: 6, userName: '한소희', role: 'presenter' }] },
-    { id: 4, title: '마케팅 전략회의', minutes: [{ session_title: '캠페인 기획', session_number: 1 }], reports: [{ file_name: '마케팅보고서.pdf' }], members: [{ userId: 7, userName: '윤재원', role: 'admin' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
-    { id: 5, title: '인사위원회', minutes: [{ session_title: '채용 검토', session_number: 1 }], reports: [], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 8, userName: '오세진', role: 'presenter' }] },
+    { id: 1, title: '전략기획위원회', status: 'active', urgency: 'critical', minutes: [{ session_title: '2025 전략 수립', session_number: 1 }, { session_title: '예산 계획 검토', session_number: 2 }], reports: [{ file_name: '전략보고서_Q1.pdf' }], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
+    { id: 2, title: '운영위원회', status: 'active', urgency: 'warning', minutes: [{ session_title: '운영 현황 보고', session_number: 1 }], reports: [{ file_name: '운영보고서_5월.pdf' }, { file_name: '성과보고서.pdf' }], members: [{ userId: 4, userName: '최지영', role: 'admin' }, { userId: 2, userName: '이영희', role: 'presenter' }] },
+    { id: 3, title: '개발팀 주간회의', status: 'active', urgency: 'normal', minutes: [{ session_title: '스프린트 계획', session_number: 1 }, { session_title: '기술 검토', session_number: 2 }], reports: [], members: [{ userId: 5, userName: '정도현', role: 'admin' }, { userId: 6, userName: '한소희', role: 'presenter' }] },
+    { id: 4, title: '마케팅 전략회의', status: 'ended', urgency: 'normal', minutes: [{ session_title: '캠페인 기획', session_number: 1 }], reports: [{ file_name: '마케팅보고서.pdf' }], members: [{ userId: 7, userName: '윤재원', role: 'admin' }, { userId: 3, userName: '박민준', role: 'presenter' }] },
+    { id: 5, title: '인사위원회', status: 'ended', urgency: 'normal', minutes: [{ session_title: '채용 검토', session_number: 1 }], reports: [], members: [{ userId: 1, userName: '김철수', role: 'admin' }, { userId: 8, userName: '오세진', role: 'presenter' }] },
   ]
 }
 
@@ -413,6 +413,52 @@ function projectNode(n, w, h) {
 
 const PALETTE=['#60a5fa','#34d399','#f472b6','#fbbf24','#a78bfa','#fb923c','#38bdf8','#86efac']
 
+function computeUrgency(g) {
+  if (g?.urgency) return g.urgency
+  if (!g?.minutes?.length && !g?.reports?.length) return 'critical'
+  if (!g?.reports?.length) return 'warning'
+  return 'normal'
+}
+function getHubFill(g) {
+  const u = computeUrgency(g)
+  if (u === 'critical') return '#ef4444'
+  if (u === 'warning') return '#f59e0b'
+  return '#3b82f6'
+}
+function getVisibleSet() {
+  const vis = new Set()
+  if (expandedHubIdx === null) {
+    // Initial state: only active hubs
+    gNodes.forEach((n, i) => {
+      if (n.type === 'hub' && n.data?.status !== 'ended') vis.add(i)
+    })
+  } else {
+    // Expanded state: only the selected hub + its directly connected nodes
+    vis.add(expandedHubIdx)
+    gEdges.forEach(([a, b]) => {
+      if (a === expandedHubIdx) {
+        const nb = gNodes[b]
+        if (nb?.type === 'doc' || (nb?.type === 'person' && showPersonNodes.value) || nb?.type === 'hub') vis.add(b)
+      }
+      if (b === expandedHubIdx) {
+        const na = gNodes[a]
+        if (na?.type === 'doc' || (na?.type === 'person' && showPersonNodes.value) || na?.type === 'hub') vis.add(a)
+      }
+    })
+    // Also include ended hubs that share persons with the expanded hub
+    const hubPersons = new Set()
+    gEdges.forEach(([a, b]) => {
+      if (a === expandedHubIdx && gNodes[b]?.type === 'person') hubPersons.add(b)
+      if (b === expandedHubIdx && gNodes[a]?.type === 'person') hubPersons.add(a)
+    })
+    gEdges.forEach(([a, b]) => {
+      if (gNodes[a]?.type === 'hub' && hubPersons.has(b)) vis.add(a)
+      if (gNodes[b]?.type === 'hub' && hubPersons.has(a)) vis.add(b)
+    })
+  }
+  return vis
+}
+
 function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath()}
 
 function getRelatedIndices(hubIdx) {
@@ -432,39 +478,60 @@ function drawArchiveGraph() {
   const isDark = nightMode.value
   if(!isDark){ctx.fillStyle='#eef2ff';ctx.fillRect(0,0,w,h)}
   if(!gNodes.length){ctx.fillStyle=isDark?'rgba(148,163,184,.5)':'rgba(100,116,139,.6)';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('데이터를 불러오는 중...',w/2,h/2);return}
-  const relatedSet = selectedNodeIdx.value !== null ? getRelatedIndices(selectedNodeIdx.value) : null
+  const visibleSet = getVisibleSet()
   const projected=gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
   const order=projected.slice().sort((a,b)=>a.z-b.z)
   const zf=Math.max(0.6,Math.min(2.5,worldZoom))
+  const now = Date.now() / 1000
   gEdges.forEach(([a,b])=>{
-    if(a>=projected.length||b>=projected.length)return
+    if(!visibleSet.has(a)||!visibleSet.has(b)) return
+    if(a>=projected.length||b>=projected.length) return
     const pa=projected[a],pb=projected[b]
     const isFocused=focusNode!==null&&(focusNode===a||focusNode===b)
-    const isRelated=relatedSet===null||(relatedSet.has(a)&&relatedSet.has(b))
+    const hubNode=gNodes[a]?.type==='hub'?gNodes[a]:gNodes[b]?.type==='hub'?gNodes[b]:null
+    const edgeColor=hubNode?getHubFill(hubNode.data):'#60a5fa'
+    const edgeRgb=edgeColor==='#ef4444'?'239,68,68':edgeColor==='#f59e0b'?'245,158,11':'59,130,246'
     ctx.beginPath();ctx.moveTo(pa.sx,pa.sy);ctx.lineTo(pb.sx,pb.sy)
-    const color=PALETTE[gNodes[a].groupIdx%PALETTE.length]
-    if(!isRelated){ctx.strokeStyle=isDark?'rgba(148,163,184,.04)':'rgba(148,163,184,.12)';ctx.lineWidth=.5}
-    else if(isFocused){ctx.strokeStyle=color+'cc';ctx.lineWidth=1.8}
-    else{ctx.strokeStyle=isDark?`rgba(148,163,184,${Math.max(.05,Math.min(.2,(pa.scale+pb.scale)/2))})`:`rgba(100,116,139,${Math.max(.08,Math.min(.25,(pa.scale+pb.scale)/2))})`;ctx.lineWidth=.8}
+    if(isFocused){ctx.strokeStyle=`rgba(${edgeRgb},0.7)`;ctx.lineWidth=1.8}
+    else{const alpha=Math.max(.08,Math.min(.3,(pa.scale+pb.scale)/2));ctx.strokeStyle=`rgba(${edgeRgb},${alpha})`;ctx.lineWidth=.8}
     ctx.stroke()
   })
   order.forEach(p=>{
-    const n=p.node,color=PALETTE[n.groupIdx%PALETTE.length],isFocused=focusNode===p.idx
-    const isRelated=relatedSet===null||relatedSet.has(p.idx)
-    ctx.globalAlpha=isRelated?1:0.12
+    if(!visibleSet.has(p.idx)) return
+    const n=p.node,isFocused=focusNode===p.idx
+    const isEnded=n.data?.status==='ended'
+    ctx.globalAlpha=1
     if(n.type==='hub'){
+      const hubColor=getHubFill(n.data)
+      const urgency=computeUrgency(n.data)
       const r=Math.min(36,(isFocused?26:22)*p.scale*zf)
+      // Pulse aura for critical nodes
+      if(!isEnded && urgency==='critical') {
+        const pulse=0.3+0.25*Math.sin(now*3.5)
+        const auraR=r*(1.8+0.4*Math.sin(now*2.2))
+        const auraGrad=ctx.createRadialGradient(p.sx,p.sy,r*.5,p.sx,p.sy,auraR)
+        auraGrad.addColorStop(0,`rgba(239,68,68,${pulse})`)
+        auraGrad.addColorStop(1,'rgba(239,68,68,0)')
+        ctx.beginPath();ctx.arc(p.sx,p.sy,auraR,0,Math.PI*2);ctx.fillStyle=auraGrad;ctx.fill()
+      }
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
-      grad.addColorStop(0,color+'ee');grad.addColorStop(1,color+'55')
+      if(isEnded){
+        grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')
+      } else {
+        const rgb=urgency==='critical'?'239,68,68':urgency==='warning'?'245,158,11':'59,130,246'
+        grad.addColorStop(0,`rgba(${rgb},0.9)`);grad.addColorStop(1,`rgba(${rgb},0.4)`)
+      }
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
       if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle=isDark?'#fff':'#1e293b';ctx.lineWidth=2.5;ctx.stroke()}
       if(p.scale>.28){
         const fs=Math.max(11,Math.min(20,Math.round(14*zf)))
-        ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`
+        if(isEnded) ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`
+        else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`
         ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle'
         ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)
       }
     } else if(n.type==='doc'){
+      const color=PALETTE[n.groupIdx%PALETTE.length]
       const r=Math.min(16,(isFocused?12:9)*p.scale*zf)
       roundRect(ctx,p.sx-r,p.sy-r,r*2,r*2,r*.4)
       ctx.fillStyle=isDark?'rgba(30,58,138,.8)':'rgba(219,234,254,.9)';ctx.fill()
@@ -497,7 +564,7 @@ function drawArchiveGraph() {
 }
 
 function animateGraph() {
-  if(autoRotate) rotY+=.002
+  if(autoRotate && !rotationPaused) rotY+=.002
   camX+=(targetCamX-camX)*.05;camY+=(targetCamY-camY)*.05;camZ+=(targetCamZ-camZ)*.05
   worldZoom+=(targetZoom-worldZoom)*.1
   drawArchiveGraph()
@@ -538,14 +605,13 @@ function onMouseMove(e) {
 
 function onMouseUp() {
   isDragging=false
-  clearTimeout(onMouseUp._t);onMouseUp._t=setTimeout(()=>{autoRotate=true},2000)
+  autoRotate=true
 }
-onMouseUp._t=null
 
 function onWheel(e) {
   e.preventDefault()
   targetZoom=Math.max(.25,Math.min(4,targetZoom+(e.deltaY<0?.12:-.12)))
-  autoRotate=false;clearTimeout(onWheel._t);onWheel._t=setTimeout(()=>{autoRotate=true},2000)
+  autoRotate=false;clearTimeout(onWheel._t);onWheel._t=setTimeout(()=>{autoRotate=true},1200)
 }
 onWheel._t=null
 
@@ -557,6 +623,7 @@ function onCanvasClick(e) {
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
   gNodes.forEach((n,i)=>{
+    if(!getVisibleSet().has(i)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
     const baseR=n.type==='hub'?22:n.type==='person'?11:9
@@ -566,18 +633,29 @@ function onCanvasClick(e) {
   if(closest!==null){
     const n=gNodes[closest]
     if(n.type==='hub') {
-      selectedNodeIdx.value = selectedNodeIdx.value===closest ? null : closest
+      if(selectedNodeIdx.value===closest) {
+        selectedNodeIdx.value=null; expandedHubIdx=null
+        targetZoom=Math.max(1.0,targetZoom/1.6)
+        targetCamX=0;targetCamY=0;targetCamZ=0
+      } else {
+        selectedNodeIdx.value=closest; expandedHubIdx=closest
+        targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
+        targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
+      }
     }
     focusNode=closest
-    targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55;autoRotate=false
-    clearTimeout(onCanvasClick._t);onCanvasClick._t=setTimeout(()=>{autoRotate=true},4000)
-  } else {focusNode=null;selectedNodeIdx.value=null;targetCamX=0;targetCamY=0;targetCamZ=0}
+  } else {
+    // Background click: toggle rotation pause
+    rotationPaused=!rotationPaused
+    focusNode=null;selectedNodeIdx.value=null;expandedHubIdx=null
+    targetCamX=0;targetCamY=0;targetCamZ=0
+    targetZoom=Math.max(1.0,targetZoom/1.5)
+  }
 }
-onCanvasClick._t=null
 
 function onTouchStart(e){isDragging=true;autoRotate=false;lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
 function onTouchMove(e){if(!isDragging)return;rotY+=(e.touches[0].clientX-lastMx)*.004;rotX+=(e.touches[0].clientY-lastMy)*.004;rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
-function onTouchEnd(){isDragging=false;setTimeout(()=>{autoRotate=true},2000)}
+function onTouchEnd(){isDragging=false;autoRotate=true}
 
 // ─── Lifecycle ─────────────────────────────────────────────────
 onMounted(async () => {
@@ -633,7 +711,7 @@ watch(search, q=>{
   }
 })
 
-watch(showPersonNodes,()=>{const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges})
+watch(showPersonNodes,()=>{expandedHubIdx=null;selectedNodeIdx.value=null;const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges})
 
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
@@ -643,7 +721,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 </script>
 
 <template>
-  <div class="archive-page" :class="{ 'day-mode': !nightMode }" @click.self="closePlus">
+  <div class="archive-page" :class="{ 'day-mode': !nightMode }">
 
     <!-- ── Header ── -->
     <div class="archive-header">
@@ -677,27 +755,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
       </button>
 
       <div class="plus-wrap">
-        <button class="plus-btn" @click.stop="plusOpen=!plusOpen">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+        <button class="create-meeting-btn" @click="openCreateModal">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+          회의체 생성
         </button>
-        <Transition name="snack">
-          <div v-if="plusOpen" class="plus-snackbar" @click.stop>
-            <button class="snack-btn" @click="openCreateModal">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-              회의체
-            </button>
-            <div class="snack-divider"></div>
-            <button class="snack-btn" @click="activateTaskMode">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              과제 추출
-            </button>
-            <div class="snack-divider"></div>
-            <button class="snack-btn" @click="activateReviewMode">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-              자료 검토
-            </button>
-          </div>
-        </Transition>
       </div>
     </div>
 
@@ -716,6 +777,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
           <div class="detail-body">
             <button class="detail-goto-btn" @click="router.push(`/meetings/${detailMeeting?.id}/home`)">회의체 홈으로 →</button>
+            <div class="detail-action-row">
+              <button class="detail-action-btn task-action-btn" @click="activateTaskMode">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                과제 추출
+              </button>
+              <button class="detail-action-btn review-action-btn" @click="activateReviewMode">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                자료 검토
+              </button>
+            </div>
             <div v-if="detailMeeting?.minutes?.length" class="detail-section">
               <div class="detail-section-label">회의록</div>
               <div v-for="m in detailMeeting.minutes" :key="m.session_id||m.minutes_id" class="detail-doc-item">
@@ -762,14 +833,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
         ></canvas>
 
         <div v-show="viewMode==='graph'" class="graph-legend">
-          <div class="legend-item"><div class="legend-dot hub-dot"></div><span>회의체</span></div>
+          <div class="legend-item"><div class="legend-dot hub-critical"></div><span>긴급</span></div>
+          <div class="legend-item"><div class="legend-dot hub-warning"></div><span>주의</span></div>
+          <div class="legend-item"><div class="legend-dot hub-dot"></div><span>진행중</span></div>
+          <div class="legend-item"><div class="legend-dot hub-ended"></div><span>종료</span></div>
+          <div class="legend-sep"></div>
           <div class="legend-item"><div class="legend-dot doc-dot"></div><span>자료</span></div>
           <div class="legend-item">
             <div class="legend-dot person-dot" :style="{ opacity: showPersonNodes?1:.3 }"></div>
             <button class="person-toggle" @click="showPersonNodes=!showPersonNodes">{{ showPersonNodes?'구성원 숨기기':'구성원 표시' }}</button>
           </div>
           <div class="legend-sep"></div>
-          <span class="legend-hint">드래그 회전 · 스크롤 확대/축소 · 클릭 선택</span>
+          <span class="legend-hint">클릭으로 연관 자료 확장 · 드래그 회전 · 스크롤 확대/축소</span>
         </div>
 
         <!-- List view -->
@@ -1061,14 +1136,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .view-toggle button { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s; }
 .view-toggle button.active { background:rgba(96,165,250,.2);color:#93c5fd; }
 .plus-wrap { position:relative;flex-shrink:0; }
-.plus-btn { width:34px;height:34px;border-radius:50%;background:#3b82f6;border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity .15s; }
-.plus-btn:hover { opacity:.85; }
-.plus-snackbar { position:absolute;top:calc(100%+8px);right:0;background:#1e293b;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:4px;display:flex;align-items:center;gap:2px;z-index:200;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4); }
-.snack-btn { display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:none;background:none;color:#cbd5e1;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s; }
-.snack-btn:hover { background:rgba(255,255,255,.08);color:#f1f5f9; }
-.snack-divider { width:1px;height:24px;background:rgba(255,255,255,.08); }
-.snack-enter-active,.snack-leave-active { transition:all .15s; }
-.snack-enter-from,.snack-leave-to { opacity:0;transform:translateY(-6px); }
+.create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
+.create-meeting-btn:hover { opacity:.85; }
 
 /* ── Body ── */
 .archive-body { flex:1;display:flex;overflow:hidden;min-height:0; }
@@ -1097,6 +1166,12 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-member-chip { display:flex;align-items:center;gap:4px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25);border-radius:20px;padding:2px 7px 2px 3px; }
 .detail-avatar { width:16px;height:16px;border-radius:50%;background:rgba(124,58,237,.5);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center; }
 .detail-member-chip span { font-size:11px;color:#c4b5fd; }
+.detail-action-row { display:flex;gap:6px; }
+.detail-action-btn { flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s; }
+.task-action-btn { background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25); }
+.task-action-btn:hover { background:rgba(251,191,36,.22); }
+.review-action-btn { background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.25); }
+.review-action-btn:hover { background:rgba(52,211,153,.22); }
 
 /* ── Main area ── */
 .main-area { flex:1;position:relative;overflow:hidden;min-width:0; }
@@ -1105,7 +1180,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .graph-legend { position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(15,23,42,.75);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:6px 12px;font-size:11px;color:#64748b; }
 .legend-item { display:flex;align-items:center;gap:5px; }
 .legend-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
-.hub-dot { background:#60a5fa; }
+.hub-critical { background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.6); }
+.hub-warning { background:#f59e0b; }
+.hub-dot { background:#3b82f6; }
+.hub-ended { background:#475569;opacity:.5; }
 .doc-dot { background:#1e3a8a;border:1px solid #60a5fa; }
 .person-dot { background:#7c3aed;border:1px solid #a78bfa;transition:opacity .2s; }
 .person-toggle { background:none;border:none;cursor:pointer;color:#64748b;font-size:11px;padding:0; }
