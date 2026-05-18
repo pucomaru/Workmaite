@@ -6,16 +6,20 @@ import { streamPost } from '../api'
 import { renderMd } from '../composables/useMarkdown'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
+import { useThemeStore } from '../stores/theme'
 import hyeanAvatar from '../assets/agents/hyean.png'
-import gaonAvatar from '../assets/agents/gaon.png'
-import naruAvatar from '../assets/agents/naru.png'
-import araAvatar from '../assets/agents/ara.png'
-import naonAvatar from '../assets/agents/naon.png'
+// 서브에이전트 아바타는 내부 라우팅용으로 보존 (사용자에게는 비노출)
+// import gaonAvatar from '../assets/agents/gaon.png'
+// import naruAvatar from '../assets/agents/naru.png'
+// import araAvatar from '../assets/agents/ara.png'
+// import naonAvatar from '../assets/agents/naon.png'
 import agentHierarchyIcon from '../assets/agents/agent_hierarchy_icon.svg'
 
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
+const nightMode = computed(() => themeStore.nightMode)
 
 // ─── Data ─────────────────────────────────────────────────────
 const minutes = ref([])
@@ -27,7 +31,7 @@ const expandedMeeting = ref(null)
 
 // ─── View mode ────────────────────────────────────────────────
 const viewMode = ref('graph')
-const nightMode = ref(true)
+// nightMode는 전역 themeStore.nightMode(computed)를 사용합니다
 
 // ─── Plus snackbar (removed - replaced by direct button) ──────
 
@@ -57,6 +61,15 @@ function toggleRelated(id) {
 
 function openCreateModal() { showCreateModal.value = true; agentSidebarOpen.value = false }
 
+function onFloatBtnMouseDown(type, e) {
+  floatDragging.value = type
+  floatDragPos.value = { x: e.clientX, y: e.clientY }
+  floatDragStartX = e.clientX; floatDragStartY = e.clientY
+  floatDragMoved = false; floatDragTarget = null; floatDragPreviewLine.value = null
+  document.body.style.cursor = 'grabbing'
+  e.preventDefault(); e.stopPropagation()
+}
+
 async function doCreateMeeting() {
   if (!createForm.value.title.trim()) return
   creating.value = true
@@ -74,53 +87,31 @@ async function doCreateMeeting() {
     // rebuild graph with new meeting
     await nextTick()
     const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+    // 사용자가 지정한 연결 엣지 추가
+    if (createConnectNodeId.value) {
+      const mgNode = gNodes.find(n => n.id === `mg-${meeting.id}`)
+      const fromNode = gNodes.find(n => n.id === createConnectNodeId.value)
+      if (mgNode && fromNode) gEdges.push({ from:gNodes.indexOf(fromNode), to:gNodes.indexOf(mgNode), rel:createRelType.value })
+      createConnectNodeId.value = ''; createRelType.value = '관련'
+    }
   } finally { creating.value = false }
 }
 
 // ─── Agents ───────────────────────────────────────────────────
-const AGENTS = {
-  hyean: {
-    name: '혜안', nameEn: 'Hyean', subtitle: '회의체 운영 AI 비서', avatar: hyeanAvatar,
-    accentColor: '#1d4ed8', accentBg: '#eff6ff', accentBorder: '#93c5fd',
-    greeting: '안녕하세요! 저는 혜안이에요 😊\n아카이브에서 회의체 현황을 분석하거나 필요한 정보를 찾아드릴게요.',
-    suggested: ['이 아카이브에서 가장 활발한 회의체는?', '최근 회의록 요약해줘', '회의체 간 연관 관계 분석해줘'],
-    endpoint: '/api/agent/hyean/chat',
-  },
-  gaon: {
-    name: '가온', nameEn: 'Gaon', subtitle: 'To-do 추출·아젠다 어시스턴트', avatar: gaonAvatar,
-    accentColor: '#92400e', accentBg: '#fef3c7', accentBorder: '#fcd34d',
-    greeting: '안녕하세요! 저는 가온이에요 😊\n회의 준비자료나 보고서, 이전 회의록 같은 거 업로드해주시면 아젠다랑 To-do 뽑아드릴게요.',
-    suggested: ['회의록에서 과제를 추출해줘', '담당자별 할 일을 정리해줘', '이번 회의 아젠다를 만들어줘'],
-    endpoint: '/api/agent/gaon/chat',
-  },
-  naru: {
-    name: '나루', nameEn: 'Naru', subtitle: '자료 검토 어시스턴트', avatar: naruAvatar,
-    accentColor: '#065f46', accentBg: '#ecfdf5', accentBorder: '#6ee7b7',
-    greeting: '안녕하세요! 저는 나루예요 😊\n검토할 자료를 업로드하면 AI가 꼼꼼하게 검토해드릴게요.',
-    suggested: ['이 보고서의 핵심 내용을 요약해줘', '자료에서 문제점을 찾아줘', '개선 방향을 제안해줘'],
-    endpoint: '/api/agent/naru/chat',
-  },
-  ara: {
-    name: '아라', nameEn: 'Ara', subtitle: '실시간 회의 보조 어시스턴트', avatar: araAvatar,
-    accentColor: '#185fa5', accentBg: '#e6f1fb', accentBorder: '#85b7eb',
-    greeting: '안녕하세요! 저는 아라예요 😊\n실시간 회의 보조와 다국어 통역을 도와드릴게요.',
-    suggested: ['회의 인사이트를 분석해줘', '다국어 회의록 번역해줘', '회의 흐름을 정리해줘'],
-    endpoint: '/api/agent/ara/chat',
-  },
-  naon: {
-    name: '나온', nameEn: 'Naon', subtitle: '카드뉴스 생성 어시스턴트', avatar: naonAvatar,
-    accentColor: '#993c1d', accentBg: '#faece7', accentBorder: '#f0997b',
-    greeting: '안녕하세요! 저는 나온이에요 😊\n회의 내용을 카드뉴스나 콘텐츠로 만들어드릴게요.',
-    suggested: ['카드뉴스를 만들어줘', '주요 결정 사항을 정리해줘', '보고용 자료를 만들어줘'],
-    endpoint: '/api/agent/naon/chat',
-  },
+// 내부적으로는 5개 서브에이전트가 존재하지만 사용자에게는 단일 워크메이트 AI로 표시됨
+const SUPERVISOR = {
+  name: '워크메이트 AI', nameEn: 'Workmate AI', subtitle: '회의체 통합 AI 어시스턴트',
+  avatar: hyeanAvatar,
+  greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n회의체 현황 분석, 아젠다·과제 추출, 자료 검토, 카드뉴스 생성까지\n무엇이든 말씀해 주세요.',
+  suggested: ['회의체 현황을 브리핑해줘', '이번 회의 아젠다를 정리해줘', '보고서를 검토해줘'],
+  endpoint: '/api/agent/supervisor/chat',
 }
 
 const agentSidebarOpen = ref(false)
-const currentAgent = ref('hyean')
-const agentInfo = computed(() => AGENTS[currentAgent.value])
-const allMessages = ref({ hyean: [], gaon: [], naru: [], ara: [], naon: [] })
-const currentMessages = computed(() => allMessages.value[currentAgent.value])
+const currentAgent = ref('supervisor')
+const agentInfo = computed(() => SUPERVISOR)
+const allMessages = ref({ supervisor: [] })
+const currentMessages = computed(() => allMessages.value['supervisor'])
 const agentInput = ref('')
 const agentLoading = ref(false)
 const agentMessagesEl = ref(null)
@@ -128,18 +119,19 @@ const agentFileInput = ref(null)
 const agentPendingFiles = ref([])
 const agentTextareaEl = ref(null)
 
-function initAgentGreeting(key) {
-  if (!allMessages.value[key].length)
-    allMessages.value[key] = [{ role: 'agent', content: AGENTS[key].greeting }]
+function initAgentGreeting() {
+  if (!allMessages.value['supervisor'].length)
+    allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
 }
 
-function switchAgent(key) {
-  currentAgent.value = key; agentSidebarOpen.value = true
-  initAgentGreeting(key)
+function switchAgent(_key) {
+  // 사용자에게는 단일 워크메이트 AI로 표시 — 내부 라우팅은 supervisor 엔드포인트가 처리
+  agentSidebarOpen.value = true
+  initAgentGreeting()
 }
 
 function clearAgentChat() {
-  allMessages.value[currentAgent.value] = [{ role: 'agent', content: agentInfo.value.greeting }]
+  allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
   agentInput.value = ''; agentPendingFiles.value = []
 }
 
@@ -154,7 +146,7 @@ async function sendAgentMsg() {
     content = text ? `📎 ${names}\n${text}` : `📎 ${names}`
     agentPendingFiles.value = []
   }
-  const key = currentAgent.value
+  const key = 'supervisor'
   allMessages.value[key].push({ role: 'user', content })
   const agentMsg = { role: 'agent', content: '' }
   allMessages.value[key].push(agentMsg)
@@ -211,7 +203,7 @@ function activateReviewMode() {
   bottomMode.value = 'review'; switchAgent('naru')
   nextTick(initBottomH)
 }
-function closeBottomPanel() { bottomMode.value = null; currentAgent.value = 'hyean' }
+function closeBottomPanel() { bottomMode.value = null }
 
 // ─── Detail sidebar resize ─────────────────────────────────────
 const sidebarW = ref(260)
@@ -231,8 +223,60 @@ function onGlobalMouseMove(e) {
     const maxH = el ? el.offsetHeight * 0.82 : 600
     bottomH.value = Math.max(90, Math.min(maxH, brStartH + (brStartY - e.clientY)))
   }
+  if (floatDragging.value) {
+    floatDragPos.value = { x: e.clientX, y: e.clientY }
+    if (Math.hypot(e.clientX - floatDragStartX, e.clientY - floatDragStartY) > 5) floatDragMoved = true
+    const canvas = canvasRef.value
+    if (canvas && viewMode.value === 'graph') {
+      const rect = canvas.getBoundingClientRect()
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top
+      const w = canvas.offsetWidth, h = canvas.offsetHeight
+      if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
+        let closest = null, minDist = Infinity
+        gNodes.forEach((n, i) => {
+          if (n.type !== 'hub') return
+          const p = projectNode(n, w, h)
+          const zf = Math.max(.6, Math.min(2.5, worldZoom))
+          const d = Math.hypot(p.sx - mx, p.sy - my)
+          if (d < 22 * p.scale * zf + 70 && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: p } }
+        })
+        floatDragTarget = closest
+        if (closest) {
+          floatDragPreviewLine.value = { x1: closest.proj.sx, y1: closest.proj.sy, x2: mx, y2: my }
+          if (floatDragging.value === 'doc') {
+            expandedHubIdx = closest.idx; expandedDeptIdx = null
+            const n = closest.node
+            targetCamX = n.x * .55; targetCamY = n.y * .55; targetCamZ = n.z * .55
+            targetZoom = Math.min(3.0, Math.max(targetZoom, 1.6))
+          }
+        } else { floatDragPreviewLine.value = null }
+      } else { floatDragTarget = null; floatDragPreviewLine.value = null }
+    }
+  }
 }
-function onGlobalMouseUp() { sidebarResizing = false; bottomResizing = false }
+function onGlobalMouseUp() {
+  sidebarResizing = false; bottomResizing = false
+  if (floatDragging.value) {
+    const type = floatDragging.value
+    const target = floatDragTarget
+    floatDragging.value = null; floatDragTarget = null; floatDragPreviewLine.value = null
+    document.body.style.cursor = ''
+    if (!floatDragMoved || !target) {
+      // Click or missed drop → open normally
+      if (type === 'meeting') openCreateModal()
+      else if (type === 'doc') activateReviewMode()
+    } else {
+      // Dropped onto a hub node
+      if (type === 'meeting') {
+        relatedMeetingIds.value = [target.node.data.id]
+        selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
+        openCreateModal()
+      } else if (type === 'doc') {
+        activateReviewMode()
+      }
+    }
+  }
+}
 
 // ─── Hover tooltip ────────────────────────────────────────────
 const hoverNode = ref(null)
@@ -253,6 +297,96 @@ function onTooltipLeave() { tooltipHover.value = false; scheduleHideTooltip() }
 // ─── Detail sidebar ───────────────────────────────────────────
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
+
+// ─── 회의체 설정 모달 (MeetingGroupsPage 동일 패턴) ────────────
+const settingsModal = ref(null)
+const settingsSearchQ = ref('')
+const settingsSearchResults = ref([])
+const settingsSearchLoading = ref(false)
+const savingSettings = ref(false)
+let settingsSearchTimer = null
+
+async function openGroupSetting() {
+  if (!detailMeeting.value) return
+  const m = detailMeeting.value
+  let members = []
+  try {
+    const res = await api.get(`/api/meetings/${m.id}/members`)
+    members = res.data.map(mb => ({
+      id: mb.id,
+      userId: mb.user?.id || mb.user_id,
+      name: mb.user?.name || mb.userName || mb.name || '?',
+      email: mb.user?.email || mb.email || '',
+      role: mb.role || 'member',
+    }))
+  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'member' })) }
+  settingsModal.value = {
+    meeting: m,
+    form: { title: m.title || '', purpose: m.purpose || m.description || '' },
+    members,
+    removedIds: [],
+  }
+  settingsSearchQ.value = ''
+  settingsSearchResults.value = []
+}
+
+function closeSettings() { settingsModal.value = null }
+
+function watchSettingsSearch(q) {
+  settingsSearchQ.value = q
+  clearTimeout(settingsSearchTimer)
+  if (!q.trim()) { settingsSearchResults.value = []; return }
+  settingsSearchTimer = setTimeout(async () => {
+    settingsSearchLoading.value = true
+    try {
+      const res = await api.get('/api/users/search', { params: { q } })
+      settingsSearchResults.value = res.data
+    } catch { settingsSearchResults.value = [] }
+    finally { settingsSearchLoading.value = false }
+  }, 300)
+}
+
+function addMemberToSettings(user) {
+  if (!settingsModal.value) return
+  if (settingsModal.value.members.find(m => m.userId === user.id)) return
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
+  settingsSearchQ.value = ''
+  settingsSearchResults.value = []
+}
+
+function removeMemberFromSettings(idx) {
+  const m = settingsModal.value.members[idx]
+  if (m.id) settingsModal.value.removedIds.push(m.id)
+  settingsModal.value.members.splice(idx, 1)
+}
+
+async function saveSettings() {
+  if (!settingsModal.value) return
+  savingSettings.value = true
+  const { meeting, form, members, removedIds } = settingsModal.value
+  try {
+    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose })
+    for (const memberId of removedIds) {
+      await api.delete(`/api/meetings/${meeting.id}/members/${memberId}`)
+    }
+    for (const mb of members.filter(m => m.id === null)) {
+      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: mb.userId, role: mb.role })
+    }
+    if (detailMeeting.value?.id === meeting.id) {
+      detailMeeting.value.title = form.title
+    }
+    await meetingsStore.fetchMeetings()
+    settingsModal.value = null
+  } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
+  finally { savingSettings.value = false }
+}
+
+const ROLE_MAP = { secretary: '간사', member: '참여자' }
+function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
+const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
+function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
+function initials(name) { return (name || '?')[0] }
+
 function openDetail(groupData) {
   if (!groupData) return
   detailMeeting.value = groupData; detailOpen.value = true
@@ -265,8 +399,9 @@ const mainAreaRef = ref(null)
 let ctx = null, animId = null, ro = null
 let rotX = 0.2, rotY = 0
 let isDragging = false, lastMx = 0, lastMy = 0
-let autoRotate = true, focusNode = null
+let autoRotate = false, focusNode = null
 const selectedNodeIdx = ref(null)
+const breadcrumb = ref([])
 let targetCamX = 0, targetCamY = 0, targetCamZ = 0
 let camX = 0, camY = 0, camZ = 0
 let worldZoom = 1.0, targetZoom = 1.0, dpr = 1
@@ -274,6 +409,176 @@ let gNodes = [], gEdges = []
 let expandedHubIdx = null
 let expandedDeptIdx = null
 let rotationPaused = false
+// Float button drag state
+const floatDragging = ref(null)       // null | 'meeting' | 'doc'
+const floatDragPos = ref({ x: 0, y: 0 })
+const floatDragPreviewLine = ref(null) // { x1,y1,x2,y2 } in canvas px
+let floatDragTarget = null
+let floatDragStartX = 0, floatDragStartY = 0, floatDragMoved = false
+
+// ─── Upload modal ──────────────────────────────────────────────
+const showUploadModal = ref(false)
+const uploadForm = ref({ label: '', fileType: '회의록', connectNodeId: '', relType: '생성' })
+
+// ─── Ontology edge relation constants ─────────────────────────
+const REL_COLORS = { '소속':'#94a3b8','참여부서':'#3b82f6','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#a78bfa' }
+const REL_OPTIONS_FOR = { org:['소속'], dept:['소속','참여부서','담당'], meeting_group:['개최','참여부서','관련'], session:['생성','관련'] }
+const FILE_TYPES = ['회의록','발제자료','보고자료']
+
+function hexToRgba(hex, a) {
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+const connectableNodes = computed(() => {
+  const groups = meetingGroups.value.length ? meetingGroups.value : getDemoData()
+  const result = [{ id:'org-root', label:'조직', typeLabel:'조직', type:'org' }]
+  const depts = new Set()
+  groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
+  depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
+  groups.forEach(g => result.push({ id:`mg-${g.id}`, label:g.title, typeLabel:'회의체', type:'meeting_group' }))
+  groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
+  return result
+})
+
+function availableRels(nodeId) {
+  const n = connectableNodes.value.find(n => n.id === nodeId)
+  return REL_OPTIONS_FOR[n?.type] || ['관련']
+}
+
+const createConnectNodeId = ref('')
+const createRelType = ref('관련')
+
+function openUploadModal() { showUploadModal.value = true; uploadForm.value = { label:'', fileType:'회의록', connectNodeId:'', relType:'생성' } }
+
+function doAddFile() {
+  if (!uploadForm.value.label.trim()) return
+  const fromNode = gNodes.find(n => n.id === uploadForm.value.connectNodeId)
+  const fromIdx = fromNode ? gNodes.indexOf(fromNode) : -1
+  const fromX = fromNode?.x||0, fromZ = fromNode?.z||0
+  const phi = Math.atan2(fromZ, fromX) + 0.28
+  const baseR = Math.sqrt(fromX*fromX+fromZ*fromZ)
+  const newNode = { id:`file-new-${Date.now()}`, label:uploadForm.value.label, type:'file', fileType:uploadForm.value.fileType, x:Math.cos(phi)*(baseR+90), y:(fromNode?.y||0)+42, z:Math.sin(phi)*(baseR+90) }
+  gNodes.push(newNode)
+  if (fromIdx >= 0) gEdges.push({ from:fromIdx, to:gNodes.length-1, rel:uploadForm.value.relType })
+  showUploadModal.value = false
+}
+
+// ─── Node Edit Modal ──────────────────────────────────────────
+const nodeEditModal = ref(null)  // { nodeIdx, type, form: {...} }
+const newMemberForm = ref({ name:'', position:'', email:'', phone:'', role:'member' })
+const showNewMemberForm = ref(false)
+
+function openNodeEdit(nodeIdx) {
+  const n = gNodes[nodeIdx]
+  if (!n) return
+  hoverNode.value = null; tooltipHover.value = false
+  if (n.type === 'meeting_group') {
+    // 기존 설정 모달 활용
+    openDetail(n.data)
+    nextTick(() => openGroupSetting())
+    return
+  }
+  if (n.type === 'org') {
+    nodeEditModal.value = { nodeIdx, type: 'org', form: { label: n.label } }
+    return
+  }
+  if (n.type === 'dept') {
+    const members = (n.members || []).map(m => ({ ...m }))
+    nodeEditModal.value = { nodeIdx, type: 'dept', form: { label: n.label, members } }
+    return
+  }
+  if (n.type === 'session') {
+    nodeEditModal.value = { nodeIdx, type: 'session', form: { label: n.label } }
+    return
+  }
+  if (n.type === 'file') {
+    nodeEditModal.value = { nodeIdx, type: 'file', form: { label: n.label, fileType: n.fileType || '회의록' } }
+    return
+  }
+  if (n.type === 'person') {
+    nodeEditModal.value = { nodeIdx, type: 'person', form: { label: n.label, role: n.role || 'member' } }
+    return
+  }
+}
+
+function closeNodeEdit() {
+  nodeEditModal.value = null
+  showNewMemberForm.value = false
+  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
+}
+
+function openNewMemberForm() {
+  showNewMemberForm.value = true
+  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
+}
+
+function cancelNewMemberForm() {
+  showNewMemberForm.value = false
+  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
+}
+
+function addDeptMember() {
+  const name = newMemberForm.value.name.trim()
+  if (!name || !nodeEditModal.value) return
+  const m = nodeEditModal.value.form.members
+  if (m.find(x => x.userName === name)) return
+  const newId = Date.now()
+  m.push({
+    userId: newId,
+    userName: name,
+    position: newMemberForm.value.position.trim(),
+    email: newMemberForm.value.email.trim(),
+    phone: newMemberForm.value.phone.trim(),
+    role: newMemberForm.value.role,
+    department: nodeEditModal.value.form.label
+  })
+  cancelNewMemberForm()
+}
+
+function removeDeptMember(idx) {
+  nodeEditModal.value.form.members.splice(idx, 1)
+}
+
+function saveNodeEdit() {
+  if (!nodeEditModal.value) return
+  const { nodeIdx, type, form } = nodeEditModal.value
+  const n = gNodes[nodeIdx]
+  if (!n) return
+  if (type === 'org') {
+    n.label = form.label.trim() || n.label
+  } else if (type === 'dept') {
+    const oldLabel = n.label
+    n.label = form.label.trim() || n.label
+    n.id = `dept-${n.label}`
+    n.members = form.members
+    // 기존 person 노드 소속 업데이트
+    gNodes.forEach(pn => { if (pn.type === 'person' && n.members.find(m => m.userId === pn.userId)) pn.label = pn.label })
+    // 부서 구성원 노드 추가 (새로 추가된 멤버)
+    const deptIdx = nodeIdx
+    form.members.forEach(mb => {
+      const existing = gNodes.find(pn => pn.type === 'person' && pn.userId === mb.userId)
+      if (!existing) {
+        const basePhi = Math.atan2(n.z, n.x)
+        const baseR = Math.sqrt(n.x*n.x + n.z*n.z)
+        const pPhi = basePhi + (Math.random()-0.5) * 0.8
+        const pIdx = gNodes.length
+        gNodes.push({ id:`person-${mb.userId}`, label:mb.userName, type:'person', userId:mb.userId, role:mb.role, x:Math.cos(pPhi)*(baseR+72), y:Math.random()>0.5?30:-30, z:Math.sin(pPhi)*(baseR+72) })
+        gEdges.push({ from:deptIdx, to:pIdx, rel:'소속' })
+      }
+    })
+  } else if (type === 'session') {
+    n.label = form.label.trim() || n.label
+    if (n.data) n.data.session_title = n.label
+  } else if (type === 'file') {
+    n.label = form.label.trim() || n.label
+    n.fileType = form.fileType
+  } else if (type === 'person') {
+    n.label = form.label.trim() || n.label
+    n.role = form.role
+  }
+  closeNodeEdit()
+}
 
 // Demo data used when no real data available
 function getDemoData() {
@@ -307,8 +612,7 @@ const meetingGroups = computed(() => {
       if (!g.members.find(m => m.userId === mb.userId)) g.members.push(mb)
     }
   })
-  const result = [...map.values()]
-  return result.length > 0 ? result : getDemoData()
+  return [...map.values()]
 })
 
 const filteredGroups = computed(() => {
@@ -324,43 +628,85 @@ const filteredGroups = computed(() => {
 
 function buildGraphNodes() {
   const nodes = [], edges = []
-  const groups = meetingGroups.value
-  groups.forEach((g, gi) => {
-    const phi = (gi / Math.max(groups.length, 1)) * Math.PI * 2
-    const hubIdx = nodes.length
-    nodes.push({ id: `meeting-${g.id||gi}`, label: g.title||`회의체 ${gi+1}`, type: 'hub', x: Math.cos(phi)*140, y: (Math.random()-.5)*40, z: Math.sin(phi)*140, groupIdx: gi, data: g })
-    // Doc nodes
-    const docs = [...(g.minutes||[]).map(m=>({label:m.session_title||`${m.session_number}차 회의록`,kind:'minutes'})), ...(g.reports||[]).map(r=>({label:r.file_name||'보고서',kind:'report'}))]
-    docs.forEach((doc, di) => {
-      const dphi = phi + (di - docs.length/2)*0.42, dr = 200 + Math.random()*55
-      edges.push([hubIdx, nodes.length])
-      nodes.push({ id: `doc-${g.id||gi}-${di}`, label: doc.label, type: 'doc', kind: doc.kind, x: Math.cos(dphi)*dr, y: (Math.random()-.5)*70, z: Math.sin(dphi)*dr, groupIdx: gi })
-    })
-    // Department nodes (group members by dept)
-    const deptMap = {}
+  const data = meetingGroups.value.length ? meetingGroups.value : getDemoData()
+
+  // ── 조직 root ─────────────────────────────────────────────
+  const orgIdx = nodes.length
+  nodes.push({ id:'org-root', label:'조직', type:'org', x:0, y:0, z:0 })
+
+  // ── 부서 (조직 →[소속]→ 부서) ──────────────────────────
+  const deptIdxMap = new Map()
+  const deptMembersMap = new Map()
+  data.forEach(g => {
     ;(g.members||[]).forEach(mb => {
-      const dept = mb.department || '미지정'
-      if (!deptMap[dept]) deptMap[dept] = []
-      deptMap[dept].push(mb)
-    })
-    const deptEntries = Object.entries(deptMap)
-    deptEntries.forEach(([deptName, members], di) => {
-      const dphi = phi + 0.9 + (di - deptEntries.length/2)*0.55
-      const dr = 175 + Math.random()*30
-      const deptIdx = nodes.length
-      edges.push([hubIdx, deptIdx])
-      nodes.push({ id: `dept-${g.id||gi}-${deptName}`, label: deptName, type: 'dept', hubIdx, members, x: Math.cos(dphi)*dr, y: (Math.random()-.5)*50, z: Math.sin(dphi)*dr, groupIdx: gi })
-      // Person nodes (connected to dept)
-      members.forEach((mb, mi) => {
-        const mphi = dphi + (mi - members.length/2)*0.38
-        const mr = dr + 60 + Math.random()*20
-        edges.push([deptIdx, nodes.length])
-        nodes.push({ id: `person-${mb.userId}-${g.id||gi}`, label: mb.userName, type: 'person', userId: mb.userId, role: mb.role, deptIdx, x: Math.cos(mphi)*mr, y: (Math.random()-.5)*45, z: Math.sin(mphi)*mr, groupIdx: gi })
-      })
+      const d = mb.department || mb.dept || '미지정'
+      if (!deptMembersMap.has(d)) deptMembersMap.set(d, [])
+      const list = deptMembersMap.get(d)
+      if (!list.find(m => m.userId === mb.userId)) list.push(mb)
     })
   })
-  const hubs = nodes.filter(n => n.type === 'hub')
-  hubs.forEach((h, i) => { if (i < hubs.length-1) edges.push([nodes.indexOf(h), nodes.indexOf(hubs[i+1])]) })
+  const uniqueDepts = [...deptMembersMap.keys()]
+  uniqueDepts.forEach((deptName, di) => {
+    const phi = (di / Math.max(uniqueDepts.length, 1)) * Math.PI * 2
+    const deptIdx = nodes.length
+    deptIdxMap.set(deptName, deptIdx)
+    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:Math.cos(phi)*130, y:8, z:Math.sin(phi)*130, members:deptMembersMap.get(deptName) })
+    edges.push({ from:orgIdx, to:deptIdx, rel:'소속' })
+  })
+
+  // ── 사람 (부서 →[소속]→ 사람) ──────────────────────────
+  const personIdxMap = new Map()
+  uniqueDepts.forEach(deptName => {
+    const deptIdx = deptIdxMap.get(deptName)
+    const members = deptMembersMap.get(deptName) || []
+    const dn = nodes[deptIdx]
+    const basePhi = Math.atan2(dn.z, dn.x)
+    const baseR = Math.sqrt(dn.x*dn.x + dn.z*dn.z)
+    members.forEach((mb, mi) => {
+      const pKey = String(mb.userId)
+      if (!personIdxMap.has(pKey)) {
+        const pPhi = basePhi + (mi - (members.length-1)/2) * 0.48
+        const personIdx = nodes.length
+        personIdxMap.set(pKey, personIdx)
+        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role, x:Math.cos(pPhi)*(baseR+72), y:mi%2===0?30:-30, z:Math.sin(pPhi)*(baseR+72) })
+        edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
+      }
+    })
+  })
+
+  // ── 회의체 (회의체 →[참여부서]→ 부서, 회의체 →[개최]→ 회의 →[생성]→ 파일) ──
+  data.forEach((g, gi) => {
+    const phi = (gi / Math.max(data.length, 1)) * Math.PI * 2 + 0.45
+    const mgR = 265
+    const mgIdx = nodes.length
+    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:Math.cos(phi)*mgR, y:-55, z:Math.sin(phi)*mgR, data:g, groupIdx:gi })
+
+    // 회의체 →[참여부서]→ 부서
+    const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
+    partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:mgIdx, to:di, rel:'참여부서' }) })
+
+    // 회의체 →[개최]→ 회의 →[생성]→ 파일(회의록)
+    ;(g.minutes||[]).forEach((m, mi) => {
+      const sPhi = phi + (mi - (g.minutes.length-1)/2)*0.4
+      const sR = mgR + 100
+      const sIdx = nodes.length
+      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session', x:Math.cos(sPhi)*sR, y:-55+(mi%3===0?38:mi%3===1?0:-38), z:Math.sin(sPhi)*sR, groupIdx:gi, data:m })
+      edges.push({ from:mgIdx, to:sIdx, rel:'개최' })
+      const fPhi = sPhi + 0.22
+      const fIdx = nodes.length
+      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록', x:Math.cos(fPhi)*(sR+78), y:-55+(mi%3===0?62:mi%3===1?24:-62), z:Math.sin(fPhi)*(sR+78), groupIdx:gi })
+      edges.push({ from:sIdx, to:fIdx, rel:'생성' })
+    })
+
+    // 회의체 →[생성]→ 파일(보고자료)
+    ;(g.reports||[]).forEach((rp, ri) => {
+      const rPhi = phi - 0.4 + ri*0.28
+      const rIdx = nodes.length
+      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료', x:Math.cos(rPhi)*(mgR+88), y:-80+ri*26, z:Math.sin(rPhi)*(mgR+88), groupIdx:gi })
+      edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
+    })
+  })
+
   return { nodes, edges }
 }
 
@@ -369,7 +715,6 @@ function initGraph() {
   ctx = canvas.getContext('2d')
   resizeCanvas()
   ro = new ResizeObserver(resizeCanvas); ro.observe(canvas)
-  const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
   animateGraph()
 }
 
@@ -406,30 +751,28 @@ function getHubFill(g) {
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
-    // Initial: only active hubs
-    gNodes.forEach((n, i) => {
-      if (n.type === 'hub' && n.data?.status !== 'ended') vis.add(i)
-    })
+    // Default view: org + dept + meeting_group
+    gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
   } else {
-    // Expanded: selected hub + its doc & dept nodes
-    vis.add(expandedHubIdx)
-    gEdges.forEach(([a, b]) => {
-      if (a === expandedHubIdx) {
-        const t = gNodes[b]?.type
-        if (t === 'doc' || t === 'dept') vis.add(b)
-      }
-      if (b === expandedHubIdx) {
-        const t = gNodes[a]?.type
-        if (t === 'doc' || t === 'dept') vis.add(a)
-      }
-    })
-    // If a dept is expanded, show its person nodes
-    if (expandedDeptIdx !== null) {
-      vis.add(expandedDeptIdx)
-      gEdges.forEach(([a, b]) => {
-        if (a === expandedDeptIdx && gNodes[b]?.type === 'person') vis.add(b)
-        if (b === expandedDeptIdx && gNodes[a]?.type === 'person') vis.add(a)
+    const hubNode = gNodes[expandedHubIdx]
+    if (hubNode?.type === 'meeting_group') {
+      vis.add(expandedHubIdx)
+      gEdges.forEach(e => {
+        if (e.from === expandedHubIdx) {
+          vis.add(e.to)
+          // session 하위 file도 표시
+          if (gNodes[e.to]?.type === 'session') gEdges.forEach(e2 => { if (e2.from === e.to) vis.add(e2.to) })
+        }
+        if (e.to === expandedHubIdx) vis.add(e.from)
       })
+      if (expandedDeptIdx !== null) {
+        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
+      }
+    } else {
+      gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
+      if (expandedDeptIdx !== null) {
+        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
+      }
     }
   }
   return vis
@@ -437,11 +780,11 @@ function getVisibleSet() {
 
 function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath()}
 
-function getRelatedIndices(hubIdx) {
-  const related = new Set([hubIdx])
-  gEdges.forEach(([a, b]) => {
-    if (a === hubIdx) related.add(b)
-    if (b === hubIdx) related.add(a)
+function getRelatedIndices(mgIdx) {
+  const related = new Set([mgIdx])
+  gEdges.forEach(e => {
+    if (e.from === mgIdx) related.add(e.to)
+    if (e.to === mgIdx) related.add(e.from)
   })
   return related
 }
@@ -459,84 +802,91 @@ function drawArchiveGraph() {
   const order=projected.slice().sort((a,b)=>a.z-b.z)
   const zf=Math.max(0.6,Math.min(2.5,worldZoom))
   const now = Date.now() / 1000
-  gEdges.forEach(([a,b])=>{
-    if(!visibleSet.has(a)||!visibleSet.has(b)) return
-    if(a>=projected.length||b>=projected.length) return
-    const pa=projected[a],pb=projected[b]
-    const isFocused=focusNode!==null&&(focusNode===a||focusNode===b)
-    const hubNode=gNodes[a]?.type==='hub'?gNodes[a]:gNodes[b]?.type==='hub'?gNodes[b]:null
-    const edgeColor=hubNode?getHubFill(hubNode.data):'#60a5fa'
-    const edgeRgb=edgeColor==='#ef4444'?'239,68,68':edgeColor==='#f59e0b'?'245,158,11':'59,130,246'
-    ctx.beginPath();ctx.moveTo(pa.sx,pa.sy);ctx.lineTo(pb.sx,pb.sy)
-    if(isFocused){ctx.strokeStyle=`rgba(${edgeRgb},0.7)`;ctx.lineWidth=1.8}
-    else{const alpha=Math.max(.08,Math.min(.3,(pa.scale+pb.scale)/2));ctx.strokeStyle=`rgba(${edgeRgb},${alpha})`;ctx.lineWidth=.8}
-    ctx.stroke()
+  gEdges.forEach(e => {
+    const { from, to, rel } = e
+    if (!visibleSet.has(from)||!visibleSet.has(to)) return
+    if (from>=projected.length||to>=projected.length) return
+    const pa=projected[from], pb=projected[to]
+    const relColor = REL_COLORS[rel] || '#60a5fa'
+    const isFocused = focusNode!==null&&(focusNode===from||focusNode===to)
+    const alpha = isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2))
+    const lw = isFocused ? 1.8 : 0.9
+    const dx=pb.sx-pa.sx, dy=pb.sy-pa.sy
+    const len=Math.sqrt(dx*dx+dy*dy)
+    if (len < 8) return
+    const ux=dx/len, uy=dy/len
+    const as = Math.max(5, 8*Math.min(1.4,(pa.scale+pb.scale)/2)*Math.min(1.5,zf))
+    const x1=pa.sx+ux*12, y1=pa.sy+uy*12
+    const x2=pb.sx-ux*(as+10), y2=pb.sy-uy*(as+10)
+    if (Math.sqrt((x2-x1)**2+(y2-y1)**2) < 4) return
+    // Line
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2)
+    ctx.strokeStyle=hexToRgba(relColor,alpha); ctx.lineWidth=lw; ctx.stroke()
+    // Arrowhead
+    const tipX=x2+ux*as, tipY=y2+uy*as
+    const px2=-uy*as*0.44, py2=ux*as*0.44
+    ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
+    ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
+    // Relation label
+    if (rel && len > 42 && zf > 0.85) {
+      const lx=(pa.sx+pb.sx)/2-uy*8, ly=(pa.sy+pb.sy)/2+ux*8
+      ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
+      ctx.textAlign='center'; ctx.textBaseline='middle'
+      ctx.fillStyle=hexToRgba(relColor,Math.min(1,alpha+0.35))
+      ctx.fillText(rel,lx,ly)
+    }
   })
   order.forEach(p=>{
     if(!visibleSet.has(p.idx)) return
     const n=p.node,isFocused=focusNode===p.idx
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
-    if(n.type==='hub'){
+    if(n.type==='org'){
+      const r=Math.min(30,(isFocused?22:18)*p.scale*zf)
+      const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
+      grad.addColorStop(0,isDark?'rgba(100,116,139,0.95)':'rgba(71,85,105,0.9)')
+      grad.addColorStop(1,isDark?'rgba(51,65,85,0.6)':'rgba(100,116,139,0.5)')
+      // Pentagon shape
+      ctx.beginPath()
+      for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
+      ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
+      ctx.strokeStyle=isDark?'rgba(148,163,184,0.6)':'rgba(71,85,105,0.8)'; ctx.lineWidth=1.5; ctx.stroke()
+      if(p.scale>.25){const fs=Math.max(10,Math.min(16,Math.round(12*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(255,255,255,0.95)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('조직',p.sx,p.sy)}
+    } else if(n.type==='meeting_group'){
       const hubColor=getHubFill(n.data)
       const urgency=computeUrgency(n.data)
       const r=Math.min(36,(isFocused?26:22)*p.scale*zf)
-      // Pulse aura for critical nodes
-      if(!isEnded && urgency==='critical') {
-        const pulse=0.3+0.25*Math.sin(now*3.5)
-        const auraR=r*(1.8+0.4*Math.sin(now*2.2))
-        const auraGrad=ctx.createRadialGradient(p.sx,p.sy,r*.5,p.sx,p.sy,auraR)
-        auraGrad.addColorStop(0,`rgba(239,68,68,${pulse})`)
-        auraGrad.addColorStop(1,'rgba(239,68,68,0)')
-        ctx.beginPath();ctx.arc(p.sx,p.sy,auraR,0,Math.PI*2);ctx.fillStyle=auraGrad;ctx.fill()
-      }
+      if(!isEnded&&urgency==='critical'){const pulse=0.3+0.25*Math.sin(now*3.5);const auraR=r*(1.8+0.4*Math.sin(now*2.2));const ag=ctx.createRadialGradient(p.sx,p.sy,r*.5,p.sx,p.sy,auraR);ag.addColorStop(0,`rgba(239,68,68,${pulse})`);ag.addColorStop(1,'rgba(239,68,68,0)');ctx.beginPath();ctx.arc(p.sx,p.sy,auraR,0,Math.PI*2);ctx.fillStyle=ag;ctx.fill()}
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
-      if(isEnded){
-        grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')
-      } else {
-        const rgb=urgency==='critical'?'239,68,68':urgency==='warning'?'245,158,11':'59,130,246'
-        grad.addColorStop(0,`rgba(${rgb},0.9)`);grad.addColorStop(1,`rgba(${rgb},0.4)`)
-      }
+      if(isEnded){grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')}
+      else{const rgb=urgency==='critical'?'239,68,68':urgency==='warning'?'245,158,11':'59,130,246';grad.addColorStop(0,`rgba(${rgb},0.9)`);grad.addColorStop(1,`rgba(${rgb},0.4)`)}
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
       if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle=isDark?'#fff':'#1e293b';ctx.lineWidth=2.5;ctx.stroke()}
-      if(p.scale>.28){
-        const fs=Math.max(11,Math.min(20,Math.round(14*zf)))
-        if(isEnded) ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`
-        else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`
-        ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle'
-        ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)
-      }
-    } else if(n.type==='doc'){
-      const color=PALETTE[n.groupIdx%PALETTE.length]
-      const r=Math.min(16,(isFocused?12:9)*p.scale*zf)
+      if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
+    } else if(n.type==='session'){
+      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
+      roundRect(ctx,p.sx-r,p.sy-r*0.75,r*2,r*1.5,r*.3)
+      ctx.fillStyle=isDark?'rgba(5,150,105,0.7)':'rgba(209,250,229,0.9)'; ctx.fill()
+      ctx.strokeStyle=isDark?'#34d399':'#10b981'; ctx.lineWidth=isFocused?1.8:0.9; ctx.stroke()
+      if(p.scale>.35&&zf>.7){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(167,243,208,${Math.min(1,p.scale*1.6)})`:`rgba(6,78,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
+    } else if(n.type==='file'){
+      const ftColor = n.fileType==='회의록'?'#60a5fa':n.fileType==='발제자료'?'#a78bfa':'#34d399'
+      const ftBg = n.fileType==='회의록'?(isDark?'rgba(30,58,138,0.8)':'rgba(219,234,254,0.9)'):n.fileType==='발제자료'?(isDark?'rgba(76,29,149,0.8)':'rgba(237,233,254,0.9)'):(isDark?'rgba(5,78,22,0.8)':'rgba(220,252,231,0.9)')
+      const r=Math.min(15,(isFocused?11:8)*p.scale*zf)
       roundRect(ctx,p.sx-r,p.sy-r,r*2,r*2,r*.4)
-      ctx.fillStyle=isDark?'rgba(30,58,138,.8)':'rgba(219,234,254,.9)';ctx.fill()
-      ctx.strokeStyle=color+'bb';ctx.lineWidth=1;ctx.stroke()
-      if(p.scale>.38&&zf>.75){
-        const fs=Math.max(9,Math.min(15,Math.round(11*zf)))
-        ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.6)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.6)})`;ctx.font=`${fs}px sans-serif`
-        ctx.textAlign='center';ctx.textBaseline='top'
-        ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)
-      }
+      ctx.fillStyle=ftBg; ctx.fill(); ctx.strokeStyle=ftColor+'bb'; ctx.lineWidth=0.9; ctx.stroke()
+      // File type icon letter
+      if(r>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle=ftColor;ctx.font=`bold ${Math.max(7,Math.round(r*0.9))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
+      if(p.scale>.38&&zf>.75){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.6)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
     } else if(n.type==='dept'){
       const isExpanded=expandedDeptIdx===p.idx
       const r=Math.min(18,(isFocused||isExpanded?14:11)*p.scale*zf)
-      // Hexagon shape for dept
       ctx.beginPath()
-      for(let a=0;a<6;a++){
-        const ang=a*Math.PI/3-Math.PI/6
-        const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang)
-        a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)
-      }
+      for(let a=0;a<6;a++){const ang=a*Math.PI/3-Math.PI/6;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath()
-      ctx.fillStyle=isDark?'rgba(71,85,105,0.75)':'rgba(148,163,184,0.85)';ctx.fill()
-      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)';ctx.lineWidth=isExpanded?1.5:0.8;ctx.stroke()
-      if(p.scale>.32){
-        const fs=Math.max(8,Math.min(13,Math.round(10*zf)))
-        ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`
-        ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle'
-        ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy)
-      }
+      ctx.fillStyle=isDark?'rgba(71,85,105,0.75)':'rgba(148,163,184,0.85)'; ctx.fill()
+      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)'; ctx.lineWidth=isExpanded?1.5:0.8; ctx.stroke()
+      if(p.scale>.32){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='person'){
       const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
@@ -544,15 +894,8 @@ function drawArchiveGraph() {
       else{grad.addColorStop(0,'rgba(167,139,250,.95)');grad.addColorStop(1,'rgba(124,58,237,.6)')}
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
       ctx.strokeStyle=n.role==='admin'?'#fbbf24':'#a78bfa';ctx.lineWidth=n.role==='admin'?2:1;ctx.stroke()
-      if(p.scale>.3&&r>7){
-        ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,Math.min(14,Math.round(10*zf*p.scale)))}px sans-serif`
-        ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label[0]||'?',p.sx,p.sy)
-      }
-      if(p.scale>.4&&zf>.8){
-        ctx.fillStyle=isDark?`rgba(196,181,253,${Math.min(1,p.scale*1.5)})`:`rgba(76,29,149,${Math.min(1,p.scale*1.5)})`;ctx.font=`${Math.max(9,Math.min(14,Math.round(11*zf)))}px sans-serif`
-        ctx.textAlign='center';ctx.textBaseline='top'
-        ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy+r+3)
-      }
+      if(p.scale>.3&&r>7){ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,Math.min(14,Math.round(10*zf*p.scale)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label[0]||'?',p.sx,p.sy)}
+      if(p.scale>.4&&zf>.8){ctx.fillStyle=isDark?`rgba(196,181,253,${Math.min(1,p.scale*1.5)})`:`rgba(76,29,149,${Math.min(1,p.scale*1.5)})`;ctx.font=`${Math.max(9,Math.min(14,Math.round(11*zf)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy+r+3)}
     }
     ctx.globalAlpha=1
   })
@@ -585,7 +928,7 @@ function onMouseMove(e) {
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
   gNodes.forEach((n,i)=>{
-    if(n.type!=='hub') return
+    if(!['meeting_group','dept','org'].includes(n.type)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
     const d=Math.hypot(p.sx-mx,p.sy-my)
@@ -600,13 +943,11 @@ function onMouseMove(e) {
 
 function onMouseUp() {
   isDragging=false
-  autoRotate=true
 }
 
 function onWheel(e) {
   e.preventDefault()
   targetZoom=Math.max(.25,Math.min(4,targetZoom+(e.deltaY<0?.12:-.12)))
-  autoRotate=false;clearTimeout(onWheel._t);onWheel._t=setTimeout(()=>{autoRotate=true},1200)
 }
 onWheel._t=null
 
@@ -621,13 +962,13 @@ function onCanvasClick(e) {
     if(!getVisibleSet().has(i)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='hub'?22:n.type==='dept'?13:n.type==='person'?11:9
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='session'?11:n.type==='person'?11:9
     const d=Math.hypot(p.sx-mx,p.sy-my)
     if(d<baseR*p.scale*zf+6&&d<minDist){minDist=d;closest=i}
   })
   if(closest!==null){
     const n=gNodes[closest]
-    if(n.type==='hub') {
+    if(n.type==='meeting_group') {
       if(selectedNodeIdx.value===closest) {
         selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null
         targetZoom=Math.max(1.0,targetZoom/1.6)
@@ -636,32 +977,71 @@ function onCanvasClick(e) {
         selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
         targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
         targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
+        breadcrumb.value=[{ label: n.label, idx: closest, type: 'meeting_group' }]
+        openDetail(n.data)
       }
     } else if(n.type==='dept') {
       expandedDeptIdx = expandedDeptIdx===closest ? null : closest
       if(expandedDeptIdx!==null) {
         targetCamX=n.x*.6;targetCamY=n.y*.6;targetCamZ=n.z*.6
         targetZoom=Math.min(3.5,targetZoom*1.2)
+        const hubEntry = breadcrumb.value.find(b=>b.type==='meeting_group')
+        breadcrumb.value = hubEntry ? [hubEntry,{label:n.label,idx:closest,type:'dept'}] : [{label:n.label,idx:closest,type:'dept'}]
+      } else {
+        breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
       }
     }
     focusNode=closest
   } else {
-    // Background click: toggle rotation pause
-    rotationPaused=!rotationPaused
-    focusNode=null;selectedNodeIdx.value=null;expandedHubIdx=null;expandedDeptIdx=null
-    targetCamX=0;targetCamY=0;targetCamZ=0
-    targetZoom=Math.max(1.0,targetZoom/1.5)
+    // 배경 클릭: 아무것도 하지 않음
   }
+}
+
+function onCanvasDblClick(e) {
+  const canvas=canvasRef.value;if(!canvas) return
+  const rect=canvas.getBoundingClientRect()
+  const mx=e.clientX-rect.left,my=e.clientY-rect.top
+  const w=canvas.offsetWidth,h=canvas.offsetHeight
+  let closest=null,minDist=Infinity
+  gNodes.forEach((n,i)=>{
+    if(!getVisibleSet().has(i)) return
+    const p=projectNode(n,w,h)
+    const zf=Math.max(.6,Math.min(2.5,worldZoom))
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='session'?11:n.type==='person'?11:9
+    const d=Math.hypot(p.sx-mx,p.sy-my)
+    if(d<baseR*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
+  })
+  if(closest!==null) openNodeEdit(closest)
 }
 
 function onTouchStart(e){isDragging=true;autoRotate=false;lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
 function onTouchMove(e){if(!isDragging)return;rotY+=(e.touches[0].clientX-lastMx)*.004;rotX+=(e.touches[0].clientY-lastMy)*.004;rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
-function onTouchEnd(){isDragging=false;autoRotate=true}
+function onTouchEnd(){isDragging=false}
+
+function onBreadcrumbReset() {
+  breadcrumb.value = []; selectedNodeIdx.value = null
+  expandedHubIdx = null; expandedDeptIdx = null
+  targetCamX = 0; targetCamY = 0; targetCamZ = 0
+  targetZoom = Math.max(1.0, targetZoom / 1.5)
+}
+
+function onBreadcrumbClick(item, index) {
+  breadcrumb.value = breadcrumb.value.slice(0, index + 1)
+  if(item.type === 'meeting_group') {
+    selectedNodeIdx.value = item.idx; expandedHubIdx = item.idx; expandedDeptIdx = null
+    const n = gNodes[item.idx]
+    if(n) { targetCamX=n.x*.55; targetCamY=n.y*.55; targetCamZ=n.z*.55 }
+    targetZoom = Math.min(3.0, Math.max(targetZoom, 1.0) * 1.2)
+  } else if(item.type === 'dept') {
+    expandedDeptIdx = item.idx
+    const n = gNodes[item.idx]
+    if(n) { targetCamX=n.x*.6; targetCamY=n.y*.6; targetCamZ=n.z*.6 }
+  }
+}
 
 // ─── Lifecycle ─────────────────────────────────────────────────
 onMounted(async () => {
   await nextTick()
-  initGraph()
   initAgentGreeting('hyean')
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
@@ -684,6 +1064,7 @@ onMounted(async () => {
   } finally {
     loading.value=false
     const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges
+    initGraph()
   }
 })
 
@@ -715,7 +1096,6 @@ watch(search, q=>{
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
 function downloadDummy(name){alert(`"${name}" 다운로드 기능은 준비 중입니다.`)}
-const roleLabel={admin:'간사',presenter:'발제자'}
 const TYPES=['Draft','In Progress','Done','Pending']
 </script>
 
@@ -726,7 +1106,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
     <div class="archive-header">
       <div class="header-title-wrap">
         <h1 class="archive-title">아카이브</h1>
-        <p class="archive-desc">회의록·보고서·조직 관계를 탐색하세요</p>
       </div>
 
       <div class="search-wrap">
@@ -748,18 +1127,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </button>
       </div>
 
-      <button class="mode-toggle-btn" @click="nightMode=!nightMode" :title="nightMode?'주간 모드':'야간 모드'">
-        <svg v-if="nightMode" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-        <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-      </button>
-
-      <div class="plus-wrap">
-        <button class="create-meeting-btn" @click="openCreateModal">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
-          회의체 생성
-        </button>
-      </div>
-
       <button class="agent-header-btn" :class="{ active: agentSidebarOpen }" @click="agentSidebarOpen=!agentSidebarOpen" title="AI 에이전트">
         <svg class="ai-btn-icon" viewBox="0 0 40 20" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -773,12 +1140,27 @@ const TYPES=['Draft','In Progress','Done','Pending']
       </button>
     </div>
 
+    <!-- ── Graph Breadcrumb ── -->
+    <div v-if="viewMode==='graph'" class="graph-breadcrumb">
+      <button class="bc-home" @click="onBreadcrumbReset">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12L12 4l9 8"/><path d="M9 21V12h6v9"/></svg>
+        전체
+      </button>
+      <template v-for="(item, i) in breadcrumb" :key="i">
+        <span class="bc-sep">›</span>
+        <button class="bc-item" :class="'bc-'+item.type" @click="onBreadcrumbClick(item, i)">{{ item.label }}</button>
+      </template>
+    </div>
+
     <!-- ── Body ── -->
     <div class="archive-body">
 
-      <!-- Detail sidebar -->
-      <Transition name="sidebar-slide">
-        <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
+      <!-- Main area -->
+      <div ref="mainAreaRef" class="main-area">
+
+        <!-- Detail sidebar (absolute overlay, canvas 크기 불변) -->
+        <Transition name="sidebar-slide">
+          <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
           <div class="detail-header">
             <div>
@@ -788,17 +1170,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <button class="detail-close" @click="detailOpen=false">✕</button>
           </div>
           <div class="detail-body">
-            <button class="detail-goto-btn" @click="router.push(`/meetings/${detailMeeting?.id}/home`)">회의체 홈으로 →</button>
-            <div class="detail-action-row">
-              <button class="detail-action-btn task-action-btn" @click="activateTaskMode">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                과제 추출
-              </button>
-              <button class="detail-action-btn review-action-btn" @click="activateReviewMode">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                자료 검토
-              </button>
-            </div>
+            <button class="detail-setting-btn" @click="openGroupSetting" title="회의체 설정">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              회의체 설정
+            </button>
             <div v-if="detailMeeting?.minutes?.length" class="detail-section">
               <div class="detail-section-label">회의록</div>
               <div v-for="m in detailMeeting.minutes" :key="m.session_id||m.minutes_id" class="detail-doc-item">
@@ -814,23 +1189,38 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
             <div v-if="detailMeeting?.members?.length" class="detail-section">
+              <div class="detail-section-label">참여부서</div>
+              <table class="detail-dept-table">
+                <tbody>
+                  <tr v-for="dept in [...new Set(detailMeeting.members.map(mb => mb.department || mb.dept || '미지정'))].filter(Boolean)" :key="dept">
+                    <td class="dept-name">{{ dept }}</td>
+                    <td class="dept-count">{{ detailMeeting.members.filter(mb => (mb.department||mb.dept||'미지정') === dept).length }}명</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="detailMeeting?.members?.length" class="detail-section">
               <div class="detail-section-label">구성원</div>
-              <div class="detail-members">
-                <div v-for="mb in detailMeeting.members" :key="mb.userId" class="detail-member-chip">
-                  <div class="detail-avatar">{{ mb.userName[0] }}</div>
-                  <span>{{ mb.userName }}</span>
-                </div>
-              </div>
+              <table class="detail-member-table">
+                <tbody>
+                  <tr v-for="mb in detailMeeting.members" :key="mb.userId">
+                    <td class="mb-name">{{ mb.userName || mb.name }}</td>
+                    <td class="mb-dept">{{ mb.department || mb.dept || '' }}</td>
+                    <td class="mb-role">{{ roleLabel(mb.role) }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-      </Transition>
-
-      <!-- Main area -->
-      <div ref="mainAreaRef" class="main-area">
+          </div>
+        </Transition>
 
         <!-- Graph view -->
-        <canvas v-show="viewMode==='graph'"
+        <div v-if="loading && viewMode==='graph'" class="graph-loading">
+          <div class="graph-loading-spinner"></div>
+          <span>데이터 불러오는 중...</span>
+        </div>
+        <canvas v-show="!loading && viewMode==='graph'"
           ref="canvasRef"
           class="archive-canvas"
           @mousedown="onMouseDown"
@@ -838,24 +1228,69 @@ const TYPES=['Draft','In Progress','Done','Pending']
           @mouseup="onMouseUp"
           @mouseleave="onMouseUp(); scheduleHideTooltip()"
           @click="onCanvasClick"
+          @dblclick="onCanvasDblClick"
           @wheel.prevent="onWheel"
           @touchstart.prevent="onTouchStart"
           @touchmove.prevent="onTouchMove"
           @touchend="onTouchEnd"
         ></canvas>
 
-        <div v-show="viewMode==='graph'" class="graph-legend">
-          <div class="legend-item"><div class="legend-dot hub-critical"></div><span>긴급</span></div>
-          <div class="legend-item"><div class="legend-dot hub-warning"></div><span>주의</span></div>
-          <div class="legend-item"><div class="legend-dot hub-dot"></div><span>진행중</span></div>
-          <div class="legend-item"><div class="legend-dot hub-ended"></div><span>종료</span></div>
-          <div class="legend-sep"></div>
-          <div class="legend-item"><div class="legend-dot doc-dot"></div><span>자료</span></div>
-          <div class="legend-item"><div class="legend-dot dept-dot"></div><span>부서</span></div>
-          <div class="legend-item"><div class="legend-dot person-dot"></div><span>구성원 (부서 클릭 시)</span></div>
-          <div class="legend-sep"></div>
-          <span class="legend-hint">클릭으로 연관 자료 확장 · 드래그 회전 · 스크롤 확대/축소</span>
+        <!-- 온톨로지 범례 -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto">
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;border-radius:0;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)"></div>조직</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#3b82f6"></div>회의체</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#10b981;border-radius:2px"></div>회의</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#f59e0b;border-radius:2px"></div>파일</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)"></div>부서</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#a78bfa"></div>사람</div>
+          <div style="border-top:1px solid rgba(255,255,255,.1);margin:2px 0;padding-top:4px;display:flex;flex-direction:column;gap:3px">
+            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#94a3b8"></div><span>소속</span></div>
+            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#3b82f6"></div><span>참여부서</span></div>
+            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#10b981"></div><span>개최</span></div>
+            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#f59e0b"></div><span>생성</span></div>
+          </div>
         </div>
+
+        <!-- Graph floating action buttons (top-right of canvas) -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-float-btns">
+          <div class="float-btn-item" @click="openCreateModal" @mousedown.prevent.stop="onFloatBtnMouseDown('meeting', $event)" title="클릭해서 회의체 생성">
+            <div class="float-node-preview meeting-preview">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            </div>
+            <span class="float-btn-label">회의체 생성</span>
+          </div>
+          <div class="float-btn-item" @click="openUploadModal" title="자료 업로드 및 노드 연결">
+            <div class="float-node-preview doc-preview">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            </div>
+            <span class="float-btn-label">자료 업로드</span>
+          </div>
+        </div>
+
+        <!-- Drag preview line SVG overlay -->
+        <svg v-if="floatDragging && floatDragPreviewLine"
+          width="100%" height="100%"
+          style="position:absolute;inset:0;pointer-events:none;z-index:16;overflow:visible">
+          <defs>
+            <marker id="drag-arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+              <circle cx="3" cy="3" r="2.5"
+                :fill="floatDragging==='meeting'?'rgba(59,130,246,0.9)':'rgba(52,211,153,0.9)'"/>
+            </marker>
+          </defs>
+          <line
+            :x1="floatDragPreviewLine.x1" :y1="floatDragPreviewLine.y1"
+            :x2="floatDragPreviewLine.x2" :y2="floatDragPreviewLine.y2"
+            :stroke="floatDragging==='meeting'?'rgba(59,130,246,0.75)':'rgba(52,211,153,0.75)'"
+            stroke-width="2.5" stroke-dasharray="9,5" stroke-linecap="round"
+            marker-end="url(#drag-arrow)"
+          />
+          <circle
+            :cx="floatDragPreviewLine.x1" :cy="floatDragPreviewLine.y1" r="10"
+            :fill="floatDragging==='meeting'?'rgba(59,130,246,0.2)':'rgba(52,211,153,0.2)'"
+            :stroke="floatDragging==='meeting'?'rgba(59,130,246,0.6)':'rgba(52,211,153,0.6)'"
+            stroke-width="2" stroke-dasharray="4,2"
+          />
+        </svg>
 
         <!-- List view -->
         <div v-show="viewMode==='list'" class="list-view">
@@ -884,7 +1319,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                     <div class="doc-icon minutes-icon"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
                     <div class="doc-info"><div class="doc-name">{{ m.session_title||`${m.session_number}차 회의록` }}</div><div class="doc-meta">{{ formatDate(m.ended_at) }}</div></div>
                     <div class="doc-actions">
-                      <button class="doc-btn" @click="router.push(`/meetings/${g.id}/sessions`)">보기</button>
+
                       <button class="doc-btn icon-only" @click="downloadDummy(m.session_title||'회의록')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button>
                     </div>
                   </div>
@@ -895,7 +1330,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                     <div class="doc-icon report-icon"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
                     <div class="doc-info"><div class="doc-name">{{ r.file_name||'보고서' }}</div><div class="doc-meta">{{ formatDate(r.submitted_at) }}</div></div>
                     <div class="doc-actions">
-                      <button class="doc-btn" @click="router.push(`/meetings/${g.id}/prepare`)">보기</button>
+
                       <button class="doc-btn icon-only" @click="downloadDummy(r.file_name||'보고서')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button>
                     </div>
                   </div>
@@ -982,29 +1417,25 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
       </div><!-- /main-area -->
 
-      <!-- Agent right sidebar -->
-      <Transition name="agent-sidebar-slide">
-        <div v-if="agentSidebarOpen" class="agent-right-sidebar">
-          <!-- Agent tabs -->
-          <div class="agent-tabs-bar">
-            <div class="agent-tabs">
-              <button v-for="(agent, key) in AGENTS" :key="key"
-                class="agent-tab" :class="{ active: currentAgent === key }"
-                @click="switchAgent(key)" :title="agent.name">
-                <img :src="agent.avatar" class="agent-tab-avatar" />
-                <span class="agent-tab-label">{{ agent.name }}</span>
-              </button>
+    </div><!-- /archive-body -->
+
+    <!-- Agent right sidebar (overlay, covers header) -->
+    <Transition name="agent-sidebar-slide">
+      <div v-if="agentSidebarOpen" class="agent-right-sidebar">
+          <!-- Supervisor header -->
+          <div class="agent-supervisor-header">
+            <div class="supervisor-brand">
+              <img :src="SUPERVISOR.avatar" class="supervisor-logo" />
+              <div class="supervisor-brand-text">
+                <span class="supervisor-title">{{ SUPERVISOR.name }}</span>
+                <span class="supervisor-sub">{{ SUPERVISOR.subtitle }}</span>
+              </div>
+              <span class="supervisor-badge">AI</span>
             </div>
-            <button class="agent-sidebar-close" @click="agentSidebarOpen=false">✕</button>
-          </div>
-          <!-- Current agent info bar -->
-          <div class="agent-sidebar-info">
-            <img :src="agentInfo.avatar" class="agent-sidebar-avatar" />
-            <div class="agent-sidebar-text">
-              <div class="agent-sidebar-name">{{ agentInfo.name }} <span class="agent-sidebar-en">({{ agentInfo.nameEn }})</span></div>
-              <div class="agent-sidebar-subtitle">{{ agentInfo.subtitle }}</div>
+            <div class="supervisor-header-actions">
+              <button class="agent-new-chat-btn" @click="clearAgentChat">새 채팅</button>
+              <button class="agent-sidebar-close" @click="agentSidebarOpen=false">✕</button>
             </div>
-            <button class="agent-new-chat-btn" @click="clearAgentChat">새 채팅</button>
           </div>
           <!-- Messages -->
           <div ref="agentMessagesEl" class="agent-messages">
@@ -1014,7 +1445,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   <img :src="agentInfo.avatar" class="agent-msg-avatar" />
                   {{ agentInfo.name }}
                 </div>
-                <div class="agent-bubble agent" :class="`theme-${currentAgent}`" v-html="renderMd(msg.content)"></div>
+                <div class="agent-bubble agent theme-supervisor" v-html="renderMd(msg.content)"></div>
                 <div v-if="i===0&&agentInfo.suggested?.length" class="agent-suggested">
                   <button v-for="s in agentInfo.suggested" :key="s" class="suggested-btn" :disabled="agentLoading" @click="agentInput=s;sendAgentMsg()">{{ s }}</button>
                 </div>
@@ -1042,8 +1473,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </div>
       </Transition>
 
-    </div><!-- /archive-body -->
-
     <!-- ── Hover Tooltip ── -->
     <Teleport to="body">
       <Transition name="tooltip-fade">
@@ -1057,14 +1486,28 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="tt-row"><span class="tt-label">구성원</span><span>{{ hoverNode.data?.members?.length||0 }}명</span></div>
           </div>
           <button class="tt-detail-btn" @click="openDetail(hoverNode.data)">상세 보기 →</button>
+          <button class="tt-edit-btn" @click="openNodeEdit(gNodes.indexOf(hoverNode))">✏ 편집</button>
         </div>
       </Transition>
     </Teleport>
 
+    <!-- Float drag ghost cursor follow -->
+    <Teleport to="body">
+      <div v-if="floatDragging" class="float-drag-ghost"
+        :style="{ left: (floatDragPos.x - 22) + 'px', top: (floatDragPos.y - 22) + 'px' }">
+        <div class="ghost-node" :class="floatDragging === 'meeting' ? 'ghost-meeting' : 'ghost-doc'">
+          <svg v-if="floatDragging==='meeting'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+          <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        </div>
+        <span class="ghost-label">{{ floatDragging==='meeting' ? '회의체 생성' : '자료 업로드' }}</span>
+        <span v-if="floatDragPreviewLine" class="ghost-connect-hint">✓ 연결 가능</span>
+      </div>
+    </Teleport>
+
     <!-- ── Create Meeting Modal ── -->
     <Teleport to="body">
-      <div v-if="showCreateModal" class="modal-backdrop" @click.self="showCreateModal=false">
-        <div class="modal-box">
+      <div v-if="showCreateModal" class="archive-modal-backdrop" @click.self="showCreateModal=false">
+        <div class="archive-modal-box create-modal-box" :class="{ 'day-mode': !nightMode }">
           <div class="modal-header">
             <span class="modal-title">새 회의체 만들기</span>
             <button class="modal-close-btn" @click="showCreateModal=false">✕</button>
@@ -1106,6 +1549,26 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 </div>
               </div>
             </div>
+            <div class="modal-field">
+              <label>연결 노드 <span style="color:#94a3b8;font-weight:400;text-transform:none">— 은 그래프에 연결</span></label>
+              <select v-model="createConnectNodeId" class="modal-input">
+                <option value="">연결 안 함</option>
+                <option v-for="n in connectableNodes" :key="n.id" :value="n.id">{{ n.typeLabel }}: {{ n.label }}</option>
+              </select>
+            </div>
+            <div v-if="createConnectNodeId" class="modal-field">
+              <label>관계 타입</label>
+              <select v-model="createRelType" class="modal-input">
+                <option v-for="rel in availableRels(createConnectNodeId)" :key="rel" :value="rel">{{ rel }}</option>
+              </select>
+              <div class="conn-preview">
+                <span class="conn-node">{{ connectableNodes.find(n=>n.id===createConnectNodeId)?.label }}</span>
+                <span class="conn-arrow">→</span>
+                <span class="conn-rel" :style="{color: REL_COLORS[createRelType]||'#a78bfa'}">{{ createRelType }}</span>
+                <span class="conn-arrow">→</span>
+                <span class="conn-node">{{ createForm.title || '새 회의체' }}</span>
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="btn-cancel" @click="showCreateModal=false">취소</button>
@@ -1118,12 +1581,277 @@ const TYPES=['Draft','In Progress','Done','Pending']
       </div>
     </Teleport>
 
-  </div>
+  </div><!-- /archive-page -->
+  <!-- 자료 업로드 모달 -->
+  <Teleport to="body">
+    <div v-if="showUploadModal" class="archive-modal-backdrop" @click.self="showUploadModal=false">
+      <div class="archive-modal-box upload-modal-box" :class="{ 'day-mode': !nightMode }">
+        <div class="modal-header">
+          <span class="modal-title">자료 노드 생성</span>
+          <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-field">
+            <label>파일 이름 <span class="req">*</span></label>
+            <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+          </div>
+          <div class="form-field">
+            <label>파일 유형</label>
+            <div class="file-type-row">
+              <button v-for="ft in FILE_TYPES" :key="ft"
+                class="file-type-btn" :class="{ active: uploadForm.fileType===ft }"
+                :style="uploadForm.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
+                @click="uploadForm.fileType=ft">{{ ft }}</button>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>연결할 노드 <span class="req">*</span></label>
+            <select v-model="uploadForm.connectNodeId" class="form-input">
+              <option value="">노드 선택...</option>
+              <option v-for="n in connectableNodes" :key="n.id" :value="n.id">[{{ n.typeLabel }}] {{ n.label }}</option>
+            </select>
+          </div>
+          <div v-if="uploadForm.connectNodeId" class="form-field">
+            <label>관계 타입</label>
+            <div class="rel-type-row">
+              <button v-for="rel in availableRels(uploadForm.connectNodeId)" :key="rel"
+                class="rel-type-btn" :class="{ active: uploadForm.relType===rel }"
+                :style="uploadForm.relType===rel ? { borderColor: REL_COLORS[rel]||'#a78bfa', color: REL_COLORS[rel]||'#a78bfa', background: (REL_COLORS[rel]||'#a78bfa')+'22' } : {}"
+                @click="uploadForm.relType=rel">{{ rel }}</button>
+            </div>
+          </div>
+          <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
+            <span class="conn-node">{{ connectableNodes.find(n=>n.id===uploadForm.connectNodeId)?.label }}</span>
+            <span class="conn-arrow">→</span>
+            <span class="conn-rel" :style="{color:REL_COLORS[uploadForm.relType]||'#a78bfa'}">{{ uploadForm.relType }}</span>
+            <span class="conn-arrow">→</span>
+            <span class="conn-node file">{{ uploadForm.label }}</span>
+            <span class="file-type-tag" :style="{color: uploadForm.fileType==='회의록'?'#60a5fa':uploadForm.fileType==='발제자료'?'#a78bfa':'#34d399'}">{{ uploadForm.fileType }}</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="showUploadModal=false">취소</button>
+          <button class="btn-primary" :disabled="!uploadForm.label.trim()||!uploadForm.connectNodeId" @click="doAddFile">그래프에 추가</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+  <!-- 회의체 설정 모달 -->
+  <Teleport to="body">
+    <div v-if="settingsModal" class="archive-modal-backdrop" @click.self="closeSettings">
+      <div class="archive-modal-box" :class="{ 'day-mode': !nightMode }">
+        <div class="modal-header">
+          <span class="modal-title">회의체 설정</span>
+          <button class="modal-close" @click="closeSettings">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="modal-body settings-body">
+          <div class="settings-section">
+            <div class="settings-section-title">기본 정보</div>
+            <div class="form-field">
+              <label>회의체 이름 <span class="req">*</span></label>
+              <input v-model="settingsModal.form.title" class="form-input" />
+            </div>
+            <div class="form-field">
+              <label>소개</label>
+              <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-title">
+              참여자 <span class="member-cnt-badge">{{ settingsModal.members.length }}명</span>
+            </div>
+            <div class="member-search-wrap">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              <input :value="settingsSearchQ" @input="watchSettingsSearch($event.target.value)" class="member-search-input" placeholder="이름 또는 이메일로 검색 후 추가..." />
+              <span v-if="settingsSearchLoading" class="search-spinner">↻</span>
+            </div>
+            <div v-if="settingsSearchResults.length" class="member-search-results">
+              <div v-for="u in settingsSearchResults" :key="u.id" class="member-search-item" @click="addMemberToSettings(u)">
+                <div class="ms-avatar" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
+                <div class="ms-info">
+                  <span class="ms-name">{{ u.name || '이름없음' }}</span>
+                  <span class="ms-email">{{ u.email }}</span>
+                </div>
+                <span class="ms-add-hint">+ 추가</span>
+              </div>
+            </div>
+            <div class="settings-member-list">
+              <div v-if="!settingsModal.members.length" class="settings-empty-members">참여자가 없습니다.</div>
+              <div v-for="(mb, idx) in settingsModal.members" :key="mb.userId" class="settings-member-row">
+                <div class="sm-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
+                <div class="sm-info">
+                  <span class="sm-name">{{ mb.name }}</span>
+                  <span class="sm-email">{{ mb.email }}</span>
+                </div>
+                <select v-model="mb.role" class="sm-role-select">
+                  <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
+                </select>
+                <button class="sm-remove" @click="removeMemberFromSettings(idx)" title="제거">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="closeSettings">취소</button>
+          <button class="btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ── Node Edit Modal ── -->
+  <Teleport to="body">
+    <div v-if="nodeEditModal" class="archive-modal-backdrop" @click.self="closeNodeEdit">
+      <div class="archive-modal-box node-edit-modal-box" :class="{ 'day-mode': !nightMode }">
+        <div class="modal-header">
+          <span class="modal-title">
+            <span v-if="nodeEditModal.type==='org'">&#x1F3E2; 조직 편집</span>
+            <span v-else-if="nodeEditModal.type==='dept'">&#x1F4CB; 부서 편집</span>
+            <span v-else-if="nodeEditModal.type==='session'">&#x1F4C5; 회의 편집</span>
+            <span v-else-if="nodeEditModal.type==='file'">&#x1F4C4; 파일 편집</span>
+            <span v-else-if="nodeEditModal.type==='person'">&#x1F464; 구성원 편집</span>
+          </span>
+          <button class="modal-close-btn" @click="closeNodeEdit">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Org: name only -->
+          <template v-if="nodeEditModal.type==='org'">
+            <div class="modal-field">
+              <label>조직명 <span class="req">*</span></label>
+              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="조직명 입력" />
+            </div>
+          </template>
+
+          <!-- Dept: name + member list -->
+          <template v-if="nodeEditModal.type==='dept'">
+            <div class="modal-field">
+              <label>부서명 <span class="req">*</span></label>
+              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="부서명 입력" />
+            </div>
+            <div class="modal-field">
+              <div class="member-list-header">
+                <label>구성원 <span style="color:#64748b;font-weight:400">({{ nodeEditModal.form.members.length }}명)</span></label>
+                <button v-if="!showNewMemberForm" class="btn-add-member-open" @click="openNewMemberForm">+ 구성원 추가</button>
+              </div>
+
+              <!-- 구성원 추가 폼 -->
+              <div v-if="showNewMemberForm" class="new-member-form">
+                <div class="new-member-form-grid">
+                  <div class="nmf-field">
+                    <label class="nmf-label">이름 <span class="req">*</span></label>
+                    <input v-model="newMemberForm.name" class="nmf-input" placeholder="홍길동" />
+                  </div>
+                  <div class="nmf-field">
+                    <label class="nmf-label">직책/직급</label>
+                    <input v-model="newMemberForm.position" class="nmf-input" placeholder="선임연구원" />
+                  </div>
+                  <div class="nmf-field">
+                    <label class="nmf-label">이메일</label>
+                    <input v-model="newMemberForm.email" class="nmf-input" placeholder="user@company.com" type="email" />
+                  </div>
+                  <div class="nmf-field">
+                    <label class="nmf-label">연락처</label>
+                    <input v-model="newMemberForm.phone" class="nmf-input" placeholder="010-0000-0000" />
+                  </div>
+                  <div class="nmf-field nmf-field-full">
+                    <label class="nmf-label">역할</label>
+                    <div class="nmf-role-row">
+                      <label v-for="r in [{v:'admin',l:'간사'},{v:'presenter',l:'발제자'},{v:'member',l:'위원'}]" :key="r.v" class="nmf-radio">
+                        <input type="radio" v-model="newMemberForm.role" :value="r.v" />
+                        {{ r.l }}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div class="nmf-actions">
+                  <button class="btn-cancel" @click="cancelNewMemberForm">취소</button>
+                  <button class="btn-confirm" :disabled="!newMemberForm.name.trim()" @click="addDeptMember">추가</button>
+                </div>
+              </div>
+
+              <!-- 구성원 목록 -->
+              <div class="node-edit-member-list">
+                <div v-if="!nodeEditModal.form.members.length" class="node-edit-empty">구성원이 없습니다</div>
+                <div v-for="(mb, idx) in nodeEditModal.form.members" :key="mb.userId" class="node-edit-member-row">
+                  <div class="node-edit-avatar" :style="{background: avatarColor(mb.userName)}">{{ initials(mb.userName) }}</div>
+                  <div class="node-edit-member-info">
+                    <div class="node-edit-member-top">
+                      <span class="node-edit-name">{{ mb.userName }}</span>
+                      <span v-if="mb.position" class="node-edit-position">{{ mb.position }}</span>
+                    </div>
+                    <div class="node-edit-member-sub">
+                      <span v-if="mb.email" class="node-edit-sub-text">{{ mb.email }}</span>
+                      <span v-if="mb.phone" class="node-edit-sub-text">{{ mb.phone }}</span>
+                    </div>
+                  </div>
+                  <select v-model="mb.role" class="role-select-sm">
+                    <option value="admin">간사</option>
+                    <option value="presenter">발제자</option>
+                    <option value="member">위원</option>
+                  </select>
+                  <button class="remove-btn-sm" @click="removeDeptMember(idx)">×</button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Session: label only -->
+          <template v-if="nodeEditModal.type==='session'">
+            <div class="modal-field">
+              <label>회의명 <span class="req">*</span></label>
+              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="회의명 입력" />
+            </div>
+          </template>
+
+          <!-- File: label + fileType -->
+          <template v-if="nodeEditModal.type==='file'">
+            <div class="modal-field">
+              <label>파일명 <span class="req">*</span></label>
+              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="파일명" />
+            </div>
+            <div class="modal-field">
+              <label>파일 유형</label>
+              <div class="file-type-row">
+                <button v-for="ft in FILE_TYPES" :key="ft"
+                  class="file-type-btn" :class="{ active: nodeEditModal.form.fileType===ft }"
+                  :style="nodeEditModal.form.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
+                  @click="nodeEditModal.form.fileType=ft">{{ ft }}</button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Person: name + role -->
+          <template v-if="nodeEditModal.type==='person'">
+            <div class="modal-field">
+              <label>이름 <span class="req">*</span></label>
+              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="이름 입력" />
+            </div>
+            <div class="modal-field">
+              <label>역할</label>
+              <select v-model="nodeEditModal.form.role" class="modal-input">
+                <option value="admin">간사</option>
+                <option value="presenter">발제자</option>
+                <option value="member">위원</option>
+              </select>
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="closeNodeEdit">취소</button>
+          <button class="btn-confirm" @click="saveNodeEdit">저장</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
 /* ── Page ── */
-.archive-page { display:flex;flex-direction:column;margin:-20px;height:calc(100vh - var(--header-h));background:#0f172a;color:#e2e8f0;overflow:hidden;position:relative; }
+.archive-page { display:flex;flex-direction:column;margin:-24px -28px;height:calc(100% + 48px);background:#0f172a;color:#e2e8f0;overflow:hidden;position:relative; }
 
 /* ── Header ── */
 .archive-header { display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0f172a;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
@@ -1144,14 +1872,51 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .create-meeting-btn:hover { opacity:.85; }
 
 /* ── Body ── */
+/* ── Graph Breadcrumb ── */
+.graph-breadcrumb {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 20px;
+  min-height: 32px;
+  background: rgba(255,255,255,.04);
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  font-size: 12px; color: rgba(255,255,255,.55);
+  flex-shrink: 0;
+}
+.bc-home, .bc-item {
+  background: none; border: none; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 12px; color: rgba(255,255,255,.55);
+  transition: background .15s, color .15s;
+}
+.bc-home:hover, .bc-item:hover { background: rgba(255,255,255,.1); color: #fff; }
+.bc-item.bc-hub { color: #93c5fd; }
+.bc-item.bc-hub:hover { background: rgba(147,197,253,.12); color: #bfdbfe; }
+.bc-item.bc-dept { color: #86efac; }
+.bc-item.bc-dept:hover { background: rgba(134,239,172,.12); color: #bbf7d0; }
+.bc-sep { opacity: .35; user-select: none; }
+
+/* day-mode breadcrumb */
+.day-mode .graph-breadcrumb {
+  background: rgba(0,0,0,.03);
+  border-bottom: 1px solid rgba(0,0,0,.08);
+  color: rgba(30,30,30,.5);
+}
+.day-mode .bc-home, .day-mode .bc-item { color: rgba(30,30,30,.5); }
+.day-mode .bc-home:hover, .day-mode .bc-item:hover { background: rgba(0,0,0,.07); color: #1e1e1e; }
+.day-mode .bc-item.bc-hub { color: #2563eb; }
+.day-mode .bc-item.bc-hub:hover { background: rgba(37,99,235,.1); }
+.day-mode .bc-item.bc-dept { color: #16a34a; }
+.day-mode .bc-item.bc-dept:hover { background: rgba(22,163,74,.1); }
+
 .archive-body { flex:1;display:flex;overflow:hidden;min-height:0; }
 
-/* Detail sidebar */
-.detail-sidebar { flex-shrink:0;background:#0a0f1e;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;overflow:hidden;position:relative; }
+/* Detail sidebar — absolute overlay so canvas never resizes */
+.detail-sidebar { position:absolute;top:0;left:0;bottom:0;z-index:20;background:#0a0f1e;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;overflow:hidden; }
 .sidebar-resize-handle { position:absolute;top:0;right:0;bottom:0;width:5px;cursor:ew-resize;z-index:10;background:transparent;transition:background .15s; }
 .sidebar-resize-handle:hover { background:rgba(96,165,250,.25); }
-.sidebar-slide-enter-active,.sidebar-slide-leave-active { transition:width .25s ease,opacity .2s; }
-.sidebar-slide-enter-from,.sidebar-slide-leave-to { width:0;opacity:0; }
+.sidebar-slide-enter-active,.sidebar-slide-leave-active { transition:transform .28s cubic-bezier(.22,.68,0,1.2),opacity .22s; }
+.sidebar-slide-enter-from,.sidebar-slide-leave-to { transform:translateX(-100%);opacity:0; }
 .detail-header { display:flex;align-items:flex-start;justify-content:space-between;padding:14px 12px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0; }
 .detail-meeting-name { font-size:13px;font-weight:700;color:#f1f5f9; }
 .detail-meta { font-size:11px;color:#475569;margin-top:2px; }
@@ -1159,6 +1924,32 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-close:hover { color:#94a3b8; }
 .detail-body { flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px; }
 .detail-goto-btn { width:100%;padding:7px;border-radius:7px;border:1px solid rgba(96,165,250,.3);background:rgba(96,165,250,.08);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer; }
+.detail-setting-btn { width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px;border-radius:7px;border:1px solid rgba(148,163,184,.3);background:rgba(148,163,184,.08);color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
+.detail-setting-btn:hover { border-color:rgba(96,165,250,.4);background:rgba(96,165,250,.1);color:#60a5fa; }
+
+/* 회의체 설정 모달 */
+.gsm-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center; }
+.gsm-modal { background:#1e293b;border:1px solid #334155;border-radius:14px;width:420px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5); }
+.gsm-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #334155; }
+.gsm-title { font-size:15px;font-weight:700;color:#f1f5f9; }
+.gsm-close { background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px; }
+.gsm-close:hover { color:#e2e8f0;background:#334155; }
+.gsm-body { padding:20px;display:flex;flex-direction:column;gap:16px; }
+.gsm-field { display:flex;flex-direction:column;gap:6px; }
+.gsm-label { font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em; }
+.gsm-input { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none; }
+.gsm-input:focus { border-color:#3b82f6; }
+.gsm-textarea { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none;resize:vertical;font-family:inherit; }
+.gsm-textarea:focus { border-color:#3b82f6; }
+.gsm-members { display:flex;flex-wrap:wrap;gap:6px; }
+.gsm-member-chip { display:flex;align-items:center;gap:5px;background:#334155;border-radius:99px;padding:3px 10px 3px 5px;font-size:12px;color:#cbd5e1; }
+.gsm-avatar { width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700; }
+.gsm-empty { font-size:12px;color:#475569; }
+.gsm-footer { display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #334155; }
+.gsm-cancel { padding:7px 18px;border-radius:7px;border:1px solid #334155;background:none;color:#94a3b8;font-size:13px;cursor:pointer; }
+.gsm-cancel:hover { background:#334155;color:#e2e8f0; }
+.gsm-save { padding:7px 18px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+.gsm-save:hover { background:#2563eb; }
 .detail-section { display:flex;flex-direction:column;gap:4px; }
 .detail-section-label { font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px; }
 .detail-doc-item { display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04); }
@@ -1168,10 +1959,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-doc-info { flex:1;min-width:0; }
 .detail-doc-name { font-size:11px;color:#cbd5e1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .detail-doc-date { font-size:10px;color:#334155; }
-.detail-members { display:flex;flex-wrap:wrap;gap:4px; }
-.detail-member-chip { display:flex;align-items:center;gap:4px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25);border-radius:20px;padding:2px 7px 2px 3px; }
-.detail-avatar { width:16px;height:16px;border-radius:50%;background:rgba(124,58,237,.5);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center; }
-.detail-member-chip span { font-size:11px;color:#c4b5fd; }
+.detail-dept-table,.detail-member-table { width:100%;border-collapse:collapse;font-size:11px; }
+.detail-dept-table td,.detail-member-table td { padding:3px 4px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle; }
+.detail-dept-table tr:last-child td,.detail-member-table tr:last-child td { border-bottom:none; }
+.dept-name { color:#cbd5e1;font-weight:500; }
+.dept-count { color:#475569;text-align:right;white-space:nowrap; }
+.mb-name { color:#cbd5e1;font-weight:500;width:35%; }
+.mb-dept { color:#64748b;width:40%; }
+.mb-role { color:#475569;text-align:right;white-space:nowrap; }
 .detail-action-row { display:flex;gap:6px; }
 .detail-action-btn { flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s; }
 .task-action-btn { background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25); }
@@ -1183,6 +1978,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .main-area { flex:1;position:relative;overflow:hidden;min-width:0; }
 .archive-canvas { width:100%;height:100%;cursor:grab;display:block; }
 .archive-canvas:active { cursor:grabbing; }
+.graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#475569;font-size:13px; }
+.graph-loading-spinner { width:28px;height:28px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .graph-legend { position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(15,23,42,.75);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:6px 12px;font-size:11px;color:#64748b; }
 .legend-item { display:flex;align-items:center;gap:5px; }
 .legend-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
@@ -1275,18 +2073,19 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .ai-btn-icon { width:36px;height:18px; }
 
 /* ── Agent right sidebar ── */
-.agent-right-sidebar { width:320px;flex-shrink:0;background:#fff;border-left:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;overflow:hidden;z-index:10; }
-.agent-sidebar-slide-enter-active,.agent-sidebar-slide-leave-active { transition:width .25s ease,opacity .2s; }
-.agent-sidebar-slide-enter-from,.agent-sidebar-slide-leave-to { width:0;opacity:0; }
-.agent-tabs-bar { display:flex;align-items:center;border-bottom:1px solid var(--border);padding:6px 8px 0;gap:0;flex-shrink:0;background:#f8fafc; }
-.agent-tabs { display:flex;gap:2px;flex:1;overflow-x:auto; }
-.agent-tabs::-webkit-scrollbar { display:none; }
-.agent-tab { display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px 6px;border-radius:7px 7px 0 0;border:none;background:none;cursor:pointer;color:#94a3b8;font-size:9px;font-weight:600;transition:all .15s;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px; }
-.agent-tab:hover { background:rgba(96,165,250,.08);color:#64748b; }
-.agent-tab.active { background:#fff;color:var(--primary);border-bottom-color:var(--primary);border:1px solid var(--border);border-bottom-color:#fff; }
-.agent-tab-avatar { width:22px;height:22px;border-radius:50%;object-fit:cover; }
-.agent-tab-label { font-size:9px;font-weight:600; }
-.agent-sidebar-close { width:26px;height:26px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:4px;margin-bottom:2px; }
+.agent-right-sidebar { position:absolute;top:0;right:0;bottom:0;width:320px;background:#fff;border-left:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;overflow:hidden;z-index:50; }
+.agent-sidebar-slide-enter-active,.agent-sidebar-slide-leave-active { transition:transform .25s ease,opacity .2s; }
+.agent-sidebar-slide-enter-from,.agent-sidebar-slide-leave-to { transform:translateX(100%);opacity:0; }
+/* Supervisor single header (탭 없음) */
+.agent-supervisor-header { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%);flex-shrink:0; }
+.supervisor-brand { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
+.supervisor-logo { width:30px;height:30px;border-radius:50%;object-fit:cover;border:2px solid #93c5fd;flex-shrink:0; }
+.supervisor-brand-text { display:flex;flex-direction:column;min-width:0;flex:1; }
+.supervisor-title { font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.supervisor-sub { font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.supervisor-badge { font-size:9px;font-weight:800;background:linear-gradient(135deg,#3b82f6,#10b981);color:#fff;border-radius:99px;padding:2px 6px;letter-spacing:.04em;flex-shrink:0; }
+.supervisor-header-actions { display:flex;align-items:center;gap:5px;flex-shrink:0; }
+.agent-sidebar-close { width:26px;height:26px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .agent-sidebar-close:hover { background:#e2e8f0;color:#1e293b; }
 .agent-sidebar-info { display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .agent-sidebar-avatar { width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0; }
@@ -1305,6 +2104,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .agent-msg-avatar { width:15px;height:15px;border-radius:50%;object-fit:cover; }
 .agent-bubble { padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.55;max-width:90%;word-break:break-word;border:1px solid transparent; }
 .agent-bubble.user { background:var(--primary);color:#fff;border-radius:10px 10px 2px 10px; }
+.agent-bubble.agent.theme-supervisor { background:linear-gradient(135deg,#eff6ff,#f0fdf4);border-color:#93c5fd;color:#1e3a5f;border-radius:2px 10px 10px 10px; }
 .agent-bubble.agent.theme-hyean { background:#eff6ff;border-color:#93c5fd;color:#1e40af;border-radius:2px 10px 10px 10px; }
 .agent-bubble.agent.theme-gaon  { background:#fef3c7;border-color:#fcd34d;color:#78350f;border-radius:2px 10px 10px 10px; }
 .agent-bubble.agent.theme-naru  { background:#ecfdf5;border-color:#6ee7b7;color:#064e3b;border-radius:2px 10px 10px 10px; }
@@ -1373,14 +2173,80 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .btn-confirm { padding:8px 20px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
 .btn-confirm:disabled { opacity:.5;cursor:not-allowed; }
 
-/* ── Mode toggle button ── */
-.mode-toggle-btn { width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#94a3b8;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s; }
-.mode-toggle-btn:hover { background:rgba(255,255,255,.12);color:#e2e8f0; }
-.day-mode .mode-toggle-btn { border-color:#e2e8f0;background:#f1f5f9;color:#475569; }
-.day-mode .mode-toggle-btn:hover { background:#e2e8f0;color:#1e293b; }
+/* ── Graph floating action buttons ── */
+.graph-float-btns {
+  position: absolute; top: 14px; right: 14px; z-index: 15;
+  display: flex; flex-direction: column; gap: 12px; align-items: center;
+}
+.float-btn-item {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  cursor: grab; user-select: none; transition: transform .15s, opacity .15s;
+}
+.float-btn-item:hover { transform: scale(1.1); opacity: 1; }
+.float-btn-item:active { cursor: grabbing; transform: scale(1.05); }
+.float-node-preview {
+  display: flex; align-items: center; justify-content: center;
+  transition: box-shadow .15s;
+}
+.meeting-preview {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.55) 100%);
+  border: 2px solid rgba(147,197,253,.7); color: #fff;
+  box-shadow: 0 0 14px rgba(59,130,246,.5), 0 2px 10px rgba(0,0,0,.4);
+}
+.float-btn-item:hover .meeting-preview { box-shadow: 0 0 22px rgba(59,130,246,.75), 0 4px 16px rgba(0,0,0,.5); }
+.doc-preview {
+  width: 44px; height: 34px; border-radius: 6px;
+  background: rgba(15,23,42,.9);
+  border: 2px solid rgba(96,165,250,.65); color: #60a5fa;
+  box-shadow: 0 0 12px rgba(96,165,250,.35), 0 2px 8px rgba(0,0,0,.45);
+}
+.float-btn-item:hover .doc-preview { box-shadow: 0 0 20px rgba(96,165,250,.55), 0 4px 14px rgba(0,0,0,.5); }
+.float-btn-label {
+  font-size: 10px; font-weight: 700; color: rgba(255,255,255,.65);
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0,0,0,.9);
+  letter-spacing: .02em;
+}
+
+/* Float drag ghost */
+.float-drag-ghost {
+  position: fixed; z-index: 9999; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: none;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,.6));
+}
+.ghost-node {
+  display: flex; align-items: center; justify-content: center;
+  opacity: .9; transform: scale(1.12);
+}
+.ghost-meeting {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.5) 100%);
+  border: 2px solid rgba(147,197,253,.8); color: #fff;
+}
+.ghost-doc {
+  width: 44px; height: 34px; border-radius: 6px;
+  background: rgba(15,23,42,.9); border: 2px solid rgba(96,165,250,.8); color: #60a5fa;
+}
+.ghost-label {
+  font-size: 10px; font-weight: 700; color: #fff;
+  text-shadow: 0 1px 5px rgba(0,0,0,.95); white-space: nowrap;
+}
+.ghost-connect-hint {
+  font-size: 10px; font-weight: 700; color: #34d399;
+  text-shadow: 0 1px 4px rgba(0,0,0,.9); white-space: nowrap;
+  animation: pulse-hint .6s ease-in-out infinite alternate;
+}
+@keyframes pulse-hint { from { opacity: .6 } to { opacity: 1 } }
+
+/* day-mode float button labels */
+.day-mode .float-btn-label { color: rgba(15,23,42,.6); text-shadow: 0 1px 3px rgba(255,255,255,.7); }
+.day-mode .meeting-preview { box-shadow: 0 0 14px rgba(59,130,246,.4), 0 2px 10px rgba(0,0,0,.15); }
+.day-mode .doc-preview { background: rgba(239,246,255,.95); box-shadow: 0 0 12px rgba(59,130,246,.25), 0 2px 8px rgba(0,0,0,.1); }
 
 /* ── Day mode overrides ── */
-.day-mode { background:#eef2ff !important;color:#1e293b; }
+.archive-page.day-mode { background:#eef2ff !important;color:#1e293b; }
 .day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
 .day-mode .archive-title { color:#1e293b; }
 .day-mode .archive-desc { color:#94a3b8; }
@@ -1403,7 +2269,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-doc-item { background:#fff;border-color:#e2e8f0; }
 .day-mode .detail-doc-name { color:#334155; }
 .day-mode .detail-doc-date { color:#94a3b8; }
-.day-mode .graph-legend { background:rgba(238,242,255,.92);border-color:#e2e8f0;color:#64748b; }
+.day-mode .detail-dept-table td,.day-mode .detail-member-table td { border-bottom-color:#e2e8f0; }
+.day-mode .dept-name,.day-mode .mb-name { color:#1e293b; }
+.day-mode .dept-count,.day-mode .mb-dept,.day-mode .mb-role { color:#94a3b8; }
 .day-mode .person-toggle { color:#64748b; }
 .day-mode .legend-hint { color:#94a3b8; }
 .day-mode .list-view { background:#f8fafc; }
@@ -1421,4 +2289,185 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .doc-meta { color:#94a3b8; }
 .day-mode .doc-btn { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
 .day-mode .doc-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
+</style>
+
+<!-- Teleport(body) 대상 모달은 scoped CSS가 적용되지 않으므로 별도 전역 스타일 블록 사용 -->
+<style>
+.archive-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:2000; }
+.archive-modal-box { background:#1e293b;border-radius:14px;width:520px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1); }
+.create-modal-box { width:480px;max-height:88vh;overflow-y:auto; }
+/* create modal inner styles */
+.archive-modal-box .modal-field { display:flex;flex-direction:column;gap:5px;margin-bottom:4px; }
+.archive-modal-box .modal-field label { font-size:12px;font-weight:700;color:#64748b; }
+.archive-modal-box .modal-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;width:100%;box-sizing:border-box;font-family:inherit; }
+.archive-modal-box .modal-input:focus { border-color:rgba(96,165,250,.5); }
+.archive-modal-box .modal-textarea { resize:none; }
+.archive-modal-box .modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+.archive-modal-box .modal-dropdown { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-top:4px; }
+.archive-modal-box .modal-dropdown-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s;color:#e2e8f0; }
+.archive-modal-box .modal-dropdown-item:hover { background:rgba(255,255,255,.06); }
+.archive-modal-box .modal-user-avatar { width:26px;height:26px;border-radius:50%;background:#3b82f6;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.archive-modal-box .selected-member { display:flex;align-items:center;gap:7px;padding:5px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:7px; }
+.archive-modal-box .selected-member span { flex:1;font-size:13px;color:#e2e8f0; }
+.archive-modal-box .role-select-sm { padding:3px 6px;border:1px solid rgba(255,255,255,.12);border-radius:5px;font-size:12px;background:rgba(255,255,255,.08);color:#e2e8f0;outline:none; }
+.archive-modal-box .remove-btn-sm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;padding:0 2px; }
+.archive-modal-box .related-meetings { display:flex;flex-wrap:wrap;gap:6px; }
+.archive-modal-box .related-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
+.archive-modal-box .related-chip:hover { border-color:#60a5fa;color:#3b82f6; }
+.archive-modal-box .related-chip.selected { background:rgba(59,130,246,.15);border-color:#93c5fd;color:#60a5fa; }
+.archive-modal-box .related-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
+.archive-modal-box .modal-close-btn { background:rgba(255,255,255,.07);border:none;border-radius:7px;width:28px;height:28px;color:#64748b;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center; }
+.archive-modal-box .modal-close-btn:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
+.archive-modal-box .btn-confirm { padding:8px 20px;border-radius:8px;border:none;background:#1e3a5f;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.archive-modal-box .btn-confirm:disabled { opacity:.5;cursor:not-allowed; }
+/* day-mode create-modal */
+.archive-modal-box.day-mode .modal-input { background:#f8fafc;border-color:#e2e8f0;color:#1e293b; }
+.archive-modal-box.day-mode .modal-dropdown-item { color:#1e293b; }
+.archive-modal-box.day-mode .modal-dropdown-item:hover { background:#f8fafc; }
+.archive-modal-box.day-mode .selected-member { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .selected-member span { color:#1e293b; }
+.archive-modal-box.day-mode .role-select-sm { background:#fff;border-color:#e2e8f0;color:#475569; }
+.archive-modal-box.day-mode .related-chip { border-color:#e2e8f0;background:#fff;color:#64748b; }
+.archive-modal-box.day-mode .related-chip.selected { background:#eff6ff;border-color:#93c5fd;color:#1d4ed8; }
+.archive-modal-box.day-mode .modal-close-btn { background:#f1f5f9;color:#64748b; }
+.archive-modal-box.day-mode .btn-confirm { background:#1e3a5f; }
+.archive-modal-box .modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.08); }
+.archive-modal-box .modal-title { font-size:15px;font-weight:700;color:#f1f5f9; }
+.archive-modal-box .modal-close { width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.07);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.archive-modal-box .modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
+.archive-modal-box .modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto; }
+.archive-modal-box .modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid rgba(255,255,255,.08);background:inherit; }
+.archive-modal-box .form-field { display:flex;flex-direction:column;gap:5px; }
+.archive-modal-box .form-field label { font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em; }
+.archive-modal-box .req { color:#ef4444; }
+.archive-modal-box .form-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;font-family:inherit;width:100%;box-sizing:border-box; }
+.archive-modal-box .form-input:focus { border-color:rgba(96,165,250,.5); }
+.archive-modal-box .form-textarea { resize:vertical;min-height:64px; }
+.archive-modal-box .btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:13px;font-weight:600;cursor:pointer;color:#94a3b8;transition:all .15s; }
+.archive-modal-box .btn-cancel:hover { background:rgba(255,255,255,.1); }
+.archive-modal-box .btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.archive-modal-box .btn-primary:hover { opacity:.85; }
+.archive-modal-box .btn-primary:disabled { opacity:.4;cursor:not-allowed; }
+.archive-modal-box .settings-section { padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px; }
+.archive-modal-box .settings-section:last-child { border-bottom:none;padding-bottom:0; }
+.archive-modal-box .settings-section-title { font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
+.archive-modal-box .member-cnt-badge { font-size:11px;font-weight:600;background:rgba(255,255,255,.08);border-radius:99px;padding:1px 7px;color:#64748b; }
+.archive-modal-box .member-search-wrap { display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.04); }
+.archive-modal-box .member-search-input { flex:1;border:none;background:none;color:#e2e8f0;font-size:13px;outline:none; }
+.archive-modal-box .member-search-input::placeholder { color:#475569; }
+.archive-modal-box .search-spinner { color:#64748b;font-size:14px;animation:archive-spin .8s linear infinite;display:inline-block; }
+@keyframes archive-spin { to { transform:rotate(360deg); } }
+.archive-modal-box .settings-body { gap:0; }
+.archive-modal-box .member-search-results { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;max-height:140px;overflow-y:auto; }
+.archive-modal-box .member-search-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s; }
+.archive-modal-box .member-search-item:hover { background:rgba(255,255,255,.06); }
+.archive-modal-box .ms-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.archive-modal-box .ms-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
+.archive-modal-box .ms-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.archive-modal-box .ms-email { font-size:11px;color:#475569; }
+.archive-modal-box .ms-add-hint { font-size:11px;color:#3b82f6;font-weight:600;flex-shrink:0; }
+.archive-modal-box .settings-member-list { display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto; }
+.archive-modal-box .settings-empty-members { font-size:12px;color:#475569;padding:6px 2px; }
+.archive-modal-box .settings-member-row { display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:7px;transition:background .1s; }
+.archive-modal-box .settings-member-row:hover { background:rgba(255,255,255,.04); }
+.archive-modal-box .sm-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.archive-modal-box .sm-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
+.archive-modal-box .sm-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.archive-modal-box .sm-email { font-size:11px;color:#475569; }
+.archive-modal-box .sm-role-select { font-size:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;color:#94a3b8;padding:2px 5px;cursor:pointer;flex-shrink:0; }
+.archive-modal-box .sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.1);color:#f87171;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
+.archive-modal-box .sm-remove:hover { background:rgba(239,68,68,.2); }
+/* 주간 모드 */
+.archive-modal-box.day-mode { background:#fff !important;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .modal-header { border-bottom-color:#e2e8f0; }
+.archive-modal-box.day-mode .modal-title { color:#1e293b; }
+.archive-modal-box.day-mode .modal-close { background:#f1f5f9;color:#64748b; }
+.archive-modal-box.day-mode .modal-footer { border-top-color:#e2e8f0; }
+.archive-modal-box.day-mode .form-field label { color:#64748b; }
+.archive-modal-box.day-mode .form-input { background:#f8fafc;border-color:#e2e8f0;color:#1e293b; }
+.archive-modal-box.day-mode .form-input:focus { border-color:#3b82f6;background:#fff; }
+.archive-modal-box.day-mode .settings-section { border-bottom-color:#f1f5f9; }
+.archive-modal-box.day-mode .settings-section-title { color:#94a3b8; }
+.archive-modal-box.day-mode .member-search-wrap { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .member-search-input { color:#1e293b; }
+.archive-modal-box.day-mode .member-search-results { border-color:#e2e8f0; }
+.archive-modal-box.day-mode .member-search-item:hover { background:#f8fafc; }
+.archive-modal-box.day-mode .ms-name { color:#1e293b; }
+.archive-modal-box.day-mode .settings-member-row:hover { background:#f8fafc; }
+.archive-modal-box.day-mode .sm-name { color:#1e293b; }
+.archive-modal-box.day-mode .sm-role-select { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
+.archive-modal-box.day-mode .btn-cancel { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
+.archive-modal-box.day-mode .btn-cancel:hover { background:#f1f5f9; }
+/* 업로드 모달 */
+.upload-modal-box { width:480px; }
+.file-type-row,.rel-type-row { display:flex;flex-wrap:wrap;gap:6px; }
+.file-type-btn,.rel-type-btn { padding:5px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
+.file-type-btn:hover,.rel-type-btn:hover { border-color:#60a5fa;color:#60a5fa;background:rgba(96,165,250,.08); }
+.file-type-btn.active,.rel-type-btn.active { font-weight:600; }
+/* 연결 프리뷰 */
+.conn-preview { display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);flex-wrap:wrap; }
+.conn-preview-box { display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);flex-wrap:wrap;margin-top:4px; }
+.conn-node { font-size:12px;font-weight:600;color:#e2e8f0;padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.07); }
+.conn-node.file { color:#f1f5f9; }
+.conn-arrow { font-size:14px;color:#475569; }
+.conn-rel { font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06); }
+.file-type-tag { font-size:10px;font-weight:700;color:#94a3b8;margin-left:2px; }
+/* day-mode upload */
+.archive-modal-box.day-mode .file-type-btn,.archive-modal-box.day-mode .rel-type-btn { border-color:#e2e8f0;color:#64748b;background:#f8fafc; }
+.archive-modal-box.day-mode .conn-preview,.archive-modal-box.day-mode .conn-preview-box { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .conn-node { color:#1e293b;background:#f1f5f9; }
+/* 온톨로지 범례 */
+.graph-legend-onto { position:absolute;bottom:12px;left:12px;z-index:15;display:flex;flex-direction:column;gap:5px;background:rgba(15,23,42,.82);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;pointer-events:none; }
+.legend-onto-item { display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8; }
+.legend-onto-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
+.legend-onto-dash { width:18px;height:2px;flex-shrink:0; }
+.day-mode .graph-legend-onto { background:rgba(238,242,255,.88);border-color:#e2e8f0;color:#64748b; }
+.day-mode .conn-preview,.day-mode .conn-preview-box { background:#f0f4f8;border-color:#e2e8f0; }
+.day-mode .legend-onto-item { color:#64748b; }
+/* 툴팁 편집 버튼 */
+.tt-edit-btn { margin-top:6px;width:100%;padding:5px 0;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;cursor:pointer;transition:all .15s; }
+.tt-edit-btn:hover { background:rgba(96,165,250,.15);border-color:#60a5fa;color:#93c5fd; }
+/* Node edit modal */
+.node-edit-modal-box { width:480px; }
+.member-list-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:6px; }
+.member-list-header label { margin:0; }
+.btn-add-member-open { padding:4px 12px;border-radius:6px;border:1px solid rgba(96,165,250,.4);background:rgba(96,165,250,.08);color:#60a5fa;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s; }
+.btn-add-member-open:hover { background:rgba(96,165,250,.18); }
+/* new member form */
+.new-member-form { border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:14px 14px 10px;background:rgba(255,255,255,.03);margin-bottom:10px; }
+.new-member-form-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:10px; }
+.nmf-field { display:flex;flex-direction:column;gap:4px; }
+.nmf-field-full { grid-column:1/-1; }
+.nmf-label { font-size:11px;color:#94a3b8;font-weight:500; }
+.nmf-input { background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;width:100%;box-sizing:border-box; }
+.nmf-input:focus { border-color:rgba(96,165,250,.5); }
+.nmf-input::placeholder { color:#334155; }
+.nmf-role-row { display:flex;gap:14px; }
+.nmf-radio { display:flex;align-items:center;gap:5px;font-size:12px;color:#94a3b8;cursor:pointer; }
+.nmf-radio input { accent-color:#3b82f6; }
+.nmf-actions { display:flex;justify-content:flex-end;gap:6px; }
+/* member list rows - richer */
+.node-edit-member-list { display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;padding:2px 0; }
+.node-edit-empty { font-size:12px;color:#64748b;padding:6px 0; }
+.node-edit-member-row { display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.04); }
+.node-edit-avatar { width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0; }
+.node-edit-member-info { flex:1;min-width:0; }
+.node-edit-member-top { display:flex;align-items:center;gap:6px; }
+.node-edit-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.node-edit-position { font-size:10px;color:#64748b;background:rgba(255,255,255,.06);border-radius:4px;padding:1px 6px; }
+.node-edit-member-sub { display:flex;gap:8px;margin-top:1px; }
+.node-edit-sub-text { font-size:10px;color:#475569; }
+.node-edit-add-member { display:flex;align-items:center;gap:6px;margin-top:6px; }
+.btn-add-member { padding:6px 14px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap; }
+.btn-add-member:hover { background:#2563eb; }
+/* day-mode */
+.archive-modal-box.day-mode .new-member-form { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .nmf-input { background:#fff;border-color:#e2e8f0;color:#1e293b; }
+.archive-modal-box.day-mode .nmf-input::placeholder { color:#94a3b8; }
+.archive-modal-box.day-mode .nmf-label { color:#64748b; }
+.archive-modal-box.day-mode .nmf-radio { color:#64748b; }
+.archive-modal-box.day-mode .node-edit-member-row { background:#f1f5f9; }
+.archive-modal-box.day-mode .node-edit-name { color:#1e293b; }
+.archive-modal-box.day-mode .node-edit-empty { color:#94a3b8; }
+.archive-modal-box.day-mode .btn-add-member-open { border-color:#93c5fd;color:#3b82f6;background:rgba(59,130,246,.06); }
 </style>

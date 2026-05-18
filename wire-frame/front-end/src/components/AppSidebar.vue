@@ -33,7 +33,7 @@ const filteredEnded = computed(() =>
 
 function goMeeting(m) {
   if (renaming.value === m.id) return
-  router.push(`/meetings/${m.id}/home`)
+  router.push('/meeting-groups')
 }
 
 function openCtx(e, m) {

@@ -2,8 +2,11 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '../api'
 import { useMeetingsStore } from '../stores/meetings'
+import { useThemeStore } from '../stores/theme'
 
 const meetingsStore = useMeetingsStore()
+const themeStore = useThemeStore()
+const nightMode = computed(() => themeStore.nightMode)
 
 const selectedMeetingId = ref('all')
 const searchQuery = ref('')
@@ -26,24 +29,11 @@ const ROLES = [
 function roleInfo(r) { return ROLES.find(x => x.value === r) || ROLES[2] }
 
 // Demo data fallback (shown when API has no data)
-const DEMO = [
-  { id: 1, name: '김민준', role: 'chair',     position: '전략기획부장',  email: 'minjun@company.com',  meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-01-10' },
-  { id: 2, name: '이서연', role: 'secretary',  position: '전략기획팀장',  email: 'seoyeon@company.com', meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-01-10' },
-  { id: 3, name: '박도윤', role: 'member',    position: '경영기획 수석', email: 'doyun@company.com',   meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-01-15' },
-  { id: 4, name: '최수아', role: 'member',    position: '전략기획 선임', email: 'sua@company.com',     meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-01-15' },
-  { id: 5, name: '정지훈', role: 'member',    position: '경영혁신 선임', email: 'jihoon@company.com',  meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-02-01' },
-  { id: 6, name: '오유진', role: 'observer',  position: '재무팀 과장',   email: 'yujin@company.com',   meetingTitle: '회의체 운영 위원회2', meetingId: 1, joinedAt: '2026-02-10' },
-  { id: 7, name: '한태양', role: 'chair',     position: 'CTO',          email: 'taeyang@company.com', meetingTitle: '경영전략 위원회',    meetingId: 2, joinedAt: '2026-03-01' },
-  { id: 8, name: '신지영', role: 'secretary',  position: 'IT기획 팀장',   email: 'jiyoung@company.com', meetingTitle: '경영전략 위원회',    meetingId: 2, joinedAt: '2026-03-01' },
-  { id: 9, name: '윤재호', role: 'member',    position: '개발팀 수석',   email: 'jaeho@company.com',   meetingTitle: '경영전략 위원회',    meetingId: 2, joinedAt: '2026-03-05' },
-  { id:10, name: '임수빈', role: 'member',    position: 'UX 선임',      email: 'subin@company.com',   meetingTitle: '경영전략 위원회',    meetingId: 2, joinedAt: '2026-03-05' },
-]
-
 async function fetchAllMembers() {
   loadingMembers.value = true
   try {
     const meetings = meetingsStore.meetings
-    if (!meetings.length) { allMembers.value = DEMO; return }
+    if (!meetings.length) { allMembers.value = []; return }
     const results = []
     await Promise.all(meetings.map(async m => {
       try {
@@ -51,9 +41,9 @@ async function fetchAllMembers() {
         res.data.forEach(member => results.push({ ...member, meetingTitle: m.title, meetingId: m.id }))
       } catch {}
     }))
-    allMembers.value = results.length ? results : DEMO
+    allMembers.value = results
   } catch {
-    allMembers.value = DEMO
+    allMembers.value = []
   } finally {
     loadingMembers.value = false
   }
@@ -145,6 +135,27 @@ async function saveEdit() {
   editModal.value = null
 }
 
+const expandedRows = ref(new Set())
+function toggleExpand(key) {
+  const s = new Set(expandedRows.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  expandedRows.value = s
+}
+
+// Group by email (same person in multiple meetings → 1 row)
+const groupedFilteredMembers = computed(() => {
+  const map = new Map()
+  filteredMembers.value.forEach(m => {
+    const key = m.email || m.name || String(m.id)
+    if (!map.has(key)) {
+      map.set(key, { ...m, meetings: [{ id: m.meetingId, title: m.meetingTitle, role: m.role }] })
+    } else {
+      map.get(key).meetings.push({ id: m.meetingId, title: m.meetingTitle, role: m.role })
+    }
+  })
+  return [...map.values()]
+})
+
 function formatDate(s) {
   if (!s) return '-'
   const d = new Date(s)
@@ -160,48 +171,38 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 </script>
 
 <template>
-  <div class="org-page">
-    <!-- Page header -->
-    <div class="page-header">
-      <div class="header-left">
-        <div class="page-icon">🏢</div>
-        <div>
-          <h1 class="page-title">조직 관리</h1>
-          <p class="page-sub">회의체별 구성원, 역할(의장·간사·위원·참관)을 관리합니다.</p>
-        </div>
-      </div>
-      <button class="btn-primary" @click="openAddModal">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
-        구성원 추가
-      </button>
-    </div>
-
-    <!-- Filters -->
-    <div class="filter-bar">
-      <div class="filter-row">
-        <select v-model="selectedMeetingId" class="meeting-select">
-          <option value="all">전체 회의체</option>
-          <option v-for="m in meetingsStore.meetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
-        </select>
-        <div class="search-wrap">
-          <svg class="search-icon-sm" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
-        </div>
-        <button class="icon-btn" @click="fetchAllMembers" title="새로고침">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-        </button>
+  <div class="org-page page-full-height" :class="{ 'day-mode': !nightMode }">
+    <!-- Archive-style header -->
+    <div class="archive-header">
+      <div class="header-title-wrap">
+        <h1 class="archive-title">조직 관리</h1>
       </div>
 
-      <!-- Role stats chips -->
-      <div class="role-chips">
-        <button class="role-chip" :class="{ active: activeRoleFilter === 'all' }" @click="activeRoleFilter = 'all'">
-          <span class="chip-count">{{ baseCounts.all }}</span> 전체
+      <div class="search-wrap">
+        <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
+      </div>
+
+      <select v-model="selectedMeetingId" class="org-meeting-select">
+        <option value="all">전체 회의체</option>
+        <option v-for="m in meetingsStore.meetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+      </select>
+
+      <div class="org-role-chips">
+        <button class="org-chip" :class="{ active: activeRoleFilter === 'all' }" @click="activeRoleFilter = 'all'">
+          <span class="org-chip-count">{{ baseCounts.all }}</span> 전체
         </button>
         <button v-for="r in ROLES" :key="r.value"
-          class="role-chip" :class="{ active: activeRoleFilter === r.value }"
-          :style="activeRoleFilter === r.value ? { background: r.bg, color: r.color, borderColor: r.border } : {}"
+          class="org-chip" :class="{ active: activeRoleFilter === r.value }"
           @click="activeRoleFilter = r.value">
-          <span class="chip-count">{{ baseCounts[r.value] || 0 }}</span> {{ r.label }}
+          <span class="org-chip-count">{{ baseCounts[r.value] || 0 }}</span> {{ r.label }}
+        </button>
+      </div>
+
+      <div class="plus-wrap">
+        <button class="create-meeting-btn" @click="openAddModal">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+          구성원 추가
         </button>
       </div>
     </div>
@@ -215,33 +216,41 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
       <table v-else class="member-table">
         <thead>
           <tr>
-            <th style="width:220px">이름</th>
-            <th style="width:90px">역할</th>
-            <th style="width:140px">직책</th>
-            <th style="width:220px">이메일</th>
+            <th style="width:200px">이름</th>
+            <th style="width:60px">역할</th>
+            <th style="width:120px">회사</th>
+            <th style="width:120px">부서</th>
+            <th style="width:130px">직책</th>
+            <th style="width:200px">이메일</th>
             <th>회의체</th>
-            <th style="width:130px">참여일</th>
             <th style="width:72px"></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="member in filteredMembers" :key="`${member.meetingId}-${member.id}`" class="member-row">
+          <tr v-for="member in groupedFilteredMembers" :key="member.email||member.name" class="member-row">
             <td>
               <div class="name-cell">
                 <div class="avatar" :style="{ background: avatarColor(member.name) }">{{ initials(member.name) }}</div>
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
-            <td>
-              <span class="role-pill"
-                :style="{ background: roleInfo(member.role).bg, color: roleInfo(member.role).color, borderColor: roleInfo(member.role).border }">
-                {{ roleInfo(member.role).label }}
-              </span>
-            </td>
+            <td class="cell-role">{{ roleInfo(member.role).label }}</td>
+            <td class="cell-muted">{{ member.company || '-' }}</td>
+            <td class="cell-muted">{{ member.department || '-' }}</td>
             <td class="cell-muted">{{ member.position || '-' }}</td>
             <td class="cell-muted">{{ member.email || '-' }}</td>
-            <td class="cell-meeting">{{ member.meetingTitle || '-' }}</td>
-            <td class="cell-muted">{{ formatDate(member.joinedAt || member.joined_at || member.created_at) }}</td>
+            <td class="cell-meetings">
+              <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
+              <template v-if="member.meetings.length > 1">
+                <template v-if="expandedRows.has(member.email||member.name)">
+                  <span v-for="mg in member.meetings.slice(1)" :key="mg.id" class="meeting-tag">{{ mg.title }}</span>
+                  <button class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">접기</button>
+                </template>
+                <button v-else class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">
+                  +{{ member.meetings.length - 1 }}개 더보기
+                </button>
+              </template>
+            </td>
             <td>
               <div class="action-btns">
                 <button class="act-btn" @click="openEdit(member)" title="역할 변경">
@@ -253,8 +262,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
             </td>
           </tr>
-          <tr v-if="!filteredMembers.length">
-            <td colspan="7" class="empty-row">
+          <tr v-if="!groupedFilteredMembers.length">
+            <td colspan="8" class="empty-row">
               <div class="empty-state">
                 <div class="empty-icon-lg">👤</div>
                 <p>표시할 구성원이 없습니다</p>
@@ -372,123 +381,43 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 100%;
-  overflow: hidden;
 }
 
-/* Header */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
-.header-left { display: flex; align-items: center; gap: 12px; }
-.page-icon { font-size: 28px; line-height: 1; }
-.page-title { font-size: 22px; font-weight: 800; color: var(--primary); margin: 0 0 2px; }
-.page-sub { font-size: 13px; color: var(--text-muted); margin: 0; }
+/* Header – identical to ArchivePage */
+.archive-header { display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0f172a;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
+.header-title-wrap { flex-shrink:0; }
+.archive-title { font-size:16px;font-weight:700;color:#f1f5f9;margin:0; }
+.search-wrap { position:relative;flex:1;min-width:160px;max-width:360px; }
+.search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#475569;pointer-events:none; }
+.search-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 28px;font-size:12px;color:#e2e8f0;outline:none; }
+.search-input::placeholder { color:#334155; }
+.search-input:focus { border-color:rgba(96,165,250,.5); }
+.plus-wrap { position:relative;flex-shrink:0; }
+.create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
+.create-meeting-btn:hover { opacity:.85; }
 
-.btn-primary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 18px;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: opacity .15s;
-  flex-shrink: 0;
-}
-.btn-primary:hover { opacity: .88; }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-
-/* Filter bar */
-.filter-bar {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.filter-row { display: flex; align-items: center; gap: 10px; }
-
-.meeting-select {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #1e293b;
-  background: #f8fafc;
-  outline: none;
-  cursor: pointer;
-  min-width: 160px;
-}
-.meeting-select:focus { border-color: var(--primary); }
-
-.search-wrap, .rel { flex: 1; position: relative; }
-.search-icon-sm {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94a3b8;
-  pointer-events: none;
-}
-.search-input {
-  width: 100%;
-  padding: 8px 10px 8px 32px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  background: #f8fafc;
-  outline: none;
-}
-.search-input:focus { border-color: var(--primary); background: #fff; }
-
-.icon-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: #f8fafc;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all .15s;
-}
-.icon-btn:hover { border-color: var(--primary); color: var(--primary); }
+/* Meeting select */
+.org-meeting-select { padding:6px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:12px;font-weight:500;color:#e2e8f0;background:rgba(255,255,255,.06);outline:none;cursor:pointer;min-width:120px; }
+.org-meeting-select option { background:#1e293b;color:#f1f5f9; }
 
 /* Role chips */
-.role-chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.role-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all .15s;
-}
-.role-chip:hover { border-color: #94a3b8; }
-.role-chip.active { font-weight: 700; }
-.role-chip.active:not([style]) { background: #eff6ff; color: var(--primary); border-color: #bfdbfe; }
-.chip-count { font-size: 15px; font-weight: 800; }
+.org-role-chips { display:flex;gap:6px;flex-wrap:wrap; }
+.org-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.org-chip:hover { color:#94a3b8;border-color:rgba(255,255,255,.2); }
+.org-chip.active { background:rgba(96,165,250,.15);border-color:rgba(96,165,250,.4);color:#93c5fd;font-weight:700; }
+.org-chip-count { font-size:13px;font-weight:800; }
+
+/* Day-mode overrides – identical to ArchivePage */
+.day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
+.day-mode .archive-title { color:#1e293b; }
+.day-mode .search-input { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
+.day-mode .search-input::placeholder { color:#94a3b8; }
+.day-mode .search-icon { color:#94a3b8; }
+.day-mode .org-meeting-select { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
+.day-mode .org-meeting-select option { background:#fff;color:#1e293b; }
+.day-mode .org-chip { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
+.day-mode .org-chip:hover { border-color:#94a3b8; }
+.day-mode .org-chip.active { background:#dbeafe;border-color:#93c5fd;color:#1d4ed8; }
 
 /* Table */
 .table-wrap {
@@ -545,18 +474,30 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .avatar-xs { width: 28px; height: 28px; font-size: 11px; }
 .member-name-text { font-weight: 600; color: #1e293b; }
 
-.role-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 12px;
-  border: 1px solid;
+.cell-role { color: #475569; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.cell-muted { color: #475569; }
+.cell-meetings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.meeting-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 12px;
-  font-weight: 700;
   white-space: nowrap;
 }
-.cell-muted { color: #475569; }
-.cell-meeting { color: #64748b; font-size: 12px; }
+.meeting-more-btn {
+  border: none;
+  background: none;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color .15s;
+}
+.meeting-more-btn:hover { color: #3b82f6; }
 
 .action-btns { display: flex; gap: 4px; justify-content: flex-end; }
 .act-btn {

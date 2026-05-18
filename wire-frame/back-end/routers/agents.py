@@ -608,6 +608,101 @@ async def hyean_status(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+@router.post("/supervisor/chat")
+async def supervisor_chat(
+    data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """워크메이트 Supervisor — 사용자 메시지를 분석해 적절한 서브에이전트에 투명하게 위임."""
+    msg = data.message or ""
+    msg_lower = msg.lower()
+
+    # ── 인텐트 분류 (키워드 기반, 추후 LLM 분류로 교체 가능) ──────────────
+    if any(kw in msg_lower for kw in [
+        '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
+        '추출', '과제 목록', '안건', '다음 회의'
+    ]):
+        _route = 'gaon'
+    elif any(kw in msg_lower for kw in [
+        '카드뉴스', '카드 뉴스', '콘텐츠', '소셜', 'sns', '홍보', '카드',
+        'card news', '인포그래픽', '소식지'
+    ]):
+        _route = 'naon'
+    elif any(kw in msg_lower for kw in [
+        '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성',
+        '속기', '회의 보조'
+    ]):
+        _route = 'ara'
+    elif any(kw in msg_lower for kw in [
+        '검토', '보고서', '자료 분석', '리뷰', 'review', '문제점', '개선',
+        '첨삭', '피드백', '문서 검토', '파일 검토'
+    ]):
+        _route = 'naru'
+    else:
+        _route = 'hyean'
+
+    knowledge = _get_knowledge(db, data.meeting_id)
+    background_tasks.add_task(
+        _log_activity, data.meeting_id, f"워크메이트[{_route}]",
+        "Supervisor 대화", f'"{msg[:80]}"'
+    )
+
+    async def stream():
+        if _route == 'gaon':
+            previous_minutes = _get_previous_minutes(db, data.meeting_id)
+            departments = _get_member_departments(db, data.meeting_id)
+            meeting_context = _get_meeting_context(db, data.meeting_id)
+            gen = gaon.chat_stream(
+                message=msg, chat_history=data.chat_history or [],
+                previous_minutes=previous_minutes, knowledge=knowledge,
+                departments=departments, meeting_context=meeting_context,
+            )
+        elif _route == 'naru':
+            meeting_context = _get_meeting_context(db, data.meeting_id)
+            gen = naru.chat_stream(
+                message=msg, chat_history=data.chat_history or [],
+                knowledge=knowledge, meeting_context=meeting_context,
+            )
+        elif _route == 'ara':
+            previous_minutes = _get_previous_minutes(db, data.meeting_id)
+            agendas = db.query(models.Agenda).filter(
+                models.Agenda.meeting_id == data.meeting_id,
+                models.Agenda.status == "confirmed",
+            ).all()
+            gen = ara.chat_stream(
+                message=msg, chat_history=data.chat_history or [],
+                previous_minutes=previous_minutes,
+                current_agendas=[{'content': a.content, 'department': a.department} for a in agendas],
+                meeting_context=_get_meeting_context(db, data.meeting_id),
+            )
+        elif _route == 'naon':
+            meeting_context = _get_meeting_context(db, data.meeting_id)
+            gen = naon.chat_stream(
+                message=msg, chat_history=data.chat_history or [],
+                meeting_context=meeting_context,
+            )
+        else:  # hyean
+            member = db.query(models.MeetingMember).filter(
+                models.MeetingMember.meeting_id == data.meeting_id,
+                models.MeetingMember.user_id == current_user.id,
+            ).first()
+            gen = hyean.status_stream(
+                meeting_status=_build_meeting_status(db, data.meeting_id),
+                user_role=member.role if member else "presenter",
+                active_knowledge=knowledge,
+                chat_history=data.chat_history,
+                message=msg,
+                user_name=current_user.name,
+            )
+        async for chunk in gen:
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 @router.post("/hyean/chat")
 async def hyean_chat(
     data: schemas.AgentChatRequest,

@@ -127,10 +127,6 @@ function formatDateTime(d) {
 </template>
 
 <style scoped>
-.page-wrap { padding: 28px 32px; max-width: 900px; margin: 0 auto; }
-.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
-.page-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
-.page-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
 .filter-bar { display: flex; gap: 10px; margin-bottom: 18px; }
 .meeting-list { display: flex; flex-direction: column; gap: 10px; }
 .meeting-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

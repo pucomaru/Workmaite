@@ -205,7 +205,7 @@ async function createMeeting() {
     showCreateModal.value = false
     form.value = { title: '', purpose: '', start_date: '', end_date: '' }
     selectedMembers.value = []
-    router.push(`/meetings/${meeting.id}/agenda`)
+    router.push('/meeting-groups')
   } finally {
     creating.value = false
   }
@@ -254,7 +254,7 @@ const upcomingSessions = computed(() => {
 </script>
 
 <template>
-  <div class="home">
+  <div class="home page-wrap">
 
     <!-- ① 예정된 회의 -->
     <div class="card">
@@ -278,7 +278,7 @@ const upcomingSessions = computed(() => {
               {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
             </span>
             <span class="badge badge-app-primary">{{ formatDate(s.date) }}</span>
-            <button v-if="s.meeting_id" class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px" @click="router.push(`/meetings/${s.meeting_id}/agenda`)">이동 ›</button>
+
           </div>
         </div>
       </div>
@@ -291,9 +291,6 @@ const upcomingSessions = computed(() => {
     <div class="meetings-section">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-people me-2"></i>진행중인 회의체</h6>
-        <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
-          <i class="bi bi-plus-lg me-1"></i>회의체 만들기
-        </button>
       </div>
 
       <!-- 회의체 테이블 -->
@@ -312,7 +309,7 @@ const upcomingSessions = computed(() => {
             </thead>
             <tbody>
               <tr v-for="m in displayActiveMeetings" :key="m.id"
-                style="cursor:pointer" @click="router.push(`/meetings/${m.id}/home`)">
+                style="cursor:pointer" @click="router.push('/meeting-groups')">
                 <td>
                   <div class="fw-semibold">{{ m.title }}</div>
                   <div v-if="m.purpose" class="text-muted" style="font-size:11px">
@@ -343,12 +340,7 @@ const upcomingSessions = computed(() => {
                 <td>
                   <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
                 </td>
-                <td>
-                  <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px"
-                    @click.stop="router.push(`/meetings/${m.id}/agenda`)">
-                    의제 ›
-                  </button>
-                </td>
+                <td></td>
               </tr>
             </tbody>
           </table>
@@ -511,7 +503,7 @@ const upcomingSessions = computed(() => {
 
 <style scoped>
 /* ── 전체 레이아웃 ──────────────────────────────────────────── */
-.home { display: flex; flex-direction: column; gap: 20px; padding-bottom: 80px; }
+.home { display: flex; flex-direction: column; gap: 20px; padding-bottom: 40px; }
 
 .section-title-row { display: flex; align-items: center; justify-content: space-between; }
 .section-title { font-size: 15px; font-weight: 700; }

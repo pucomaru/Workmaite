@@ -63,7 +63,7 @@ watch(() => route.path, (p) => {
 <style scoped>
 .layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .layout-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
-.layout-main { flex: 1; overflow-y: auto; padding: 20px; }
+.layout-main { flex: 1; overflow-y: auto; padding: 24px 28px; }
 .ai-disclaimer {
   text-align: center;
   font-size: 11px;

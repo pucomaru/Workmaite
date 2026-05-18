@@ -41,7 +41,7 @@ async function save() {
 </script>
 
 <template>
-  <div style="max-width:480px;margin:0 auto;padding-top:16px">
+  <div class="page-wrap">
     <div class="card">
       <div class="card-header">
         <span style="font-weight:600">개인설정</span>
@@ -90,3 +90,7 @@ async function save() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.page-wrap { max-width: 480px; }
+</style>

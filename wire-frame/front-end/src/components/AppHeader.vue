@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
+import { useThemeStore } from '../stores/theme'
 import api from '../api'
 
 function formatTime(ts) {
@@ -22,6 +23,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const notifStore = useNotificationsStore()
 const meetingsStore = useMeetingsStore()
+
+const themeStore = useThemeStore()
 
 const showNotif = ref(false)
 const showProfile = ref(false)
@@ -118,13 +121,13 @@ watch(
 function handleNotifClick(n) {
   notifStore.markRead(n.id)
   showNotif.value = false
-  if (n.ref_type === 'meeting' && n.ref_id) router.push(`/meetings/${n.ref_id}/agenda`)
-  if (n.ref_type === 'session' && n.ref_id) router.push(`/meetings/${n.meeting_id}/sessions`)
+  if (n.ref_type === 'meeting' && n.ref_id) router.push('/meeting-groups')
+  if (n.ref_type === 'session' && n.ref_id) router.push('/meeting-groups')
 }
 
 function logout() {
   auth.logout()
-  router.push('/login')
+  router.push('/landing')
 }
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
@@ -255,6 +258,12 @@ async function saveProfileSettings() {
     </nav>
 
     <div class="header-right">
+      <!-- 주야간 모드 토글 -->
+      <button class="btn-ghost btn-icon theme-toggle-btn" @click="themeStore.toggle()" :title="themeStore.nightMode ? '주간 모드로 전환' : '야간 모드로 전환'">
+        <svg v-if="themeStore.nightMode" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <svg v-else width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+
       <!-- 알림 -->
       <div class="notif-wrap">
         <button class="btn-ghost btn-icon" @click="showNotif = !showNotif">
@@ -531,6 +540,8 @@ async function saveProfileSettings() {
 
 
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.theme-toggle-btn { color: rgba(255,255,255,.7) !important; }
+.theme-toggle-btn:hover { background: rgba(255,255,255,.12) !important; color: #fff !important; }
 
 /* 구성원 관리 팝업 */
 .member-mgmt-popup {

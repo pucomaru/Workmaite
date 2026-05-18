@@ -391,7 +391,7 @@ function slideColor(type) {
 </script>
 
 <template>
-  <div class="page-wrap">
+  <div class="page-wrap page-full-height">
     <MeetingNav />
 
     <div class="cardnews-body">
@@ -715,7 +715,6 @@ function slideColor(type) {
 </template>
 
 <style scoped>
-.page-wrap { display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 40px); }
 .cardnews-body { flex: 1; min-height: 0; display: flex; gap: 16px; overflow: hidden; }
 .cardnews-right { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 

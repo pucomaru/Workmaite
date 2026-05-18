@@ -4,7 +4,6 @@ import { marked } from 'marked'
 import { streamPost } from '../api'
 import { useSTT } from '../composables/useSTT'
 import hyeanAvatar from '../assets/agents/hyean.png'
-import araAvatar from '../assets/agents/ara.png'
 
 const renderMd = (t) => marked.parse(t || '', { breaks: true })
 
@@ -48,6 +47,16 @@ const DEMO_MEETINGS = [
 const selectedMeetingId = ref(null)
 const expandedMeetingId = ref(null)
 const activeSession = ref(null)
+const sidebarSearch = ref('')
+
+const filteredMeetings = computed(() => {
+  const q = sidebarSearch.value.trim().toLowerCase()
+  if (!q) return DEMO_MEETINGS
+  return DEMO_MEETINGS.filter(m =>
+    m.title.toLowerCase().includes(q) ||
+    m.sessions.some(s => s.title.toLowerCase().includes(q))
+  )
+})
 
 const selectedMeeting = computed(() => DEMO_MEETINGS.find(m => m.id === selectedMeetingId.value))
 
@@ -201,36 +210,36 @@ function endMeeting() {
 
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
 
-// ─── Agent (Ara) ─────────────────────────────────────────────
-const araMessages = ref([{
+// ─── Agent (워크메이트 AI / Supervisor) ─────────────────────────────────────
+const wmMessages = ref([{
   role: 'agent',
-  content: '안녕하세요, 아라입니다! 🎤\n회의 내용에 대해 질문해보세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"',
+  content: '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"',
 }])
-const araInput = ref('')
-const araLoading = ref(false)
+const wmInput = ref('')
+const wmLoading = ref(false)
 const messagesEl = ref(null)
 
 async function sendAra() {
-  if (!araInput.value.trim() || araLoading.value) return
-  const text = araInput.value.trim()
-  araMessages.value.push({ role: 'user', content: text })
-  araInput.value = ''
+  const text = wmInput.value.trim()
+  if (!text || wmLoading.value) return
+  wmInput.value = ''
+  wmMessages.value.push({ role: 'user', content: text })
   const agentMsg = { role: 'agent', content: '' }
-  araMessages.value.push(agentMsg)
-  araLoading.value = true
+  wmMessages.value.push(agentMsg)
+  wmLoading.value = true
   await nextTick()
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  const history = araMessages.value.slice(0, -1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
+  const history = wmMessages.value.slice(0, -1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
-    await streamPost('/api/agent/ara/sessions-chat',
+    await streamPost('/api/agent/supervisor/chat',
       { meeting_id: 0, message: text, chat_history: history },
       (chunk) => { agentMsg.content += chunk; if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight },
-      () => { araLoading.value = false }
+      () => { wmLoading.value = false }
     )
-  } catch { agentMsg.content = '응답 중 오류가 발생했습니다.'; araLoading.value = false }
+  } catch { agentMsg.content = '응답 중 오류가 발생했습니다.'; wmLoading.value = false }
 }
 
-function onAraKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAra() } }
+function onWmKeydown(e) { if (e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); sendAra() } }
 
 function formatDate(d) {
   if (!d) return '일정 미정'
@@ -242,15 +251,21 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 </script>
 
 <template>
-  <div class="sp-layout" @click="showPopover=null">
+  <div class="sp-layout page-full-height" @click="showPopover=null">
 
     <!-- Left: Meeting / session selector -->
     <div class="sp-sidebar">
       <div class="sp-sidebar-header">
         <span class="sp-sidebar-title">회의체 선택</span>
+        <div class="sp-search-wrap">
+          <svg class="sp-search-icon" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의체 검색..." />
+          <button v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch=''">&times;</button>
+        </div>
       </div>
       <div class="sp-sidebar-body">
-        <div v-for="mtg in DEMO_MEETINGS" :key="mtg.id" class="sp-mtg-group">
+        <div v-if="!filteredMeetings.length" class="sp-search-empty">검색 결과 없음</div>
+        <div v-for="mtg in filteredMeetings" :key="mtg.id" class="sp-mtg-group">
           <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingId === mtg.id }">
             <div class="sp-mtg-dot"></div>
             <span class="sp-mtg-title">{{ mtg.title }}</span>
@@ -448,32 +463,38 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
       </div>
     </div>
 
-    <!-- Right: Ara agent -->
+    <!-- Right: 워크메이트 AI (Supervisor) -->
     <div class="sp-agent-panel">
       <div class="sp-agent-header">
-        <img :src="araAvatar" class="sp-agent-avatar" alt="아라" />
-        <div>
-          <div class="sp-agent-name">아라 (Ara)</div>
-          <div class="sp-agent-sub">회의 요약 · 질의응답</div>
+        <div class="sp-agent-header-brand">
+          <img :src="hyeanAvatar" class="sp-agent-avatar" alt="워크메이트 AI" />
+          <div class="sp-agent-header-text">
+            <div class="sp-agent-name">워크메이트 AI</div>
+            <div class="sp-agent-sub">회의 통합 AI 어시스턴트</div>
+          </div>
+          <span class="sp-agent-badge">AI</span>
         </div>
+        <button class="sp-agent-clear" @click="wmMessages=[{role:'agent',content:'안녕하세요! 워크메이트 AI입니다 😊\n무엇이든 질문하세요.'}]" title="대화 초기화">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
       </div>
       <div ref="messagesEl" class="sp-agent-messages">
-        <div v-for="(msg, i) in araMessages" :key="i" class="sp-msg-row" :class="msg.role">
+        <div v-for="(msg, i) in wmMessages" :key="i" class="sp-msg-row" :class="msg.role">
           <template v-if="msg.role==='agent'&&msg.content">
             <div class="sp-agent-label">
-              <img :src="araAvatar" class="sp-msg-avatar" />아라
+              <img :src="hyeanAvatar" class="sp-msg-avatar" />워크메이트 AI
             </div>
             <div class="sp-bubble agent" v-html="renderMd(msg.content)"></div>
           </template>
           <div v-else-if="msg.role==='user'" class="sp-bubble user">{{ msg.content }}</div>
         </div>
-        <div v-if="araLoading&&araMessages[araMessages.length-1]?.content===''" class="sp-msg-row agent">
+        <div v-if="wmLoading&&wmMessages[wmMessages.length-1]?.content===''" class="sp-msg-row agent">
           <div class="sp-bubble agent typing"><span></span><span></span><span></span></div>
         </div>
       </div>
       <div class="sp-agent-input">
-        <textarea v-model="araInput" class="sp-ara-textarea" rows="1" placeholder="회의에 대해 질문하세요..." @keydown="onAraKeydown"></textarea>
-        <button class="sp-ara-send" :disabled="araLoading||!araInput.trim()" @click="sendAra">전송</button>
+        <textarea v-model="wmInput" class="sp-ara-textarea" rows="1" placeholder="회의에 대해 질문하세요..." @keydown="onWmKeydown"></textarea>
+        <button class="sp-ara-send" :disabled="wmLoading||!wmInput.trim()" @click="sendAra">전송</button>
       </div>
     </div>
 
@@ -482,10 +503,10 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 
 <style scoped>
 /* ── Layout ── */
-.sp-layout { display:flex;height:100%;overflow:hidden;gap:0; }
+.sp-layout { display:flex;flex-direction:row !important;gap:0; }
 
 /* ── Left sidebar (session selector) ── */
-.sp-sidebar { width:220px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:#fff; }
+.sp-sidebar { width:220px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:#fff;height:100%; }
 .sp-sidebar-header { padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
@@ -509,13 +530,13 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 
 /* ── Center panel ── */
-.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:16px;overflow:hidden;min-width:0; }
+.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:16px;overflow:visible;min-width:0; }
 
 .sp-no-session { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text-muted); }
 .sp-no-session-text { font-size:14px;font-weight:600;margin:0; }
 .sp-no-session-sub { font-size:12px;margin:0;opacity:.7; }
 
-.sp-panel { display:flex;flex-direction:column;height:100%;overflow:hidden; }
+.sp-panel { display:flex;flex-direction:column;height:100%;overflow:visible; }
 .sp-panel-header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;gap:12px; }
 .sp-panel-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
 .sp-panel-title { font-size:14px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -561,14 +582,14 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 .minutes-md :deep(li) { margin-bottom:2px; }
 
 /* Control bar */
-.sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff; }
+.sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer;transition:all .15s; }
 .ctrl-btn:hover,.ctrl-active { background:#f1f5f9;border-color:var(--primary);color:var(--primary); }
 .ctrl-lang { font-size:12px;gap:4px; }
 .ctrl-chev { font-size:9px;opacity:.6; }
-.ctrl-popover { position:absolute;bottom:calc(100%+6px);left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:10px 12px;min-width:160px;z-index:200; }
+.ctrl-popover { position:absolute;bottom:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:10px 12px;min-width:160px;z-index:200; }
 .cpop-title { font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px; }
 .cpop-row { display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:#475569; }
 .cpop-label { flex:1; }
@@ -587,12 +608,27 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 .ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
-/* ── Right: Ara agent ── */
-.sp-agent-panel { width:280px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff;overflow:hidden; }
-.sp-agent-header { display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:#fffbeb; }
-.sp-agent-avatar { width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0; }
-.sp-agent-name { font-size:13px;font-weight:700;color:#92400e; }
-.sp-agent-sub { font-size:10px;color:#b45309; }
+/* ── Left sidebar search ── */
+.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
+.sp-search-icon { position:absolute;left:8px;color:#94a3b8;pointer-events:none; }
+.sp-search-input { width:100%;padding:5px 26px 5px 26px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:#334155;background:#f8fafc;outline:none;box-sizing:border-box; }
+.sp-search-input:focus { border-color:var(--primary);background:#fff; }
+.sp-search-input::placeholder { color:#94a3b8; }
+.sp-search-clear { position:absolute;right:6px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;line-height:1;padding:0; }
+.sp-search-clear:hover { color:#475569; }
+.sp-search-empty { padding:20px 14px;text-align:center;font-size:12px;color:#94a3b8; }
+
+/* ── Right: 워크메이트 AI ── */
+.sp-agent-panel { width:290px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff;overflow:hidden;height:100%; }
+.sp-agent-header { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%); }
+.sp-agent-header-brand { display:flex;align-items:center;gap:8px;min-width:0;flex:1; }
+.sp-agent-avatar { width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #93c5fd; }
+.sp-agent-header-text { flex:1;min-width:0; }
+.sp-agent-name { font-size:13px;font-weight:700;color:#1e293b; }
+.sp-agent-sub { font-size:10px;color:#64748b; }
+.sp-agent-badge { font-size:9px;font-weight:800;background:linear-gradient(135deg,#3b82f6,#10b981);color:#fff;border-radius:99px;padding:2px 6px;letter-spacing:.04em;flex-shrink:0; }
+.sp-agent-clear { width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:#fff;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s; }
+.sp-agent-clear:hover { background:#f1f5f9;color:#475569; }
 .sp-agent-messages { flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px; }
 .sp-agent-messages::-webkit-scrollbar { width:3px; }
 .sp-agent-messages::-webkit-scrollbar-thumb { background:#e2e8f0; }
@@ -602,18 +638,18 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 .sp-msg-avatar { width:14px;height:14px;border-radius:50%;object-fit:cover; }
 .sp-bubble { padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.55;max-width:95%;word-break:break-word; }
 .sp-bubble.user { background:var(--primary);color:#fff;border-radius:10px 10px 2px 10px; }
-.sp-bubble.agent { background:#fef3c7;border:1px solid #fcd34d;color:#78350f;border-radius:2px 10px 10px 10px; }
+.sp-bubble.agent { background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1px solid #93c5fd;color:#1e3a5f;border-radius:2px 10px 10px 10px; }
 .sp-bubble.agent :deep(p) { margin:0 0 6px; }
 .sp-bubble.agent :deep(p:last-child) { margin:0; }
 .typing { display:flex;gap:4px;align-items:center;padding:10px 14px; }
-.typing span { width:5px;height:5px;background:#fbbf24;border-radius:50%;animation:bounce .8s infinite; }
+.typing span { width:5px;height:5px;background:#60a5fa;border-radius:50%;animation:bounce .8s infinite; }
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
 .sp-agent-input { display:flex;align-items:flex-end;gap:6px;padding:8px 10px;border-top:1px solid var(--border);flex-shrink:0; }
 .sp-ara-textarea { flex:1;resize:none;min-height:34px;max-height:80px;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;outline:none;font-family:inherit; }
 .sp-ara-textarea:focus { border-color:var(--primary); }
-.sp-ara-send { padding:6px 12px;border-radius:7px;border:none;background:#f59e0b;color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
+.sp-ara-send { padding:6px 12px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
 .sp-ara-send:disabled { opacity:.4;cursor:not-allowed; }
 
 /* ── Minutes upload ── */
