@@ -1558,12 +1558,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <thead>
                 <tr>
                   <th class="lv-th-name">회의체명</th>
+                  <th class="lv-th-secretary">간사</th>
                   <th class="lv-th-cnt">이력</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="!filteredGroups.length">
-                  <td colspan="2" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
+                  <td colspan="3" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
                 </tr>
                 <template v-for="g in filteredGroups" :key="g.id">
                   <!-- Group row -->
@@ -1575,11 +1576,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
                         <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
                       </div>
                     </td>
+                    <td class="lv-td-secretary">
+                      <span v-if="g.members.find(m => m.role === 'admin')" class="lv-secretary-badge">
+                        <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a5 5 0 110 10A5 5 0 0112 2zm0 12c-6 0-9 2.5-9 4v1h18v-1c0-1.5-3-4-9-4z"/></svg>
+                        {{ g.members.find(m => m.role === 'admin')?.userName || g.members.find(m => m.role === 'admin')?.name || '-' }}
+                      </span>
+                      <span v-else class="lv-secretary-empty">-</span>
+                    </td>
                     <td class="lv-td-cnt">{{ (groupHistoryMap.get(g.id) || []).length }}건</td>
                   </tr>
                   <!-- Expanded history rows -->
                   <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
-                    <td colspan="2" class="lv-expanded-td">
+                    <td colspan="3" class="lv-expanded-td">
                       <table class="lv-hist-table">
                         <thead>
                           <tr>
@@ -2396,6 +2404,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
 /* ── List view ── */
 .list-view { position:absolute;inset:0;overflow-y:auto;background:#0a0f1e;display:flex;flex-direction:column; }
+.lv-th-secretary { width:120px;text-align:left; }
+.lv-td-secretary { width:120px; }
+.lv-secretary-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:99px;padding:2px 8px 2px 6px;white-space:nowrap; }
+.lv-secretary-empty { font-size:11px;color:#334155; }
+.lv-th-secretary { width:120px;text-align:left; }
+.lv-td-secretary { width:120px; }
+.lv-secretary-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:99px;padding:2px 8px 2px 6px;white-space:nowrap; }
+.lv-secretary-empty { font-size:11px;color:#334155; }
 .list-view::-webkit-scrollbar { width:4px; }
 .list-view::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08); }
 .list-header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px 8px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0; }
@@ -2687,6 +2703,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .person-toggle { color:#64748b; }
 .day-mode .legend-hint { color:#94a3b8; }
 .day-mode .list-view { background:#f8fafc; }
+.day-mode .lv-secretary-badge { color:#d97706;background:rgba(217,119,6,.1);border-color:rgba(217,119,6,.25); }
 .day-mode .list-header { border-bottom-color:#e2e8f0; }
 .day-mode .list-title { color:#475569; }
 .day-mode .list-count { color:#94a3b8; }
