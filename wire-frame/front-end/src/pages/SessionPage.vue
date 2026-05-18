@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { marked } from 'marked'
+import MemberInvite from '../components/MemberInvite.vue'
 import { streamPost } from '../api'
 import { useSTT } from '../composables/useSTT'
 import hyeanAvatar from '../assets/agents/hyean.png'
@@ -248,6 +249,23 @@ function formatDate(d) {
 
 const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '종료' }
 const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' }
+
+// ─── Session create modal (sidebar) ──────────────────────────
+const showCreateSession = ref(false)
+const createSessionForm = ref({ title: '', purpose: '', date: '' })
+const createSessionMembers = ref([])
+const creatingSessionForm = ref(false)
+
+async function doCreateSessionForm() {
+  if (!createSessionForm.value.title.trim()) return
+  creatingSessionForm.value = true
+  try {
+    showCreateSession.value = false
+    createSessionForm.value = { title: '', purpose: '', date: '' }
+    createSessionMembers.value = []
+  } catch(e) { console.error(e) }
+  finally { creatingSessionForm.value = false }
+}
 </script>
 
 <template>
@@ -256,7 +274,13 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
     <!-- Left: Meeting / session selector -->
     <div class="sp-sidebar">
       <div class="sp-sidebar-header">
-        <span class="sp-sidebar-title">회의체 선택</span>
+        <div class="sp-header-top">
+          <span class="sp-sidebar-title">회의체 선택</span>
+          <button class="sp-create-btn" @click.stop="showCreateSession=true" title="회의 생성">
+            <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            회의 생성
+          </button>
+        </div>
         <div class="sp-search-wrap">
           <svg class="sp-search-icon" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의체 검색..." />
@@ -499,6 +523,44 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
     </div>
 
   </div>
+
+  <!-- 회의 생성 모달 -->
+  <Teleport to="body">
+    <div v-if="showCreateSession" class="sp-modal-backdrop" @click.self="showCreateSession=false">
+      <div class="sp-modal-box">
+        <div class="sp-modal-header">
+          <span class="sp-modal-title">회의 생성</span>
+          <button class="sp-modal-close" @click="showCreateSession=false">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="sp-modal-body">
+          <div class="sp-mf">
+            <label>회의명 <span style="color:#ef4444">*</span></label>
+            <input v-model="createSessionForm.title" class="sp-mi" placeholder="예: 2025 전략 수립 1차" />
+          </div>
+          <div class="sp-mf">
+            <label>회의 소개</label>
+            <textarea v-model="createSessionForm.purpose" class="sp-mi" rows="2" placeholder="이번 회의의 목적이나 주요 내용..."></textarea>
+          </div>
+          <div class="sp-mf">
+            <label>회의 날짜</label>
+            <input type="datetime-local" v-model="createSessionForm.date" class="sp-mi" />
+          </div>
+          <div class="sp-mf">
+            <label>구성원</label>
+            <MemberInvite v-model="createSessionMembers" />
+          </div>
+        </div>
+        <div class="sp-modal-footer">
+          <button class="sp-btn-cancel" @click="showCreateSession=false">취소</button>
+          <button class="sp-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()" @click="doCreateSessionForm">
+            {{ creatingSessionForm ? '생성 중...' : '생성' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -508,6 +570,44 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 /* ── Left sidebar (session selector) ── */
 .sp-sidebar { width:220px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:#fff;height:100%; }
 .sp-sidebar-header { padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
+.sp-create-btn { display:flex;align-items:center;gap:4px;padding:4px 9px;border-radius:7px;border:1px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.sp-create-btn:hover { background:var(--primary);color:#fff; }
+/* ── Session create modal ── */
+.sp-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:center;justify-content:center; }
+.sp-modal-box { background:#fff;border-radius:14px;width:420px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2); }
+.sp-modal-header { display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border); }
+.sp-modal-title { font-size:15px;font-weight:700;color:#1e293b; }
+.sp-modal-close { width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:#fff;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center; }
+.sp-modal-close:hover { background:#f1f5f9;color:#475569; }
+.sp-modal-body { flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:12px; }
+.sp-mf { display:flex;flex-direction:column;gap:4px; }
+.sp-mf label { font-size:12px;font-weight:600;color:#475569; }
+.sp-mi { border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:#1e293b;outline:none;resize:vertical;font-family:inherit;width:100%;box-sizing:border-box; }
+.sp-mi:focus { border-color:var(--primary); }
+.sp-ms-wrap { display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px; }
+.sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:#1e293b; }
+.sp-ms-results { border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px; }
+.sp-ms-item { display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px; }
+.sp-ms-item:last-child { border-bottom:none; }
+.sp-ms-info { flex:1;min-width:0; }
+.sp-ms-name { font-weight:600;color:#1e293b;display:block; }
+.sp-ms-email { color:#94a3b8;font-size:11px;display:block; }
+.sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:#f8fafc;color:#475569;font-size:11px;font-weight:600;cursor:pointer; }
+.sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
+.sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f8fafc;border-radius:7px;font-size:12px; }
+.sp-sm-name { flex:1;font-weight:600;color:#1e293b; }
+.sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
+.sp-sm-role-tag.admin { background:#eff6ff;color:var(--primary); }
+.sp-sm-role-tag.presenter { background:#f0fdf4;color:#16a34a; }
+.sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
+.sp-sm-rm:hover { color:#ef4444; }
+.sp-modal-footer { display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 14px;border-top:1px solid var(--border); }
+.sp-btn-cancel { padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer; }
+.sp-btn-cancel:hover { background:#f1f5f9; }
+.sp-btn-primary { padding:7px 18px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+.sp-btn-primary:disabled { opacity:.5;cursor:not-allowed; }
+.sp-btn-primary:not(:disabled):hover { opacity:.9; }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
 

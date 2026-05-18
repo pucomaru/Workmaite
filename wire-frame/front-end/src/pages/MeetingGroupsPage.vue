@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
+import MemberInvite from '../components/MemberInvite.vue'
 
 const meetingsStore = useMeetingsStore()
 const themeStore = useThemeStore()
@@ -49,10 +50,12 @@ function toggleExpand(id) {
 // ── Create ────────────────────────────────────────────────────
 const showCreate = ref(false)
 const creating = ref(false)
-const createForm = ref({ title: '', purpose: '' })
+const createForm = ref({ title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' })
+const createMembers = ref([])  // { userId, name, email, role }
 
 function openCreate() {
-  createForm.value = { title: '', purpose: '' }
+  createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
+  createMembers.value = []
   showCreate.value = true
 }
 
@@ -60,7 +63,17 @@ async function submitCreate() {
   if (!createForm.value.title.trim()) return
   creating.value = true
   try {
-    await meetingsStore.createMeeting({ title: createForm.value.title, purpose: createForm.value.purpose })
+    const meeting = await meetingsStore.createMeeting({
+      title: createForm.value.title,
+      purpose: createForm.value.purpose,
+      start_date: createForm.value.start_date || null,
+      end_date: createForm.value.end_date || null,
+      guidelines: createForm.value.guidelines || null,
+      meeting_type: createForm.value.meeting_type || null,
+    })
+    for (const mb of createMembers.value) {
+      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: mb.userId, role: mb.role })
+    }
     showCreate.value = false
   } catch (e) { alert(e.response?.data?.detail || '생성 실패') }
   finally { creating.value = false }
@@ -97,13 +110,13 @@ async function openSettings(m) {
   }
   settingsModal.value = {
     meeting: m,
-    form: { title: m.title, purpose: m.purpose || '' },
+    form: { title: m.title, purpose: m.purpose || '', start_date: m.start_date ? m.start_date.slice(0,10) : '', end_date: m.end_date ? m.end_date.slice(0,10) : '', guidelines: m.guidelines || '', meeting_type: m.meeting_type || 'Weekly' },
     members: members.map(mb => ({
       id: mb.id,
       userId: mb.user?.id || mb.user_id,
       name: mb.user?.name || mb.userName || mb.name || '?',
       email: mb.user?.email || mb.email || '',
-      role: mb.role || 'member',
+      role: mb.role || 'presenter',
     })),
     removedIds: [],
   }
@@ -130,7 +143,7 @@ function watchSettingsSearch(q) {
 function addMemberToSettings(user) {
   if (!settingsModal.value) return
   if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
   settingsSearchQ.value = ''
   settingsSearchResults.value = []
 }
@@ -147,7 +160,7 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose })
+    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
     for (const memberId of removedIds) {
       await api.delete(`/api/meetings/${meeting.id}/members/${memberId}`)
     }
@@ -162,13 +175,26 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { secretary: '간사', member: '참여자' }
+const ROLE_MAP = { admin: '간사', presenter: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
+function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
+function fmtDate(s) {
+  if (!s) return ''
+  const d = new Date(s)
+  return isNaN(d) ? s : `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
+}
 function initials(name) { return (name || '?')[0] }
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
+function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
+function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.organization || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
+function getPresenterCount(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role !== 'admin').length }
 
-onMounted(() => meetingsStore.fetchMeetings())
+onMounted(async () => {
+  await meetingsStore.fetchMeetings()
+  // Preload member counts for table display
+  meetingsStore.meetings.forEach(m => loadMembers(m.id))
+})
 </script>
 
 <template>
@@ -207,44 +233,77 @@ onMounted(() => meetingsStore.fetchMeetings())
         <div class="empty-icon">🔍</div>
         <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '완료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
       </div>
-
-      <div v-for="g in filteredGroups" :key="g.id" class="mg-card">
-        <div class="mg-card-header" @click="toggleExpand(g.id)">
-          <div class="mg-card-left">
-            <div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div>
-            <div class="mg-card-info">
-              <div class="mg-card-title">{{ g.title }}</div>
-              <div v-if="g.purpose" class="mg-card-desc">{{ g.purpose }}</div>
-            </div>
-          </div>
-          <div class="mg-card-right">
-            <span class="mg-member-badge">{{ membersCache[g.id]?.length ?? '...' }}명</span>
-            <button class="mg-icon-btn settings" @click.stop="openSettings(g)" title="설정">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            </button>
-            <button class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
-            </button>
-            <svg class="mg-chevron" :class="{ open: expandedId===g.id }" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
-          </div>
-        </div>
-
-        <Transition name="expand">
-          <div v-if="expandedId===g.id" class="mg-member-wrap">
-            <div v-if="loadingMembers[g.id]" class="mg-members-state">불러오는 중...</div>
-            <div v-else-if="!membersCache[g.id]?.length" class="mg-members-state">구성원이 없습니다. 설정에서 추가하세요.</div>
-            <div v-else class="mg-member-list">
-              <div v-for="mb in membersCache[g.id]" :key="mb.id" class="mg-member-row">
-                <div class="mg-avatar" :style="{ background: avatarColor(mb.user?.name || mb.name) }">{{ initials(mb.user?.name || mb.name) }}</div>
-                <div class="mg-member-info">
-                  <span class="mg-member-name">{{ mb.user?.name || mb.name || '이름없음' }}</span>
-                  <span class="mg-member-email">{{ mb.user?.email || mb.email || '' }}</span>
+      <div v-else class="mg-table-wrap">
+        <table class="mg-table">
+          <thead>
+            <tr>
+              <th style="width:28px"></th>
+              <th>회의체명</th>
+              <th style="width:160px">간사</th>
+              <th style="width:180px">참여조직</th>
+              <th style="width:150px">참여자</th>
+              <th style="width:72px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="g in filteredGroups" :key="g.id" class="mg-row">
+              <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
+              <td>
+                <div class="mg-row-title">{{ g.title }}</div>
+                <div class="mg-row-meta">
+                  <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
+                  <span v-if="g.purpose" class="mg-row-desc" :style="g.meeting_type ? 'margin-left:6px' : ''">{{ g.purpose }}</span>
                 </div>
-                <span class="mg-role-text">{{ roleLabel(mb.role) }}</span>
-              </div>
-            </div>
-          </div>
-        </Transition>
+              </td>
+              <!-- 간사 -->
+              <td>
+                <div v-if="membersCache[g.id]">
+                  <div v-if="getAdmins(g.id).length" class="mg-row-members">
+                    <div v-for="mb in getAdmins(g.id).slice(0,2)" :key="mb.id" class="mg-mini-avatar"
+                      :style="{ background: avatarColor(mb.user?.name || mb.name) }"
+                      :title="mb.user?.name || mb.name">{{ initials(mb.user?.name || mb.name) }}</div>
+                    <span v-if="getAdmins(g.id).length > 2" class="mg-member-more">+{{ getAdmins(g.id).length - 2 }}</span>
+                    <span class="mg-admin-name">{{ getAdmins(g.id).map(mb => mb.user?.name || mb.name).slice(0,2).join(', ') }}</span>
+                  </div>
+                  <span v-else class="mg-row-nodates">-</span>
+                </div>
+                <span v-else class="mg-row-nodates">-</span>
+              </td>
+              <!-- 참여조직 -->
+              <td>
+                <div v-if="membersCache[g.id]">
+                  <div v-if="getOrgs(g.id).length" class="mg-org-tags">
+                    <span v-for="org in getOrgs(g.id).slice(0,2)" :key="org" class="mg-org-tag">{{ org }}</span>
+                    <span v-if="getOrgs(g.id).length > 2" class="mg-member-more">+{{ getOrgs(g.id).length - 2 }}</span>
+                  </div>
+                  <span v-else class="mg-row-nodates">-</span>
+                </div>
+                <span v-else class="mg-row-nodates">-</span>
+              </td>
+              <!-- 참여자 -->
+              <td>
+                <div v-if="membersCache[g.id]" class="mg-row-members">
+                  <div v-for="mb in membersCache[g.id].slice(0,3)" :key="mb.id" class="mg-mini-avatar"
+                    :style="{ background: avatarColor(mb.user?.name || mb.name) }"
+                    :title="(mb.role === 'admin' ? '[간사] ' : '') + (mb.user?.name || mb.name)">{{ initials(mb.user?.name || mb.name) }}</div>
+                  <span v-if="(membersCache[g.id]?.length||0) > 3" class="mg-member-more">+{{ membersCache[g.id].length - 3 }}</span>
+                  <span class="mg-member-count-label">{{ membersCache[g.id].length }}명</span>
+                </div>
+                <span v-else class="mg-member-badge" @click.stop="loadMembers(g.id)">👤 불러오기</span>
+              </td>
+              <td>
+                <div class="action-btns">
+                  <button v-if="canManage(g)" class="mg-icon-btn settings" @click.stop="openSettings(g)" title="설정">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                  </button>
+                  <button v-if="canManage(g)" class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -261,11 +320,38 @@ onMounted(() => meetingsStore.fetchMeetings())
           <div class="modal-body">
             <div class="form-field">
               <label>회의체 이름 <span class="req">*</span></label>
-              <input v-model="createForm.title" class="form-input" placeholder="예: 전략기획위원회" @keyup.enter="submitCreate" />
+              <input v-model="createForm.title" class="form-input" placeholder="예: 전략기획위원회" />
             </div>
             <div class="form-field">
               <label>소개</label>
-              <textarea v-model="createForm.purpose" class="form-input form-textarea" placeholder="이 회의체의 목적이나 소개를 입력하세요..." rows="3"></textarea>
+              <textarea v-model="createForm.purpose" class="form-input form-textarea" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
+            </div>
+            <div class="form-field">
+              <label>유형</label>
+              <select v-model="createForm.meeting_type" class="form-input form-select">
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="form-field">
+                <label>시작일</label>
+                <input type="date" v-model="createForm.start_date" class="form-input" />
+              </div>
+              <div class="form-field">
+                <label>종료일</label>
+                <input type="date" v-model="createForm.end_date" class="form-input" />
+              </div>
+            </div>
+            <div class="form-field">
+              <label>운영 지침</label>
+              <textarea v-model="createForm.guidelines" class="form-input form-textarea" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
+예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
+            </div>
+            <div class="form-field">
+              <label>멤버 초대</label>
+              <MemberInvite v-model="createMembers" />
             </div>
           </div>
           <div class="modal-footer">
@@ -294,6 +380,28 @@ onMounted(() => meetingsStore.fetchMeetings())
               <div class="form-field">
                 <label>소개</label>
                 <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+              </div>
+              <div class="form-field">
+                <label>유형</label>
+                <select v-model="settingsModal.form.meeting_type" class="form-input form-select">
+                  <option value="Weekly">Weekly</option>
+                  <option value="Monthly">Monthly</option>
+                  <option value="Quarterly">Quarterly</option>
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="form-field">
+                  <label>시작일</label>
+                  <input type="date" v-model="settingsModal.form.start_date" class="form-input" />
+                </div>
+                <div class="form-field">
+                  <label>종료일</label>
+                  <input type="date" v-model="settingsModal.form.end_date" class="form-input" />
+                </div>
+              </div>
+              <div class="form-field">
+                <label>회의체 지침</label>
+                <textarea v-model="settingsModal.form.guidelines" class="form-input form-textarea" rows="4" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
               </div>
             </div>
             <div class="settings-section">
@@ -374,6 +482,28 @@ onMounted(() => meetingsStore.fetchMeetings())
 .day-mode .status-tabs button.active .tab-cnt { background:rgba(29,78,216,.15); }
 
 .mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
+.mg-table-wrap { overflow-x:auto;background:#fff;border-radius:10px;border:1px solid #e2e8f0; }
+.mg-table { width:100%;border-collapse:collapse;font-size:13px;background:#fff; }
+.mg-table thead tr { border-bottom:1px solid #e2e8f0;background:#f8fafc; }
+.mg-table th { padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left; }
+.mg-row { border-bottom:1px solid #f1f5f9;transition:background .1s;cursor:default;background:#fff; }
+.mg-row:hover { background:#f8fafc; }
+.mg-row td { padding:10px 12px;vertical-align:middle; }
+.mg-row-title { font-size:13px;font-weight:600;color:#1e293b; }
+.mg-row-desc { font-size:11px;color:#94a3b8;margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.mg-row-members { display:flex;align-items:center;gap:3px; }
+.mg-mini-avatar { width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #fff; }
+.mg-member-more { font-size:11px;color:#94a3b8;margin-left:2px; }
+.mg-admin-name { font-size:12px;color:#475569;margin-left:4px; }
+.mg-member-count-label { font-size:12px;color:#64748b;margin-left:4px; }
+.mg-org-tags { display:flex;flex-wrap:wrap;gap:4px;align-items:center; }
+.mg-org-tag { font-size:11px;font-weight:500;padding:2px 7px;border-radius:99px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;white-space:nowrap; }
+.mg-row-meta { display:flex;align-items:center;flex-wrap:wrap;margin-top:2px; }
+.mg-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
+.form-select { cursor:pointer; }
+.mg-row-dates { font-size:11px;color:#94a3b8;white-space:nowrap; }
+.mg-row-nodates { color:#cbd5e1; }
+.action-btns { display:flex;gap:4px;align-items:center; }
 .mg-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#64748b;gap:8px;padding:60px 0; }
 .empty-icon { font-size:36px; }
 .mg-empty p { margin:0;font-size:14px; }
@@ -397,7 +527,7 @@ onMounted(() => meetingsStore.fetchMeetings())
 .mg-chevron { color:#475569;transition:transform .2s;flex-shrink:0; }
 .mg-chevron.open { transform:rotate(180deg); }
 
-.day-mode .mg-card { border-color:#e2e8f0;background:#fff; }
+.day-mode .mg-card { border-color:#e2e8f0;background:#fff; }\n.day-mode .mg-row { border-bottom-color:#f1f5f9; }\n.day-mode .mg-row:hover { background:#f8fafc; }\n.day-mode .mg-table thead tr { border-bottom-color:#e2e8f0; }\n.day-mode .mg-row-title { color:#1e293b; }
 .day-mode .mg-card-header:hover { background:#f8fafc; }
 .day-mode .mg-card-title { color:#1e293b; }
 .day-mode .mg-card-desc { color:#94a3b8; }
@@ -464,6 +594,10 @@ onMounted(() => meetingsStore.fetchMeetings())
 .ms-name { font-size:13px;font-weight:600;color:#f1f5f9; }
 .ms-email { font-size:11px;color:#475569; }
 .ms-add-hint { font-size:11px;font-weight:700;color:#3b82f6;flex-shrink:0; }
+.ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
+.ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+.ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
+.ms-role-btn.admin:hover { background:#2563eb; }
 
 .settings-member-list { display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto; }
 .settings-empty-members { font-size:12px;color:#475569;padding:6px 0; }

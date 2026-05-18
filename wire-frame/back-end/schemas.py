@@ -10,6 +10,8 @@ class UserCreate(BaseModel):
     email: Optional[str] = None        # frontend may send email instead of employee_id
     password: str
     department: Optional[str] = None
+    organization: Optional[str] = None
+    position: Optional[str] = None
 
     @model_validator(mode='after')
     def fill_defaults(self):
@@ -37,6 +39,8 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
+    organization: Optional[str] = None
+    position: Optional[str] = None
     password: Optional[str] = None
 
 
@@ -45,6 +49,8 @@ class UserOut(BaseModel):
     name: str
     employee_id: str
     department: Optional[str]
+    organization: Optional[str] = None
+    position: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -62,6 +68,8 @@ class MeetingCreate(BaseModel):
     purpose: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    meeting_type: Optional[str] = None
+    parent_id: Optional[int] = None
 
 
 class MeetingMemberAdd(BaseModel):
@@ -76,6 +84,9 @@ class MeetingOut(BaseModel):
     start_date: Optional[datetime]
     end_date: Optional[datetime]
     status: str
+    guidelines: Optional[str] = None
+    meeting_type: Optional[str] = None
+    parent_id: Optional[int] = None
     created_by: int
     created_at: datetime
 

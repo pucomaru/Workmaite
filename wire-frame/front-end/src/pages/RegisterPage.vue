@@ -7,7 +7,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const step = ref(1)
-const form = ref({ email: '', name: '', password: '', confirm: '' })
+const form = ref({ email: '', name: '', password: '', confirm: '', organization: '', department: '', position: '' })
 const error = ref('')
 const loading = ref(false)
 const showPw = ref(false)
@@ -28,7 +28,8 @@ const pwStrengthLabel = computed(() => ['', '매우 약함', '약함', '보통',
 const pwStrengthColor = computed(() => ['', '#ef4444', '#f59e0b', '#3b82f6', '#10b981'][pwStrength.value] || '')
 const pwMatch = computed(() => form.value.confirm && form.value.password === form.value.confirm)
 const step2Valid = computed(() =>
-  form.value.name.trim() && form.value.password.length >= 8 && pwStrength.value >= 2 && pwMatch.value
+  form.value.name.trim() && form.value.password.length >= 8 && pwStrength.value >= 2 && pwMatch.value &&
+  form.value.organization.trim() && form.value.department.trim() && form.value.position.trim()
 )
 const steps = [
   { label: '이메일 입력' },
@@ -44,6 +45,9 @@ async function submit() {
       email: form.value.email,
       password: form.value.password,
       employee_id: form.value.email,
+      organization: form.value.organization,
+      department: form.value.department,
+      position: form.value.position,
     })
     await auth.loginWithEmail(form.value.email, form.value.password)
     step.value = 3
@@ -111,7 +115,7 @@ async function submit() {
       <!-- ── STEP 2 ── -->
       <div v-else-if="step === 2">
         <h5 class="fw-bold mb-1" style="color:var(--primary)">세부 정보 입력</h5>
-        <p class="text-muted small mb-4">이름과 비밀번호를 설정하세요</p>
+        <p class="text-muted small mb-4">이름, 소속 정보, 비밀번호를 설정하세요</p>
         <div class="mb-3">
           <label class="form-label">이름 <span class="text-danger">*</span></label>
           <div class="input-group">
@@ -121,6 +125,20 @@ async function submit() {
             <input v-model="form.name" type="text"
               class="form-control border-start-0" placeholder="홍길동" />
           </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="mb-3">
+          <div>
+            <label class="form-label">조직 <span class="text-danger">*</span></label>
+            <input v-model="form.organization" type="text" class="form-control" placeholder="예: SK AX" />
+          </div>
+          <div>
+            <label class="form-label">부서명 <span class="text-danger">*</span></label>
+            <input v-model="form.department" type="text" class="form-control" placeholder="예: AX서비스팀" />
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">직책 <span class="text-danger">*</span></label>
+          <input v-model="form.position" type="text" class="form-control" placeholder="예: 매니저" />
         </div>
         <div class="mb-3">
           <label class="form-label">비밀번호 <span class="text-danger">*</span></label>

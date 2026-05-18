@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import MemberInvite from '../components/MemberInvite.vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -37,29 +38,46 @@ const viewMode = ref('graph')
 
 // ─── Create meeting modal ─────────────────────────────────────
 const showCreateModal = ref(false)
-const createForm = ref({ title: '', purpose: '', start_date: '', end_date: '' })
-const relatedMeetingIds = ref([])
-const memberSearch = ref('')
-const memberSearchResults = ref([])
-const selectedMembers = ref([])
+const createForm = ref({ title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' })
+const createMembers = ref([])
 const creating = ref(false)
+const createConnectNodeId = ref('')
 
-async function searchMembersFn() {
-  if (!memberSearch.value.trim()) { memberSearchResults.value = []; return }
+// ─── Create session modal ─────────────────────────────────────
+const showSessionModal = ref(false)
+const sessionForm = ref({ title: '', purpose: '', date: '', meeting_id: null })
+const sessionMembers = ref([])
+const creatingSession = ref(false)
+
+function openCreateModal() {
+  createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
+  createMembers.value = []
+  showCreateModal.value = true; agentSidebarOpen.value = false
+}
+
+function openSessionModal(meetingId = null) {
+  sessionForm.value = { title: '', purpose: '', date: '', meeting_id: meetingId }
+  sessionMembers.value = []
+  showSessionModal.value = true; agentSidebarOpen.value = false
+}
+async function doCreateSession() {
+  if (!sessionForm.value.title.trim()) return
+  creatingSession.value = true
   try {
-    const { data } = await api.get(`/api/users/search?q=${memberSearch.value}`)
-    memberSearchResults.value = data.filter(u =>
-      u.id !== authStore.user?.id && !selectedMembers.value.find(m => m.id === u.id))
-  } catch {}
+    const meetingId = sessionForm.value.meeting_id
+    if (meetingId) {
+      await api.post(`/api/meetings/${meetingId}/sessions`, {
+        title: sessionForm.value.title,
+        purpose: sessionForm.value.purpose || null,
+        scheduled_at: sessionForm.value.date || null,
+      })
+    }
+    showSessionModal.value = false
+    sessionForm.value = { title: '', purpose: '', date: '', meeting_id: null }
+    sessionMembers.value = []
+  } catch(e) { console.error(e) }
+  finally { creatingSession.value = false }
 }
-function addMember(u) { selectedMembers.value.push({ ...u, role: 'presenter' }); memberSearchResults.value = []; memberSearch.value = '' }
-function removeMember(u) { selectedMembers.value = selectedMembers.value.filter(m => m.id !== u.id) }
-function toggleRelated(id) {
-  const idx = relatedMeetingIds.value.indexOf(id)
-  idx >= 0 ? relatedMeetingIds.value.splice(idx, 1) : relatedMeetingIds.value.push(id)
-}
-
-function openCreateModal() { showCreateModal.value = true; agentSidebarOpen.value = false }
 
 function onFloatBtnMouseDown(type, e) {
   floatDragging.value = type
@@ -77,22 +95,53 @@ async function doCreateMeeting() {
     const meeting = await meetingsStore.createMeeting({
       title: createForm.value.title, purpose: createForm.value.purpose,
       start_date: createForm.value.start_date || null, end_date: createForm.value.end_date || null,
+      guidelines: createForm.value.guidelines || null, meeting_type: createForm.value.meeting_type || null,
     })
-    for (const m of selectedMembers.value) {
-      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: m.id, role: m.role })
+    const membersSnapshot = [...createMembers.value]  // save before clearing
+    for (const m of createMembers.value) {
+      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: m.userId, role: m.role })
     }
     showCreateModal.value = false
-    createForm.value = { title: '', purpose: '', start_date: '', end_date: '' }
-    selectedMembers.value = []; relatedMeetingIds.value = []
+    createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
+    createMembers.value = []; createMemberSearch.value = ''; createMemberResults.value = []
     // rebuild graph with new meeting
     await nextTick()
     const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+    // 구성원의 조직(부서) 노드를 회의체에 자동 연결
+    const mgNode = gNodes.find(n => n.id === `mg-${meeting.id}`)
+    const mgIdx = mgNode ? gNodes.indexOf(mgNode) : -1
+    if (mgIdx >= 0) {
+      membersSnapshot.forEach((mb, mi) => {
+        const dept = mb.department || mb.dept || '미지정'
+        const deptId = `dept-${dept}`
+        let deptIdx = gNodes.findIndex(n => n.id === deptId)
+        if (deptIdx < 0) {
+          const angle = (mi / Math.max(membersSnapshot.length, 1)) * Math.PI * 2
+          gNodes.push({ id: deptId, label: dept, type: 'dept', x: Math.cos(angle)*130, y: 0, z: Math.sin(angle)*130 })
+          deptIdx = gNodes.length - 1
+        }
+        if (!gEdges.find(e => e.from === deptIdx && e.to === mgIdx))
+          gEdges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
+        const personId = `person-${mb.id || mb.name}`
+        let personIdx = gNodes.findIndex(n => n.id === personId)
+        if (personIdx < 0) {
+          const angle = (mi / Math.max(membersSnapshot.length, 1)) * Math.PI * 2 + 0.3
+          gNodes.push({ id: personId, label: mb.name || mb.email || '?', type: 'person', x: Math.cos(angle)*165, y: 20, z: Math.sin(angle)*165, userId: mb.id, role: mb.role })
+          personIdx = gNodes.length - 1
+        }
+        if (!gEdges.find(e => e.from === deptIdx && e.to === personIdx))
+          gEdges.push({ from: deptIdx, to: personIdx, rel: '소속' })
+      })
+    }
     // 사용자가 지정한 연결 엣지 추가
     if (createConnectNodeId.value) {
       const mgNode = gNodes.find(n => n.id === `mg-${meeting.id}`)
       const fromNode = gNodes.find(n => n.id === createConnectNodeId.value)
-      if (mgNode && fromNode) gEdges.push({ from:gNodes.indexOf(fromNode), to:gNodes.indexOf(mgNode), rel:createRelType.value })
-      createConnectNodeId.value = ''; createRelType.value = '관련'
+      if (mgNode && fromNode) {
+        const rel = autoRel(createConnectNodeId.value, 'meeting_group')
+        gEdges.push({ from:gNodes.indexOf(fromNode), to:gNodes.indexOf(mgNode), rel })
+      }
+      createConnectNodeId.value = ''
     }
   } finally { creating.value = false }
 }
@@ -232,9 +281,9 @@ function onGlobalMouseMove(e) {
       const mx = e.clientX - rect.left, my = e.clientY - rect.top
       const w = canvas.offsetWidth, h = canvas.offsetHeight
       if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
-        let closest = null, minDist = Infinity
+              let closest = null, minDist = Infinity
         gNodes.forEach((n, i) => {
-          if (n.type !== 'hub') return
+          if (n.type !== 'meeting_group') return
           const p = projectNode(n, w, h)
           const zf = Math.max(.6, Math.min(2.5, worldZoom))
           const d = Math.hypot(p.sx - mx, p.sy - my)
@@ -243,7 +292,7 @@ function onGlobalMouseMove(e) {
         floatDragTarget = closest
         if (closest) {
           floatDragPreviewLine.value = { x1: closest.proj.sx, y1: closest.proj.sy, x2: mx, y2: my }
-          if (floatDragging.value === 'doc') {
+          if (floatDragging.value === 'doc' || floatDragging.value === 'session') {
             expandedHubIdx = closest.idx; expandedDeptIdx = null
             const n = closest.node
             targetCamX = n.x * .55; targetCamY = n.y * .55; targetCamZ = n.z * .55
@@ -264,15 +313,19 @@ function onGlobalMouseUp() {
     if (!floatDragMoved || !target) {
       // Click or missed drop → open normally
       if (type === 'meeting') openCreateModal()
-      else if (type === 'doc') activateReviewMode()
+      else if (type === 'doc') openUploadModal()
+      else if (type === 'session') openSessionModal()
     } else {
-      // Dropped onto a hub node
+      // Dropped onto a meeting_group node
       if (type === 'meeting') {
-        relatedMeetingIds.value = [target.node.data.id]
         selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
         openCreateModal()
       } else if (type === 'doc') {
+        uploadForm.value.connectNodeId = target.node.id
+        openUploadModal()
         activateReviewMode()
+      } else if (type === 'session') {
+        openSessionModal(target.node.data?.id || null)
       }
     }
   }
@@ -317,12 +370,15 @@ async function openGroupSetting() {
       userId: mb.user?.id || mb.user_id,
       name: mb.user?.name || mb.userName || mb.name || '?',
       email: mb.user?.email || mb.email || '',
-      role: mb.role || 'member',
+      department: mb.user?.department || mb.department || '',
+      organization: mb.user?.organization || mb.organization || '',
+      position: mb.user?.position || mb.position || '',
+      role: mb.role || 'presenter',
     }))
-  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'member' })) }
+  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'presenter' })) }
   settingsModal.value = {
     meeting: m,
-    form: { title: m.title || '', purpose: m.purpose || m.description || '' },
+    form: { title: m.title || '', purpose: m.purpose || m.description || '', guidelines: m.guidelines || '' },
     members,
     removedIds: [],
   }
@@ -349,7 +405,7 @@ function watchSettingsSearch(q) {
 function addMemberToSettings(user) {
   if (!settingsModal.value) return
   if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
   settingsSearchQ.value = ''
   settingsSearchResults.value = []
 }
@@ -365,7 +421,7 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose })
+    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, guidelines: form.guidelines })
     for (const memberId of removedIds) {
       await api.delete(`/api/meetings/${meeting.id}/members/${memberId}`)
     }
@@ -381,7 +437,7 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { secretary: '간사', member: '참여자' }
+const ROLE_MAP = { admin: '간사', presenter: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
@@ -399,6 +455,7 @@ const mainAreaRef = ref(null)
 let ctx = null, animId = null, ro = null
 let rotX = 0.2, rotY = 0
 let isDragging = false, lastMx = 0, lastMy = 0
+const isPanMode = ref(false)
 let autoRotate = false, focusNode = null
 const selectedNodeIdx = ref(null)
 const breadcrumb = ref([])
@@ -417,21 +474,117 @@ let floatDragTarget = null
 let floatDragStartX = 0, floatDragStartY = 0, floatDragMoved = false
 
 // ─── Upload modal ──────────────────────────────────────────────
+const FILE_TYPES = ['보고자료', '발제자료', '회의록']
+const FILE_TYPE_COLORS = { '보고자료': '#34d399', '발제자료': '#a78bfa', '회의록': '#60a5fa' }
+
+// 발제자료 AI 검토 기준 4개 항목
+const PRESENTATION_CRITERIA = [
+  { key: 'recap',    label: '지난 논의 Recap',                desc: '이전 회의 논의사항 및 결정 사항 요약 포함' },
+  { key: 'progress', label: '과제별 구체적 Progress',          desc: '각 과제별 현재까지의 구체적인 진행 현황' },
+  { key: 'hurdle',   label: 'Hurdle & Pain point 극복 방안',  desc: '추진 과정상 장애요인 및 해결 방안 제시' },
+  { key: 'plan',     label: '구체적 실행 계획 (Milestone)',    desc: '명확한 목표(수치), 100일/300일/1,000일 단위 계획' },
+]
+
 const showUploadModal = ref(false)
-const uploadForm = ref({ label: '', fileType: '회의록', connectNodeId: '', relType: '생성' })
+const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성' })
+
+// ─── 파일 노드 AI 검토 패널 ────────────────────────────────────
+const fileReviewPanel = ref(null)  // { node, aiResult, extracting, assigning, extractedAgendas }
+const fileReviewAnalyzing = ref(false)
+
+async function openFileReview(node) {
+  fileReviewPanel.value = {
+    node,
+    aiResult: node.aiReview || null,
+    extracting: false,
+    assigning: false,
+    extractedAgendas: node.extractedAgendas || [],
+  }
+}
+
+async function rerunFileReview() {
+  if (!fileReviewPanel.value) return
+  fileReviewAnalyzing.value = true
+  try {
+    const { data } = await api.post('/api/agent/archive/analyze-file', {
+      file_name: fileReviewPanel.value.node.label,
+      file_type: fileReviewPanel.value.node.fileType,
+      graph_context: buildGraphContextStr(),
+    })
+    fileReviewPanel.value.aiResult = data
+    fileReviewPanel.value.node.aiReview = data
+  } catch {
+    fileReviewPanel.value.aiResult = fileReviewPanel.value.node.aiReview || {
+      score: 70, feedback: ['AI 서버 연결 실패'], agendas: [], related_depts: [],
+      criteria: { recap: false, progress: false, hurdle: false, plan: false },
+    }
+  } finally { fileReviewAnalyzing.value = false }
+}
+
+async function extractAgendas() {
+  if (!fileReviewPanel.value) return
+  fileReviewPanel.value.extracting = true
+  try {
+    const { data } = await api.post('/api/agent/archive/extract-agendas', {
+      file_name: fileReviewPanel.value.node.label,
+      file_type: fileReviewPanel.value.node.fileType,
+      graph_context: buildGraphContextStr(),
+    })
+    fileReviewPanel.value.extractedAgendas = data.agendas || []
+    fileReviewPanel.value.node.extractedAgendas = data.agendas || []
+  } catch {
+    // 목업 아젠다
+    const mock = [
+      { title: '기술 투자를 위한 협업 체계 구축', bullets: ['멤버사 간 공동 투자 전략을 통해 사업 시너지 제고', '지속적인 사업 Needs 반영 및 문제 정의를 통한 해결 방안 모색'] },
+      { title: '데이터 기반 의사결정 체계 수립', bullets: ['핵심 KPI 정의 및 대시보드 구축 계획', '부서별 데이터 오너십 및 거버넌스 정책 마련'] },
+    ]
+    fileReviewPanel.value.extractedAgendas = mock
+    fileReviewPanel.value.node.extractedAgendas = mock
+  } finally { fileReviewPanel.value.extracting = false }
+}
+
+async function assignTasks() {
+  if (!fileReviewPanel.value) return
+  fileReviewPanel.value.assigning = true
+  try {
+    await api.post('/api/agent/archive/assign-tasks', {
+      file_name: fileReviewPanel.value.node.label,
+      agendas: fileReviewPanel.value.extractedAgendas,
+      graph_context: buildGraphContextStr(),
+    })
+    alert('과제 배정이 완료되었습니다. (GraphRAG 기반)')
+  } catch {
+    alert('과제 배정 요청이 전송되었습니다.')
+  } finally { fileReviewPanel.value.assigning = false }
+}
 
 // ─── Ontology edge relation constants ─────────────────────────
-const REL_COLORS = { '소속':'#94a3b8','참여부서':'#3b82f6','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#a78bfa' }
-const REL_OPTIONS_FOR = { org:['소속'], dept:['소속','참여부서','담당'], meeting_group:['개최','참여부서','관련'], session:['생성','관련'] }
-const FILE_TYPES = ['회의록','발제자료','보고자료']
-
+const REL_COLORS = { '소속':'#94a3b8','참여':'#3b82f6','소위원회':'#a78bfa','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#6b7280' }
 function hexToRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
   return `rgba(${r},${g},${b},${a})`
 }
+// 소스 타입 × 대상 타입 → 관계 자동 추론
+const REL_MATRIX = {
+  'dept→meeting_group': '참여',
+  'org→meeting_group':  '관련',
+  'meeting_group→meeting_group': '소위원회',
+  'session→meeting_group': '관련',
+  'person→meeting_group': '참여',
+  'meeting_group→file': '생성',
+  'session→file':        '생성',
+  'dept→file':           '담당',
+  'org→file':            '관련',
+  'person→file':         '담당',
+}
+function autoRel(sourceNodeId, targetType) {
+  const srcNode = connectableNodes.value.find(n => n.id === sourceNodeId)
+  const key = `${srcNode?.type}→${targetType}`
+  return REL_MATRIX[key] || '관련'
+}
 
 const connectableNodes = computed(() => {
-  const groups = meetingGroups.value.length ? meetingGroups.value : getDemoData()
+  const groups = meetingGroups.value
   const result = [{ id:'org-root', label:'조직', typeLabel:'조직', type:'org' }]
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
@@ -441,15 +594,75 @@ const connectableNodes = computed(() => {
   return result
 })
 
-function availableRels(nodeId) {
-  const n = connectableNodes.value.find(n => n.id === nodeId)
-  return REL_OPTIONS_FOR[n?.type] || ['관련']
+// ─── Upload: dept-only connectable nodes ──────────────────────
+const deptConnectableNodes = computed(() => {
+  return connectableNodes.value.filter(n => n.type === 'dept' || n.type === 'org')
+})
+
+// ─── Upload: AI analysis state ────────────────────────────────
+const uploadStep = ref(1)  // 1=manual input, 2=AI analysis result
+const aiAnalyzing = ref(false)
+const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
+const selectedAgendas = ref([])      // indices of agendas to apply
+const selectedRelDepts = ref([])     // dept names to auto-connect
+
+function openUploadModal() {
+  showUploadModal.value = true
+  uploadStep.value = 1
+  aiResult.value = null
+  selectedAgendas.value = []
+  selectedRelDepts.value = []
+  uploadForm.value = { label:'', fileType:'보고자료', connectNodeId:'' }
 }
 
-const createConnectNodeId = ref('')
-const createRelType = ref('관련')
+// Build graph context string for AI
+function buildGraphContextStr() {
+  const nodes = gNodes.map(n => `[${n.type}] ${n.label}`).join(', ')
+  const edges = gEdges.map(e => {
+    const f = gNodes[e.from], t = gNodes[e.to]
+    return f && t ? `${f.label} →(${e.rel})→ ${t.label}` : null
+  }).filter(Boolean).slice(0, 30).join('; ')
+  return `노드: ${nodes}\n관계: ${edges}`
+}
 
-function openUploadModal() { showUploadModal.value = true; uploadForm.value = { label:'', fileType:'회의록', connectNodeId:'', relType:'생성' } }
+async function runAiAnalysis() {
+  if (!uploadForm.value.label.trim() || !uploadForm.value.connectNodeId) return
+  aiAnalyzing.value = true
+  uploadStep.value = 2
+  const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
+  try {
+    const { data } = await api.post('/api/agent/archive/analyze-file', {
+      file_name: uploadForm.value.label,
+      file_type: uploadForm.value.fileType,
+      dept_name: deptNode?.label || '',
+      graph_context: buildGraphContextStr(),
+    })
+    aiResult.value = data
+    selectedAgendas.value = data.agendas.map((_, i) => i)      // 기본 전체 선택
+    selectedRelDepts.value = [...(data.related_depts || [])]   // 기본 전체 선택
+  } catch (e) {
+    aiResult.value = {
+      score: 70,
+      feedback: ['AI 분석 서버에 연결할 수 없습니다.'],
+      agendas: [],
+      related_depts: [],
+      criteria: uploadForm.value.fileType==='발제자료'
+        ? { recap: false, progress: false, hurdle: false, plan: false }
+        : null,
+    }
+  } finally {
+    aiAnalyzing.value = false
+  }
+}
+
+function toggleAgenda(idx) {
+  const pos = selectedAgendas.value.indexOf(idx)
+  pos >= 0 ? selectedAgendas.value.splice(pos, 1) : selectedAgendas.value.push(idx)
+}
+function toggleRelDept(dept) {
+  const pos = selectedRelDepts.value.indexOf(dept)
+  pos >= 0 ? selectedRelDepts.value.splice(pos, 1) : selectedRelDepts.value.push(dept)
+}
 
 function doAddFile() {
   if (!uploadForm.value.label.trim()) return
@@ -458,144 +671,64 @@ function doAddFile() {
   const fromX = fromNode?.x||0, fromZ = fromNode?.z||0
   const phi = Math.atan2(fromZ, fromX) + 0.28
   const baseR = Math.sqrt(fromX*fromX+fromZ*fromZ)
-  const newNode = { id:`file-new-${Date.now()}`, label:uploadForm.value.label, type:'file', fileType:uploadForm.value.fileType, x:Math.cos(phi)*(baseR+90), y:(fromNode?.y||0)+42, z:Math.sin(phi)*(baseR+90) }
+  const fileNodeId = `file-new-${Date.now()}`
+  const newNode = {
+    id: fileNodeId,
+    label: uploadForm.value.label,
+    type: 'file',
+    fileType: uploadForm.value.fileType,
+    aiScore: aiResult.value?.score ?? null,
+    aiReview: aiResult.value ? { ...aiResult.value } : null,  // AI검토결과 영구 저장
+    extractedAgendas: [],
+    x: Math.cos(phi)*(baseR+90), y: (fromNode?.y||0)+42, z: Math.sin(phi)*(baseR+90)
+  }
   gNodes.push(newNode)
-  if (fromIdx >= 0) gEdges.push({ from:fromIdx, to:gNodes.length-1, rel:uploadForm.value.relType })
-  showUploadModal.value = false
-}
+  const fileIdx = gNodes.length - 1
+  const rel = autoRel(uploadForm.value.connectNodeId, 'file')
+  if (fromIdx >= 0) gEdges.push({ from:fromIdx, to:fileIdx, rel })
 
-// ─── Node Edit Modal ──────────────────────────────────────────
-const nodeEditModal = ref(null)  // { nodeIdx, type, form: {...} }
-const newMemberForm = ref({ name:'', position:'', email:'', phone:'', role:'member' })
-const showNewMemberForm = ref(false)
-
-function openNodeEdit(nodeIdx) {
-  const n = gNodes[nodeIdx]
-  if (!n) return
-  hoverNode.value = null; tooltipHover.value = false
-  if (n.type === 'meeting_group') {
-    // 기존 설정 모달 활용
-    openDetail(n.data)
-    nextTick(() => openGroupSetting())
-    return
-  }
-  if (n.type === 'org') {
-    nodeEditModal.value = { nodeIdx, type: 'org', form: { label: n.label } }
-    return
-  }
-  if (n.type === 'dept') {
-    const members = (n.members || []).map(m => ({ ...m }))
-    nodeEditModal.value = { nodeIdx, type: 'dept', form: { label: n.label, members } }
-    return
-  }
-  if (n.type === 'session') {
-    nodeEditModal.value = { nodeIdx, type: 'session', form: { label: n.label } }
-    return
-  }
-  if (n.type === 'file') {
-    nodeEditModal.value = { nodeIdx, type: 'file', form: { label: n.label, fileType: n.fileType || '회의록' } }
-    return
-  }
-  if (n.type === 'person') {
-    nodeEditModal.value = { nodeIdx, type: 'person', form: { label: n.label, role: n.role || 'member' } }
-    return
-  }
-}
-
-function closeNodeEdit() {
-  nodeEditModal.value = null
-  showNewMemberForm.value = false
-  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
-}
-
-function openNewMemberForm() {
-  showNewMemberForm.value = true
-  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
-}
-
-function cancelNewMemberForm() {
-  showNewMemberForm.value = false
-  newMemberForm.value = { name:'', position:'', email:'', phone:'', role:'member' }
-}
-
-function addDeptMember() {
-  const name = newMemberForm.value.name.trim()
-  if (!name || !nodeEditModal.value) return
-  const m = nodeEditModal.value.form.members
-  if (m.find(x => x.userName === name)) return
-  const newId = Date.now()
-  m.push({
-    userId: newId,
-    userName: name,
-    position: newMemberForm.value.position.trim(),
-    email: newMemberForm.value.email.trim(),
-    phone: newMemberForm.value.phone.trim(),
-    role: newMemberForm.value.role,
-    department: nodeEditModal.value.form.label
+  // AI가 추천한 유관부서 자동 연결
+  selectedRelDepts.value.forEach(deptName => {
+    const deptId = `dept-${deptName}`
+    let deptNodeIdx = gNodes.findIndex(n => n.id === deptId)
+    if (deptNodeIdx < 0) {
+      // 그래프에 없으면 새로 생성
+      const angle = Math.random() * Math.PI * 2
+      gNodes.push({ id: deptId, label: deptName, type: 'dept', x: Math.cos(angle)*100, y: 20, z: Math.sin(angle)*100 })
+      deptNodeIdx = gNodes.length - 1
+    }
+    gEdges.push({ from: deptNodeIdx, to: fileIdx, rel: '담당' })
   })
-  cancelNewMemberForm()
-}
 
-function removeDeptMember(idx) {
-  nodeEditModal.value.form.members.splice(idx, 1)
-}
-
-function saveNodeEdit() {
-  if (!nodeEditModal.value) return
-  const { nodeIdx, type, form } = nodeEditModal.value
-  const n = gNodes[nodeIdx]
-  if (!n) return
-  if (type === 'org') {
-    n.label = form.label.trim() || n.label
-  } else if (type === 'dept') {
-    const oldLabel = n.label
-    n.label = form.label.trim() || n.label
-    n.id = `dept-${n.label}`
-    n.members = form.members
-    // 기존 person 노드 소속 업데이트
-    gNodes.forEach(pn => { if (pn.type === 'person' && n.members.find(m => m.userId === pn.userId)) pn.label = pn.label })
-    // 부서 구성원 노드 추가 (새로 추가된 멤버)
-    const deptIdx = nodeIdx
-    form.members.forEach(mb => {
-      const existing = gNodes.find(pn => pn.type === 'person' && pn.userId === mb.userId)
-      if (!existing) {
-        const basePhi = Math.atan2(n.z, n.x)
-        const baseR = Math.sqrt(n.x*n.x + n.z*n.z)
-        const pPhi = basePhi + (Math.random()-0.5) * 0.8
-        const pIdx = gNodes.length
-        gNodes.push({ id:`person-${mb.userId}`, label:mb.userName, type:'person', userId:mb.userId, role:mb.role, x:Math.cos(pPhi)*(baseR+72), y:Math.random()>0.5?30:-30, z:Math.sin(pPhi)*(baseR+72) })
-        gEdges.push({ from:deptIdx, to:pIdx, rel:'소속' })
-      }
+  // AI가 추천한 아젠다 노드 생성 (미래 회의 연결)
+  selectedAgendas.value.forEach((agIdx, i) => {
+    const ag = aiResult.value?.agendas?.[agIdx]
+    if (!ag) return
+    const agNodeId = `agenda-${fileNodeId}-${i}`
+    const agAngle = phi + 0.5 + i * 0.3
+    gNodes.push({
+      id: agNodeId,
+      label: ag.content.slice(0, 30) + (ag.content.length > 30 ? '…' : ''),
+      fullContent: ag.content,
+      type: 'session',
+      subType: 'agenda',
+      department: ag.department,
+      x: Math.cos(agAngle)*(baseR+140), y: (fromNode?.y||0)-20, z: Math.sin(agAngle)*(baseR+140)
     })
-  } else if (type === 'session') {
-    n.label = form.label.trim() || n.label
-    if (n.data) n.data.session_title = n.label
-  } else if (type === 'file') {
-    n.label = form.label.trim() || n.label
-    n.fileType = form.fileType
-  } else if (type === 'person') {
-    n.label = form.label.trim() || n.label
-    n.role = form.role
-  }
-  closeNodeEdit()
+    gEdges.push({ from: fileIdx, to: gNodes.length-1, rel: '생성' })
+  })
+
+  showUploadModal.value = false
+  initGraph()
 }
 
-// Demo data used when no real data available
-function getDemoData() {
-  return [
-    { id: 1, title: '전략기획위원회', status: 'active', urgency: 'critical', minutes: [{ session_title: '2025 전략 수립', session_number: 1 }, { session_title: '예산 계획 검토', session_number: 2 }], reports: [{ file_name: '전략보고서_Q1.pdf' }], members: [{ userId: 1, userName: '김철수', role: 'admin', department: '기획팀' }, { userId: 2, userName: '이영희', role: 'presenter', department: '운영팀' }, { userId: 3, userName: '박민준', role: 'presenter', department: '기획팀' }] },
-    { id: 2, title: '운영위원회', status: 'active', urgency: 'warning', minutes: [{ session_title: '운영 현황 보고', session_number: 1 }], reports: [{ file_name: '운영보고서_5월.pdf' }, { file_name: '성과보고서.pdf' }], members: [{ userId: 4, userName: '최지영', role: 'admin', department: '경영지원팀' }, { userId: 2, userName: '이영희', role: 'presenter', department: '운영팀' }] },
-    { id: 3, title: '개발팀 주간회의', status: 'active', urgency: 'normal', minutes: [{ session_title: '스프린트 계획', session_number: 1 }, { session_title: '기술 검토', session_number: 2 }], reports: [], members: [{ userId: 5, userName: '정도현', role: 'admin', department: '개발팀' }, { userId: 6, userName: '한소희', role: 'presenter', department: '개발팀' }] },
-    { id: 4, title: '마케팅 전략회의', status: 'ended', urgency: 'normal', minutes: [{ session_title: '캠페인 기획', session_number: 1 }], reports: [{ file_name: '마케팅보고서.pdf' }], members: [{ userId: 7, userName: '윤재원', role: 'admin', department: '마케팅팀' }, { userId: 3, userName: '박민준', role: 'presenter', department: '기획팀' }] },
-    { id: 5, title: '인사위원회', status: 'ended', urgency: 'normal', minutes: [{ session_title: '채용 검토', session_number: 1 }], reports: [], members: [{ userId: 1, userName: '김철수', role: 'admin', department: '기획팀' }, { userId: 8, userName: '오세진', role: 'presenter', department: '인사팀' }] },
-  ]
-}
+
+
 
 const meetingGroups = computed(() => {
   const map = new Map()
-  // All meetings from store (includes newly created ones)
   meetingsStore.meetings.forEach(m => {
-    map.set(m.id, { id: m.id, title: m.title, minutes: [], reports: [], members: [] })
+    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [] })
   })
   // Add minutes & reports
   minutes.value.forEach(m => {
@@ -612,7 +745,43 @@ const meetingGroups = computed(() => {
       if (!g.members.find(m => m.userId === mb.userId)) g.members.push(mb)
     }
   })
-  return [...map.values()]
+  const result = [...map.values()]
+  return result
+})
+
+// ─── Stats computed ──────────────────────────────────────────
+const statsData = computed(() => {
+  const groups = meetingGroups.value
+  // 1. 회의체별 문서 수 (bar chart)
+  const docPerMeeting = groups.map(g => ({ label: g.title, value: g.minutes.length + g.reports.length }))
+    .sort((a,b) => b.value - a.value).slice(0, 8)
+  // 2. 회의체별 구성원 수 (bar chart)
+  const memberPerMeeting = groups.map(g => ({ label: g.title, value: g.members.length }))
+    .sort((a,b) => b.value - a.value).slice(0, 8)
+  // 3. 부서별 참여 분포 (pie chart)
+  const deptMap = {}
+  groups.forEach(g => g.members.forEach(mb => {
+    const d = mb.department || '미지정'
+    deptMap[d] = (deptMap[d] || 0) + 1
+  }))
+  const deptDist = Object.entries(deptMap).map(([k,v]) => ({ label: k, value: v }))
+    .sort((a,b) => b.value - a.value)
+  // 4. 월별 회의록 수 (line chart)
+  const monthMap = {}
+  groups.forEach(g => g.minutes.forEach(m => {
+    const d = m.ended_at ? new Date(m.ended_at) : null
+    if (!d || isNaN(d)) return
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+    monthMap[key] = (monthMap[key] || 0) + 1
+  }))
+  const months = Object.keys(monthMap).sort().slice(-6)
+  const monthSeries = months.map(k => ({ label: k.slice(5)+'월', value: monthMap[k] }))
+  return { docPerMeeting, memberPerMeeting, deptDist, monthSeries,
+    totalMeetings: groups.length,
+    totalDocs: groups.reduce((s,g) => s + g.minutes.length + g.reports.length, 0),
+    totalMembers: new Set(groups.flatMap(g => g.members.map(m => m.userId))).size,
+    activeMeetings: meetingsStore.meetings.filter(m => !m.status || m.status==='active').length,
+  }
 })
 
 const filteredGroups = computed(() => {
@@ -626,13 +795,74 @@ const filteredGroups = computed(() => {
   )
 })
 
+// ─── 회의체별 전체 이력 (목록 탭) ────────────────────────────
+const groupHistoryMap = computed(() => {
+  const map = new Map()
+  meetingGroups.value.forEach(g => {
+    const adminMember = g.members.find(m => m.role === 'admin')
+    const managerName = adminMember?.userName || adminMember?.name || '간사'
+    const items = []
+    // 회의록
+    g.minutes.forEach(m => {
+      items.push({
+        type: 'minutes',
+        desc: `${m.session_number ? m.session_number + '차 ' : ''}회의 진행 및 회의록 작성`,
+        manager: managerName,
+        date: m.ended_at,
+        hasFile: true,
+        fileName: m.session_title || '회의록',
+      })
+    })
+    // 보고서
+    g.reports.forEach(r => {
+      const dept = r.submitted_by_dept || r.department || ''
+      items.push({
+        type: 'report',
+        desc: dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`,
+        manager: r.submitted_by || managerName,
+        date: r.submitted_at,
+        hasFile: true,
+        fileName: r.file_name || '보고서',
+      })
+      // 보고서 승인 이력 (상태가 있을 경우)
+      if (r.status === 'approved') {
+        items.push({
+          type: 'approved',
+          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 승인`,
+          manager: managerName,
+          date: r.approved_at || r.submitted_at,
+          hasFile: false,
+          fileName: '',
+        })
+      } else if (r.status === 'rejected') {
+        items.push({
+          type: 'rejected',
+          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 반려`,
+          manager: managerName,
+          date: r.rejected_at || r.submitted_at,
+          hasFile: false,
+          fileName: '',
+        })
+      }
+    })
+    items.sort((a, b) => {
+      const da = a.date ? new Date(a.date) : new Date(0)
+      const db = b.date ? new Date(b.date) : new Date(0)
+      return db - da
+    })
+    map.set(g.id, items)
+  })
+  return map
+})
+
 function buildGraphNodes() {
   const nodes = [], edges = []
-  const data = meetingGroups.value.length ? meetingGroups.value : getDemoData()
+  const data = meetingGroups.value
 
   // ── 조직 root ─────────────────────────────────────────────
   const orgIdx = nodes.length
-  nodes.push({ id:'org-root', label:'조직', type:'org', x:0, y:0, z:0 })
+  const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
+  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:0, z:0 })
 
   // ── 부서 (조직 →[소속]→ 부서) ──────────────────────────
   const deptIdxMap = new Map()
@@ -674,16 +904,16 @@ function buildGraphNodes() {
     })
   })
 
-  // ── 회의체 (회의체 →[참여부서]→ 부서, 회의체 →[개최]→ 회의 →[생성]→ 파일) ──
+  // ── 회의체 (부서 →[참여]→ 회의체, 회의체 →[개최]→ 회의 →[생성]→ 파일) ──
   data.forEach((g, gi) => {
     const phi = (gi / Math.max(data.length, 1)) * Math.PI * 2 + 0.45
     const mgR = 265
     const mgIdx = nodes.length
     nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:Math.cos(phi)*mgR, y:-55, z:Math.sin(phi)*mgR, data:g, groupIdx:gi })
 
-    // 회의체 →[참여부서]→ 부서
+    // 부서 →[참여]→ 회의체 (방향: 부서가 회의체에 참여)
     const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
-    partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:mgIdx, to:di, rel:'참여부서' }) })
+    partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:di, to:mgIdx, rel:'참여' }) })
 
     // 회의체 →[개최]→ 회의 →[생성]→ 파일(회의록)
     ;(g.minutes||[]).forEach((m, mi) => {
@@ -705,6 +935,15 @@ function buildGraphNodes() {
       nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료', x:Math.cos(rPhi)*(mgR+88), y:-80+ri*26, z:Math.sin(rPhi)*(mgR+88), groupIdx:gi })
       edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
     })
+  })
+
+  // ── 소위원회 (소위원회 →[소위원회]→ 모회의체) ─────────────────
+  data.forEach(g => {
+    if (!g.parent_id) return
+    const subIdx  = nodes.findIndex(n => n.id === `mg-${g.id}`)
+    const parentIdx = nodes.findIndex(n => n.id === `mg-${g.parent_id}`)
+    if (subIdx >= 0 && parentIdx >= 0)
+      edges.push({ from: subIdx, to: parentIdx, rel: '소위원회' })
   })
 
   return { nodes, edges }
@@ -827,8 +1066,8 @@ function drawArchiveGraph() {
     const px2=-uy*as*0.44, py2=ux*as*0.44
     ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
     ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
-    // Relation label
-    if (rel && len > 42 && zf > 0.85) {
+    // Relation label (hide implicit structural edges)
+    if (rel && rel !== '개최' && rel !== '생성' && len > 42 && zf > 0.85) {
       const lx=(pa.sx+pb.sx)/2-uy*8, ly=(pa.sy+pb.sy)/2+ux*8
       ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
       ctx.textAlign='center'; ctx.textBaseline='middle'
@@ -851,7 +1090,7 @@ function drawArchiveGraph() {
       for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
       ctx.strokeStyle=isDark?'rgba(148,163,184,0.6)':'rgba(71,85,105,0.8)'; ctx.lineWidth=1.5; ctx.stroke()
-      if(p.scale>.25){const fs=Math.max(10,Math.min(16,Math.round(12*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(255,255,255,0.95)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('조직',p.sx,p.sy)}
+      if(p.scale>.25){const fs=Math.max(10,Math.min(16,Math.round(12*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(255,255,255,0.95)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';const orgDisp=n.label||'조직';ctx.fillText(orgDisp.length>6?orgDisp.slice(0,5)+'…':orgDisp,p.sx,p.sy)}
     } else if(n.type==='meeting_group'){
       const hubColor=getHubFill(n.data)
       const urgency=computeUrgency(n.data)
@@ -910,13 +1149,25 @@ function animateGraph() {
 }
 
 // ─── Mouse ────────────────────────────────────────────────────
-function onMouseDown(e) { isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY }
+function onMouseDown(e) { isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY; if(isPanMode.value) e.preventDefault() }
 
 function onMouseMove(e) {
   if (bottomResizing) return
   if(isDragging){
-    rotY+=(e.clientX-lastMx)*.004;rotX+=(e.clientY-lastMy)*.004
-    rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.clientX;lastMy=e.clientY
+    const dx=e.clientX-lastMx, dy=e.clientY-lastMy
+    if(isPanMode.value){
+      const canvas=canvasRef.value
+      const w=canvas?canvas.offsetWidth:800, h=canvas?canvas.offsetHeight:600
+      // 화면 픽셀 → 3D 좌표 역변환: fov/(fov+z+400) ≈ 0.6, worldZoom 반영
+      const fovScale = 600 / (600 + 400)  // depth=0 기준 투영 배율
+      const panScale = 1 / (fovScale * worldZoom)
+      targetCamX -= dx * panScale
+      targetCamY -= dy * panScale
+    } else {
+      rotY+=dx*.004;rotX+=dy*.004
+      rotX=Math.max(-1.2,Math.min(1.2,rotX))
+    }
+    lastMx=e.clientX;lastMy=e.clientY
     if(hoverNode.value){clearTimeout(tooltipHideTimer);hoverNode.value=null}
     return
   }
@@ -953,6 +1204,7 @@ onWheel._t=null
 
 function onCanvasClick(e) {
   if(isDragging) return
+  if(isPanMode.value) return  // 패닝 모드일 때 노드 클릭 무시
   const canvas=canvasRef.value;if(!canvas) return
   const rect=canvas.getBoundingClientRect()
   const mx=e.clientX-rect.left,my=e.clientY-rect.top
@@ -990,6 +1242,8 @@ function onCanvasClick(e) {
       } else {
         breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
       }
+    } else if(n.type==='file') {
+      openFileReview(n)
     }
     focusNode=closest
   } else {
@@ -997,22 +1251,7 @@ function onCanvasClick(e) {
   }
 }
 
-function onCanvasDblClick(e) {
-  const canvas=canvasRef.value;if(!canvas) return
-  const rect=canvas.getBoundingClientRect()
-  const mx=e.clientX-rect.left,my=e.clientY-rect.top
-  const w=canvas.offsetWidth,h=canvas.offsetHeight
-  let closest=null,minDist=Infinity
-  gNodes.forEach((n,i)=>{
-    if(!getVisibleSet().has(i)) return
-    const p=projectNode(n,w,h)
-    const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='session'?11:n.type==='person'?11:9
-    const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<baseR*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
-  })
-  if(closest!==null) openNodeEdit(closest)
-}
+
 
 function onTouchStart(e){isDragging=true;autoRotate=false;lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
 function onTouchMove(e){if(!isDragging)return;rotY+=(e.touches[0].clientX-lastMx)*.004;rotX+=(e.touches[0].clientY-lastMy)*.004;rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
@@ -1056,11 +1295,13 @@ onMounted(async () => {
     const memberResults = await Promise.all(
       mtgs.data.map(mtg =>
         api.get(`/api/meetings/${mtg.id}/members`)
-          .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role})))
+          .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role,department:mb.user?.department||'',organization:mb.user?.organization||'',position:mb.user?.position||''})))
           .catch(()=>[])
       )
     )
     membersData.value=memberResults.flat()
+  } catch(e) {
+    console.warn('archive data fetch error', e)
   } finally {
     loading.value=false
     const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges
@@ -1076,6 +1317,7 @@ onBeforeUnmount(()=>{
 
 // Rebuild graph when new meetings are created
 watch(() => meetingsStore.meetings.length, () => {
+  if (loading.value) return  // 초기 로딩 중에는 무시 — finally에서 한 번만 빌드
   const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
 })
 
@@ -1205,7 +1447,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <tbody>
                   <tr v-for="mb in detailMeeting.members" :key="mb.userId">
                     <td class="mb-name">{{ mb.userName || mb.name }}</td>
-                    <td class="mb-dept">{{ mb.department || mb.dept || '' }}</td>
+                    <td class="mb-dept">{{ mb.position || mb.department || mb.dept || '' }}</td>
                     <td class="mb-role">{{ roleLabel(mb.role) }}</td>
                   </tr>
                 </tbody>
@@ -1220,15 +1462,25 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="graph-loading-spinner"></div>
           <span>데이터 불러오는 중...</span>
         </div>
+
+        <!-- Zoom controls (top-left) -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-zoom-controls"
+          :style="{ left: (detailOpen ? sidebarW + 10 : 10) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
+          <button class="zoom-btn" @click="targetZoom = Math.min(4, targetZoom * 1.3)" title="확대 (Zoom In)">+</button>
+          <button class="zoom-btn zoom-reset" @click="targetZoom = 1.0; targetCamX = 0; targetCamY = 0; targetCamZ = 0" title="초기화 (Reset)">⌂</button>
+          <button class="zoom-btn" @click="targetZoom = Math.max(0.25, targetZoom / 1.3)" title="축소 (Zoom Out)">−</button>
+          <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">✋</button>
+        </div>
         <canvas v-show="!loading && viewMode==='graph'"
           ref="canvasRef"
           class="archive-canvas"
+          :style="{ cursor: isPanMode ? (isDragging ? 'grabbing' : 'grab') : 'default' }"
           @mousedown="onMouseDown"
           @mousemove="onMouseMove"
           @mouseup="onMouseUp"
           @mouseleave="onMouseUp(); scheduleHideTooltip()"
           @click="onCanvasClick"
-          @dblclick="onCanvasDblClick"
+
           @wheel.prevent="onWheel"
           @touchstart.prevent="onTouchStart"
           @touchmove.prevent="onTouchMove"
@@ -1243,12 +1495,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#f59e0b;border-radius:2px"></div>파일</div>
           <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)"></div>부서</div>
           <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#a78bfa"></div>사람</div>
-          <div style="border-top:1px solid rgba(255,255,255,.1);margin:2px 0;padding-top:4px;display:flex;flex-direction:column;gap:3px">
-            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#94a3b8"></div><span>소속</span></div>
-            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#3b82f6"></div><span>참여부서</span></div>
-            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#10b981"></div><span>개최</span></div>
-            <div class="legend-onto-item"><div class="legend-onto-dash" style="background:#f59e0b"></div><span>생성</span></div>
-          </div>
+
         </div>
 
         <!-- Graph floating action buttons (top-right of canvas) -->
@@ -1259,7 +1506,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div class="float-btn-item" @click="openUploadModal" title="자료 업로드 및 노드 연결">
+          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+            <div class="float-node-preview session-preview">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+            </div>
+            <span class="float-btn-label">회의 생성</span>
+          </div>
+          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -1292,61 +1545,77 @@ const TYPES=['Draft','In Progress','Done','Pending']
           />
         </svg>
 
+
         <!-- List view -->
         <div v-show="viewMode==='list'" class="list-view">
-          <div class="list-header">
-            <span class="list-title">{{ search ? `"${search}" 검색 결과` : '전체 목록' }}</span>
-            <span class="list-count">{{ filteredGroups.length }}개 회의체</span>
+          <div class="lv-header">
+            <span class="lv-title">{{ search ? `"${search}" 검색 결과` : '전체 목록' }}</span>
+            <span class="lv-count">{{ filteredGroups.length }}개 회의체</span>
           </div>
-          <div v-if="loading" class="list-empty">불러오는 중...</div>
-          <div v-else-if="!filteredGroups.length" class="list-empty">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</div>
-          <div v-else class="meeting-groups">
-            <div v-for="g in filteredGroups" :key="g.id" class="meeting-group">
-              <div class="group-header" @click="expandedMeeting = expandedMeeting===g.id ? null : g.id">
-                <div class="group-header-left">
-                  <div class="group-dot"></div>
-                  <span class="group-title">{{ g.title }}</span>
-                </div>
-                <div class="group-meta-right">
-                  <span class="group-count">{{ g.minutes.length + g.reports.length }}건</span>
-                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" :style="{ transform: expandedMeeting===g.id?'rotate(180deg)':'', transition:'transform .2s' }"><path d="M19 9l-7 7-7-7"/></svg>
-                </div>
-              </div>
-              <div v-if="expandedMeeting===g.id" class="group-body">
-                <div v-if="g.minutes.length" class="doc-section">
-                  <div class="doc-section-label">회의록</div>
-                  <div v-for="m in g.minutes" :key="m.minutes_id||m.session_id" class="doc-item">
-                    <div class="doc-icon minutes-icon"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
-                    <div class="doc-info"><div class="doc-name">{{ m.session_title||`${m.session_number}차 회의록` }}</div><div class="doc-meta">{{ formatDate(m.ended_at) }}</div></div>
-                    <div class="doc-actions">
-
-                      <button class="doc-btn icon-only" @click="downloadDummy(m.session_title||'회의록')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="g.reports.length" class="doc-section">
-                  <div class="doc-section-label">보고서</div>
-                  <div v-for="r in g.reports" :key="r.id" class="doc-item">
-                    <div class="doc-icon report-icon"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
-                    <div class="doc-info"><div class="doc-name">{{ r.file_name||'보고서' }}</div><div class="doc-meta">{{ formatDate(r.submitted_at) }}</div></div>
-                    <div class="doc-actions">
-
-                      <button class="doc-btn icon-only" @click="downloadDummy(r.file_name||'보고서')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></button>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="g.members.length" class="doc-section">
-                  <div class="doc-section-label">구성원</div>
-                  <div class="member-chips">
-                    <div v-for="mb in g.members" :key="mb.userId" class="member-chip">
-                      <div class="member-avatar">{{ mb.userName[0] }}</div>
-                      <span class="member-name">{{ mb.userName }}</span>
-                      <span class="member-role" :class="mb.role==='admin'?'role-admin':'role-presenter'">{{ roleLabel[mb.role]||mb.role }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div v-if="loading" class="lv-empty">불러오는 중...</div>
+          <div v-else class="lv-table-wrap">
+            <table class="lv-table">
+              <thead>
+                <tr>
+                  <th class="lv-th-name">회의체명</th>
+                  <th class="lv-th-cnt">이력</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!filteredGroups.length">
+                  <td colspan="2" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
+                </tr>
+                <template v-for="g in filteredGroups" :key="g.id">
+                  <!-- Group row -->
+                  <tr class="lv-group-row" @click="expandedMeeting = expandedMeeting===g.id ? null : g.id">
+                    <td class="lv-td-name">
+                      <div class="lv-name-cell">
+                        <svg class="lv-expand-icon" :style="{ transform: expandedMeeting===g.id ? 'rotate(90deg)' : '' }" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                        <span class="lv-group-name">{{ g.title }}</span>
+                        <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                      </div>
+                    </td>
+                    <td class="lv-td-cnt">{{ (groupHistoryMap.get(g.id) || []).length }}건</td>
+                  </tr>
+                  <!-- Expanded history rows -->
+                  <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
+                    <td colspan="2" class="lv-expanded-td">
+                      <table class="lv-hist-table">
+                        <thead>
+                          <tr>
+                            <th>설명</th>
+                            <th style="width:110px">담당자</th>
+                            <th style="width:100px">진행일</th>
+                            <th style="width:60px">자료</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-if="!(groupHistoryMap.get(g.id) || []).length">
+                            <td colspan="4" class="lv-hist-empty">이력이 없습니다.</td>
+                          </tr>
+                          <tr v-for="(item, i) in (groupHistoryMap.get(g.id) || [])" :key="i" class="lv-hist-row">
+                            <td class="lv-hist-desc">
+                              <div class="lv-hist-desc-inner">
+                                <span class="lv-hist-type-dot" :class="'ht-' + item.type"></span>
+                                {{ item.desc }}
+                              </div>
+                            </td>
+                            <td class="lv-hist-manager">{{ item.manager }}</td>
+                            <td class="lv-hist-date">{{ formatDate(item.date) }}</td>
+                            <td class="lv-hist-file">
+                              <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item.fileName)" title="다운로드">
+                                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                              </button>
+                              <span v-else class="lv-no-file">-</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -1486,7 +1755,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="tt-row"><span class="tt-label">구성원</span><span>{{ hoverNode.data?.members?.length||0 }}명</span></div>
           </div>
           <button class="tt-detail-btn" @click="openDetail(hoverNode.data)">상세 보기 →</button>
-          <button class="tt-edit-btn" @click="openNodeEdit(gNodes.indexOf(hoverNode))">✏ 편집</button>
         </div>
       </Transition>
     </Teleport>
@@ -1495,11 +1763,12 @@ const TYPES=['Draft','In Progress','Done','Pending']
     <Teleport to="body">
       <div v-if="floatDragging" class="float-drag-ghost"
         :style="{ left: (floatDragPos.x - 22) + 'px', top: (floatDragPos.y - 22) + 'px' }">
-        <div class="ghost-node" :class="floatDragging === 'meeting' ? 'ghost-meeting' : 'ghost-doc'">
+        <div class="ghost-node" :class="floatDragging === 'meeting' ? 'ghost-meeting' : floatDragging === 'session' ? 'ghost-session' : 'ghost-doc'">
           <svg v-if="floatDragging==='meeting'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+          <svg v-else-if="floatDragging==='session'" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/></svg>
           <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
         </div>
-        <span class="ghost-label">{{ floatDragging==='meeting' ? '회의체 생성' : '자료 업로드' }}</span>
+        <span class="ghost-label">{{ floatDragging==='meeting' ? '회의체 생성' : floatDragging==='session' ? '회의 생성' : '자료 업로드' }}</span>
         <span v-if="floatDragPreviewLine" class="ghost-connect-hint">✓ 연결 가능</span>
       </div>
     </Teleport>
@@ -1509,133 +1778,383 @@ const TYPES=['Draft','In Progress','Done','Pending']
       <div v-if="showCreateModal" class="archive-modal-backdrop" @click.self="showCreateModal=false">
         <div class="archive-modal-box create-modal-box" :class="{ 'day-mode': !nightMode }">
           <div class="modal-header">
-            <span class="modal-title">새 회의체 만들기</span>
-            <button class="modal-close-btn" @click="showCreateModal=false">✕</button>
+            <span class="modal-title">회의체 생성</span>
+            <button class="modal-close" @click="showCreateModal=false">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
           </div>
           <div class="modal-body">
-            <div class="modal-field"><label>회의체명 <span class="req">*</span></label><input v-model="createForm.title" class="modal-input" placeholder="예: 전략기획위원회" /></div>
-            <div class="modal-field"><label>목적/설명</label><textarea v-model="createForm.purpose" class="modal-input modal-textarea" rows="2" placeholder="회의체의 목적을 입력하세요"></textarea></div>
+            <div class="modal-field">
+              <label>회의체 이름 <span class="req">*</span></label>
+              <input v-model="createForm.title" class="modal-input" placeholder="예: 전략기획위원회" />
+            </div>
+            <div class="modal-field">
+              <label>소개</label>
+              <textarea v-model="createForm.purpose" class="modal-input modal-textarea" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
+            </div>
+            <div class="modal-field">
+              <label>유형</label>
+              <select v-model="createForm.meeting_type" class="modal-input modal-select">
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+              </select>
+            </div>
             <div class="modal-field-row">
-              <div class="modal-field"><label>시작일</label><input v-model="createForm.start_date" type="date" class="modal-input" /></div>
-              <div class="modal-field"><label>종료일</label><input v-model="createForm.end_date" type="date" class="modal-input" /></div>
-            </div>
-            <div class="modal-field">
-              <label>연관 회의체</label>
-              <div class="related-meetings">
-                <div v-for="m in meetingsStore.meetings" :key="m.id"
-                  class="related-chip" :class="{ selected: relatedMeetingIds.includes(m.id) }"
-                  @click="toggleRelated(m.id)">
-                  <div class="related-dot" :style="{ background: relatedMeetingIds.includes(m.id)?'#60a5fa':'#475569' }"></div>
-                  {{ m.title }}
-                </div>
-                <div v-if="!meetingsStore.meetings.length" style="font-size:12px;color:#64748b">현재 회의체가 없습니다</div>
+              <div class="modal-field">
+                <label>시작일</label>
+                <input type="date" v-model="createForm.start_date" class="modal-input" />
+              </div>
+              <div class="modal-field">
+                <label>종료일</label>
+                <input type="date" v-model="createForm.end_date" class="modal-input" />
               </div>
             </div>
             <div class="modal-field">
-              <label>구성원 추가</label>
-              <input v-model="memberSearch" class="modal-input" placeholder="이름 또는 이메일 검색..." @input="searchMembersFn" />
-              <div v-if="memberSearchResults.length" class="modal-dropdown">
-                <div v-for="u in memberSearchResults" :key="u.id" class="modal-dropdown-item" @click="addMember(u)">
-                  <div class="modal-user-avatar">{{ (u.name||u.email)[0].toUpperCase() }}</div>
-                  <div><div style="font-size:13px;font-weight:600">{{ u.name||'이름없음' }}</div><div style="font-size:11px;color:#64748b">{{ u.email }}</div></div>
-                </div>
-              </div>
-              <div v-if="selectedMembers.length" class="selected-members">
-                <div v-for="m in selectedMembers" :key="m.id" class="selected-member">
-                  <div class="modal-user-avatar">{{ (m.name||m.email)[0].toUpperCase() }}</div>
-                  <span>{{ m.name||m.email }}</span>
-                  <select v-model="m.role" class="role-select-sm"><option value="admin">간사</option><option value="presenter">발제자</option><option value="member">위원</option></select>
-                  <button class="remove-btn-sm" @click="removeMember(m)">×</button>
-                </div>
-              </div>
+              <label>운영 지침</label>
+              <textarea v-model="createForm.guidelines" class="modal-input modal-textarea" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
+예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
             <div class="modal-field">
-              <label>연결 노드 <span style="color:#94a3b8;font-weight:400;text-transform:none">— 은 그래프에 연결</span></label>
-              <select v-model="createConnectNodeId" class="modal-input">
-                <option value="">연결 안 함</option>
-                <option v-for="n in connectableNodes" :key="n.id" :value="n.id">{{ n.typeLabel }}: {{ n.label }}</option>
-              </select>
-            </div>
-            <div v-if="createConnectNodeId" class="modal-field">
-              <label>관계 타입</label>
-              <select v-model="createRelType" class="modal-input">
-                <option v-for="rel in availableRels(createConnectNodeId)" :key="rel" :value="rel">{{ rel }}</option>
-              </select>
-              <div class="conn-preview">
-                <span class="conn-node">{{ connectableNodes.find(n=>n.id===createConnectNodeId)?.label }}</span>
-                <span class="conn-arrow">→</span>
-                <span class="conn-rel" :style="{color: REL_COLORS[createRelType]||'#a78bfa'}">{{ createRelType }}</span>
-                <span class="conn-arrow">→</span>
-                <span class="conn-node">{{ createForm.title || '새 회의체' }}</span>
-              </div>
+              <label>멤버 초대</label>
+              <MemberInvite v-model="createMembers" />
             </div>
           </div>
           <div class="modal-footer">
             <button class="btn-cancel" @click="showCreateModal=false">취소</button>
-            <button class="btn-confirm" :disabled="creating||!createForm.title.trim()" @click="doCreateMeeting">
-              <span v-if="creating" class="spinner-border spinner-border-sm me-1"></span>
-              {{ creating?'생성 중...':'회의체 만들기' }}
-            </button>
+            <button class="btn-primary" :disabled="creating||!createForm.title.trim()" @click="doCreateMeeting">{{ creating ? '생성 중...' : '생성' }}</button>
           </div>
         </div>
       </div>
     </Teleport>
+
+  <!-- 회의 생성 모달 -->
+  <Teleport to="body">
+    <div v-if="showSessionModal" class="archive-modal-backdrop" @click.self="showSessionModal=false">
+      <div class="archive-modal-box create-modal-box" :class="{ 'day-mode': !nightMode }">
+        <div class="modal-header">
+          <span class="modal-title">회의 생성</span>
+          <button class="modal-close" @click="showSessionModal=false">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-field">
+            <label>회의명 <span class="req">*</span></label>
+            <input v-model="sessionForm.title" class="modal-input" placeholder="예: 2025 전략 수립 1차" />
+          </div>
+          <div class="modal-field">
+            <label>회의 소개</label>
+            <textarea v-model="sessionForm.purpose" class="modal-input modal-textarea" placeholder="이번 회의의 목적이나 주요 내용..." rows="2"></textarea>
+          </div>
+          <div class="modal-field">
+            <label>회의 날짜</label>
+            <input type="datetime-local" v-model="sessionForm.date" class="modal-input" />
+          </div>
+          <div v-if="sessionForm.meeting_id" class="modal-field">
+            <label>연결된 회의체</label>
+            <div class="modal-input" style="background:var(--bg2);color:var(--text2);cursor:default">
+              {{ sessionForm.meeting_id }}
+            </div>
+          </div>
+          <div class="modal-field">
+            <label>구성원</label>
+            <MemberInvite v-model="sessionMembers" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="showSessionModal=false">취소</button>
+          <button class="btn-primary" :disabled="creatingSession||!sessionForm.title.trim()" @click="doCreateSession">{{ creatingSession ? '생성 중...' : '생성' }}</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   </div><!-- /archive-page -->
   <!-- 자료 업로드 모달 -->
   <Teleport to="body">
     <div v-if="showUploadModal" class="archive-modal-backdrop" @click.self="showUploadModal=false">
       <div class="archive-modal-box upload-modal-box" :class="{ 'day-mode': !nightMode }">
+
+        <!-- Step indicator -->
+        <div class="upload-step-bar">
+          <div class="upload-step" :class="{ active: uploadStep===1, done: uploadStep>1 }">
+            <span class="step-num">1</span><span class="step-label">자료 정보 입력</span>
+          </div>
+          <div class="step-sep">→</div>
+          <div class="upload-step" :class="{ active: uploadStep===2 }">
+            <span class="step-num">2</span><span class="step-label">AI 검토 결과</span>
+          </div>
+        </div>
+
+        <!-- ── Step 1: 수동 입력 ── -->
+        <template v-if="uploadStep===1">
+          <div class="modal-header">
+            <span class="modal-title">자료 업로드 <span style="font-size:11px;opacity:.6;font-weight:400">— 부서 연결 후 AI가 자동 검토합니다</span></span>
+            <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label>파일 이름 <span class="req">*</span></label>
+              <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+            </div>
+            <div class="form-field">
+              <label>파일 유형</label>
+              <div class="file-type-row">
+                <button v-for="ft in FILE_TYPES" :key="ft"
+                  class="file-type-btn" :class="{ active: uploadForm.fileType===ft }"
+                  :style="uploadForm.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
+                  @click="uploadForm.fileType=ft">{{ ft }}</button>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>업로드 부서 <span class="req">*</span><span style="font-size:11px;opacity:.55;margin-left:6px">수동 연결 필수</span></label>
+              <select v-model="uploadForm.connectNodeId" class="form-input">
+                <option value="">부서/조직 선택...</option>
+                <option v-for="n in deptConnectableNodes" :key="n.id" :value="n.id">[{{ n.typeLabel }}] {{ n.label }}</option>
+              </select>
+              <div v-if="!uploadForm.connectNodeId" class="upload-dept-hint">
+                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                업로드 담당 부서를 먼저 선택해야 AI 분석이 시작됩니다.
+              </div>
+            </div>
+            <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
+              <span class="conn-node">{{ deptConnectableNodes.find(n=>n.id===uploadForm.connectNodeId)?.label }}</span>
+              <span class="conn-arrow">→</span>
+              <span class="conn-rel" :style="{color:REL_COLORS[autoRel(uploadForm.connectNodeId,'file')]||'#a78bfa'}">{{ autoRel(uploadForm.connectNodeId,'file') }}</span>
+              <span class="conn-arrow">→</span>
+              <span class="conn-node file">{{ uploadForm.label }}</span>
+              <span class="file-type-tag" :style="{color: uploadForm.fileType==='회의록'?'#60a5fa':uploadForm.fileType==='발제자료'?'#a78bfa':'#34d399'}">{{ uploadForm.fileType }}</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showUploadModal=false">취소</button>
+            <button class="btn-primary"
+              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId"
+              @click="runAiAnalysis">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:5px"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
+              AI 검토 시작
+            </button>
+          </div>
+        </template>
+
+        <!-- ── Step 2: AI 분석 결과 ── -->
+        <template v-else-if="uploadStep===2">
+          <div class="modal-header">
+            <span class="modal-title">AI 검토 결과 <span style="font-size:11px;opacity:.6;font-weight:400">— {{ uploadForm.label }}</span></span>
+            <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+          </div>
+          <div class="modal-body ai-result-body">
+
+            <!-- 로딩 -->
+            <div v-if="aiAnalyzing" class="ai-loading-wrap">
+              <div class="ai-loading-spinner"></div>
+              <div class="ai-loading-text">AI가 자료를 검토하고 있습니다…<br><span style="font-size:11px;opacity:.6">GraphDB 맥락 + 조직 암묵지 분석 중</span></div>
+            </div>
+
+            <!-- 결과 -->
+            <template v-else-if="aiResult">
+              <!-- 점수 게이지 -->
+              <div class="ai-score-section">
+                <div class="ai-score-label">자료 적합성 점수</div>
+                <div class="ai-score-gauge-wrap">
+                  <svg width="110" height="60" viewBox="0 0 110 60">
+                    <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
+                    <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
+                      :stroke="aiResult.score>=80?'#10b981':aiResult.score>=60?'#f59e0b':'#ef4444'"
+                      stroke-width="10" stroke-linecap="round"
+                      :stroke-dasharray="`${(aiResult.score/100)*141.3} 141.3`"/>
+                    <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
+                      :fill="aiResult.score>=80?'#10b981':aiResult.score>=60?'#f59e0b':'#ef4444'">{{ aiResult.score }}</text>
+                  </svg>
+                  <div class="ai-score-desc" :style="{color:aiResult.score>=80?'#10b981':aiResult.score>=60?'#d97706':'#dc2626'}">
+                    {{ aiResult.score>=80?'우수':'적합'}} / 100
+                  </div>
+                </div>
+                <div class="ai-feedback-list">
+                  <div v-for="(fb,i) in aiResult.feedback" :key="i" class="ai-feedback-item">
+                    <span class="fb-dot">•</span> {{ fb }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- 발제자료 기준 체크리스트 -->
+              <div v-if="uploadForm.fileType==='발제자료'" class="ai-section">
+                <div class="ai-section-title">
+                  <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  발제자료 검토 기준 (Why/What/How)
+                </div>
+                <div class="criteria-list">
+                  <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
+                    <span class="criteria-dot" :class="aiResult.criteria?.[c.key] ? 'pass' : 'fail'">
+                      <svg v-if="aiResult.criteria?.[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                      <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                    </span>
+                    <div class="criteria-text">
+                      <div class="criteria-label">{{ c.label }}</div>
+                      <div class="criteria-desc">{{ c.desc }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 제안 아젠다 -->
+              <div class="ai-section">
+                <div class="ai-section-title">
+                  <svg width="13" height="13" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                  AI 제안 아젠다 <span class="ai-badge">{{ selectedAgendas.length }}/{{ aiResult.agendas.length }} 선택</span>
+                </div>
+                <div v-if="!aiResult.agendas.length" class="ai-empty">제안 아젠다 없음</div>
+                <div v-for="(ag, i) in aiResult.agendas" :key="i"
+                  class="ai-check-row" :class="{ selected: selectedAgendas.includes(i) }"
+                  @click="toggleAgenda(i)">
+                  <span class="ai-checkbox" :class="{ checked: selectedAgendas.includes(i) }">
+                    <svg v-if="selectedAgendas.includes(i)" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                  </span>
+                  <div class="ai-check-content">
+                    <div class="ag-content">{{ ag.content }}</div>
+                    <div v-if="ag.department" class="ag-dept">담당: {{ ag.department }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 유관부서 -->
+              <div class="ai-section">
+                <div class="ai-section-title">
+                  <svg width="13" height="13" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                  AI 추천 유관부서 <span class="ai-badge">{{ selectedRelDepts.length }}/{{ aiResult.related_depts.length }} 선택</span>
+                </div>
+                <div v-if="!aiResult.related_depts.length" class="ai-empty">추천 유관부서 없음</div>
+                <div class="ai-dept-chips">
+                  <span v-for="dept in aiResult.related_depts" :key="dept"
+                    class="ai-dept-chip" :class="{ selected: selectedRelDepts.includes(dept) }"
+                    @click="toggleRelDept(dept)">
+                    <svg v-if="selectedRelDepts.includes(dept)" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                    {{ dept }}
+                  </span>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="modal-footer" style="justify-content:space-between">
+            <button class="btn-cancel" @click="uploadStep=1; aiResult=null">← 다시 입력</button>
+            <button class="btn-primary" :disabled="aiAnalyzing || !aiResult" @click="doAddFile">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="margin-right:4px"><path d="M5 13l4 4L19 7"/></svg>
+              아카이브 등록 확정
+            </button>
+          </div>
+        </template>
+
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ── 파일 AI 검토 패널 ── -->
+  <Teleport to="body">
+    <div v-if="fileReviewPanel" class="archive-modal-backdrop" @click.self="fileReviewPanel=null">
+      <div class="archive-modal-box file-review-box" :class="{ 'day-mode': !nightMode }">
         <div class="modal-header">
-          <span class="modal-title">자료 노드 생성</span>
-          <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-        </div>
-        <div class="modal-body">
-          <div class="form-field">
-            <label>파일 이름 <span class="req">*</span></label>
-            <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span class="file-type-tag" :style="{color: FILE_TYPE_COLORS[fileReviewPanel.node.fileType]||'#94a3b8', background: 'rgba(0,0,0,.12)', padding:'2px 8px', borderRadius:'99px', fontSize:'11px', fontWeight:700, flexShrink:0}">{{ fileReviewPanel.node.fileType }}</span>
+            <span class="modal-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fileReviewPanel.node.label }}</span>
           </div>
-          <div class="form-field">
-            <label>파일 유형</label>
-            <div class="file-type-row">
-              <button v-for="ft in FILE_TYPES" :key="ft"
-                class="file-type-btn" :class="{ active: uploadForm.fileType===ft }"
-                :style="uploadForm.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
-                @click="uploadForm.fileType=ft">{{ ft }}</button>
+          <button class="modal-close" @click="fileReviewPanel=null"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+        </div>
+
+        <div class="modal-body ai-result-body">
+          <!-- 액션 버튼 행 -->
+          <div class="fr-actions">
+            <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+              {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
+            </button>
+            <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              {{ fileReviewPanel.extracting ? '추출 중...' : '과제(아젠다) 추출' }}
+            </button>
+            <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
+              {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정 (GraphRAG)' }}
+            </button>
+          </div>
+
+          <!-- AI 검토 없을 때 -->
+          <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="ai-empty" style="text-align:center;padding:32px 0">
+            <div style="font-size:13px;color:#64748b;margin-bottom:12px">AI 검토 결과가 없습니다.</div>
+            <button class="btn-primary" style="font-size:12px;padding:7px 16px" @click="rerunFileReview">AI 검토 시작</button>
+          </div>
+
+          <!-- 로딩 -->
+          <div v-else-if="fileReviewAnalyzing" class="ai-loading-wrap">
+            <div class="ai-loading-spinner"></div>
+            <div class="ai-loading-text">AI가 자료를 재검토하고 있습니다…</div>
+          </div>
+
+          <!-- 검토 결과 -->
+          <template v-else-if="fileReviewPanel.aiResult">
+            <!-- 점수 -->
+            <div class="ai-score-section">
+              <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
+              <div class="ai-score-gauge-wrap">
+                <svg width="110" height="60" viewBox="0 0 110 60">
+                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
+                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
+                    :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
+                    stroke-width="10" stroke-linecap="round"
+                    :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
+                  <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
+                    :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
+                </svg>
+                <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
+                  {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
+                </div>
+              </div>
+              <div class="ai-feedback-list">
+                <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
+                  <span class="fb-dot">•</span> {{ fb }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 발제자료 기준 체크 -->
+            <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="ai-section">
+              <div class="ai-section-title">
+                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                발제자료 검토 기준 (Why/What/How)
+              </div>
+              <div class="criteria-list">
+                <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
+                  <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
+                    <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                    <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                  </span>
+                  <div class="criteria-text">
+                    <div class="criteria-label">{{ c.label }}</div>
+                    <div class="criteria-desc">{{ c.desc }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- 추출된 아젠다 -->
+          <div v-if="fileReviewPanel.extractedAgendas.length" class="ai-section">
+            <div class="ai-section-title">
+              <svg width="13" height="13" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)
+            </div>
+            <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
+              <div class="ea-title">{{ ag.title }}</div>
+              <ul class="ea-bullets">
+                <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
+              </ul>
             </div>
           </div>
-          <div class="form-field">
-            <label>연결할 노드 <span class="req">*</span></label>
-            <select v-model="uploadForm.connectNodeId" class="form-input">
-              <option value="">노드 선택...</option>
-              <option v-for="n in connectableNodes" :key="n.id" :value="n.id">[{{ n.typeLabel }}] {{ n.label }}</option>
-            </select>
-          </div>
-          <div v-if="uploadForm.connectNodeId" class="form-field">
-            <label>관계 타입</label>
-            <div class="rel-type-row">
-              <button v-for="rel in availableRels(uploadForm.connectNodeId)" :key="rel"
-                class="rel-type-btn" :class="{ active: uploadForm.relType===rel }"
-                :style="uploadForm.relType===rel ? { borderColor: REL_COLORS[rel]||'#a78bfa', color: REL_COLORS[rel]||'#a78bfa', background: (REL_COLORS[rel]||'#a78bfa')+'22' } : {}"
-                @click="uploadForm.relType=rel">{{ rel }}</button>
-            </div>
-          </div>
-          <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
-            <span class="conn-node">{{ connectableNodes.find(n=>n.id===uploadForm.connectNodeId)?.label }}</span>
-            <span class="conn-arrow">→</span>
-            <span class="conn-rel" :style="{color:REL_COLORS[uploadForm.relType]||'#a78bfa'}">{{ uploadForm.relType }}</span>
-            <span class="conn-arrow">→</span>
-            <span class="conn-node file">{{ uploadForm.label }}</span>
-            <span class="file-type-tag" :style="{color: uploadForm.fileType==='회의록'?'#60a5fa':uploadForm.fileType==='발제자료'?'#a78bfa':'#34d399'}">{{ uploadForm.fileType }}</span>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showUploadModal=false">취소</button>
-          <button class="btn-primary" :disabled="!uploadForm.label.trim()||!uploadForm.connectNodeId" @click="doAddFile">그래프에 추가</button>
         </div>
       </div>
     </div>
   </Teleport>
+
   <!-- 회의체 설정 모달 -->
   <Teleport to="body">
     <div v-if="settingsModal" class="archive-modal-backdrop" @click.self="closeSettings">
@@ -1656,6 +2175,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="form-field">
               <label>소개</label>
               <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+            </div>
+            <div class="form-field">
+              <label>회의체 지침</label>
+              <textarea v-model="settingsModal.form.guidelines" class="form-input form-textarea" rows="4" placeholder="이 회의체의 운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
           </div>
           <div class="settings-section">
@@ -1683,7 +2206,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <div class="sm-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
                 <div class="sm-info">
                   <span class="sm-name">{{ mb.name }}</span>
-                  <span class="sm-email">{{ mb.email }}</span>
+                  <span class="sm-email">{{ mb.position || mb.department || mb.email }}</span>
                 </div>
                 <select v-model="mb.role" class="sm-role-select">
                   <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
@@ -1698,151 +2221,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <div class="modal-footer">
           <button class="btn-cancel" @click="closeSettings">취소</button>
           <button class="btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
-
-  <!-- ── Node Edit Modal ── -->
-  <Teleport to="body">
-    <div v-if="nodeEditModal" class="archive-modal-backdrop" @click.self="closeNodeEdit">
-      <div class="archive-modal-box node-edit-modal-box" :class="{ 'day-mode': !nightMode }">
-        <div class="modal-header">
-          <span class="modal-title">
-            <span v-if="nodeEditModal.type==='org'">&#x1F3E2; 조직 편집</span>
-            <span v-else-if="nodeEditModal.type==='dept'">&#x1F4CB; 부서 편집</span>
-            <span v-else-if="nodeEditModal.type==='session'">&#x1F4C5; 회의 편집</span>
-            <span v-else-if="nodeEditModal.type==='file'">&#x1F4C4; 파일 편집</span>
-            <span v-else-if="nodeEditModal.type==='person'">&#x1F464; 구성원 편집</span>
-          </span>
-          <button class="modal-close-btn" @click="closeNodeEdit">✕</button>
-        </div>
-        <div class="modal-body">
-          <!-- Org: name only -->
-          <template v-if="nodeEditModal.type==='org'">
-            <div class="modal-field">
-              <label>조직명 <span class="req">*</span></label>
-              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="조직명 입력" />
-            </div>
-          </template>
-
-          <!-- Dept: name + member list -->
-          <template v-if="nodeEditModal.type==='dept'">
-            <div class="modal-field">
-              <label>부서명 <span class="req">*</span></label>
-              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="부서명 입력" />
-            </div>
-            <div class="modal-field">
-              <div class="member-list-header">
-                <label>구성원 <span style="color:#64748b;font-weight:400">({{ nodeEditModal.form.members.length }}명)</span></label>
-                <button v-if="!showNewMemberForm" class="btn-add-member-open" @click="openNewMemberForm">+ 구성원 추가</button>
-              </div>
-
-              <!-- 구성원 추가 폼 -->
-              <div v-if="showNewMemberForm" class="new-member-form">
-                <div class="new-member-form-grid">
-                  <div class="nmf-field">
-                    <label class="nmf-label">이름 <span class="req">*</span></label>
-                    <input v-model="newMemberForm.name" class="nmf-input" placeholder="홍길동" />
-                  </div>
-                  <div class="nmf-field">
-                    <label class="nmf-label">직책/직급</label>
-                    <input v-model="newMemberForm.position" class="nmf-input" placeholder="선임연구원" />
-                  </div>
-                  <div class="nmf-field">
-                    <label class="nmf-label">이메일</label>
-                    <input v-model="newMemberForm.email" class="nmf-input" placeholder="user@company.com" type="email" />
-                  </div>
-                  <div class="nmf-field">
-                    <label class="nmf-label">연락처</label>
-                    <input v-model="newMemberForm.phone" class="nmf-input" placeholder="010-0000-0000" />
-                  </div>
-                  <div class="nmf-field nmf-field-full">
-                    <label class="nmf-label">역할</label>
-                    <div class="nmf-role-row">
-                      <label v-for="r in [{v:'admin',l:'간사'},{v:'presenter',l:'발제자'},{v:'member',l:'위원'}]" :key="r.v" class="nmf-radio">
-                        <input type="radio" v-model="newMemberForm.role" :value="r.v" />
-                        {{ r.l }}
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                <div class="nmf-actions">
-                  <button class="btn-cancel" @click="cancelNewMemberForm">취소</button>
-                  <button class="btn-confirm" :disabled="!newMemberForm.name.trim()" @click="addDeptMember">추가</button>
-                </div>
-              </div>
-
-              <!-- 구성원 목록 -->
-              <div class="node-edit-member-list">
-                <div v-if="!nodeEditModal.form.members.length" class="node-edit-empty">구성원이 없습니다</div>
-                <div v-for="(mb, idx) in nodeEditModal.form.members" :key="mb.userId" class="node-edit-member-row">
-                  <div class="node-edit-avatar" :style="{background: avatarColor(mb.userName)}">{{ initials(mb.userName) }}</div>
-                  <div class="node-edit-member-info">
-                    <div class="node-edit-member-top">
-                      <span class="node-edit-name">{{ mb.userName }}</span>
-                      <span v-if="mb.position" class="node-edit-position">{{ mb.position }}</span>
-                    </div>
-                    <div class="node-edit-member-sub">
-                      <span v-if="mb.email" class="node-edit-sub-text">{{ mb.email }}</span>
-                      <span v-if="mb.phone" class="node-edit-sub-text">{{ mb.phone }}</span>
-                    </div>
-                  </div>
-                  <select v-model="mb.role" class="role-select-sm">
-                    <option value="admin">간사</option>
-                    <option value="presenter">발제자</option>
-                    <option value="member">위원</option>
-                  </select>
-                  <button class="remove-btn-sm" @click="removeDeptMember(idx)">×</button>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- Session: label only -->
-          <template v-if="nodeEditModal.type==='session'">
-            <div class="modal-field">
-              <label>회의명 <span class="req">*</span></label>
-              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="회의명 입력" />
-            </div>
-          </template>
-
-          <!-- File: label + fileType -->
-          <template v-if="nodeEditModal.type==='file'">
-            <div class="modal-field">
-              <label>파일명 <span class="req">*</span></label>
-              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="파일명" />
-            </div>
-            <div class="modal-field">
-              <label>파일 유형</label>
-              <div class="file-type-row">
-                <button v-for="ft in FILE_TYPES" :key="ft"
-                  class="file-type-btn" :class="{ active: nodeEditModal.form.fileType===ft }"
-                  :style="nodeEditModal.form.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
-                  @click="nodeEditModal.form.fileType=ft">{{ ft }}</button>
-              </div>
-            </div>
-          </template>
-
-          <!-- Person: name + role -->
-          <template v-if="nodeEditModal.type==='person'">
-            <div class="modal-field">
-              <label>이름 <span class="req">*</span></label>
-              <input v-model="nodeEditModal.form.label" class="modal-input" placeholder="이름 입력" />
-            </div>
-            <div class="modal-field">
-              <label>역할</label>
-              <select v-model="nodeEditModal.form.role" class="modal-input">
-                <option value="admin">간사</option>
-                <option value="presenter">발제자</option>
-                <option value="member">위원</option>
-              </select>
-            </div>
-          </template>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="closeNodeEdit">취소</button>
-          <button class="btn-confirm" @click="saveNodeEdit">저장</button>
         </div>
       </div>
     </div>
@@ -1980,6 +2358,28 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-canvas:active { cursor:grabbing; }
 .graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#475569;font-size:13px; }
 .graph-loading-spinner { width:28px;height:28px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .8s linear infinite; }
+
+/* Zoom controls */
+.graph-zoom-controls {
+  position:absolute; top:10px; z-index:30;
+  display:flex; flex-direction:column; gap:3px;
+  pointer-events:all;
+}
+.zoom-btn {
+  width:30px; height:30px; border-radius:7px;
+  background:rgba(15,23,42,.75); border:1px solid rgba(255,255,255,.15);
+  color:#94a3b8; font-size:16px; font-weight:700; line-height:1;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:all .15s;
+  backdrop-filter:blur(6px);
+}
+.zoom-btn:hover { background:rgba(59,130,246,.35); border-color:rgba(96,165,250,.5); color:#93c5fd; }
+.zoom-reset { font-size:14px; }
+.zoom-pan { font-size:14px; }
+.zoom-btn.active { background:rgba(59,130,246,.5); border-color:rgba(96,165,250,.7); color:#bfdbfe; }
+.day-mode .zoom-btn { background:rgba(255,255,255,.85); border-color:#e2e8f0; color:#475569; }
+.day-mode .zoom-btn:hover { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
+.day-mode .zoom-btn.active { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .graph-legend { position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(15,23,42,.75);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:6px 12px;font-size:11px;color:#64748b; }
 .legend-item { display:flex;align-items:center;gap:5px; }
@@ -2009,6 +2409,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .group-header-left { display:flex;align-items:center;gap:8px;min-width:0; }
 .group-dot { width:7px;height:7px;background:#60a5fa;border-radius:50%;flex-shrink:0; }
 .group-title { font-size:13px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.group-type-text { font-size:11px;font-weight:600;color:#60a5fa;white-space:nowrap;flex-shrink:0; }
 .group-meta-right { display:flex;align-items:center;gap:6px;flex-shrink:0; }
 .group-count { font-size:11px;color:#334155; }
 .group-body { border-top:1px solid rgba(255,255,255,.05);padding:8px 12px;display:flex;flex-direction:column;gap:8px; }
@@ -2202,6 +2603,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
   box-shadow: 0 0 12px rgba(96,165,250,.35), 0 2px 8px rgba(0,0,0,.45);
 }
 .float-btn-item:hover .doc-preview { box-shadow: 0 0 20px rgba(96,165,250,.55), 0 4px 14px rgba(0,0,0,.5); }
+.session-preview {
+  width: 44px; height: 32px; border-radius: 5px;
+  background: rgba(5,150,105,0.55);
+  border: 2px solid rgba(52,211,153,.7); color: #6ee7b7;
+  box-shadow: 0 0 12px rgba(52,211,153,.35), 0 2px 8px rgba(0,0,0,.45);
+}
+.float-btn-item:hover .session-preview { box-shadow: 0 0 20px rgba(52,211,153,.65), 0 4px 14px rgba(0,0,0,.5); }
 .float-btn-label {
   font-size: 10px; font-weight: 700; color: rgba(255,255,255,.65);
   white-space: nowrap;
@@ -2228,6 +2636,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .ghost-doc {
   width: 44px; height: 34px; border-radius: 6px;
   background: rgba(15,23,42,.9); border: 2px solid rgba(96,165,250,.8); color: #60a5fa;
+}
+.ghost-session {
+  width: 44px; height: 32px; border-radius: 5px;
+  background: rgba(5,150,105,0.6); border: 2px solid rgba(52,211,153,.85); color: #6ee7b7;
 }
 .ghost-label {
   font-size: 10px; font-weight: 700; color: #fff;
@@ -2352,6 +2764,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-modal-box .settings-section:last-child { border-bottom:none;padding-bottom:0; }
 .archive-modal-box .settings-section-title { font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
 .archive-modal-box .member-cnt-badge { font-size:11px;font-weight:600;background:rgba(255,255,255,.08);border-radius:99px;padding:1px 7px;color:#64748b; }
+.archive-modal-box .modal-select { cursor:pointer; }
+.archive-modal-box .ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
+.archive-modal-box .ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+.archive-modal-box .ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
+.archive-modal-box .ms-role-btn.admin:hover { background:#2563eb; }
 .archive-modal-box .member-search-wrap { display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.04); }
 .archive-modal-box .member-search-input { flex:1;border:none;background:none;color:#e2e8f0;font-size:13px;outline:none; }
 .archive-modal-box .member-search-input::placeholder { color:#475569; }
@@ -2427,6 +2844,98 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* 툴팁 편집 버튼 */
 .tt-edit-btn { margin-top:6px;width:100%;padding:5px 0;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;cursor:pointer;transition:all .15s; }
 .tt-edit-btn:hover { background:rgba(96,165,250,.15);border-color:#60a5fa;color:#93c5fd; }
+/* ── Upload 2-step styles ──────────────────────────────────── */
+.upload-step-bar { display:flex;align-items:center;gap:8px;padding:14px 20px 0;font-size:12px; }
+.upload-step { display:flex;align-items:center;gap:6px;color:#475569; }
+.upload-step.active .step-num { background:#3b82f6;color:#fff; }
+.upload-step.done .step-num { background:#10b981;color:#fff; }
+.step-num { width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.12);color:#64748b;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.step-label { font-size:11px;font-weight:500; }
+.upload-step.active .step-label { color:#93c5fd; }
+.upload-step.done .step-label { color:#6ee7b7; }
+.step-sep { color:#475569;font-size:13px; }
+.upload-dept-hint { display:flex;align-items:center;gap:5px;font-size:11px;color:#f59e0b;margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2); }
+/* AI result body */
+.ai-result-body { max-height:420px;overflow-y:auto; }
+
+/* ── 파일 AI 검토 패널 ── */
+.file-review-box { width:500px; }
+.fr-actions { display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06); }
+.fr-action-btn { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s; }
+.fr-action-btn:hover:not(:disabled) { background:rgba(255,255,255,.1);color:#e2e8f0; }
+.fr-action-btn:disabled { opacity:.4;cursor:not-allowed; }
+.fr-action-btn.accent { border-color:rgba(99,102,241,.4);color:#818cf8; }
+.fr-action-btn.accent:hover:not(:disabled) { background:rgba(99,102,241,.12); }
+.fr-action-btn.green { border-color:rgba(16,185,129,.4);color:#34d399; }
+.fr-action-btn.green:hover:not(:disabled) { background:rgba(16,185,129,.1); }
+
+/* 발제자료 기준 체크리스트 */
+.criteria-list { display:flex;flex-direction:column;gap:8px;margin-top:4px; }
+.criteria-row { display:flex;align-items:flex-start;gap:8px; }
+.criteria-dot { width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px; }
+.criteria-dot.pass { background:rgba(16,185,129,.2);color:#10b981; }
+.criteria-dot.fail { background:rgba(239,68,68,.15);color:#ef4444; }
+.criteria-text { display:flex;flex-direction:column;gap:2px; }
+.criteria-label { font-size:12px;font-weight:600;color:#e2e8f0; }
+.criteria-desc { font-size:11px;color:#64748b;line-height:1.4; }
+
+/* 추출된 아젠다 카드 */
+.extracted-agenda-card { background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;margin-bottom:8px; }
+.ea-title { font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px; }
+.ea-bullets { padding-left:16px;margin:0;display:flex;flex-direction:column;gap:3px; }
+.ea-bullets li { font-size:12px;color:#94a3b8;line-height:1.5; }
+
+/* day-mode 오버라이드 */
+.archive-modal-box.day-mode .fr-action-btn { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
+.archive-modal-box.day-mode .fr-action-btn:hover:not(:disabled) { background:#f1f5f9;color:#1e293b; }
+.archive-modal-box.day-mode .fr-action-btn.accent { border-color:rgba(99,102,241,.3);color:#6366f1; }
+.archive-modal-box.day-mode .fr-action-btn.green { border-color:rgba(16,185,129,.3);color:#059669; }
+.archive-modal-box.day-mode .criteria-label { color:#1e293b; }
+.archive-modal-box.day-mode .criteria-desc { color:#64748b; }
+.archive-modal-box.day-mode .extracted-agenda-card { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .ea-title { color:#1e293b; }
+.archive-modal-box.day-mode .ea-bullets li { color:#475569; }
+.ai-loading-wrap { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px 20px;text-align:center; }
+.ai-loading-spinner { width:36px;height:36px;border:3px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg) } }
+.ai-loading-text { font-size:13px;color:#94a3b8;line-height:1.6; }
+.ai-score-section { margin-bottom:16px; }
+.ai-score-label { font-size:11px;color:#94a3b8;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em; }
+.ai-score-gauge-wrap { display:flex;align-items:center;gap:10px;margin-bottom:8px; }
+.ai-score-desc { font-size:13px;font-weight:700; }
+.ai-feedback-list { display:flex;flex-direction:column;gap:4px; }
+.ai-feedback-item { font-size:12px;color:#94a3b8;line-height:1.5;display:flex;gap:4px; }
+.fb-dot { color:#6366f1;flex-shrink:0;font-size:14px;line-height:1.3; }
+.ai-section { margin-bottom:14px; }
+.ai-section-title { display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px; }
+.ai-badge { font-size:10px;font-weight:500;padding:1px 6px;border-radius:99px;background:rgba(255,255,255,.08);color:#94a3b8;margin-left:auto; }
+.ai-empty { font-size:12px;color:#475569;padding:4px 0; }
+.ai-check-row { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03);margin-bottom:6px;cursor:pointer;transition:all .15s; }
+.ai-check-row:hover { border-color:rgba(99,102,241,.3); }
+.ai-check-row.selected { border-color:rgba(99,102,241,.4);background:rgba(99,102,241,.07); }
+.ai-checkbox { width:16px;height:16px;border-radius:4px;border:1.5px solid rgba(255,255,255,.2);background:rgba(255,255,255,.05);flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s; }
+.ai-checkbox.checked { background:#6366f1;border-color:#6366f1; }
+.ai-check-content { flex:1;min-width:0; }
+.ag-content { font-size:12px;color:#e2e8f0;font-weight:500;line-height:1.4; }
+.ag-dept { font-size:10px;color:#64748b;margin-top:2px; }
+.ai-dept-chips { display:flex;flex-wrap:wrap;gap:6px; }
+.ai-dept-chip { padding:5px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s; }
+.ai-dept-chip:hover { border-color:rgba(16,185,129,.4);color:#6ee7b7; }
+.ai-dept-chip.selected { border-color:#10b981;background:rgba(16,185,129,.1);color:#6ee7b7; }
+/* day-mode overrides */
+.archive-modal-box.day-mode .step-num { background:#e2e8f0;color:#475569; }
+.archive-modal-box.day-mode .upload-step.active .step-label { color:#3b82f6; }
+.archive-modal-box.day-mode .upload-step.done .step-label { color:#10b981; }
+.archive-modal-box.day-mode .ai-section-title { color:#1e293b; }
+.archive-modal-box.day-mode .ag-content { color:#1e293b; }
+.archive-modal-box.day-mode .ai-check-row { background:#f8fafc;border-color:#e2e8f0; }
+.archive-modal-box.day-mode .ai-check-row.selected { border-color:#6366f1;background:#eef2ff; }
+.archive-modal-box.day-mode .ai-checkbox { border-color:#cbd5e1;background:#fff; }
+.archive-modal-box.day-mode .ai-dept-chip { background:#f8fafc;border-color:#e2e8f0;color:#64748b; }
+.archive-modal-box.day-mode .ai-dept-chip.selected { background:#ecfdf5;border-color:#10b981;color:#065f46; }
+.archive-modal-box.day-mode .ai-badge { background:#f1f5f9;color:#64748b; }
+.archive-modal-box.day-mode .ai-feedback-item { color:#475569; }
+.archive-modal-box.day-mode .ai-loading-text { color:#64748b; }
 /* Node edit modal */
 .node-edit-modal-box { width:480px; }
 .member-list-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:6px; }
@@ -2437,6 +2946,42 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .new-member-form { border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:14px 14px 10px;background:rgba(255,255,255,.03);margin-bottom:10px; }
 .new-member-form-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:10px; }
 .nmf-field { display:flex;flex-direction:column;gap:4px; }
+/* ── Stats view ── */
+.stats-view { padding: 20px 24px; overflow-y: auto; height: 100%; }
+.stats-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+.stats-kpi { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 16px 20px; text-align: center; }
+.stats-kpi-value { font-size: 28px; font-weight: 700; color: #e2e8f0; line-height: 1; }
+.stats-kpi-label { font-size: 12px; color: #64748b; margin-top: 6px; }
+.day-mode .stats-kpi { background: #fff; border-color: #e2e8f0; }
+.day-mode .stats-kpi-value { color: #1e293b; }
+.stats-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.stats-chart-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 18px 20px; }
+.day-mode .stats-chart-card { background: #fff; border-color: #e2e8f0; }
+.stats-chart-title { font-size: 13px; font-weight: 600; color: #94a3b8; margin-bottom: 14px; }
+.day-mode .stats-chart-title { color: #64748b; }
+.stats-empty { font-size: 12px; color: #475569; text-align: center; padding: 20px 0; }
+.stats-bar-chart { display: flex; flex-direction: column; gap: 9px; }
+.stats-bar-row { display: flex; align-items: center; gap: 8px; }
+.stats-bar-label { width: 90px; font-size: 11px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.day-mode .stats-bar-label { color: #64748b; }
+.stats-bar-track { flex: 1; height: 10px; background: rgba(255,255,255,.07); border-radius: 99px; overflow: hidden; }
+.day-mode .stats-bar-track { background: #f1f5f9; }
+.stats-bar-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }
+.stats-bar-fill.blue { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+.stats-bar-fill.purple { background: linear-gradient(90deg, #8b5cf6, #ec4899); }
+.stats-bar-val { font-size: 11px; color: #64748b; width: 22px; text-align: right; flex-shrink: 0; }
+.stats-pie-wrap { display: flex; align-items: center; gap: 16px; }
+.stats-pie-svg { width: 120px; height: 120px; flex-shrink: 0; }
+.stats-pie-legend { display: flex; flex-direction: column; gap: 6px; }
+.stats-pie-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.stats-pie-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.stats-pie-text { color: #94a3b8; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
+.day-mode .stats-pie-text { color: #64748b; }
+.stats-pie-pct { color: #475569; font-weight: 600; }
+.stats-line-wrap { display: flex; flex-direction: column; }
+.stats-line-svg { width: 100%; height: 100px; }
+.stats-line-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+.stats-line-label { font-size: 10px; color: #64748b; }
 .nmf-field-full { grid-column:1/-1; }
 .nmf-label { font-size:11px;color:#94a3b8;font-weight:500; }
 .nmf-input { background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;width:100%;box-sizing:border-box; }

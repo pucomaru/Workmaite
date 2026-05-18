@@ -139,12 +139,11 @@ const showNewPw = ref(false)
 const showConfirmPw = ref(false)
 
 function openProfileSettings() {
-  const extra = JSON.parse(localStorage.getItem('profileExtra') || '{}')
   profileForm.value = {
     name: auth.user?.name || '',
-    organization: extra.organization || '',
+    organization: auth.user?.organization || '',
     department: auth.user?.department || '',
-    position: extra.position || '',
+    position: auth.user?.position || '',
     password: '',
     passwordConfirm: '',
   }
@@ -161,13 +160,14 @@ async function saveProfileSettings() {
   profileSaving.value = true
   profileMsg.value = ''
   try {
-    const payload = { name: profileForm.value.name, department: profileForm.value.department }
+    const payload = {
+      name: profileForm.value.name,
+      department: profileForm.value.department || null,
+      organization: profileForm.value.organization || null,
+      position: profileForm.value.position || null,
+    }
     if (profileForm.value.password) payload.password = profileForm.value.password
     await auth.updateProfile(payload)
-    localStorage.setItem('profileExtra', JSON.stringify({
-      organization: profileForm.value.organization,
-      position: profileForm.value.position,
-    }))
     profileMsg.value = 'ok:저장되었습니다.'
     profileForm.value.password = ''
     profileForm.value.passwordConfirm = ''
@@ -393,7 +393,7 @@ async function saveProfileSettings() {
               <!-- 조직 -->
               <div class="ps-field">
                 <label class="ps-label">조직</label>
-                <input v-model="profileForm.organization" class="form-control" placeholder="예: SK텔레콤" />
+                <input v-model="profileForm.organization" class="form-control" placeholder="-" />
               </div>
               <!-- 부서 -->
               <div class="ps-field">
@@ -402,8 +402,8 @@ async function saveProfileSettings() {
               </div>
               <!-- 직위 -->
               <div class="ps-field">
-                <label class="ps-label">직위</label>
-                <input v-model="profileForm.position" class="form-control" placeholder="예: 과장" />
+                <label class="ps-label">직급</label>
+                <input v-model="profileForm.position" class="form-control" placeholder="Manager" />
               </div>
               <!-- 이메일 (readonly) -->
               <div class="ps-field">

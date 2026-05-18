@@ -898,3 +898,95 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
         },
         "sessions": {"total": len(sessions), "ended": sum(1 for s in sessions if s.status == "ended")},
     }
+
+
+# ─── 아카이브 자료 AI 분석 ─────────────────────
+@router.post("/archive/analyze-file")
+async def analyze_archive_file(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    아카이브에서 자료 업로드 시 AI가 문서를 검토하고
+    - 적합성 점수(0-100)
+    - 검토 의견 (피드백 항목)
+    - 제안 아젠다 목록
+    - 유관부서 목록
+    을 반환한다. GraphDB(온톨로지) 맥락도 활용한다.
+    """
+    import json as _json
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    file_name: str = data.get("file_name", "")
+    file_type: str = data.get("file_type", "")
+    dept_name: str = data.get("dept_name", "")
+    graph_context: str = data.get("graph_context", "")  # JSON-serialised nodes/edges summary
+
+    # 글로벌 암묵지 컨텍스트 로드
+    knowledge_items = _get_knowledge(db)
+    knowledge_text = "\n".join(
+        f"[{k['category']}] {k['title']}: {k['content']}" for k in knowledge_items[:10]
+    ) if knowledge_items else "없음"
+
+    llm = ChatOpenAI(
+        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        temperature=0.2,
+        api_key=os.getenv("OPENAI_API_KEY"),
+    )
+
+    system_msg = SystemMessage(content="""당신은 조직 온톨로지·지식 관리 전문 AI입니다.
+파일 이름, 유형, 업로드 부서, 그리고 현재 조직 그래프(GraphDB) 맥락을 바탕으로
+해당 자료의 적합성·완성도를 평가하고 아래 JSON을 반드시 반환하세요.
+
+{
+  "score": <0-100 정수>,
+  "feedback": ["피드백 항목1", "피드백 항목2", ...],  // 3-5개, 구체적이고 건설적으로
+  "agendas": [
+    {"content": "아젠다 내용", "department": "담당부서명"},
+    ...
+  ],  // 1-3개
+  "related_depts": ["부서명1", "부서명2", ...]  // 유관부서 2-4개
+}
+
+- score: 파일명·유형·부서 적합성, 그래프 맥락 연계도 등을 종합한 점수
+- feedback: 보완할 점, 잘된 점 포함
+- agendas: 이 자료가 다음 회의에서 다뤄야 할 아젠다 제안
+- related_depts: 이 자료와 협업이 필요한 유관부서 (그래프에 이미 존재하는 부서 우선)
+반드시 JSON만 반환하고 다른 설명은 쓰지 마세요.""")
+
+    human_msg = HumanMessage(content=f"""파일 이름: {file_name}
+파일 유형: {file_type}
+업로드 부서: {dept_name}
+
+[현재 조직 그래프 맥락]
+{graph_context or '(그래프 정보 없음)'}
+
+[조직 암묵지]
+{knowledge_text}
+""")
+
+    try:
+        response = await llm.ainvoke([system_msg, human_msg])
+        raw = response.content.strip()
+        # JSON 추출
+        import re as _re
+        match = _re.search(r'\{[\s\S]*\}', raw)
+        if match:
+            result = _json.loads(match.group(0))
+        else:
+            result = _json.loads(raw)
+        return {
+            "score": int(result.get("score", 70)),
+            "feedback": result.get("feedback", []),
+            "agendas": result.get("agendas", []),
+            "related_depts": result.get("related_depts", []),
+        }
+    except Exception as e:
+        return {
+            "score": 70,
+            "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+            "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+            "related_depts": [],
+        }

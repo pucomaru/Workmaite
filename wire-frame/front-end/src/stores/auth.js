@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import api from '../api'
 
 function safeParseUser() {
@@ -44,5 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  return { user, token, login, loginWithEmail, register, updateProfile, logout }
+  const isStrategicTeam = computed(() => (user.value?.department || '').trim() === '전략기획팀')
+
+  return { user, token, isStrategicTeam, login, loginWithEmail, register, updateProfile, logout }
 })

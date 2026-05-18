@@ -8,15 +8,22 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const myRole = ref(null)
   const currentMembers = ref([])
   const currentLoopIdx = ref(0)   // MeetingNav ↔ SessionsPage 공유
+  const meetingRoles = ref({})    // { [meetingId]: 'admin' | 'presenter' | null }
 
   async function fetchMeetings() {
     const { data } = await api.get('/api/meetings')
     meetings.value = data
+    const roles = {}
+    data.forEach(m => { roles[m.id] = m.my_role ?? null })
+    meetingRoles.value = roles
   }
 
   async function fetchMeeting(id) {
     const { data } = await api.get(`/api/meetings/${id}`)
     currentMeeting.value = data
+    if (data.my_role !== undefined) {
+      meetingRoles.value = { ...meetingRoles.value, [id]: data.my_role }
+    }
     return data
   }
 
@@ -35,10 +42,13 @@ export const useMeetingsStore = defineStore('meetings', () => {
     try {
       const { data } = await api.get(`/api/meetings/${meetingId}/my-role`)
       myRole.value = data.role
+      meetingRoles.value = { ...meetingRoles.value, [meetingId]: data.role }
       return data.role
     } catch {
-      myRole.value = null
-      return null
+      // fallback: meetingRoles에 이미 저장된 값 사용
+      const cached = meetingRoles.value[meetingId] ?? null
+      myRole.value = cached
+      return cached
     }
   }
 
@@ -95,7 +105,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   return {
-    meetings, currentMeeting, myRole, currentMembers, currentLoopIdx,
+    meetings, currentMeeting, myRole, currentMembers, currentLoopIdx, meetingRoles,
     fetchMeetings, fetchMeeting, fetchMembers, fetchRole,
     createMeeting, updateTitle, terminateMeeting, deleteMeeting,
     addMember, updateMemberRole, removeMember, leaveMeeting,

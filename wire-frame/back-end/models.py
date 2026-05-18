@@ -14,6 +14,8 @@ class User(Base):
     employee_id = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
     department = Column(String, nullable=True)
+    organization = Column(String, nullable=True)
+    position = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     meeting_members = relationship("MeetingMember", back_populates="user")
@@ -30,9 +32,13 @@ class Meeting(Base):
     start_date = Column(DateTime)
     end_date = Column(DateTime)
     status = Column(String, default="active")  # active | ended
+    guidelines = Column(Text, nullable=True)
+    meeting_type = Column(String, nullable=True)  # Weekly | Monthly | Quarterly
+    parent_id = Column(Integer, ForeignKey("meetings.id"), nullable=True)  # 소위원회 부모 회의체
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    parent = relationship("Meeting", remote_side="Meeting.id", foreign_keys="Meeting.parent_id", backref="subcommittees")
     members = relationship("MeetingMember", back_populates="meeting")
     agendas = relationship("Agenda", back_populates="meeting")
     todos = relationship("Todo", back_populates="meeting")

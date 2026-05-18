@@ -18,6 +18,8 @@ def register(data: schemas.UserCreate, db: Session = Depends(get_db)):
         employee_id=data.employee_id,
         password_hash=hash_password(data.password),
         department=data.department,
+        organization=data.organization,
+        position=data.position,
     )
     db.add(user)
     db.commit()
@@ -49,6 +51,10 @@ def update_me(
         current_user.name = data.name
     if data.department is not None:
         current_user.department = data.department
+    if data.organization is not None:
+        current_user.organization = data.organization if data.organization else None
+    if data.position is not None:
+        current_user.position = data.position if data.position else None
     if data.password is not None:
         current_user.password_hash = hash_password(data.password)
     db.commit()

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
@@ -15,33 +15,36 @@ const allMembers = ref([])
 const loadingMembers = ref(false)
 
 const showAddModal = ref(false)
-const addForm = ref({ searchQuery: '', searchResults: [], selectedUser: null, role: 'member', position: '' })
-const addSearchLoading = ref(false)
+const addForm = ref({ name: '', email: '', organization: '', department: '', position: '', role: 'presenter' })
 
 const editModal = ref(null)  // { ...member }
 
 const ROLES = [
-  { value: 'chair',     label: '의장', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
-  { value: 'secretary', label: '간사', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  { value: 'member',    label: '위원', color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-  { value: 'observer',  label: '참관', color: '#f59e0b', bg: '#fef3c7', border: '#fde68a' },
+  { value: 'admin',     label: '간사',   color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
+  { value: 'presenter', label: '참여자', color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
 ]
-function roleInfo(r) { return ROLES.find(x => x.value === r) || ROLES[2] }
+function roleInfo(r) { return ROLES.find(x => x.value === r) || ROLES[1] }
 
 // Demo data fallback (shown when API has no data)
 async function fetchAllMembers() {
   loadingMembers.value = true
   try {
-    const meetings = meetingsStore.meetings
-    if (!meetings.length) { allMembers.value = []; return }
-    const results = []
-    await Promise.all(meetings.map(async m => {
-      try {
-        const res = await api.get(`/api/meetings/${m.id}/members`)
-        res.data.forEach(member => results.push({ ...member, meetingTitle: m.title, meetingId: m.id }))
-      } catch {}
+    const res = await api.get('/api/users/all')
+    // Map API response to the shape groupedFilteredMembers expects
+    allMembers.value = res.data.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      employee_id: u.employee_id,
+      department: u.department,
+      organization: u.organization,
+      position: u.position,
+      role: u.meetings[0]?.role || 'presenter',
+      meetingId: u.meetings[0]?.id || null,
+      memberId: u.meetings[0]?.member_id || null,
+      meetingTitle: u.meetings[0]?.title || '',
+      meetings: u.meetings,
     }))
-    allMembers.value = results
   } catch {
     allMembers.value = []
   } finally {
@@ -50,75 +53,78 @@ async function fetchAllMembers() {
 }
 
 const filteredMembers = computed(() => {
-  let list = allMembers.value
-  if (selectedMeetingId.value !== 'all') list = list.filter(m => String(m.meetingId) === String(selectedMeetingId.value))
-  if (activeRoleFilter.value !== 'all') list = list.filter(m => (m.role || 'member') === activeRoleFilter.value)
+  const sid = selectedMeetingId.value
+  let list = allMembers.value.map(m => {
+    // 선택된 회의체가 있으면 해당 meeting 정보로 override
+    const mg = sid !== 'all'
+      ? m.meetings.find(g => String(g.id) === String(sid))
+      : m.meetings[0]
+    return {
+      ...m,
+      role: mg?.role || 'presenter',
+      meetingId: mg?.id || m.meetingId,
+      memberId: mg?.member_id || m.memberId,
+    }
+  })
+  if (sid !== 'all') list = list.filter(m => m.meetings.some(mg => String(mg.id) === String(sid)))
+  if (activeRoleFilter.value !== 'all') list = list.filter(m => m.role === activeRoleFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
   if (q) list = list.filter(m =>
     (m.name || '').toLowerCase().includes(q) ||
     (m.email || '').toLowerCase().includes(q) ||
-    (m.position || '').toLowerCase().includes(q)
+    (m.position || '').toLowerCase().includes(q) ||
+    (m.department || '').toLowerCase().includes(q)
   )
   return list
 })
 
 const baseCounts = computed(() => {
-  const base = selectedMeetingId.value === 'all' ? allMembers.value
-    : allMembers.value.filter(m => String(m.meetingId) === String(selectedMeetingId.value))
+  const sid = selectedMeetingId.value
+  const base = allMembers.value
+    .map(m => {
+      const mg = sid !== 'all' ? m.meetings.find(g => String(g.id) === String(sid)) : m.meetings[0]
+      return { ...m, role: mg?.role || 'presenter' }
+    })
+    .filter(m => sid === 'all' || m.meetings.some(g => String(g.id) === String(sid)))
   const c = { all: base.length }
-  ROLES.forEach(r => { c[r.value] = base.filter(m => (m.role || 'member') === r.value).length })
+  ROLES.forEach(r => { c[r.value] = base.filter(m => m.role === r.value).length })
   return c
 })
 
 onMounted(async () => {
-  await meetingsStore.fetchMeetings()
-  await fetchAllMembers()
-})
-
-// Add member search
-let addTimer = null
-watch(() => addForm.value.searchQuery, q => {
-  clearTimeout(addTimer)
-  if (!q.trim()) { addForm.value.searchResults = []; return }
-  addTimer = setTimeout(async () => {
-    addSearchLoading.value = true
-    try {
-      const res = await api.get('/api/users/search', { params: { q } })
-      addForm.value.searchResults = res.data
-    } catch { addForm.value.searchResults = [] }
-    finally { addSearchLoading.value = false }
-  }, 300)
+  await Promise.all([meetingsStore.fetchMeetings(), fetchAllMembers()])
 })
 
 function openAddModal() {
-  addForm.value = { searchQuery: '', searchResults: [], selectedUser: null, role: 'member', position: '', meetingId: selectedMeetingId.value === 'all' ? (meetingsStore.meetings[0]?.id || '') : selectedMeetingId.value }
+  addForm.value = { name: '', email: '', organization: '', department: '', position: '', role: 'presenter' }
   showAddModal.value = true
 }
 
-function selectAddUser(u) {
-  addForm.value.selectedUser = u
-  addForm.value.searchQuery = u.name || u.email
-  addForm.value.searchResults = []
-}
-
 async function submitAdd() {
-  if (!addForm.value.selectedUser || !addForm.value.meetingId) return
-  try {
-    await api.post(`/api/meetings/${addForm.value.meetingId}/members`, {
-      userId: addForm.value.selectedUser.id,
-      role: addForm.value.role,
-      position: addForm.value.position,
-    })
-    showAddModal.value = false
-    await fetchAllMembers()
-  } catch (e) { alert(e.response?.data?.detail || '추가 실패') }
+  if (!addForm.value.name.trim()) return
+  // Add as a local custom member (no API user account)
+  const newMember = {
+    id: 'custom_' + Date.now(),
+    name: addForm.value.name,
+    email: addForm.value.email,
+    organization: addForm.value.organization,
+    department: addForm.value.department,
+    position: addForm.value.position,
+    role: addForm.value.role,
+    meetingId: null,
+    meetingTitle: '',
+    meetings: [],
+    isCustom: true,
+  }
+  allMembers.value = [newMember, ...allMembers.value]
+  showAddModal.value = false
 }
 
 async function removeMember(member) {
   if (!confirm(`${member.name || member.email}을(를) 제거하시겠습니까?`)) return
-  const mid = member.id || member.userId || member.user_id
+  if (!member.meetingId || !member.memberId) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
   try {
-    await api.delete(`/api/meetings/${member.meetingId}/members/${mid}`)
+    await api.delete(`/api/meetings/${member.meetingId}/members/${member.memberId}`)
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
@@ -127,12 +133,38 @@ function openEdit(member) { editModal.value = { ...member } }
 
 async function saveEdit() {
   const m = editModal.value
-  const mid = m.id || m.userId || m.user_id
   try {
-    await api.patch(`/api/meetings/${m.meetingId}/members/${mid}`, { role: m.role, position: m.position })
+    // Update user profile fields
+    await api.patch(`/api/users/${m.id}`, {
+      name: m.name,
+      organization: m.organization || null,
+      department: m.department || null,
+      position: m.position || null,
+    })
+    // Update meeting role if applicable
+    if (m.meetingId && m.memberId) {
+      await api.patch(`/api/meetings/${m.meetingId}/members/${m.memberId}`, { role: m.role })
+    }
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '변경 실패') }
   editModal.value = null
+}
+
+async function updateMemberRole(member, newRole) {
+  // filteredMembers에서 이미 선택된 회의체 기준 meetingId/memberId가 주입된 상태
+  const meetingId = member.meetingId
+  const memberId = member.memberId
+  if (!meetingId || !memberId) { alert('회의체 정보가 없어 역할을 변경할 수 없습니다.'); return }
+  try {
+    await api.patch(`/api/meetings/${meetingId}/members/${memberId}`, { role: newRole })
+    // allMembers의 해당 meeting 항목 role 갱신
+    const target = allMembers.value.find(m => m.id === member.id)
+    if (target) {
+      const mg = target.meetings.find(g => String(g.id) === String(meetingId))
+      if (mg) mg.role = newRole
+      if (String(target.meetingId) === String(meetingId)) target.role = newRole
+    }
+  } catch (e) { alert(e.response?.data?.detail || '역할 변경 실패') }
 }
 
 const expandedRows = ref(new Set())
@@ -142,19 +174,8 @@ function toggleExpand(key) {
   expandedRows.value = s
 }
 
-// Group by email (same person in multiple meetings → 1 row)
-const groupedFilteredMembers = computed(() => {
-  const map = new Map()
-  filteredMembers.value.forEach(m => {
-    const key = m.email || m.name || String(m.id)
-    if (!map.has(key)) {
-      map.set(key, { ...m, meetings: [{ id: m.meetingId, title: m.meetingTitle, role: m.role }] })
-    } else {
-      map.get(key).meetings.push({ id: m.meetingId, title: m.meetingTitle, role: m.role })
-    }
-  })
-  return [...map.values()]
-})
+// Each user from /api/users/all is already unique – no grouping needed
+const groupedFilteredMembers = computed(() => filteredMembers.value)
 
 function formatDate(s) {
   if (!s) return '-'
@@ -218,7 +239,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
           <tr>
             <th style="width:200px">이름</th>
             <th style="width:60px">역할</th>
-            <th style="width:120px">회사</th>
+            <th style="width:120px">조직</th>
             <th style="width:120px">부서</th>
             <th style="width:130px">직책</th>
             <th style="width:200px">이메일</th>
@@ -234,26 +255,35 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
-            <td class="cell-role">{{ roleInfo(member.role).label }}</td>
-            <td class="cell-muted">{{ member.company || '-' }}</td>
+            <td class="cell-role">
+              <select class="role-inline-select" :value="member.role" @change="updateMemberRole(member, $event.target.value)">
+                <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
+              </select>
+            </td>
+            <td class="cell-muted">{{ member.organization || '-' }}</td>
             <td class="cell-muted">{{ member.department || '-' }}</td>
             <td class="cell-muted">{{ member.position || '-' }}</td>
             <td class="cell-muted">{{ member.email || '-' }}</td>
             <td class="cell-meetings">
-              <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
-              <template v-if="member.meetings.length > 1">
-                <template v-if="expandedRows.has(member.email||member.name)">
-                  <span v-for="mg in member.meetings.slice(1)" :key="mg.id" class="meeting-tag">{{ mg.title }}</span>
-                  <button class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">접기</button>
+              <template v-if="selectedMeetingId !== 'all'">
+                <span class="meeting-tag">{{ member.meetings.find(g => String(g.id) === String(selectedMeetingId))?.title || '-' }}</span>
+              </template>
+              <template v-else>
+                <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
+                <template v-if="member.meetings.length > 1">
+                  <template v-if="expandedRows.has(member.email||member.name)">
+                    <span v-for="mg in member.meetings.slice(1)" :key="mg.id" class="meeting-tag">{{ mg.title }}</span>
+                    <button class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">접기</button>
+                  </template>
+                  <button v-else class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">
+                    +{{ member.meetings.length - 1 }}개 더보기
+                  </button>
                 </template>
-                <button v-else class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">
-                  +{{ member.meetings.length - 1 }}개 더보기
-                </button>
               </template>
             </td>
             <td>
               <div class="action-btns">
-                <button class="act-btn" @click="openEdit(member)" title="역할 변경">
+                <button class="act-btn" @click="openEdit(member)" title="수정">
                   <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
                 <button class="act-btn danger" @click="removeMember(member)" title="제거">
@@ -285,53 +315,51 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </button>
           </div>
           <div class="modal-body">
-            <!-- Meeting selector -->
-            <div class="form-group">
-              <label class="form-label">회의체</label>
-              <select v-model="addForm.meetingId" class="form-select-sm">
-                <option v-for="m in meetingsStore.meetings" :key="m.id" :value="m.id">{{ m.title }}</option>
-              </select>
-            </div>
-            <!-- User search -->
-            <div class="form-group">
-              <label class="form-label">구성원 검색</label>
-              <div class="rel">
-                <svg class="search-icon-sm" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input v-model="addForm.searchQuery" class="search-input" placeholder="이름 또는 이메일로 검색..." />
-                <span v-if="addSearchLoading" class="spinner-border spinner-border-sm text-muted" style="position:absolute;right:10px;top:50%;transform:translateY(-50%)"></span>
-              </div>
-              <div v-if="addForm.searchResults.length" class="dropdown-results">
-                <div v-for="u in addForm.searchResults" :key="u.id" class="dropdown-item-result" @click="selectAddUser(u)">
-                  <div class="avatar avatar-xs" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
-                  <div>
-                    <div style="font-size:13px;font-weight:600;color:#1e293b">{{ u.name || '이름없음' }}</div>
-                    <div style="font-size:11px;color:var(--text-muted)">{{ u.email }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <!-- Role & position -->
+            <!-- Name & Email -->
             <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">이름 <span class="req">*</span></label>
+                <input v-model="addForm.name" class="form-input-sm" placeholder="홍길동" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">이메일</label>
+                <input v-model="addForm.email" class="form-input-sm" placeholder="example@company.com" />
+              </div>
+            </div>
+            <!-- Organization & Department -->
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">조직명</label>
+                <input v-model="addForm.organization" class="form-input-sm" placeholder="예: 워크메이트" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">부서명</label>
+                <input v-model="addForm.department" class="form-input-sm" placeholder="예: 전략기획팀" />
+              </div>
+            </div>
+            <!-- Position & Role -->
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">직책</label>
+                <input v-model="addForm.position" class="form-input-sm" placeholder="예: 팀장" />
+              </div>
               <div class="form-group">
                 <label class="form-label">역할</label>
                 <select v-model="addForm.role" class="form-select-sm">
                   <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label class="form-label">직책</label>
-                <input v-model="addForm.position" class="form-input-sm" placeholder="예: 팀장" />
-              </div>
             </div>
           </div>
           <div class="modal-footer">
             <button class="btn-cancel" @click="showAddModal = false">취소</button>
-            <button class="btn-primary" :disabled="!addForm.selectedUser || !addForm.meetingId" @click="submitAdd">추가</button>
+            <button class="btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">추가</button>
           </div>
         </div>
       </div>
 
-      <!-- Edit modal -->
+
+      <!-- Edit member modal -->
       <div v-if="editModal" class="modal-backdrop" @click.self="editModal = null">
         <div class="modal-box">
           <div class="modal-header">
@@ -341,28 +369,36 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </button>
           </div>
           <div class="modal-body">
-            <div class="edit-member-info">
-              <div class="avatar" :style="{ background: avatarColor(editModal.name) }">{{ initials(editModal.name) }}</div>
-              <div>
-                <div style="font-size:14px;font-weight:700;color:#1e293b">{{ editModal.name || '이름없음' }}</div>
-                <div style="font-size:12px;color:var(--text-muted)">{{ editModal.email }}</div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">이름</label>
+                <input v-model="editModal.name" class="form-input-sm" placeholder="홍길동" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">이메일</label>
+                <input :value="editModal.email" class="form-input-sm" disabled style="background:#f8fafc;color:#94a3b8" />
               </div>
             </div>
-            <div class="form-row-2" style="margin-top:14px">
+            <div class="form-row-2">
               <div class="form-group">
-                <label class="form-label">역할</label>
-                <div class="role-options">
-                  <label v-for="r in ROLES" :key="r.value" class="role-option" :class="{ selected: editModal.role === r.value }"
-                    :style="editModal.role === r.value ? { background: r.bg, borderColor: r.border } : {}">
-                    <input type="radio" :value="r.value" v-model="editModal.role" style="display:none" />
-                    <span class="role-dot-sm" :style="{ background: r.color }"></span>
-                    <span :style="{ color: editModal.role === r.value ? r.color : '#64748b', fontWeight: 600, fontSize: '13px' }">{{ r.label }}</span>
-                  </label>
-                </div>
+                <label class="form-label">조직명</label>
+                <input v-model="editModal.organization" class="form-input-sm" placeholder="예: 워크메이트" />
               </div>
+              <div class="form-group">
+                <label class="form-label">부서명</label>
+                <input v-model="editModal.department" class="form-input-sm" placeholder="예: 전략기획팀" />
+              </div>
+            </div>
+            <div class="form-row-2">
               <div class="form-group">
                 <label class="form-label">직책</label>
                 <input v-model="editModal.position" class="form-input-sm" placeholder="예: 팀장" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">역할</label>
+                <select v-model="editModal.role" class="form-select-sm">
+                  <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
+                </select>
               </div>
             </div>
           </div>
@@ -372,6 +408,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
           </div>
         </div>
       </div>
+
     </Teleport>
   </div>
 </template>
@@ -475,6 +512,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .member-name-text { font-weight: 600; color: #1e293b; }
 
 .cell-role { color: #475569; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.role-inline-select { font-size: 12px; font-weight: 600; color: #475569; background: transparent; border: 1px solid rgba(203,213,225,.5); border-radius: 4px; padding: 2px 6px; cursor: pointer; outline: none; }
+.role-inline-select:hover { border-color: var(--primary); color: var(--primary); }
 .cell-muted { color: #475569; }
 .cell-meetings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .meeting-tag {
