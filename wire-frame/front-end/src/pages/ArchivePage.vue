@@ -1572,8 +1572,12 @@ const TYPES=['Draft','In Progress','Done','Pending']
                     <td class="lv-td-name">
                       <div class="lv-name-cell">
                         <svg class="lv-expand-icon" :style="{ transform: expandedMeeting===g.id ? 'rotate(90deg)' : '' }" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-                        <span class="lv-group-name">{{ g.title }}</span>
-                        <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                        <div>
+                          <div class="lv-group-name">{{ g.title }}</div>
+                          <div class="lv-name-meta">
+                            <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td class="lv-td-secretary">
@@ -1802,7 +1806,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <div class="modal-field">
               <label>유형</label>
-              <select v-model="createForm.meeting_type" class="modal-input modal-select">
+              <select v-model="createForm.meetㅇing_type" class="modal-input modal-select">
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
@@ -2718,6 +2722,53 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .doc-meta { color:#94a3b8; }
 .day-mode .doc-btn { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
 .day-mode .doc-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
+.lv-header { display:flex;align-items:center;gap:8px;padding:0 0 10px 0; }
+.lv-title { font-size:13px;font-weight:600;color:#94a3b8; }
+.lv-count { font-size:12px;color:#64748b; }
+.lv-table-wrap { overflow-x:auto;background:#1e293b;border-radius:10px;border:1px solid rgba(255,255,255,.09); }
+.lv-table { width:100%;border-collapse:collapse;font-size:13px; }
+.lv-table thead tr { border-bottom:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.03); }
+.lv-table th { padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left; }
+.lv-group-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;transition:background .1s; }
+.lv-group-row:hover { background:rgba(255,255,255,.04); }
+.lv-group-row td { padding:10px 12px;vertical-align:middle; }
+.lv-name-cell { display:flex;align-items:center;gap:6px; }
+.lv-expand-icon { color:#475569;flex-shrink:0;transition:transform .2s; }
+.lv-group-name { font-size:13px;font-weight:600;color:#e2e8f0; }
+.lv-name-meta { display:flex;align-items:center;margin-top:2px; }
+.lv-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
+.day-mode .lv-table-wrap { background:#fff;border-color:#e2e8f0; }
+.day-mode .lv-table thead tr { border-bottom-color:#e2e8f0;background:#f8fafc; }
+.day-mode .lv-table th { color:#64748b; }
+.day-mode .lv-group-row { border-bottom-color:#f1f5f9; }
+.day-mode .lv-group-row:hover { background:#f8fafc; }
+.day-mode .lv-group-name { color:#1e293b; }
+.lv-expanded-td { padding:0 !important;background:rgba(255,255,255,.02); }
+.lv-hist-table { width:100%;border-collapse:collapse;font-size:12px; }
+.lv-hist-table th { padding:7px 12px;font-size:11px;font-weight:600;color:#64748b;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.lv-hist-row { border-bottom:1px solid rgba(255,255,255,.05); }
+.lv-hist-row td { padding:8px 12px;vertical-align:middle;color:#cbd5e1;font-size:12px; }
+.lv-hist-desc-inner { display:flex;align-items:center;gap:6px; }
+.lv-hist-type-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0;background:#64748b; }
+.ht-session { background:#3b82f6; }
+.ht-report { background:#a855f7; }
+.ht-minutes { background:#22c55e; }
+.lv-hist-manager { color:#94a3b8; }
+.lv-hist-date { color:#94a3b8;white-space:nowrap; }
+.lv-dl-btn { width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#94a3b8;display:flex;align-items:center;justify-content:center;cursor:pointer; }
+.lv-dl-btn:hover { background:rgba(59,130,246,.15);color:#93c5fd;border-color:rgba(96,165,250,.4); }
+.lv-no-file { color:#475569; }
+.lv-hist-empty { padding:14px 12px;color:#64748b;font-size:12px; }
+.day-mode .lv-expanded-td { background:#f8fafc; }
+.day-mode .lv-hist-table th { border-bottom-color:#e2e8f0;background:#f1f5f9;color:#64748b; }
+.day-mode .lv-hist-row { border-bottom-color:#f1f5f9; }
+.day-mode .lv-hist-row td { color:#334155; }
+.day-mode .lv-hist-manager { color:#64748b; }
+.day-mode .lv-hist-date { color:#94a3b8; }
+.day-mode .lv-dl-btn { border-color:#e2e8f0;background:#f1f5f9;color:#475569; }
+.day-mode .lv-dl-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
+.day-mode .lv-title { color:#475569; }
+.day-mode .lv-count { color:#94a3b8; }
 </style>
 
 <!-- Teleport(body) 대상 모달은 scoped CSS가 적용되지 않으므로 별도 전역 스타일 블록 사용 -->

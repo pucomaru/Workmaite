@@ -18,7 +18,7 @@ const routes = [
       { path: 'reports', redirect: '/archive' },
       { path: 'past-meetings', component: () => import('./pages/PastMeetingsPage.vue') },
       { path: 'meetings/:meetingId', redirect: '/meeting-groups' },
-      { path: 'meetings/:meetingId/card-news', component: () => import('./pages/CardNewsPage.vue') },
+      // { path: 'meetings/:meetingId/card-news', component: () => import('./pages/CardNewsPage.vue') },
       { path: 'profile', component: () => import('./pages/ProfilePage.vue') },
     ],
   },
