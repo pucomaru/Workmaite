@@ -1021,17 +1021,22 @@ function buildGraphNodes() {
   const nodes = [], edges = []
   const data = meetingGroups.value
 
-  // ── 계층형(Hierarchical) 레이아웃 ─────────────────────────
-  // Y축: 레벨 깊이 (위→아래: org→dept→meeting_group→session→file)
-  // X축: 같은 레벨 내 좌우 균등 분산
-  // Z축: 약간의 깊이감 (레벨 내 홀짝 교차)
-  const LEVEL_Y  = { org: -320, dept: -160, meeting_group: 30, session: 200, file: 350 }
-  const X_SPREAD = { org: 0, dept: 220, meeting_group: 200, session: 130, file: 90 }
+  // ── 방사형(Radial) 레이아웃 ──────────────────────────────
+  // 중심: 조직 노드
+  // 1링: 부서 노드  (R=230)
+  // 2링: 회의체 노드 (R=460)
+  // 3링: 세션 노드  (R=660)
+  // 4링: 파일 노드  (R=840)
+  // XZ 평면에 배치, Y는 링별 약간의 높낮이
+  const R = { dept: 230, meeting_group: 460, session: 660, file: 840 }
+  const Y = { org: 0, dept: -20, meeting_group: 0, session: 20, file: 10 }
 
-  // ── 조직 root ─────────────────────────────────────────────
+  const TWO_PI = Math.PI * 2
+
+  // ── 조직 root (중심) ──────────────────────────────────────
   const orgIdx = nodes.length
   const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
-  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:LEVEL_Y.org, z:0 })
+  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:Y.org, z:0 })
 
   // ── 부서 수집 ─────────────────────────────────────────────
   const deptIdxMap = new Map()
@@ -1046,60 +1051,64 @@ function buildGraphNodes() {
   })
   const uniqueDepts = [...deptMembersMap.keys()]
 
-  // ── 회의체를 부서 기준으로 그룹핑하여 X 위치 계산 ────────
-  // 회의체 수 기준으로 전체 너비를 먼저 확보
+  // ── 회의체별 각도 먼저 배정 (2링 기준으로 전체 구도 결정) ─
   const mgCount = data.length
-  const mgSpan  = Math.max(mgCount - 1, 0) * X_SPREAD.meeting_group
-  // 각 회의체 X 위치
-  const mgXList = data.map((_, gi) => (gi - (mgCount - 1) / 2) * X_SPREAD.meeting_group)
+  const mgAngles = data.map((_, gi) => (gi / Math.max(mgCount, 1)) * TWO_PI)
 
-  // ── 부서 X 위치: 해당 부서가 참여하는 회의체들의 X 평균 ──
-  const deptXMap = new Map()
+  // ── 부서 각도: 해당 부서가 참여하는 회의체 각도의 평균 ────
+  const deptAngleMap = new Map()
   uniqueDepts.forEach(deptName => {
-    const relatedMgXs = data
-      .map((g, gi) => (g.members||[]).some(mb => (mb.department||mb.dept||'미지정') === deptName) ? mgXList[gi] : null)
-      .filter(x => x !== null)
-    deptXMap.set(deptName, relatedMgXs.length ? relatedMgXs.reduce((a,b)=>a+b,0)/relatedMgXs.length : 0)
-  })
-  // 부서 X 충돌 방지: 정렬 후 최소 간격 보장
-  const sortedDepts = [...uniqueDepts].sort((a,b) => deptXMap.get(a) - deptXMap.get(b))
-  const MIN_DEPT_GAP = 160
-  sortedDepts.forEach((deptName, di) => {
-    if (di > 0) {
-      const prevX = deptXMap.get(sortedDepts[di-1])
-      if (deptXMap.get(deptName) - prevX < MIN_DEPT_GAP)
-        deptXMap.set(deptName, prevX + MIN_DEPT_GAP)
+    const relAngles = data
+      .map((g, gi) => (g.members||[]).some(mb => (mb.department||mb.dept||'미지정') === deptName) ? mgAngles[gi] : null)
+      .filter(a => a !== null)
+    // 원형 평균 (circular mean)
+    if (relAngles.length) {
+      const sx = relAngles.reduce((s,a) => s + Math.cos(a), 0)
+      const sz = relAngles.reduce((s,a) => s + Math.sin(a), 0)
+      deptAngleMap.set(deptName, Math.atan2(sz, sx))
+    } else {
+      deptAngleMap.set(deptName, 0)
     }
   })
-  // 전체 부서 중앙 정렬
-  const deptXVals = sortedDepts.map(d => deptXMap.get(d))
-  const deptCenterOffset = (deptXVals[0] + deptXVals[deptXVals.length-1]) / 2
-  sortedDepts.forEach(d => deptXMap.set(d, deptXMap.get(d) - deptCenterOffset))
+  // 부서 각도 충돌 방지: 정렬 후 최소 간격 보장
+  const sortedDepts = [...uniqueDepts].sort((a,b) => deptAngleMap.get(a) - deptAngleMap.get(b))
+  const MIN_DEPT_ANG = uniqueDepts.length > 1 ? TWO_PI / uniqueDepts.length * 0.7 : 0
+  sortedDepts.forEach((d, di) => {
+    if (di > 0) {
+      const prev = deptAngleMap.get(sortedDepts[di-1])
+      let cur = deptAngleMap.get(d)
+      if (cur - prev < MIN_DEPT_ANG) deptAngleMap.set(d, prev + MIN_DEPT_ANG)
+    }
+  })
 
   // ── 부서 노드 배치 ────────────────────────────────────────
   uniqueDepts.forEach((deptName, di) => {
     const deptIdx = nodes.length
     deptIdxMap.set(deptName, deptIdx)
-    const dx = deptXMap.get(deptName) ?? 0
-    const dz = (di % 2 === 0 ? 1 : -1) * 20  // Z 교차로 깊이감
-    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:dx, y:LEVEL_Y.dept, z:dz, members:deptMembersMap.get(deptName) })
+    const ang = deptAngleMap.get(deptName)
+    const dx = Math.cos(ang) * R.dept
+    const dz = Math.sin(ang) * R.dept
+    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:dx, y:Y.dept, z:dz, members:deptMembersMap.get(deptName) })
     edges.push({ from:orgIdx, to:deptIdx, rel:'소속' })
   })
 
-  // ── 사람 (부서 →[소속]→ 사람): 부서 노드 옆으로 팬아웃 ──
+  // ── 사람 (부서 바깥쪽으로 팬아웃) ────────────────────────
   const personIdxMap = new Map()
   uniqueDepts.forEach(deptName => {
     const deptIdx = deptIdxMap.get(deptName)
     const members = deptMembersMap.get(deptName) || []
     const dn = nodes[deptIdx]
+    const ang = deptAngleMap.get(deptName)
     members.forEach((mb, mi) => {
       const pKey = String(mb.userId)
       if (!personIdxMap.has(pKey)) {
         const personIdx = nodes.length
         personIdxMap.set(pKey, personIdx)
-        const offsetX = (mi - (members.length-1)/2) * 55
-        const offsetZ = (mi % 2 === 0 ? 1 : -1) * 35
-        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role, x:dn.x+offsetX, y:LEVEL_Y.dept-60, z:dn.z+offsetZ })
+        const spread = (mi - (members.length-1)/2) * 0.18
+        const pAng = ang + spread
+        const pr = R.dept - 80
+        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role,
+          x:Math.cos(pAng)*pr, y:Y.dept-40, z:Math.sin(pAng)*pr })
         edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
       }
     })
@@ -1110,33 +1119,40 @@ function buildGraphNodes() {
   data.forEach((g, gi) => {
     const mgIdx = nodes.length
     mgIdxList.push(mgIdx)
-    const mx = mgXList[gi]
-    const mz = (gi % 2 === 0 ? 1 : -1) * 30
-    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:mx, y:LEVEL_Y.meeting_group, z:mz, data:g, groupIdx:gi })
+    const ang = mgAngles[gi]
+    const mx = Math.cos(ang) * R.meeting_group
+    const mz = Math.sin(ang) * R.meeting_group
+    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:mx, y:Y.meeting_group, z:mz, data:g, groupIdx:gi })
 
     // 부서 →[참여]→ 회의체
     const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
     partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:di, to:mgIdx, rel:'참여' }) })
 
-    // 회의체 →[개최]→ 세션 →[생성]→ 회의록 파일
+    // 세션/파일: 회의체 각도를 중심으로 방사상 fan-out
+    const sCount = (g.minutes||[]).length
+    const rCount = (g.reports||[]).length
+    const totalFiles = sCount + rCount
+    const fanSpread = Math.min(0.35, (totalFiles > 1 ? 0.18 : 0))
+
     ;(g.minutes||[]).forEach((m, mi) => {
-      const sCount = g.minutes.length
-      const sOffX = (mi - (sCount-1)/2) * X_SPREAD.session
+      const sAng = ang + (mi - (sCount-1)/2) * fanSpread * (sCount > 1 ? 1 : 0)
       const sIdx = nodes.length
-      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session', x:mx+sOffX, y:LEVEL_Y.session, z:(mi%2===0?1:-1)*25, groupIdx:gi, data:m })
+      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session',
+        x:Math.cos(sAng)*R.session, y:Y.session, z:Math.sin(sAng)*R.session, groupIdx:gi, data:m })
       edges.push({ from:mgIdx, to:sIdx, rel:'개최' })
 
       const fIdx = nodes.length
-      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록', x:mx+sOffX, y:LEVEL_Y.file, z:(mi%2===0?1:-1)*20, groupIdx:gi })
+      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록',
+        x:Math.cos(sAng)*R.file, y:Y.file, z:Math.sin(sAng)*R.file, groupIdx:gi })
       edges.push({ from:sIdx, to:fIdx, rel:'생성' })
     })
 
-    // 회의체 →[생성]→ 보고자료 파일 (세션 옆에 배치)
     ;(g.reports||[]).forEach((rp, ri) => {
-      const rCount = g.reports.length
-      const rOffX = (ri - (rCount-1)/2) * 75 + (g.minutes.length > 0 ? (g.minutes.length * X_SPREAD.session / 2 + 60) : 0)
+      const baseAng = ang + (sCount > 0 ? fanSpread * sCount * 0.5 + 0.12 : 0)
+      const rAng = baseAng + ri * 0.14
       const rIdx = nodes.length
-      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료', x:mx+rOffX, y:LEVEL_Y.file, z:(ri%2===0?-30:30), groupIdx:gi })
+      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료',
+        x:Math.cos(rAng)*R.file, y:Y.file-15, z:Math.sin(rAng)*R.file, groupIdx:gi })
       edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
     })
   })
@@ -1834,8 +1850,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <!-- 결과 목록 -->
             <template v-else>
               <div class="gm-list-meta">
-                AI가 {{ extractResult.length }}개 과제를 추청했습니다.
-                승인한 항목만 물렌정에 등록됩니다.
+                AI가 {{ extractResult.length }}개 과제를 추천했습니다.
               </div>
               <div class="gm-extract-list">
                 <div v-for="(ag, i) in extractResult" :key="i"
@@ -1925,7 +1940,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <!-- 결과 -->
             <template v-else>
               <div class="gm-list-meta">
-                AI가 회의 내용을 바탕으로 {{ assignResult.length }}개 과제를 추청했습니다.
+                AI가 회의 내용을 바탕으로 {{ assignResult.length }}개 과제를 추천했습니다.
                 편집 후 승인하시거나 반려하세요.
               </div>
               <div class="gm-assign-list">
