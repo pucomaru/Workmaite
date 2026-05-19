@@ -494,7 +494,6 @@ async function doCreateSessionForm() {
           <img :src="hyeanAvatar" class="sp-agent-avatar" alt="워크메이트 AI" />
           <div class="sp-agent-header-text">
             <div class="sp-agent-name">워크메이트 AI</div>
-            <div class="sp-agent-sub">회의 통합 AI 어시스턴트</div>
           </div>
           <span class="sp-agent-badge">AI</span>
         </div>

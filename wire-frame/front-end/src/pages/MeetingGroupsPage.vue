@@ -4,6 +4,16 @@ import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
+import AppTable from '../components/AppTable.vue'
+
+const mgColumns = [
+  { label: '', width: '28px' },
+  { label: '회의체명' },
+  { label: '간사', width: '160px' },
+  { label: '참여조직', width: '180px' },
+  { label: '참여자', width: '150px' },
+  { label: '', width: '72px' }
+]
 
 const meetingsStore = useMeetingsStore()
 const themeStore = useThemeStore()
@@ -233,19 +243,7 @@ onMounted(async () => {
         <div class="empty-icon">🔍</div>
         <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '완료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
       </div>
-      <div v-else class="mg-table-wrap">
-        <table class="mg-table">
-          <thead>
-            <tr>
-              <th style="width:28px"></th>
-              <th>회의체명</th>
-              <th style="width:160px">간사</th>
-              <th style="width:180px">참여조직</th>
-              <th style="width:150px">참여자</th>
-              <th style="width:72px"></th>
-            </tr>
-          </thead>
-          <tbody>
+      <AppTable v-else :columns="mgColumns" :dark="nightMode">
             <tr v-for="g in filteredGroups" :key="g.id" class="mg-row">
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
@@ -290,9 +288,7 @@ onMounted(async () => {
                 </div>
               </td>
             </tr>
-          </tbody>
-        </table>
-      </div>
+      </AppTable>
     </div>
 
     <Teleport to="body">
@@ -470,14 +466,12 @@ onMounted(async () => {
 .day-mode .status-tabs button.active .tab-cnt { background:rgba(29,78,216,.15); }
 
 .mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
-.mg-table-wrap { overflow-x:auto;background:#fff;border-radius:10px;border:1px solid #e2e8f0; }
-.mg-table { width:100%;border-collapse:collapse;font-size:13px;background:#fff; }
-.mg-table thead tr { border-bottom:1px solid #e2e8f0;background:#f8fafc; }
-.mg-table th { padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left; }
-.mg-row { border-bottom:1px solid #f1f5f9;transition:background .1s;cursor:default;background:#fff; }
-.mg-row:hover { background:#f8fafc; }
-.mg-row td { padding:10px 12px;vertical-align:middle; }
-.mg-row-title { font-size:13px;font-weight:600;color:#1e293b; }
+.mg-row { border-bottom:1px solid rgba(255,255,255,.06);transition:background .1s;cursor:default;background:transparent; }
+.mg-row:hover { background:rgba(255,255,255,.04); }
+.mg-row-title { font-size:13px;font-weight:600;color:#e2e8f0; }
+.day-mode .mg-row { border-bottom-color:#f1f5f9;background:#fff; }
+.day-mode .mg-row:hover { background:#f8fafc; }
+.day-mode .mg-row-title { color:#1e293b; }
 .mg-row-desc { font-size:11px;color:#94a3b8;margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .mg-row-members { display:flex;align-items:center;gap:3px; }
 .mg-mini-avatar { width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #fff; }
@@ -490,7 +484,8 @@ onMounted(async () => {
 .mg-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
 .form-select { cursor:pointer; }
 .mg-row-dates { font-size:11px;color:#94a3b8;white-space:nowrap; }
-.mg-row-nodates { color:#cbd5e1; }
+.mg-row-nodates { color:#475569; }
+.day-mode .mg-row-nodates { color:#cbd5e1; }
 .action-btns { display:flex;gap:4px;align-items:center; }
 .mg-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#64748b;gap:8px;padding:60px 0; }
 .empty-icon { font-size:36px; }
@@ -515,7 +510,7 @@ onMounted(async () => {
 .mg-chevron { color:#475569;transition:transform .2s;flex-shrink:0; }
 .mg-chevron.open { transform:rotate(180deg); }
 
-.day-mode .mg-card { border-color:#e2e8f0;background:#fff; }\n.day-mode .mg-row { border-bottom-color:#f1f5f9; }\n.day-mode .mg-row:hover { background:#f8fafc; }\n.day-mode .mg-table thead tr { border-bottom-color:#e2e8f0; }\n.day-mode .mg-row-title { color:#1e293b; }
+.day-mode .mg-card { border-color:#e2e8f0;background:#fff; }\n.day-mode .mg-row { border-bottom-color:#f1f5f9; }\n.day-mode .mg-row:hover { background:#f8fafc; }\n.day-mode .mg-row-title { color:#1e293b; }
 .day-mode .mg-card-header:hover { background:#f8fafc; }
 .day-mode .mg-card-title { color:#1e293b; }
 .day-mode .mg-card-desc { color:#94a3b8; }

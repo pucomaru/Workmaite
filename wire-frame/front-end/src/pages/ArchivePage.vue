@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
 import BaseModal from '../components/BaseModal.vue'
+import AppTable from '../components/AppTable.vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -10,6 +11,12 @@ import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/theme'
 import hyeanAvatar from '../assets/agents/hyean.png'
+
+const lvColumns = [
+  { label: '회의체명' },
+  { label: '간사', width: '120px' },
+  { label: '이력', width: '80px' }
+]
 // 서브에이전트 아바타는 내부 라우팅용으로 보존 (사용자에게는 비노출)
 // import gaonAvatar from '../assets/agents/gaon.png'
 // import naruAvatar from '../assets/agents/naru.png'
@@ -178,7 +185,7 @@ async function doCreateMeeting() {
 // ─── Agents ───────────────────────────────────────────────────
 // 내부적으로는 5개 서브에이전트가 존재하지만 사용자에게는 단일 워크메이트 AI로 표시됨
 const SUPERVISOR = {
-  name: '워크메이트 AI', nameEn: 'Workmate AI', subtitle: '회의체 통합 AI 어시스턴트',
+  name: '워크메이트 AI', nameEn: 'Workmate AI',
   avatar: hyeanAvatar,
   greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n회의체 현황 분석, 아젠다·과제 추출, 자료 검토, 카드뉴스 생성까지\n무엇이든 말씀해 주세요.',
   suggested: ['회의체 현황을 브리핑해줘', '이번 회의 아젠다를 정리해줘', '보고서를 검토해줘'],
@@ -1709,18 +1716,23 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <!-- 인라인 지표 -->
               <div class="detail-inline-stats">
                 <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  회의록 <strong>{{ detailMeeting?.minutes?.length||0 }}건</strong>
-                  <span class="dis-recent">최근 {{ detailMeeting?.minutes?.slice(-1)[0]?.ended_at ? formatDate(detailMeeting.minutes.slice(-1)[0].ended_at) : '없음' }}</span>
-                </div>
-                <div class="detail-inline-stat">
                   <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  보고자료 <strong>{{ detailMeeting?.reports?.length||0 }}건</strong>
+                  보고자료 ({{ detailMeeting?.reports?.length||0 }}건)
                   <span class="dis-recent">최근 {{ detailMeeting?.reports?.slice(-1)[0]?.submitted_at ? formatDate(detailMeeting.reports.slice(-1)[0].submitted_at) : '없음' }}</span>
                 </div>
                 <div class="detail-inline-stat">
+                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                  발제자료 ({{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').length }}건)
+                  <span class="dis-recent">최근 {{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0]?.created_at ? formatDate((detailMeeting.files.filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0].created_at)) : '없음' }}</span>
+                </div>
+                <div class="detail-inline-stat">
+                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                  회의록 ({{ detailMeeting?.minutes?.length||0 }}건)
+                  <span class="dis-recent">최근 {{ detailMeeting?.minutes?.slice(-1)[0]?.ended_at ? formatDate(detailMeeting.minutes.slice(-1)[0].ended_at) : '없음' }}</span>
+                </div>
+                <div class="detail-inline-stat">
                   <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7l2 2 4-4"/></svg>
-                  대기 {{ detailTodos.filter(t=>t.status==='pending'||!t.status).length }}건 · 진행 {{ detailTodos.filter(t=>t.status==='in_progress').length }}건 · 완료 {{ detailTodos.filter(t=>t.status==='done').length }}건
+                  과제 대기 {{ detailTodos.filter(t=>t.status==='pending'||!t.status).length }}건 · 진행 {{ detailTodos.filter(t=>t.status==='in_progress').length }}건 · 완료 {{ detailTodos.filter(t=>t.status==='done').length }}건
                 </div>
               </div>
             </div>
@@ -2050,9 +2062,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- List view -->
         <div v-show="viewMode==='list'" class="list-view">
+          <div class="lv-inner">
           <div class="lv-header">
-            <span class="lv-title">{{ search ? `"${search}" 검색 결과` : '전체 목록' }}</span>
-            <span class="lv-count">{{ filteredGroups.length }}개 회의체</span>
             <div class="lv-filter-wrap">
               <select v-model="selectedMeetingType" class="lv-type-filter">
                 <option v-for="opt in meetingTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -2061,18 +2072,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <option v-for="opt in HISTORY_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
             </div>
+            <div class="lv-header-right">
+              <span class="lv-title">{{ search ? `"${search}" 검색 결과` : '전체 목록' }}</span>
+              <span class="lv-count">{{ filteredGroups.length }}개 회의체</span>
+            </div>
           </div>
           <div v-if="loading" class="lv-empty">불러오는 중...</div>
-          <div v-else class="lv-table-wrap">
-            <table class="lv-table">
-              <thead>
-                <tr>
-                  <th class="lv-th-name">회의체명</th>
-                  <th class="lv-th-secretary">간사</th>
-                  <th class="lv-th-cnt">이력</th>
-                </tr>
-              </thead>
-              <tbody>
+          <AppTable v-else :columns="lvColumns" :dark="nightMode">
                 <tr v-if="!filteredGroups.length">
                   <td colspan="3" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
                 </tr>
@@ -2132,9 +2138,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
                     </td>
                   </tr>
                 </template>
-              </tbody>
-            </table>
-          </div>
+          </AppTable>
+          </div><!-- /lv-inner -->
         </div>
 
         <!-- Bottom panel (slides up) -->
@@ -3060,7 +3065,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .legend-hint { opacity:.55;font-size:10px; }
 
 /* ── List view ── */
-.list-view { position:absolute;inset:0;overflow-y:auto;background:#0a0f1e;display:flex;flex-direction:column; }
+.list-view { position:absolute;inset:0;overflow-y:auto;background:#0a0f1e;display:flex;flex-direction:column;align-items:center; }
+.lv-inner { width:100%;padding:24px 28px;display:flex;flex-direction:column;gap:0; }
 .lv-th-secretary { width:120px;text-align:left; }
 .lv-td-secretary { width:120px; }
 .lv-secretary-text { font-size:11px;color:var(--text-muted); }
@@ -3388,33 +3394,26 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .doc-meta { color:#94a3b8; }
 .day-mode .doc-btn { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
 .day-mode .doc-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
-.lv-header { display:flex;align-items:center;gap:8px;padding:0 0 10px 0; }
-.lv-title { font-size:13px;font-weight:600;color:#94a3b8; }
-.lv-count { font-size:12px;color:#64748b; }
-.lv-filter-wrap { margin-left:auto;display:flex;gap:6px; }
+.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 12px 0; }
+.lv-filter-wrap { display:flex;gap:6px; }
+.lv-header-right { display:flex;align-items:center;gap:6px; }
+.lv-title { font-size:12px;font-weight:500;color:#64748b; }
+.lv-count { font-size:12px;color:#475569; }
 .lv-type-filter { appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 8px center;background-size:10px 6px;border:1px solid rgba(255,255,255,.12);border-radius:7px;color:#cbd5e1;font-size:12px;padding:5px 26px 5px 10px;cursor:pointer;outline:none;transition:border-color .15s,background-color .15s; }
 .lv-type-filter:hover { border-color:rgba(255,255,255,.22); }
 .lv-type-filter:focus { border-color:rgba(99,102,241,.6); }
 .day-mode .lv-type-filter { background-color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");border-color:#e2e8f0;color:#334155; }
 .day-mode .lv-type-filter:hover { border-color:#cbd5e1; }
 .day-mode .lv-type-filter:focus { border-color:#6366f1; }
-.lv-table-wrap { overflow-x:auto;background:#1e293b;border-radius:10px;border:1px solid rgba(255,255,255,.09); }
-.lv-table { width:100%;border-collapse:collapse;font-size:13px; }
-.lv-table thead tr { border-bottom:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.03); }
-.lv-table th { padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;text-align:left; }
-.lv-group-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;transition:background .1s; }
+.lv-group-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;transition:background .1s;background:transparent; }
 .lv-group-row:hover { background:rgba(255,255,255,.04); }
-.lv-group-row td { padding:10px 12px;vertical-align:middle; }
+.day-mode .lv-group-row { border-bottom-color:#f1f5f9;background:#fff; }
+.day-mode .lv-group-row:hover { background:#f8fafc; }
 .lv-name-cell { display:flex;align-items:center;gap:6px; }
 .lv-expand-icon { color:#475569;flex-shrink:0;transition:transform .2s; }
 .lv-group-name { font-size:13px;font-weight:600;color:#e2e8f0; }
 .lv-name-meta { display:flex;align-items:center;margin-top:2px; }
 .lv-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
-.day-mode .lv-table-wrap { background:#fff;border-color:#e2e8f0; }
-.day-mode .lv-table thead tr { border-bottom-color:#e2e8f0;background:#f8fafc; }
-.day-mode .lv-table th { color:#64748b; }
-.day-mode .lv-group-row { border-bottom-color:#f1f5f9; }
-.day-mode .lv-group-row:hover { background:#f8fafc; }
 .day-mode .lv-group-name { color:#1e293b; }
 .lv-expanded-td { padding:0 !important;background:rgba(255,255,255,.02); }
 .lv-hist-table { width:100%;border-collapse:collapse;font-size:12px; }
@@ -3440,7 +3439,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .lv-hist-date { color:#94a3b8; }
 .day-mode .lv-dl-btn { border-color:#e2e8f0;background:#f1f5f9;color:#475569; }
 .day-mode .lv-dl-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
-.day-mode .lv-title { color:#475569; }
+.day-mode .lv-title { color:#64748b; }
 .day-mode .lv-count { color:#94a3b8; }
 </style>
 

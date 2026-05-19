@@ -3,6 +3,18 @@ import { ref, computed, onMounted } from 'vue'
 import api from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
+import AppTable from '../components/AppTable.vue'
+
+const orgColumns = [
+  { label: '이름', width: '200px' },
+  { label: '역할', width: '60px' },
+  { label: '조직', width: '120px' },
+  { label: '부서', width: '120px' },
+  { label: '직책', width: '130px' },
+  { label: '이메일', width: '200px' },
+  { label: '회의체' },
+  { label: '', width: '72px' }
+]
 
 const meetingsStore = useMeetingsStore()
 const themeStore = useThemeStore()
@@ -234,24 +246,10 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <span class="spinner-border spinner-border-sm text-primary"></span>
         <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
       </div>
-      <table v-else class="member-table">
-        <thead>
-          <tr>
-            <th style="width:200px">이름</th>
-            <th style="width:60px">역할</th>
-            <th style="width:120px">조직</th>
-            <th style="width:120px">부서</th>
-            <th style="width:130px">직책</th>
-            <th style="width:200px">이메일</th>
-            <th>회의체</th>
-            <th style="width:72px"></th>
-          </tr>
-        </thead>
-        <tbody>
+      <AppTable v-else :columns="orgColumns" :dark="nightMode">
           <tr v-for="member in groupedFilteredMembers" :key="member.email||member.name" class="member-row">
             <td>
               <div class="name-cell">
-                <div class="avatar" :style="{ background: avatarColor(member.name) }">{{ initials(member.name) }}</div>
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
@@ -300,8 +298,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
             </td>
           </tr>
-        </tbody>
-      </table>
+      </AppTable>
     </div>
 
     <!-- Add member modal -->
@@ -417,7 +414,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .org-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  height: 100%;
 }
 
 /* Header – identical to ArchivePage */
@@ -458,12 +455,13 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
 /* Table */
 .table-wrap {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .table-loading {
   display: flex;
@@ -471,29 +469,14 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
   justify-content: center;
   padding: 48px;
 }
-.member-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.member-table thead th {
-  padding: 11px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  white-space: nowrap;
-}
 .member-row {
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid rgba(255,255,255,.06);
   transition: background .1s;
 }
 .member-row:last-child { border-bottom: none; }
-.member-row:hover { background: #fafbff; }
-.member-row td { padding: 12px 16px; font-size: 13px; vertical-align: middle; }
+.member-row:hover { background: rgba(255,255,255,.04); }
+.day-mode .member-row { border-bottom-color: #f1f5f9; }
+.day-mode .member-row:hover { background: #fafbff; }
 
 .name-cell { display: flex; align-items: center; gap: 10px; }
 .avatar {
@@ -509,12 +492,16 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
   flex-shrink: 0;
 }
 .avatar-xs { width: 28px; height: 28px; font-size: 11px; }
-.member-name-text { font-weight: 600; color: #1e293b; }
+.member-name-text { font-weight: 600; color: #e2e8f0; }
+.day-mode .member-name-text { color: #1e293b; }
 
-.cell-role { color: #475569; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.role-inline-select { font-size: 12px; font-weight: 600; color: #475569; background: transparent; border: 1px solid rgba(203,213,225,.5); border-radius: 4px; padding: 2px 6px; cursor: pointer; outline: none; }
+.cell-role { color: #94a3b8; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.role-inline-select { font-size: 12px; font-weight: 600; color: #94a3b8; background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 2px 6px; cursor: pointer; outline: none; }
 .role-inline-select:hover { border-color: var(--primary); color: var(--primary); }
-.cell-muted { color: #475569; }
+.day-mode .cell-role { color: #475569; }
+.day-mode .role-inline-select { color: #475569; border-color: rgba(203,213,225,.5); }
+.cell-muted { color: #64748b; }
+.day-mode .cell-muted { color: #475569; }
 .cell-meetings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .meeting-tag {
   display: inline-block;
