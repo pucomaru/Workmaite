@@ -258,13 +258,7 @@ onMounted(async () => {
               <!-- 간사 -->
               <td>
                 <div v-if="membersCache[g.id]">
-                  <div v-if="getAdmins(g.id).length" class="mg-row-members">
-                    <div v-for="mb in getAdmins(g.id).slice(0,2)" :key="mb.id" class="mg-mini-avatar"
-                      :style="{ background: avatarColor(mb.user?.name || mb.name) }"
-                      :title="mb.user?.name || mb.name">{{ initials(mb.user?.name || mb.name) }}</div>
-                    <span v-if="getAdmins(g.id).length > 2" class="mg-member-more">+{{ getAdmins(g.id).length - 2 }}</span>
-                    <span class="mg-admin-name">{{ getAdmins(g.id).map(mb => mb.user?.name || mb.name).slice(0,2).join(', ') }}</span>
-                  </div>
+                  <span v-if="getAdmins(g.id).length" class="mg-admin-name">{{ getAdmins(g.id).map(mb => mb.user?.name || mb.name).slice(0,2).join(', ') }}</span>
                   <span v-else class="mg-row-nodates">-</span>
                 </div>
                 <span v-else class="mg-row-nodates">-</span>
@@ -282,14 +276,8 @@ onMounted(async () => {
               </td>
               <!-- 참여자 -->
               <td>
-                <div v-if="membersCache[g.id]" class="mg-row-members">
-                  <div v-for="mb in membersCache[g.id].slice(0,3)" :key="mb.id" class="mg-mini-avatar"
-                    :style="{ background: avatarColor(mb.user?.name || mb.name) }"
-                    :title="(mb.role === 'admin' ? '[간사] ' : '') + (mb.user?.name || mb.name)">{{ initials(mb.user?.name || mb.name) }}</div>
-                  <span v-if="(membersCache[g.id]?.length||0) > 3" class="mg-member-more">+{{ membersCache[g.id].length - 3 }}</span>
-                  <span class="mg-member-count-label">{{ membersCache[g.id].length }}명</span>
-                </div>
-                <span v-else class="mg-member-badge" @click.stop="loadMembers(g.id)">👤 불러오기</span>
+                <span v-if="membersCache[g.id]" class="mg-member-count-label">{{ membersCache[g.id].length }}명</span>
+                <span v-else class="mg-row-nodates">-</span>
               </td>
               <td>
                 <div class="action-btns">

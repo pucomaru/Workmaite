@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
+import BaseModal from '../components/BaseModal.vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -33,6 +34,34 @@ const expandedMeeting = ref(null)
 // ─── View mode ────────────────────────────────────────────────
 const viewMode = ref('graph')
 // nightMode는 전역 themeStore.nightMode(computed)를 사용합니다
+
+// ─── 뷰 전환 시 패널 상태 저장/복원 ─────────────────────────
+const _graphSnapshot = { detailOpen: false, agentSidebarOpen: false, bottomMode: null }
+const _listSnapshot  = { expandedMeeting: null }
+
+watch(viewMode, (next, prev) => {
+  if (prev === 'graph' && next === 'list') {
+    // graph 상태 저장 후 패널 닫기
+    _graphSnapshot.detailOpen      = detailOpen.value
+    _graphSnapshot.agentSidebarOpen = agentSidebarOpen.value
+    _graphSnapshot.bottomMode      = bottomMode.value
+    detailOpen.value = false
+    agentSidebarOpen.value = false
+    bottomMode.value = null
+    // list 상태 복원
+    expandedMeeting.value = _listSnapshot.expandedMeeting
+  } else if (prev === 'list' && next === 'graph') {
+    // list 상태 저장
+    _listSnapshot.expandedMeeting = expandedMeeting.value
+    expandedMeeting.value = null
+    // graph 상태 복원 (전환 애니메이션 후)
+    nextTick(() => {
+      detailOpen.value      = _graphSnapshot.detailOpen
+      agentSidebarOpen.value = _graphSnapshot.agentSidebarOpen
+      bottomMode.value      = _graphSnapshot.bottomMode
+    })
+  }
+})
 
 // ─── Plus snackbar (removed - replaced by direct button) ──────
 
@@ -331,25 +360,113 @@ function onGlobalMouseUp() {
   }
 }
 
-// ─── Hover tooltip ────────────────────────────────────────────
+// ─── Hover ────────────────────────────────────────────
 const hoverNode = ref(null)
-const tooltipPos = ref({ x: 0, y: 0 })
-const tooltipHover = ref(false)
-const tooltipVisible = computed(() => (hoverNode.value !== null || tooltipHover.value) && viewMode.value === 'graph')
-let tooltipHideTimer = null
-
-function showTooltipAt(node, x, y) {
-  clearTimeout(tooltipHideTimer); hoverNode.value = node; tooltipPos.value = { x, y }
-}
-function scheduleHideTooltip() {
-  tooltipHideTimer = setTimeout(() => { if (!tooltipHover.value) hoverNode.value = null }, 180)
-}
-function onTooltipEnter() { clearTimeout(tooltipHideTimer); tooltipHover.value = true }
-function onTooltipLeave() { tooltipHover.value = false; scheduleHideTooltip() }
+let hoverNodeIdx = -1
 
 // ─── Detail sidebar ───────────────────────────────────────────
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
+const detailTodos = ref([])
+const groupTodoRatio = ref(new Map())
+const showExtractModal = ref(false)
+const showAssignModal = ref(false)
+const extractResult = ref([])
+const assignResult = ref([])
+const extractLoading = ref(false)
+const assignLoading = ref(false)
+
+async function openExtractModal() {
+  showExtractModal.value = true
+  if (!detailMeeting.value) return
+  extractLoading.value = true
+  extractResult.value = []
+  try {
+    const { data } = await api.post('/api/agent/archive/extract-agendas', {
+      meeting_id: detailMeeting.value.id,
+      graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
+    })
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: [...(ag.bullets||[])] }))
+  } catch {
+    extractResult.value = [
+      { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
+      { title: 'Q2 캠페인 KPI 중간 점검', bullets: ['CTR / 전환율 현황', '예산 소진율 검토', '채널별 효율 재배분 제안'], _state: null, _editing: false },
+    ]
+  } finally { extractLoading.value = false }
+}
+function setExtractState(i, state) {
+  extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
+}
+function addExtractItem() {
+  extractResult.value.push({ title: '', bullets: [''], _state: null, _editing: true, _editTitle: '', _editBullets: [''] })
+}
+
+async function openAssignModal() {
+  showAssignModal.value = true
+  if (!detailMeeting.value) return
+  assignLoading.value = true
+  assignResult.value = []
+  try {
+    const todos = (await api.get(`/api/meetings/${detailMeeting.value.id}/todos`)).data || []
+    assignResult.value = todos.map(t => ({
+      content: t.content,
+      assignee: t.assignee_name || '-',
+      dept: t.assignee_dept || '-',
+      due: t.due_date,
+      status: t.status,
+      priority: t.priority,
+      _editing: false,
+      _editContent: t.content,
+      _editAssignee: t.assignee_name || '-',
+      _editStatus: t.status,
+      _editPriority: t.priority,
+      _state: null,
+    }))
+  } catch {
+    assignResult.value = [
+      { content: 'API 명세서 초안 작성', assignee: '정다은', dept: '개발팀', due: null, status: 'in_progress', priority: 'urgent_important', _editing: false, _editContent: 'API 명세서 초안 작성', _editAssignee: '정다은', _editStatus: 'in_progress', _editPriority: 'urgent_important', _state: null },
+      { content: '캠페인 소재 3종 제작', assignee: '한소희', dept: '마케팅팀', due: null, status: 'pending', priority: 'important', _editing: false, _editContent: '캠페인 소재 3종 제작', _editAssignee: '한소희', _editStatus: 'pending', _editPriority: 'important', _state: null },
+    ]
+  } finally { assignLoading.value = false }
+}
+function saveAssignItem(i) {
+  const t = assignResult.value[i]
+  t.content = t._editContent
+  t.assignee = t._editAssignee
+  t.status = t._editStatus
+  t.priority = t._editPriority
+  t._editing = false
+  t._state = 'approved'
+}
+function cancelAssignEdit(i) {
+  const t = assignResult.value[i]
+  t._editContent = t.content
+  t._editAssignee = t.assignee
+  t._editStatus = t.status
+  t._editPriority = t.priority
+  t._editing = false
+}
+function rejectAssignItem(i) {
+  assignResult.value[i]._state = assignResult.value[i]._state === 'rejected' ? null : 'rejected'
+  assignResult.value[i]._editing = false
+}
+function addAssignItem() {
+  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editStatus: 'pending', _editPriority: 'normal', _state: null })
+}
+function saveApprovedTasks() {
+  const approved = assignResult.value.filter(t => t._state === 'approved')
+  // 기존 todos를 승인 항목으로 콐체 (승인된 것만 분모)
+  detailTodos.value = approved.map(t => ({ content: t.content, assignee: t.assignee, status: t.status, priority: t.priority }))
+  const total = approved.length
+  const done = approved.filter(t => t.status === 'done').length
+  if (detailMeeting.value) {
+    groupTodoRatio.value = new Map(groupTodoRatio.value).set(detailMeeting.value.id, total ? done / total : null)
+  }
+  showAssignModal.value = false
+}
+
+const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
+const STATUS_LABEL = { pending: '대기', in_progress: '진행중', done: '완료' }
 
 // ─── 회의체 설정 모달 (MeetingGroupsPage 동일 패턴) ────────────
 const settingsModal = ref(null)
@@ -443,17 +560,28 @@ const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function initials(name) { return (name || '?')[0] }
 
-function openDetail(groupData) {
+async function openDetail(groupData) {
   if (!groupData) return
   detailMeeting.value = groupData; detailOpen.value = true
-  hoverNode.value = null; tooltipHover.value = false
+  hoverNode.value = null
+  detailTodos.value = []
+  try {
+    detailTodos.value = (await api.get(`/api/meetings/${groupData.id}/todos`)).data || []
+    // ratio는 승인 후 saveApprovedTasks에서 설정됨.
+    // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
+    if (!groupTodoRatio.value.has(groupData.id)) {
+      const total = detailTodos.value.length
+      const done = detailTodos.value.filter(t => t.status === 'done').length
+      groupTodoRatio.value = new Map(groupTodoRatio.value).set(groupData.id, total ? done / total : null)
+    }
+  } catch { detailTodos.value = [] }
 }
 
 // ─── 3D Graph ─────────────────────────────────────────────────
 const canvasRef = ref(null)
 const mainAreaRef = ref(null)
 let ctx = null, animId = null, ro = null
-let rotX = 0.2, rotY = 0
+let rotX = 0.35, rotY = 0.1
 let isDragging = false, lastMx = 0, lastMy = 0
 const isPanMode = ref(false)
 let autoRotate = false, focusNode = null
@@ -784,15 +912,40 @@ const statsData = computed(() => {
   }
 })
 
+// ─── 목록 필터 ────────────────────────────────────────────────
+const HISTORY_TYPE_OPTIONS = [
+  { label: '자료 유형 전체', value: '' },
+  { label: '회의록', value: 'minutes' },
+  { label: '보고자료', value: 'report' },
+]
+const selectedHistoryType = ref('')
+const selectedMeetingType = ref('')
+
+const meetingTypeOptions = computed(() => {
+  const types = [...new Set(meetingGroups.value.map(g => g.meeting_type).filter(Boolean))]
+  return [{ label: '회의체 유형 전체', value: '' }, ...types.map(t => ({ label: t, value: t }))]
+})
+
 const filteredGroups = computed(() => {
-  if (!search.value) return meetingGroups.value
-  const q = search.value.toLowerCase()
-  return meetingGroups.value.filter(g =>
-    g.title.toLowerCase().includes(q) ||
-    g.minutes.some(m => (m.session_title || '').toLowerCase().includes(q)) ||
-    g.reports.some(r => (r.file_name || '').toLowerCase().includes(q)) ||
-    g.members.some(m => m.userName.toLowerCase().includes(q))
-  )
+  let list = meetingGroups.value
+  if (search.value) {
+    const q = search.value.toLowerCase()
+    list = list.filter(g =>
+      g.title.toLowerCase().includes(q) ||
+      g.minutes.some(m => (m.session_title || '').toLowerCase().includes(q)) ||
+      g.reports.some(r => (r.file_name || '').toLowerCase().includes(q)) ||
+      g.members.some(m => m.userName.toLowerCase().includes(q))
+    )
+  }
+  if (selectedMeetingType.value) {
+    list = list.filter(g => g.meeting_type === selectedMeetingType.value)
+  }
+  if (selectedHistoryType.value === 'minutes') {
+    list = list.filter(g => g.minutes.length > 0)
+  } else if (selectedHistoryType.value === 'report') {
+    list = list.filter(g => g.reports.length > 0)
+  }
+  return list
 })
 
 // ─── 회의체별 전체 이력 (목록 탭) ────────────────────────────
@@ -855,16 +1008,32 @@ const groupHistoryMap = computed(() => {
   return map
 })
 
+const filteredGroupHistoryMap = computed(() => {
+  if (!selectedHistoryType.value) return groupHistoryMap.value
+  const map = new Map()
+  groupHistoryMap.value.forEach((items, id) => {
+    map.set(id, items.filter(item => item.type === selectedHistoryType.value))
+  })
+  return map
+})
+
 function buildGraphNodes() {
   const nodes = [], edges = []
   const data = meetingGroups.value
 
+  // ── 계층형(Hierarchical) 레이아웃 ─────────────────────────
+  // Y축: 레벨 깊이 (위→아래: org→dept→meeting_group→session→file)
+  // X축: 같은 레벨 내 좌우 균등 분산
+  // Z축: 약간의 깊이감 (레벨 내 홀짝 교차)
+  const LEVEL_Y  = { org: -320, dept: -160, meeting_group: 30, session: 200, file: 350 }
+  const X_SPREAD = { org: 0, dept: 220, meeting_group: 200, session: 130, file: 90 }
+
   // ── 조직 root ─────────────────────────────────────────────
   const orgIdx = nodes.length
   const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
-  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:0, z:0 })
+  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:LEVEL_Y.org, z:0 })
 
-  // ── 부서 (조직 →[소속]→ 부서) ──────────────────────────
+  // ── 부서 수집 ─────────────────────────────────────────────
   const deptIdxMap = new Map()
   const deptMembersMap = new Map()
   data.forEach(g => {
@@ -876,74 +1045,109 @@ function buildGraphNodes() {
     })
   })
   const uniqueDepts = [...deptMembersMap.keys()]
+
+  // ── 회의체를 부서 기준으로 그룹핑하여 X 위치 계산 ────────
+  // 회의체 수 기준으로 전체 너비를 먼저 확보
+  const mgCount = data.length
+  const mgSpan  = Math.max(mgCount - 1, 0) * X_SPREAD.meeting_group
+  // 각 회의체 X 위치
+  const mgXList = data.map((_, gi) => (gi - (mgCount - 1) / 2) * X_SPREAD.meeting_group)
+
+  // ── 부서 X 위치: 해당 부서가 참여하는 회의체들의 X 평균 ──
+  const deptXMap = new Map()
+  uniqueDepts.forEach(deptName => {
+    const relatedMgXs = data
+      .map((g, gi) => (g.members||[]).some(mb => (mb.department||mb.dept||'미지정') === deptName) ? mgXList[gi] : null)
+      .filter(x => x !== null)
+    deptXMap.set(deptName, relatedMgXs.length ? relatedMgXs.reduce((a,b)=>a+b,0)/relatedMgXs.length : 0)
+  })
+  // 부서 X 충돌 방지: 정렬 후 최소 간격 보장
+  const sortedDepts = [...uniqueDepts].sort((a,b) => deptXMap.get(a) - deptXMap.get(b))
+  const MIN_DEPT_GAP = 160
+  sortedDepts.forEach((deptName, di) => {
+    if (di > 0) {
+      const prevX = deptXMap.get(sortedDepts[di-1])
+      if (deptXMap.get(deptName) - prevX < MIN_DEPT_GAP)
+        deptXMap.set(deptName, prevX + MIN_DEPT_GAP)
+    }
+  })
+  // 전체 부서 중앙 정렬
+  const deptXVals = sortedDepts.map(d => deptXMap.get(d))
+  const deptCenterOffset = (deptXVals[0] + deptXVals[deptXVals.length-1]) / 2
+  sortedDepts.forEach(d => deptXMap.set(d, deptXMap.get(d) - deptCenterOffset))
+
+  // ── 부서 노드 배치 ────────────────────────────────────────
   uniqueDepts.forEach((deptName, di) => {
-    const phi = (di / Math.max(uniqueDepts.length, 1)) * Math.PI * 2
     const deptIdx = nodes.length
     deptIdxMap.set(deptName, deptIdx)
-    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:Math.cos(phi)*130, y:8, z:Math.sin(phi)*130, members:deptMembersMap.get(deptName) })
+    const dx = deptXMap.get(deptName) ?? 0
+    const dz = (di % 2 === 0 ? 1 : -1) * 20  // Z 교차로 깊이감
+    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:dx, y:LEVEL_Y.dept, z:dz, members:deptMembersMap.get(deptName) })
     edges.push({ from:orgIdx, to:deptIdx, rel:'소속' })
   })
 
-  // ── 사람 (부서 →[소속]→ 사람) ──────────────────────────
+  // ── 사람 (부서 →[소속]→ 사람): 부서 노드 옆으로 팬아웃 ──
   const personIdxMap = new Map()
   uniqueDepts.forEach(deptName => {
     const deptIdx = deptIdxMap.get(deptName)
     const members = deptMembersMap.get(deptName) || []
     const dn = nodes[deptIdx]
-    const basePhi = Math.atan2(dn.z, dn.x)
-    const baseR = Math.sqrt(dn.x*dn.x + dn.z*dn.z)
     members.forEach((mb, mi) => {
       const pKey = String(mb.userId)
       if (!personIdxMap.has(pKey)) {
-        const pPhi = basePhi + (mi - (members.length-1)/2) * 0.48
         const personIdx = nodes.length
         personIdxMap.set(pKey, personIdx)
-        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role, x:Math.cos(pPhi)*(baseR+72), y:mi%2===0?30:-30, z:Math.sin(pPhi)*(baseR+72) })
+        const offsetX = (mi - (members.length-1)/2) * 55
+        const offsetZ = (mi % 2 === 0 ? 1 : -1) * 35
+        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role, x:dn.x+offsetX, y:LEVEL_Y.dept-60, z:dn.z+offsetZ })
         edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
       }
     })
   })
 
-  // ── 회의체 (부서 →[참여]→ 회의체, 회의체 →[개최]→ 회의 →[생성]→ 파일) ──
+  // ── 회의체 노드 배치 ──────────────────────────────────────
+  const mgIdxList = []
   data.forEach((g, gi) => {
-    const phi = (gi / Math.max(data.length, 1)) * Math.PI * 2 + 0.45
-    const mgR = 265
     const mgIdx = nodes.length
-    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:Math.cos(phi)*mgR, y:-55, z:Math.sin(phi)*mgR, data:g, groupIdx:gi })
+    mgIdxList.push(mgIdx)
+    const mx = mgXList[gi]
+    const mz = (gi % 2 === 0 ? 1 : -1) * 30
+    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:mx, y:LEVEL_Y.meeting_group, z:mz, data:g, groupIdx:gi })
 
-    // 부서 →[참여]→ 회의체 (방향: 부서가 회의체에 참여)
+    // 부서 →[참여]→ 회의체
     const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
     partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:di, to:mgIdx, rel:'참여' }) })
 
-    // 회의체 →[개최]→ 회의 →[생성]→ 파일(회의록)
+    // 회의체 →[개최]→ 세션 →[생성]→ 회의록 파일
     ;(g.minutes||[]).forEach((m, mi) => {
-      const sPhi = phi + (mi - (g.minutes.length-1)/2)*0.4
-      const sR = mgR + 100
+      const sCount = g.minutes.length
+      const sOffX = (mi - (sCount-1)/2) * X_SPREAD.session
       const sIdx = nodes.length
-      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session', x:Math.cos(sPhi)*sR, y:-55+(mi%3===0?38:mi%3===1?0:-38), z:Math.sin(sPhi)*sR, groupIdx:gi, data:m })
+      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session', x:mx+sOffX, y:LEVEL_Y.session, z:(mi%2===0?1:-1)*25, groupIdx:gi, data:m })
       edges.push({ from:mgIdx, to:sIdx, rel:'개최' })
-      const fPhi = sPhi + 0.22
+
       const fIdx = nodes.length
-      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록', x:Math.cos(fPhi)*(sR+78), y:-55+(mi%3===0?62:mi%3===1?24:-62), z:Math.sin(fPhi)*(sR+78), groupIdx:gi })
+      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록', x:mx+sOffX, y:LEVEL_Y.file, z:(mi%2===0?1:-1)*20, groupIdx:gi })
       edges.push({ from:sIdx, to:fIdx, rel:'생성' })
     })
 
-    // 회의체 →[생성]→ 파일(보고자료)
+    // 회의체 →[생성]→ 보고자료 파일 (세션 옆에 배치)
     ;(g.reports||[]).forEach((rp, ri) => {
-      const rPhi = phi - 0.4 + ri*0.28
+      const rCount = g.reports.length
+      const rOffX = (ri - (rCount-1)/2) * 75 + (g.minutes.length > 0 ? (g.minutes.length * X_SPREAD.session / 2 + 60) : 0)
       const rIdx = nodes.length
-      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료', x:Math.cos(rPhi)*(mgR+88), y:-80+ri*26, z:Math.sin(rPhi)*(mgR+88), groupIdx:gi })
+      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료', x:mx+rOffX, y:LEVEL_Y.file, z:(ri%2===0?-30:30), groupIdx:gi })
       edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
     })
   })
 
-  // ── 소위원회 (소위원회 →[소위원회]→ 모회의체) ─────────────────
+  // ── 소위원회 엣지 ─────────────────────────────────────────
   data.forEach(g => {
     if (!g.parent_id) return
-    const subIdx  = nodes.findIndex(n => n.id === `mg-${g.id}`)
+    const subIdx    = nodes.findIndex(n => n.id === `mg-${g.id}`)
     const parentIdx = nodes.findIndex(n => n.id === `mg-${g.parent_id}`)
     if (subIdx >= 0 && parentIdx >= 0)
-      edges.push({ from: subIdx, to: parentIdx, rel: '소위원회' })
+      edges.push({ from:subIdx, to:parentIdx, rel:'소위원회' })
   })
 
   return { nodes, edges }
@@ -1100,7 +1304,17 @@ function drawArchiveGraph() {
       if(isEnded){grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')}
       else{const rgb=urgency==='critical'?'239,68,68':urgency==='warning'?'245,158,11':'59,130,246';grad.addColorStop(0,`rgba(${rgb},0.9)`);grad.addColorStop(1,`rgba(${rgb},0.4)`)}
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
+      const isHovered=hoverNodeIdx===p.idx
       if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle=isDark?'#fff':'#1e293b';ctx.lineWidth=2.5;ctx.stroke()}
+      else if(isHovered){ctx.strokeStyle=isDark?'rgba(255,255,255,0.9)':'rgba(15,23,42,0.8)';ctx.lineWidth=3;ctx.stroke();ctx.strokeStyle=isDark?'rgba(255,255,255,0.2)':'rgba(15,23,42,0.1)';ctx.lineWidth=6;ctx.stroke()}
+      // progress arc
+      const ratio=groupTodoRatio.value.get(n.data?.id??n.id)
+      if(ratio!=null&&ratio>0){
+        const ar=r+3.5*Math.min(1,zf)
+        ctx.beginPath();ctx.arc(p.sx,p.sy,ar,-Math.PI/2,-Math.PI/2+ratio*Math.PI*2)
+        ctx.strokeStyle=isDark?'rgba(134,239,172,0.85)':'rgba(22,163,74,0.75)'
+        ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
+      }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='session'){
       const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
@@ -1168,14 +1382,15 @@ function onMouseMove(e) {
       rotX=Math.max(-1.2,Math.min(1.2,rotX))
     }
     lastMx=e.clientX;lastMy=e.clientY
-    if(hoverNode.value){clearTimeout(tooltipHideTimer);hoverNode.value=null}
+    if(hoverNode.value){hoverNode.value=null}
+    hoverNodeIdx=-1
     return
   }
   if(viewMode.value!=='graph') return
   const canvas=canvasRef.value;if(!canvas) return
   const rect=canvas.getBoundingClientRect()
   const mx=e.clientX-rect.left,my=e.clientY-rect.top
-  if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){scheduleHideTooltip();return}
+  if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;return}
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
   gNodes.forEach((n,i)=>{
@@ -1183,17 +1398,20 @@ function onMouseMove(e) {
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
     const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<22*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
+    if(d<30*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
   })
-  if(closest!==null){
-    const tx=Math.min(e.clientX+16,window.innerWidth-220)
-    const ty=Math.max(e.clientY-60,60)
-    showTooltipAt(gNodes[closest],tx,ty)
-  } else { scheduleHideTooltip() }
+  hoverNodeIdx = closest !== null ? closest : -1
+  hoverNode.value = closest !== null ? gNodes[closest] : null
 }
 
 function onMouseUp() {
   isDragging=false
+}
+
+function onMouseLeave() {
+  isDragging=false
+  hoverNode.value=null
+  hoverNodeIdx=-1
 }
 
 function onWheel(e) {
@@ -1404,55 +1622,125 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <Transition name="sidebar-slide">
           <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
+
+          <!-- Header -->
           <div class="detail-header">
-            <div>
+            <div class="detail-header-icon">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
-              <div class="detail-meta">{{ detailMeeting?.members?.length||0 }}명 · {{ (detailMeeting?.minutes?.length||0)+(detailMeeting?.reports?.length||0) }}건</div>
+              <div class="detail-meta-row">
+                <span class="detail-meta">{{ detailMeeting?.members?.length||0 }}명</span>
+                <span class="detail-meta-dot">·</span>
+                <span class="detail-meta">{{ (detailMeeting?.minutes?.length||0)+(detailMeeting?.reports?.length||0) }}건</span>
+                <template v-if="detailMeeting?.meeting_type">
+                  <span class="detail-meta-dot">·</span>
+                  <span class="detail-meta">{{ detailMeeting.meeting_type }}</span>
+                </template>
+              </div>
             </div>
-            <button class="detail-close" @click="detailOpen=false">✕</button>
+            <div class="detail-header-actions">
+              <button class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+              </button>
+              <button class="detail-close" @click="detailOpen=false" title="닫기">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
           </div>
+
           <div class="detail-body">
-            <button class="detail-setting-btn" @click="openGroupSetting" title="회의체 설정">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              회의체 설정
-            </button>
-            <div v-if="detailMeeting?.minutes?.length" class="detail-section">
-              <div class="detail-section-label">회의록</div>
-              <div v-for="m in detailMeeting.minutes" :key="m.session_id||m.minutes_id" class="detail-doc-item">
-                <div class="detail-doc-icon minutes"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
-                <div class="detail-doc-info"><div class="detail-doc-name">{{ m.session_title||`${m.session_number}차 회의록` }}</div><div class="detail-doc-date">{{ formatDate(m.ended_at) }}</div></div>
+
+            <!-- 소개 -->
+            <div v-if="detailMeeting?.purpose || detailMeeting?.description" class="detail-section">
+              <div class="detail-section-label">소개</div>
+              <div class="detail-purpose">{{ detailMeeting.purpose || detailMeeting.description }}</div>
+            </div>
+
+            <!-- 간사 + 참여부서 -->
+            <div class="detail-section">
+              <div class="detail-info-grid">
+                <div class="detail-info-item">
+                  <span class="detail-info-key">간사</span>
+                  <span class="detail-info-val">
+                    {{ detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-' }}
+                  </span>
+                </div>
+                <div class="detail-info-item">
+                  <span class="detail-info-key">참여부서</span>
+                  <span class="detail-info-val">
+                    {{ [...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-' }}
+                  </span>
+                </div>
               </div>
             </div>
-            <div v-if="detailMeeting?.reports?.length" class="detail-section">
-              <div class="detail-section-label">보고서</div>
-              <div v-for="r in detailMeeting.reports" :key="r.id" class="detail-doc-item">
-                <div class="detail-doc-icon report"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div>
-                <div class="detail-doc-info"><div class="detail-doc-name">{{ r.file_name||'보고서' }}</div><div class="detail-doc-date">{{ formatDate(r.submitted_at) }}</div></div>
+
+            <!-- 진행 현황 -->
+            <div class="detail-section">
+              <div class="detail-section-label">진행 현황</div>
+              <!-- 게이지바 -->
+              <div class="detail-gauge-wrap">
+                <div class="detail-gauge-track">
+                  <div class="detail-gauge-fill"
+                    :style="{ width: detailTodos.length ? (detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) + '%' : '0%' }"></div>
+                </div>
+                <span class="detail-gauge-label">
+                  <template v-if="detailTodos.length">{{ detailTodos.filter(t=>t.status==='done').length }}/{{ detailTodos.length }} 완료 ({{ Math.round(detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) }}%)</template>
+                  <template v-else>과제 없음</template>
+                </span>
+              </div>
+              <!-- 인라인 지표 -->
+              <div class="detail-inline-stats">
+                <div class="detail-inline-stat">
+                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                  회의록 <strong>{{ detailMeeting?.minutes?.length||0 }}건</strong>
+                  <span class="dis-recent">최근 {{ detailMeeting?.minutes?.slice(-1)[0]?.ended_at ? formatDate(detailMeeting.minutes.slice(-1)[0].ended_at) : '없음' }}</span>
+                </div>
+                <div class="detail-inline-stat">
+                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                  보고자료 <strong>{{ detailMeeting?.reports?.length||0 }}건</strong>
+                  <span class="dis-recent">최근 {{ detailMeeting?.reports?.slice(-1)[0]?.submitted_at ? formatDate(detailMeeting.reports.slice(-1)[0].submitted_at) : '없음' }}</span>
+                </div>
+                <div class="detail-inline-stat">
+                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7l2 2 4-4"/></svg>
+                  대기 {{ detailTodos.filter(t=>t.status==='pending'||!t.status).length }}건 · 진행 {{ detailTodos.filter(t=>t.status==='in_progress').length }}건 · 완료 {{ detailTodos.filter(t=>t.status==='done').length }}건
+                </div>
               </div>
             </div>
-            <div v-if="detailMeeting?.members?.length" class="detail-section">
-              <div class="detail-section-label">참여부서</div>
-              <table class="detail-dept-table">
-                <tbody>
-                  <tr v-for="dept in [...new Set(detailMeeting.members.map(mb => mb.department || mb.dept || '미지정'))].filter(Boolean)" :key="dept">
-                    <td class="dept-name">{{ dept }}</td>
-                    <td class="dept-count">{{ detailMeeting.members.filter(mb => (mb.department||mb.dept||'미지정') === dept).length }}명</td>
-                  </tr>
-                </tbody>
-              </table>
+
+            <!-- 과제 추출 / 과제 배정 버튼 -->
+            <div class="detail-action-row">
+              <button class="detail-action-btn btn-extract" @click="openExtractModal">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                과제 추출
+              </button>
+              <button class="detail-action-btn btn-assign" @click="openAssignModal">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                과제 배정
+              </button>
             </div>
-            <div v-if="detailMeeting?.members?.length" class="detail-section">
-              <div class="detail-section-label">구성원</div>
-              <table class="detail-member-table">
-                <tbody>
-                  <tr v-for="mb in detailMeeting.members" :key="mb.userId">
-                    <td class="mb-name">{{ mb.userName || mb.name }}</td>
-                    <td class="mb-dept">{{ mb.position || mb.department || mb.dept || '' }}</td>
-                    <td class="mb-role">{{ roleLabel(mb.role) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+
+            <!-- 최근 로그 -->
+            <div class="detail-section">
+              <div class="detail-section-label-row">
+                <span class="detail-section-label">최근 로그</span>
+                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="viewMode='list'; detailOpen=false">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
+              </div>
+              <div class="detail-log-list">
+                <template v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length">
+                  <div v-for="(item, i) in (groupHistoryMap.get(detailMeeting?.id)||[]).slice(0,3)" :key="i" class="detail-log-item">
+                    <span class="detail-log-dot" :class="'ht-'+item.type"></span>
+                    <div class="detail-log-content">
+                      <div class="detail-log-desc">{{ item.desc }}</div>
+                      <div class="detail-log-meta">{{ item.manager }} · {{ formatDate(item.date) }}</div>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="detail-log-empty">기록된 로그가 없습니다.</div>
+              </div>
             </div>
+
           </div>
           </div>
         </Transition>
@@ -1478,7 +1766,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           @mousedown="onMouseDown"
           @mousemove="onMouseMove"
           @mouseup="onMouseUp"
-          @mouseleave="onMouseUp(); scheduleHideTooltip()"
+          @mouseleave="onMouseLeave"
           @click="onCanvasClick"
 
           @wheel.prevent="onWheel"
@@ -1520,6 +1808,205 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </div>
 
+        <!-- 과제 추출 모달 -->
+        <BaseModal v-model="showExtractModal" width="min(580px, 95vw)">
+          <template #title>
+            <div class="gm-modal-title">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              <span>과제 추출</span>
+              <span class="gm-modal-ai-tag">AI 추청</span>
+            </div>
+          </template>
+          <div class="gm-body-inner">
+            <!-- 로딩 -->
+            <div v-if="extractLoading" class="gm-loading-block">
+              <div class="gm-spinner"></div>
+              <div class="gm-loading-text">
+                <div class="gm-loading-main">AI가 회의록을 분석하고 있습니다</div>
+                <div class="gm-loading-sub">취지 파악 · 파일 참조 · 과제 산출 중…</div>
+              </div>
+            </div>
+            <!-- 빈 상태 -->
+            <div v-else-if="!extractResult.length" class="gm-empty-block">
+              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              <span>추출된 과제가 없습니다</span>
+            </div>
+            <!-- 결과 목록 -->
+            <template v-else>
+              <div class="gm-list-meta">
+                AI가 {{ extractResult.length }}개 과제를 추청했습니다.
+                승인한 항목만 물렌정에 등록됩니다.
+              </div>
+              <div class="gm-extract-list">
+                <div v-for="(ag, i) in extractResult" :key="i"
+                     class="gm-extract-item"
+                     :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
+                  <div class="gm-ei-left">
+                    <span class="gm-ei-num">{{ i+1 }}</span>
+                  </div>
+                  <div class="gm-ei-body">
+                    <template v-if="!ag._editing">
+                      <div class="gm-ei-title">{{ ag.title }}</div>
+                      <ul class="gm-ei-bullets">
+                        <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
+                      </ul>
+                    </template>
+                    <template v-else>
+                      <input class="gm-ei-input" v-model="ag._editTitle" placeholder="과제 제목" />
+                      <textarea class="gm-ei-textarea" v-model="ag._editBullets" placeholder="세부 내용 (줄바꿈으로 구분)" rows="3"></textarea>
+                    </template>
+                  </div>
+                  <div class="gm-ei-actions">
+                    <template v-if="!ag._editing">
+                      <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true" title="편집">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')" title="승인">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                      </button>
+                      <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected')" title="반려">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </template>
+                    <template v-else>
+                      <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag._editing=false; ag._state='approved'" title="저장">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                      </button>
+                      <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false" title="취소">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+              <button class="gm-add-btn" @click="addExtractItem">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                항목 직접 추가
+              </button>
+            </template>
+          </div>
+          <template #footer>
+            <span class="gm-footer-count" v-if="extractResult.length">
+              승인 {{ extractResult.filter(a=>a._state==='approved').length }} /
+              반려 {{ extractResult.filter(a=>a._state==='rejected').length }} /
+              미검토 {{ extractResult.filter(a=>!a._state).length }}
+            </span>
+            <div style="display:flex;gap:8px;margin-left:auto">
+              <button class="gm-btn-secondary" @click="showExtractModal=false">닫기</button>
+              <button class="gm-btn-primary" :disabled="extractLoading || !extractResult.filter(a=>a._state==='approved').length"
+                @click="openAssignModal(); showExtractModal=false">배정으로 이동 →</button>
+            </div>
+          </template>
+        </BaseModal>
+
+        <!-- 과제 배정 모달 -->
+        <BaseModal v-model="showAssignModal" width="min(680px, 95vw)">
+          <template #title>
+            <div class="gm-modal-title">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+              <span>과제 배정 관리</span>
+              <span class="gm-modal-ai-tag">AI 추천</span>
+            </div>
+          </template>
+          <div class="gm-body-inner">
+            <!-- 로딩 -->
+            <div v-if="assignLoading" class="gm-loading-block">
+              <div class="gm-spinner"></div>
+              <div class="gm-loading-text">
+                <div class="gm-loading-main">과제를 불러오는 중입니다</div>
+                <div class="gm-loading-sub">담당자 매칭 · 우선순위 산정 · 상태 확인 중…</div>
+              </div>
+            </div>
+            <!-- 빈 상태 -->
+            <div v-else-if="!assignResult.length" class="gm-empty-block">
+              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              <span>배정된 과제가 없습니다</span>
+            </div>
+            <!-- 결과 -->
+            <template v-else>
+              <div class="gm-list-meta">
+                AI가 회의 내용을 바탕으로 {{ assignResult.length }}개 과제를 추청했습니다.
+                편집 후 승인하시거나 반려하세요.
+              </div>
+              <div class="gm-assign-list">
+                <div v-for="(t, i) in assignResult" :key="i"
+                     class="gm-assign-item"
+                     :class="{ 'ai-approved': t._state==='approved', 'ai-rejected': t._state==='rejected' }">
+                  <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
+                  <div class="gm-ai-main">
+                    <!-- 읽기 모드 -->
+                    <template v-if="!t._editing">
+                      <div class="gm-ai-row1">
+                        <span class="gm-ai-content" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</span>
+                        <div class="gm-ai-chips">
+                          <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
+                          <span class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
+                        </div>
+                      </div>
+                      <div class="gm-ai-row2">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                        <span>{{ t.assignee }}</span>
+                        <span class="gm-ai-dept">{{ t.dept }}</span>
+                      </div>
+                    </template>
+                    <!-- 편집 모드 -->
+                    <template v-else>
+                      <input class="gm-ei-input" v-model="t._editContent" placeholder="과제 내용" />
+                      <div class="gm-edit-row">
+                        <input class="gm-ei-input gm-edit-half" v-model="t._editAssignee" placeholder="담당자" />
+                        <select class="gm-ei-select" v-model="t._editPriority">
+                          <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
+                        </select>
+                        <select class="gm-ei-select" v-model="t._editStatus">
+                          <option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option>
+                        </select>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="gm-ai-actions">
+                    <template v-if="!t._editing">
+                      <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true" title="편집">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'" title="승인">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                      </button>
+                      <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="rejectAssignItem(i)" title="반려">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </template>
+                    <template v-else>
+                      <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)" title="저장">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                      </button>
+                      <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)" title="취소">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+              <button class="gm-add-btn" @click="addAssignItem">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                과제 직접 추가
+              </button>
+            </template>
+          </div>
+          <template #footer>
+            <span class="gm-footer-count" v-if="assignResult.length">
+              승인 {{ assignResult.filter(t=>t._state==='approved').length }} /
+              반려 {{ assignResult.filter(t=>t._state==='rejected').length }} /
+              미검토 {{ assignResult.filter(t=>!t._state).length }}
+            </span>
+            <div style="display:flex;gap:8px;margin-left:auto">
+              <button class="gm-btn-secondary" @click="showAssignModal=false">닫기</button>
+              <button class="gm-btn-primary"
+                :disabled="assignLoading || !assignResult.filter(t=>t._state==='approved').length"
+                @click="saveApprovedTasks">승인 {{ assignResult.filter(t=>t._state==='approved').length }}건 저장</button>
+            </div>
+          </template>
+        </BaseModal>
+
         <!-- Drag preview line SVG overlay -->
         <svg v-if="floatDragging && floatDragPreviewLine"
           width="100%" height="100%"
@@ -1551,6 +2038,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="lv-header">
             <span class="lv-title">{{ search ? `"${search}" 검색 결과` : '전체 목록' }}</span>
             <span class="lv-count">{{ filteredGroups.length }}개 회의체</span>
+            <div class="lv-filter-wrap">
+              <select v-model="selectedMeetingType" class="lv-type-filter">
+                <option v-for="opt in meetingTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <select v-model="selectedHistoryType" class="lv-type-filter">
+                <option v-for="opt in HISTORY_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
           </div>
           <div v-if="loading" class="lv-empty">불러오는 중...</div>
           <div v-else class="lv-table-wrap">
@@ -1581,13 +2076,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
                       </div>
                     </td>
                     <td class="lv-td-secretary">
-                      <span v-if="g.members.find(m => m.role === 'admin')" class="lv-secretary-badge">
-                        <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a5 5 0 110 10A5 5 0 0112 2zm0 12c-6 0-9 2.5-9 4v1h18v-1c0-1.5-3-4-9-4z"/></svg>
-                        {{ g.members.find(m => m.role === 'admin')?.userName || g.members.find(m => m.role === 'admin')?.name || '-' }}
-                      </span>
-                      <span v-else class="lv-secretary-empty">-</span>
+                      <span class="lv-secretary-text">{{ g.members.find(m => m.role === 'admin')?.userName || g.members.find(m => m.role === 'admin')?.name || '-' }}</span>
                     </td>
-                    <td class="lv-td-cnt">{{ (groupHistoryMap.get(g.id) || []).length }}건</td>
+                    <td class="lv-td-cnt">{{ (filteredGroupHistoryMap.get(g.id) || []).length }}건</td>
                   </tr>
                   <!-- Expanded history rows -->
                   <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
@@ -1602,10 +2093,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
                           </tr>
                         </thead>
                         <tbody>
-                          <tr v-if="!(groupHistoryMap.get(g.id) || []).length">
-                            <td colspan="4" class="lv-hist-empty">이력이 없습니다.</td>
+                          <tr v-if="!(filteredGroupHistoryMap.get(g.id) || []).length">
+                            <td colspan="4" class="lv-hist-empty">{{ selectedHistoryType ? '해당 유형의 이력이 없습니다.' : '이력이 없습니다.' }}</td>
                           </tr>
-                          <tr v-for="(item, i) in (groupHistoryMap.get(g.id) || [])" :key="i" class="lv-hist-row">
+                          <tr v-for="(item, i) in (filteredGroupHistoryMap.get(g.id) || [])" :key="i" class="lv-hist-row">
                             <td class="lv-hist-desc">
                               <div class="lv-hist-desc-inner">
                                 <span class="lv-hist-type-dot" :class="'ht-' + item.type"></span>
@@ -1711,7 +2202,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <span class="supervisor-title">{{ SUPERVISOR.name }}</span>
                 <span class="supervisor-sub">{{ SUPERVISOR.subtitle }}</span>
               </div>
-              <span class="supervisor-badge">AI</span>
+
             </div>
             <div class="supervisor-header-actions">
               <button class="agent-new-chat-btn" @click="clearAgentChat">새 채팅</button>
@@ -1753,23 +2244,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </div>
       </Transition>
-
-    <!-- ── Hover Tooltip ── -->
-    <Teleport to="body">
-      <Transition name="tooltip-fade">
-        <div v-if="tooltipVisible&&hoverNode" class="node-tooltip"
-          :style="{ left: tooltipPos.x+'px', top: tooltipPos.y+'px' }"
-          @mouseenter="onTooltipEnter" @mouseleave="onTooltipLeave">
-          <div class="tt-title">{{ hoverNode.label }}</div>
-          <div class="tt-rows">
-            <div class="tt-row"><span class="tt-label">회의수</span><span>{{ hoverNode.data?.minutes?.length||0 }}건</span></div>
-            <div class="tt-row"><span class="tt-label">보고서</span><span>{{ hoverNode.data?.reports?.length||0 }}건</span></div>
-            <div class="tt-row"><span class="tt-label">구성원</span><span>{{ hoverNode.data?.members?.length||0 }}명</span></div>
-          </div>
-          <button class="tt-detail-btn" @click="openDetail(hoverNode.data)">상세 보기 →</button>
-        </div>
-      </Transition>
-    </Teleport>
 
     <!-- Float drag ghost cursor follow -->
     <Teleport to="body">
@@ -2302,20 +2776,192 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-body { flex:1;display:flex;overflow:hidden;min-height:0; }
 
 /* Detail sidebar — absolute overlay so canvas never resizes */
-.detail-sidebar { position:absolute;top:0;left:0;bottom:0;z-index:20;background:#0a0f1e;border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;overflow:hidden; }
+.detail-sidebar { position:absolute;top:0;left:0;bottom:0;z-index:20;background:#0c0c0c;border-right:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;overflow:hidden; }
 .sidebar-resize-handle { position:absolute;top:0;right:0;bottom:0;width:5px;cursor:ew-resize;z-index:10;background:transparent;transition:background .15s; }
-.sidebar-resize-handle:hover { background:rgba(96,165,250,.25); }
+.sidebar-resize-handle:hover { background:rgba(255,255,255,.1); }
 .sidebar-slide-enter-active,.sidebar-slide-leave-active { transition:transform .28s cubic-bezier(.22,.68,0,1.2),opacity .22s; }
 .sidebar-slide-enter-from,.sidebar-slide-leave-to { transform:translateX(-100%);opacity:0; }
-.detail-header { display:flex;align-items:flex-start;justify-content:space-between;padding:14px 12px 10px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0; }
-.detail-meeting-name { font-size:13px;font-weight:700;color:#f1f5f9; }
-.detail-meta { font-size:11px;color:#475569;margin-top:2px; }
-.detail-close { background:none;border:none;cursor:pointer;color:#475569;font-size:14px;line-height:1;padding:2px;transition:color .15s; }
-.detail-close:hover { color:#94a3b8; }
-.detail-body { flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px; }
-.detail-goto-btn { width:100%;padding:7px;border-radius:7px;border:1px solid rgba(96,165,250,.3);background:rgba(96,165,250,.08);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer; }
-.detail-setting-btn { width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px;border-radius:7px;border:1px solid rgba(148,163,184,.3);background:rgba(148,163,184,.08);color:#94a3b8;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
-.detail-setting-btn:hover { border-color:rgba(96,165,250,.4);background:rgba(96,165,250,.1);color:#60a5fa; }
+/* Header */
+.detail-header { display:flex;align-items:center;padding:14px 14px 13px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:10px; }
+.detail-header-icon { width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:#888;flex-shrink:0; }
+.detail-header-left { flex:1;min-width:0; }
+.detail-header-actions { display:flex;align-items:center;gap:4px;flex-shrink:0; }
+.detail-meeting-name { font-size:13px;font-weight:700;color:#e8e8e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.detail-meta-row { display:flex;align-items:center;gap:4px;margin-top:2px;flex-wrap:wrap; }
+.detail-meta { font-size:11px;color:#555; }
+.detail-meta-dot { font-size:11px;color:#333; }
+.detail-icon-btn { background:none;border:1px solid rgba(255,255,255,.08);cursor:pointer;color:#555;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;padding:0; }
+.detail-icon-btn:hover { background:rgba(255,255,255,.07);color:#aaa;border-color:rgba(255,255,255,.15); }
+.detail-close { background:none;border:1px solid rgba(255,255,255,.08);cursor:pointer;color:#555;padding:0;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .15s; }
+.detail-close:hover { color:#ccc;background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15); }
+/* Body */
+.detail-body { flex:1;overflow-y:auto;padding:12px 14px 20px;display:flex;flex-direction:column;gap:0; }
+.detail-body::-webkit-scrollbar { width:3px; }
+.detail-body::-webkit-scrollbar-track { background:transparent; }
+.detail-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08);border-radius:99px; }
+/* Section */
+.detail-section { display:flex;flex-direction:column;gap:6px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.04); }
+.detail-section:last-child { border-bottom:none; }
+.detail-section-label { font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.07em; }
+.detail-section-label-row { display:flex;align-items:center;justify-content:space-between; }
+.detail-section-label-row .detail-section-label { margin-bottom:0; }
+/* gauge bar */
+.detail-gauge-wrap { display:flex;align-items:center;gap:8px; }
+.detail-gauge-track { flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden; }
+.detail-gauge-fill { height:100%;border-radius:99px;background:rgba(134,239,172,.7);transition:width .4s ease; }
+.detail-gauge-label { font-size:10.5px;color:#666;white-space:nowrap; }
+/* inline stats */
+.detail-inline-stats { display:flex;flex-direction:column;gap:4px; }
+.detail-inline-stat { display:flex;align-items:center;gap:5px;font-size:11px;color:#555;line-height:1.4; }
+.detail-inline-stat strong { color:#999;font-weight:600; }
+.dis-recent { margin-left:auto;font-size:10px;color:#444; }
+/* 생선 문서 */
+.detail-doc-oneliner { display:flex;flex-direction:column;gap:5px; }
+.detail-doc-line { display:flex;align-items:center;gap:6px;font-size:11.5px;color:#666; }
+.ddl-icon { display:flex;align-items:center;flex-shrink:0; }
+.ddl-type { font-size:11px;color:#777;min-width:44px; }
+.ddl-count { font-weight:600;color:#999;min-width:24px; }
+.ddl-recent { font-size:10.5px;color:#444;margin-left:auto; }
+.detail-more-btn { font-size:10px;font-weight:600;color:#454545;background:none;border:none;cursor:pointer;padding:0;white-space:nowrap;transition:color .15s; }
+.detail-more-btn:hover { color:#999; }
+/* 소개 */
+.detail-purpose { font-size:11.5px;color:#777;line-height:1.65;padding:0 1px; }
+/* 간사·참여부서 */
+.detail-info-grid { display:flex;flex-direction:column;gap:7px; }
+.detail-info-item { display:flex;align-items:baseline;gap:10px;font-size:11.5px; }
+.detail-info-key { width:48px;flex-shrink:0;color:#444;font-weight:600;font-size:11px; }
+.detail-info-val { flex:1;color:#999;line-height:1.5; }
+/* 진행 현황 */
+.detail-metrics { display:flex;flex-direction:column;gap:12px; }
+.detail-metric-row { display:flex;flex-direction:column;gap:5px; }
+.detail-metric-header { display:flex;align-items:center;justify-content:space-between; }
+.detail-metric-label { display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#666; }
+.detail-metric-val { font-size:11px;font-weight:700;color:#ccc; }
+.detail-metric-track { height:3px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;display:flex;gap:1px; }
+.detail-metric-fill { height:100%;border-radius:99px;transition:width .6s cubic-bezier(.22,.68,0,1.2); }
+.mf-minutes { background:rgba(200,200,200,.5); }
+.mf-reports { background:rgba(160,160,200,.5); }
+.mf-tasks { background:rgba(120,220,150,.55); }
+.detail-metric-sub { font-size:10px;color:#404040; }
+/* 과제 버튼 */
+.detail-action-row { display:flex;gap:7px;padding:12px 0; }
+.detail-action-btn { flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 8px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;transition:all .18s;border:1px solid; }
+.btn-extract { background:rgba(251,191,36,.06);color:#a08040;border-color:rgba(251,191,36,.15); }
+.btn-extract:hover { background:rgba(251,191,36,.13);color:#d4a830;border-color:rgba(251,191,36,.3); }
+.btn-assign { background:rgba(99,179,237,.06);color:#4a80a0;border-color:rgba(99,179,237,.15); }
+.btn-assign:hover { background:rgba(99,179,237,.13);color:#63b3ed;border-color:rgba(99,179,237,.3); }
+/* 로그 */
+.detail-log-list { display:flex;flex-direction:column;gap:1px; }
+.detail-log-item { display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:6px;transition:background .12s; }
+.detail-log-item:hover { background:rgba(255,255,255,.03); }
+.detail-log-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:4px; }
+.ht-minutes { background:#6b8cba; }
+.ht-report { background:#7aab8a; }
+.ht-approved { background:#b0b87a; }
+.detail-log-content { flex:1;min-width:0; }
+.detail-log-desc { font-size:11.5px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-log-meta { font-size:10px;color:#454545;margin-top:2px; }
+.detail-log-empty { font-size:11px;color:#3a3a3a;padding:6px 8px; }
+/* 문서 (회의록/보고서) */
+.detail-doc-item { display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .12s; }
+.detail-doc-item:hover { background:rgba(255,255,255,.03); }
+.detail-doc-icon { width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.doc-minutes { background:rgba(100,140,190,.12);color:#6a8cba; }
+.doc-report { background:rgba(100,180,130,.1);color:#6aab8a; }
+.detail-doc-info { flex:1;min-width:0; }
+.detail-doc-name { font-size:11.5px;color:#c0c0c0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-doc-date { font-size:10px;color:#454545;margin-top:1px; }
+/* 구성원 */
+.detail-member-list { display:flex;flex-direction:column;gap:1px; }
+.detail-member-row { display:flex;align-items:center;gap:9px;padding:5px 8px;border-radius:6px;transition:background .12s; }
+.detail-member-row:hover { background:rgba(255,255,255,.03); }
+.detail-member-avatar { width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0; }
+.detail-member-info { flex:1;min-width:0;display:flex;flex-direction:column;gap:1px; }
+.detail-member-name { font-size:11.5px;font-weight:500;color:#c0c0c0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-member-dept { font-size:10px;color:#454545;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+/* 과제 모달 공통 */
+.gm-modal-title { display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:var(--text); }
+.gm-modal-ai-tag { font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:var(--surface-raised,rgba(0,0,0,.06));color:var(--text-muted);border:1px solid var(--border);letter-spacing:.02em; }
+.gm-body-inner { padding:16px 20px;display:flex;flex-direction:column;gap:10px;min-height:220px; }
+/* 로딩 */
+.gm-loading-block { display:flex;align-items:center;justify-content:center;gap:14px;padding:48px 20px; }
+.gm-spinner { width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--text-muted);border-radius:50%;animation:gm-spin .7s linear infinite;flex-shrink:0; }
+@keyframes gm-spin { to { transform:rotate(360deg) } }
+.gm-loading-text { display:flex;flex-direction:column;gap:3px; }
+.gm-loading-main { font-size:13px;font-weight:600;color:var(--text); }
+.gm-loading-sub { font-size:11px;color:var(--text-muted); }
+/* 빈 */
+.gm-empty-block { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:48px 20px;color:var(--text-muted);font-size:12px; }
+/* 메타 */
+.gm-list-meta { font-size:11.5px;color:var(--text-muted);line-height:1.6;padding:2px 0 4px; }
+/* 과제 추출 리스트 */
+.gm-extract-list { display:flex;flex-direction:column;gap:4px; }
+.gm-extract-item { display:flex;align-items:flex-start;gap:0;border-radius:8px;border:1px solid var(--border);background:var(--surface-raised,rgba(0,0,0,.03));overflow:hidden;transition:opacity .15s; }
+.gm-extract-item.ei-approved { border-color:rgba(120,170,120,.35);background:rgba(120,170,120,.05); }
+.gm-extract-item.ei-rejected { opacity:.45; }
+.gm-ei-left { width:36px;flex-shrink:0;display:flex;align-items:flex-start;justify-content:center;padding:12px 0;border-right:1px solid var(--border); }
+.gm-ei-num { font-size:11px;font-weight:700;color:var(--text-muted); }
+.gm-ei-body { flex:1;padding:11px 12px;min-width:0; }
+.gm-ei-title { font-size:13px;font-weight:600;color:var(--text);margin-bottom:5px; }
+.gm-ei-bullets { margin:0;padding-left:14px;display:flex;flex-direction:column;gap:3px; }
+.gm-ei-bullets li { font-size:11.5px;color:var(--text-muted);line-height:1.5; }
+.gm-ei-actions { display:flex;flex-direction:column;gap:2px;padding:8px 7px;border-left:1px solid var(--border);flex-shrink:0; }
+/* 배정 리스트 */
+.gm-assign-list { display:flex;flex-direction:column;gap:4px; }
+.gm-assign-item { display:flex;align-items:stretch;border-radius:8px;border:1px solid var(--border);background:var(--surface-raised,rgba(0,0,0,.03));overflow:hidden;transition:opacity .15s; }
+.gm-assign-item.ai-approved { border-color:rgba(120,170,120,.35);background:rgba(120,170,120,.05); }
+.gm-assign-item.ai-rejected { opacity:.4; }
+.gm-ai-status-bar { width:3px;flex-shrink:0; }
+.asb-done { background:rgba(100,160,100,.5); }
+.asb-in_progress { background:rgba(100,130,180,.5); }
+.asb-pending { background:var(--border); }
+.asb-at_risk { background:rgba(180,140,60,.5); }
+.asb-delayed { background:rgba(180,80,80,.5); }
+.gm-ai-main { flex:1;padding:10px 12px;min-width:0; }
+.gm-ai-row1 { display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:5px; }
+.gm-ai-content { font-size:12.5px;font-weight:600;color:var(--text);flex:1;min-width:0; }
+.gm-ai-content.ai-rejected-text { text-decoration:line-through;color:var(--text-muted); }
+.gm-ai-chips { display:flex;gap:4px;flex-shrink:0; }
+.gm-ai-row2 { display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted); }
+.gm-ai-dept { opacity:.6; }
+.gm-ai-actions { display:flex;flex-direction:column;gap:2px;padding:8px 7px;border-left:1px solid var(--border);flex-shrink:0; }
+/* 칩 - 단색 */
+.gm-chip { font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid var(--border);background:var(--surface-raised,rgba(0,0,0,.04));color:var(--text-muted); }
+.cp-urgent_important { color:var(--text);border-color:var(--border); }
+.cp-important,.cp-urgent { color:var(--text-muted); }
+.cs-done { color:var(--text); }
+.cs-in_progress { color:var(--text-muted); }
+.cs-pending,.cs-at_risk,.cs-delayed { color:var(--text-muted);opacity:.8; }
+/* 액션 버튼 */
+.gm-ei-btn { width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-muted);transition:all .12s; }
+.gm-ei-btn:hover { background:var(--surface-raised,rgba(0,0,0,.06)); }
+.gm-ei-edit:hover { color:var(--text); }
+.gm-ei-approve { color:var(--text-muted); }
+.gm-ei-approve:hover { color:rgba(100,160,100,1);border-color:rgba(100,160,100,.4);background:rgba(100,160,100,.08); }
+.gm-ei-approved-active { color:rgba(80,150,80,1)!important;border-color:rgba(80,150,80,.45)!important;background:rgba(80,150,80,.1)!important; }
+.gm-ei-reject { color:var(--text-muted); }
+.gm-ei-reject:hover { color:rgba(180,80,80,1);border-color:rgba(180,80,80,.4);background:rgba(180,80,80,.08); }
+.gm-ei-rejected-active { color:rgba(180,80,80,1)!important;border-color:rgba(180,80,80,.45)!important;background:rgba(180,80,80,.1)!important; }
+.gm-ei-save { color:rgba(80,150,80,.9);border-color:rgba(80,150,80,.3); }
+.gm-ei-save:hover { background:rgba(80,150,80,.12); }
+.gm-ei-cancel-edit { color:var(--text-muted); }
+/* 편집 인풋 */
+.gm-ei-input { width:100%;padding:5px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface,#fff);color:var(--text);font-size:12px;outline:none;margin-bottom:5px;box-sizing:border-box; }
+.gm-ei-input:focus { border-color:var(--text-muted); }
+.gm-ei-textarea { width:100%;padding:5px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface,#fff);color:var(--text);font-size:11.5px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box; }
+.gm-ei-select { flex:1;padding:5px 7px;border-radius:5px;border:1px solid var(--border);background:var(--surface,#fff);color:var(--text);font-size:11.5px;outline:none;cursor:pointer; }
+.gm-edit-row { display:flex;gap:5px;align-items:center; }
+.gm-edit-half { flex:1;margin-bottom:0; }
+/* 추가 버튼 */
+.gm-add-btn { align-self:flex-start;display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;border:1px dashed var(--border);background:none;color:var(--text-muted);font-size:11.5px;cursor:pointer;transition:all .12s;margin-top:2px; }
+.gm-add-btn:hover { border-color:var(--text-muted);color:var(--text); }
+/* footer */
+.gm-footer-count { font-size:11px;color:var(--text-muted);flex-shrink:0;align-self:center; }
+.gm-btn-secondary { padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:13px;cursor:pointer;transition:all .15s; }
+.gm-btn-secondary:hover { background:var(--surface-raised,rgba(0,0,0,.05));color:var(--text); }
+.gm-btn-primary { padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface-raised,rgba(0,0,0,.06));color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s; }
+.gm-btn-primary:hover:not(:disabled) { background:var(--surface-hover,rgba(0,0,0,.1));border-color:var(--text-muted); }
+.gm-btn-primary:disabled { opacity:.35;cursor:not-allowed; }
 
 /* 회의체 설정 모달 */
 .gsm-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center; }
@@ -2341,28 +2987,20 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .gsm-save { padding:7px 18px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
 .gsm-save:hover { background:#2563eb; }
 .detail-section { display:flex;flex-direction:column;gap:4px; }
-.detail-section-label { font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px; }
+.detail-section-label { font-size:10px;font-weight:700;color:#3a3a3a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px; }
 .detail-doc-item { display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04); }
 .detail-doc-icon { width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.detail-doc-icon.minutes { background:rgba(59,130,246,.2);color:#60a5fa; }
-.detail-doc-icon.report { background:rgba(16,185,129,.2);color:#34d399; }
+.detail-doc-icon.minutes { background:rgba(255,255,255,.06);color:#888; }
+.detail-doc-icon.report { background:rgba(255,255,255,.06);color:#888; }
 .detail-doc-info { flex:1;min-width:0; }
-.detail-doc-name { font-size:11px;color:#cbd5e1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.detail-doc-date { font-size:10px;color:#334155; }
-.detail-dept-table,.detail-member-table { width:100%;border-collapse:collapse;font-size:11px; }
-.detail-dept-table td,.detail-member-table td { padding:3px 4px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle; }
-.detail-dept-table tr:last-child td,.detail-member-table tr:last-child td { border-bottom:none; }
+.detail-doc-name { font-size:11px;color:#bbb;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-doc-date { font-size:10px;color:#444; }
+.detail-dept-table { width:100%;border-collapse:collapse;font-size:11px; }
+.detail-dept-table td { padding:3px 4px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle; }
+.detail-dept-table tr:last-child td { border-bottom:none; }
 .dept-name { color:#cbd5e1;font-weight:500; }
 .dept-count { color:#475569;text-align:right;white-space:nowrap; }
-.mb-name { color:#cbd5e1;font-weight:500;width:35%; }
-.mb-dept { color:#64748b;width:40%; }
-.mb-role { color:#475569;text-align:right;white-space:nowrap; }
-.detail-action-row { display:flex;gap:6px; }
-.detail-action-btn { flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 8px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s; }
-.task-action-btn { background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.25); }
-.task-action-btn:hover { background:rgba(251,191,36,.22); }
-.review-action-btn { background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.25); }
-.review-action-btn:hover { background:rgba(52,211,153,.22); }
+.detail-action-row { display:flex;gap:7px;padding:12px 0; }
 
 /* ── Main area ── */
 .main-area { flex:1;position:relative;overflow:hidden;min-width:0; }
@@ -2410,12 +3048,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .list-view { position:absolute;inset:0;overflow-y:auto;background:#0a0f1e;display:flex;flex-direction:column; }
 .lv-th-secretary { width:120px;text-align:left; }
 .lv-td-secretary { width:120px; }
-.lv-secretary-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:99px;padding:2px 8px 2px 6px;white-space:nowrap; }
+.lv-secretary-text { font-size:11px;color:var(--text-muted); }
 .lv-secretary-empty { font-size:11px;color:#334155; }
 .lv-th-secretary { width:120px;text-align:left; }
 .lv-td-secretary { width:120px; }
-.lv-secretary-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:99px;padding:2px 8px 2px 6px;white-space:nowrap; }
-.lv-secretary-empty { font-size:11px;color:#334155; }
 .list-view::-webkit-scrollbar { width:4px; }
 .list-view::-webkit-scrollbar-thumb { background:rgba(255,255,255,.08); }
 .list-header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px 8px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0; }
@@ -2504,7 +3140,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .supervisor-brand-text { display:flex;flex-direction:column;min-width:0;flex:1; }
 .supervisor-title { font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .supervisor-sub { font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.supervisor-badge { font-size:9px;font-weight:800;background:linear-gradient(135deg,#3b82f6,#10b981);color:#fff;border-radius:99px;padding:2px 6px;letter-spacing:.04em;flex-shrink:0; }
+
 .supervisor-header-actions { display:flex;align-items:center;gap:5px;flex-shrink:0; }
 .agent-sidebar-close { width:26px;height:26px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .agent-sidebar-close:hover { background:#e2e8f0;color:#1e293b; }
@@ -2549,17 +3185,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .agent-textarea:focus { border-color:var(--primary); }
 .agent-send-btn { padding:6px 12px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
 .agent-send-btn:disabled { opacity:.4;cursor:not-allowed; }
-
-/* ── Tooltip ── */
-.node-tooltip { position:fixed;z-index:9000;background:#1e293b;border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px 14px;min-width:170px;box-shadow:0 8px 28px rgba(0,0,0,.5); }
-.tt-title { font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:7px; }
-.tt-rows { display:flex;flex-direction:column;gap:3px;margin-bottom:9px; }
-.tt-row { display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#94a3b8; }
-.tt-label { color:#475569; }
-.tt-detail-btn { width:100%;padding:6px;border-radius:7px;border:1px solid rgba(96,165,250,.3);background:rgba(96,165,250,.1);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer; }
-.tt-detail-btn:hover { background:rgba(96,165,250,.2); }
-.tooltip-fade-enter-active,.tooltip-fade-leave-active { transition:opacity .12s,transform .12s; }
-.tooltip-fade-enter-from,.tooltip-fade-leave-to { opacity:0;transform:scale(.95); }
 
 /* ── Modal ── */
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
@@ -2696,14 +3321,40 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-sidebar { background:#f8fafc;border-right-color:#e2e8f0; }
 .day-mode .detail-meeting-name { color:#1e293b; }
 .day-mode .detail-meta { color:#94a3b8; }
-.day-mode .detail-close { color:#94a3b8; }
+.day-mode .detail-icon-btn { border-color:#e2e8f0;color:#94a3b8; }
+.day-mode .detail-icon-btn:hover { background:#f1f5f9; }
+.day-mode .detail-close { color:#94a3b8;border-color:#e2e8f0; }
+.day-mode .detail-close:hover { background:#f1f5f9; }
 .day-mode .detail-section-label { color:#94a3b8; }
+.day-mode .detail-purpose { background:#fff;border-color:#e2e8f0;color:#475569; }
+.day-mode .detail-info-key { color:#94a3b8; }
+.day-mode .detail-info-val { color:#1e293b; }
+.day-mode .detail-stat-card { background:#fff;border-color:#e2e8f0; }
+.day-mode .detail-stat-label { color:#94a3b8; }
+.day-mode .detail-progress-track { background:#e2e8f0; }
 .day-mode .detail-doc-item { background:#fff;border-color:#e2e8f0; }
 .day-mode .detail-doc-name { color:#334155; }
 .day-mode .detail-doc-date { color:#94a3b8; }
-.day-mode .detail-dept-table td,.day-mode .detail-member-table td { border-bottom-color:#e2e8f0; }
-.day-mode .dept-name,.day-mode .mb-name { color:#1e293b; }
-.day-mode .dept-count,.day-mode .mb-dept,.day-mode .mb-role { color:#94a3b8; }
+.day-mode .detail-member-table td { border-bottom-color:#e2e8f0; }
+.day-mode .mb-name { color:#1e293b; }
+.day-mode .mb-dept,.day-mode .mb-role { color:#94a3b8; }
+.day-mode .detail-log-item { background:#fff;border-color:#e2e8f0; }
+.day-mode .detail-log-desc { color:#334155; }
+.day-mode .detail-log-meta { color:#94a3b8; }
+.day-mode .detail-log-empty { color:#94a3b8; }
+.day-mode .gm-modal { background:#fff;border-color:#e2e8f0; }
+.day-mode .gm-header { border-bottom-color:#e2e8f0; }
+.day-mode .gm-title { color:#1e293b; }
+.day-mode .gm-close { color:#94a3b8; }
+.day-mode .gm-close:hover { background:#f1f5f9;color:#1e293b; }
+.day-mode .gm-agenda-card { background:#f8fafc;border-color:#e2e8f0; }
+.day-mode .gm-agenda-title { color:#1e293b; }
+.day-mode .gm-agenda-bullets li { color:#64748b; }
+.day-mode .gm-assign-table th { border-bottom-color:#e2e8f0;color:#94a3b8; }
+.day-mode .gm-assign-table td { border-bottom-color:#f1f5f9;color:#334155; }
+.day-mode .gm-footer { border-top-color:#e2e8f0; }
+.day-mode .gm-btn-cancel { border-color:#e2e8f0;color:#64748b; }
+.day-mode .gm-btn-cancel:hover { background:#f1f5f9; }
 .day-mode .person-toggle { color:#64748b; }
 .day-mode .legend-hint { color:#94a3b8; }
 .day-mode .list-view { background:#f8fafc; }
@@ -2725,6 +3376,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-header { display:flex;align-items:center;gap:8px;padding:0 0 10px 0; }
 .lv-title { font-size:13px;font-weight:600;color:#94a3b8; }
 .lv-count { font-size:12px;color:#64748b; }
+.lv-filter-wrap { margin-left:auto;display:flex;gap:6px; }
+.lv-type-filter { appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 8px center;background-size:10px 6px;border:1px solid rgba(255,255,255,.12);border-radius:7px;color:#cbd5e1;font-size:12px;padding:5px 26px 5px 10px;cursor:pointer;outline:none;transition:border-color .15s,background-color .15s; }
+.lv-type-filter:hover { border-color:rgba(255,255,255,.22); }
+.lv-type-filter:focus { border-color:rgba(99,102,241,.6); }
+.day-mode .lv-type-filter { background-color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");border-color:#e2e8f0;color:#334155; }
+.day-mode .lv-type-filter:hover { border-color:#cbd5e1; }
+.day-mode .lv-type-filter:focus { border-color:#6366f1; }
 .lv-table-wrap { overflow-x:auto;background:#1e293b;border-radius:10px;border:1px solid rgba(255,255,255,.09); }
 .lv-table { width:100%;border-collapse:collapse;font-size:13px; }
 .lv-table thead tr { border-bottom:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.03); }

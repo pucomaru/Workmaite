@@ -22,6 +22,7 @@ const creating = ref(false)
 const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'presenter' | null }
 const endingMeeting = ref(null)
 const deletingMeeting = ref(null)
+const meetingMeta = ref({}) // { [meetingId]: { owner_name, due_date, priority } }
 
 // ── Calendar state ──────────────────────────────────────────
 const calView = ref('month')
@@ -139,6 +140,9 @@ onMounted(async () => {
     const calRes = await api.get('/api/calendar/events')
     calendarEvents.value = calRes.data
   } catch {}
+
+  await hydrateMeetingMeta()
+
   // 각 회의체에 대한 내 권한 병렬 조회
   await Promise.all(
     meetingsStore.meetings.map(async (m) => {
@@ -151,6 +155,44 @@ onMounted(async () => {
     })
   )
 })
+
+async function hydrateMeetingMeta() {
+  const active = meetingsStore.meetings.filter(m => m.status === 'active')
+  const entries = await Promise.all(
+    active.map(async (m) => {
+      try {
+        const [membersRes, todosRes] = await Promise.all([
+          api.get(`/api/meetings/${m.id}/members`),
+          api.get(`/api/meetings/${m.id}/todos`),
+        ])
+
+        const members = membersRes.data || []
+        const todos = todosRes.data || []
+
+        const admin = members.find(mm => mm.role === 'admin')
+        const owner_name = admin?.user?.name || admin?.user_name || '-'
+
+        const openTodos = todos
+          .filter(t => t.status !== 'done')
+          .sort((a, b) => {
+            const da = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            const db = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            return da - db
+          })
+
+        const topTodo = openTodos[0]
+        return [m.id, {
+          owner_name,
+          due_date: topTodo?.due_date || null,
+          priority: topTodo?.priority || 'normal',
+        }]
+      } catch {
+        return [m.id, { owner_name: '-', due_date: null, priority: 'normal' }]
+      }
+    })
+  )
+  meetingMeta.value = Object.fromEntries(entries)
+}
 
 // ── 회의체 종료 / 삭제 ─────────────────────────────────────────
 async function endMeeting(m, e) {
@@ -232,7 +274,14 @@ const endedMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'ended')
 )
 
-const displayActiveMeetings = computed(() => activeMeetings.value)
+const displayActiveMeetings = computed(() =>
+  activeMeetings.value.map(m => ({
+    ...m,
+    owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '-',
+    due_date: meetingMeta.value[m.id]?.due_date ?? null,
+    priority: meetingMeta.value[m.id]?.priority ?? m.priority ?? 'normal',
+  }))
+)
 
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const upcomingSessions = computed(() => {
@@ -317,10 +366,10 @@ const upcomingSessions = computed(() => {
                 </td>
                 <td class="text-muted">{{ m.owner_name || '-' }}</td>
                 <td>
-                  <span v-if="m.end_date" :class="getDday(m.end_date) !== null && getDday(m.end_date) <= 7 ? 'text-danger fw-semibold' : ''">
-                    {{ formatDate(m.end_date) }}
-                    <span v-if="getDday(m.end_date) !== null && getDday(m.end_date) <= 7" class="ms-1" style="font-size:11px">
-                      (D-{{ getDday(m.end_date) }})
+                  <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
+                    {{ formatDate(m.due_date || m.end_date) }}
+                    <span v-if="getDday(m.due_date || m.end_date) !== null && getDday(m.due_date || m.end_date) <= 7" class="ms-1" style="font-size:11px;color:#1e293b">
+                      (D-{{ getDday(m.due_date || m.end_date) }})
                     </span>
                   </span>
                   <span v-else class="text-muted">-</span>
