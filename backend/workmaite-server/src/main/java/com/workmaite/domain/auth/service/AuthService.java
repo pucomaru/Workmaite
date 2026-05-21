@@ -13,6 +13,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 인증 비즈니스 로직
+ * - 회원가입: 이메일 중복 확인 후 비밀번호 암호화하여 저장
+ * - 로그인: 이메일/비밀번호 검증 후 Access Token 발급
+ * - 로그아웃: Redis 도입 전까지 클라이언트 토큰 삭제 방식으로 처리
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -23,6 +29,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
 
     public void signup(SignupRequest request) {
+        // 이메일 중복 확인
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
@@ -40,6 +47,7 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginRequest request) {
+        // 이메일/비밀번호 둘 다 틀려도 동일한 에러 반환 (보안상 구분하지 않음)
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
@@ -51,7 +59,7 @@ public class AuthService {
         return LoginResponse.of(accessToken);
     }
 
-    // Redis 도입 전: 클라이언트에서 토큰 삭제로 처리
+    // Redis 도입 후 Access Token 블랙리스트 처리 예정
     public void logout() {
     }
 }

@@ -14,6 +14,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 인증 관련 API
+ * POST /api/v1/auth/signup  - 회원가입
+ * POST /api/v1/auth/login   - 로그인 (Access Token 발급)
+ * POST /api/v1/auth/logout  - 로그아웃
+ */
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -21,18 +27,21 @@ public class AuthController {
 
     private final AuthService authService;
 
+    // 회원가입 - 성공 시 201 반환
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<Void>> signup(@Valid @RequestBody SignupRequest request) {
         authService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(null));
     }
 
+    // 로그인 - 성공 시 Access Token 반환
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
+    // 로그아웃 - 현재는 클라이언트에서 토큰 삭제로 처리 (Redis 도입 후 블랙리스트 적용 예정)
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout() {
         authService.logout();

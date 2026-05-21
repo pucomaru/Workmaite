@@ -10,6 +10,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 사용자 정보 비즈니스 로직
+ * - 내 정보 조회: JWT userId로 DB 조회
+ * - 회원정보 수정: 이름, 회사, 부서, 직책 변경 (이메일, 비밀번호 변경 불가)
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)

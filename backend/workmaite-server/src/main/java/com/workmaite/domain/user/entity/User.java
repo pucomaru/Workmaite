@@ -5,6 +5,9 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * 사용자 엔티티 - users 테이블 매핑
+ */
 @Entity
 @Table(name = "users")
 @Getter
@@ -23,6 +26,7 @@ public class User {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
+    // BCrypt 해시된 비밀번호
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
@@ -43,6 +47,7 @@ public class User {
         createdAt = LocalDateTime.now();
     }
 
+    // 회원정보 수정 (이메일, 비밀번호는 별도 기능으로 분리)
     public void update(String name, String company, String department, String position) {
         this.name = name;
         this.company = company;

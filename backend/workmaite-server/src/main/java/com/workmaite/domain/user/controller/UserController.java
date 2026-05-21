@@ -10,6 +10,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * 사용자 정보 관련 API
+ * GET  /api/v1/users/me  - 내 정보 조회
+ * PATCH /api/v1/users/me - 회원정보 수정
+ */
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
@@ -17,12 +22,14 @@ public class UserController {
 
     private final UserService userService;
 
+    // 내 정보 조회 - JWT에서 추출한 userId로 조회
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> getMe(Authentication authentication) {
         Long userId = Long.parseLong(authentication.getName());
         return ResponseEntity.ok(ApiResponse.ok(userService.getMe(userId)));
     }
 
+    // 회원정보 수정 - 이름, 회사, 부서, 직책 변경 가능
     @PatchMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> updateMe(
             Authentication authentication,
