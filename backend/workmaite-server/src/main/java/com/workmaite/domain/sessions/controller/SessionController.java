@@ -55,4 +55,24 @@ public class SessionController {
         sessionService.deleteSession(sessionId);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
+
+    // Meeting Progress — status, started_at, ended_at 업데이트
+
+    @PostMapping("/sessions/{sessionId}/start")
+    public ResponseEntity<ApiResponse<SessionResponse>> startSession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.startSession(sessionId)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/pause")
+    public ResponseEntity<ApiResponse<SessionResponse>> pauseSession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.pauseSession(sessionId)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/end")
+    public ResponseEntity<ApiResponse<SessionResponse>> endSession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.endSession(sessionId)));
+    }
 }

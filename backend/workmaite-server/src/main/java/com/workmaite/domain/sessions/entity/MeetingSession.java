@@ -61,4 +61,22 @@ public class MeetingSession {
         if (location != null) this.location = location;
         if (scheduledAt != null) this.scheduledAt = scheduledAt;
     }
+
+    // SCHEDULED → ONGOING: 현재 시간을 started_at에 기록
+    public void start() {
+        this.startedAt = LocalDateTime.now();
+        this.status = SessionStatus.ONGOING;
+    }
+
+    // ONGOING → SCHEDULED: 일시정지 시 started_at 초기화 후 대기 상태로 복귀
+    public void pause() {
+        this.startedAt = null;
+        this.status = SessionStatus.SCHEDULED;
+    }
+
+    // ONGOING → ENDED: 현재 시간을 ended_at에 기록
+    public void end() {
+        this.endedAt = LocalDateTime.now();
+        this.status = SessionStatus.ENDED;
+    }
 }

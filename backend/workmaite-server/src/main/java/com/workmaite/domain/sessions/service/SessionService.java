@@ -67,6 +67,45 @@ public class SessionService {
         sessionRepository.delete(session);
     }
 
+    // SCHEDULED 상태일 때만 시작 가능, 그 외 상태면 SESSION_ALREADY_STARTED 에러
+    @Transactional
+    public SessionResponse startSession(Long sessionId) {
+        MeetingSession session = findSessionById(sessionId);
+
+        if (session.getStatus() != SessionStatus.SCHEDULED) {
+            throw new BusinessException(ErrorCode.SESSION_ALREADY_STARTED);
+        }
+
+        session.start();
+        return SessionResponse.from(session);
+    }
+
+    // ONGOING 상태일 때만 일시정지 가능, 그 외 상태면 SESSION_NOT_STARTED 에러
+    @Transactional
+    public SessionResponse pauseSession(Long sessionId) {
+        MeetingSession session = findSessionById(sessionId);
+
+        if (session.getStatus() != SessionStatus.ONGOING) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_STARTED);
+        }
+
+        session.pause();
+        return SessionResponse.from(session);
+    }
+
+    // ONGOING 상태일 때만 종료 가능, 그 외 상태면 SESSION_ALREADY_ENDED 에러
+    @Transactional
+    public SessionResponse endSession(Long sessionId) {
+        MeetingSession session = findSessionById(sessionId);
+
+        if (session.getStatus() != SessionStatus.ONGOING) {
+            throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
+        }
+
+        session.end();
+        return SessionResponse.from(session);
+    }
+
     private MeetingSession findSessionById(Long sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));

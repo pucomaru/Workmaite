@@ -37,6 +37,8 @@ public enum ErrorCode {
     // Session - 회의 도메인 에러
     // 회의 조회 시 존재하지 않는 경우
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의입니다."),
+    // SCHEDULED 상태가 아닌 회의를 일시정지하려는 경우 (pause는 ONGOING 상태에서만 가능)
+    SESSION_NOT_STARTED(HttpStatus.BAD_REQUEST, "시작되지 않은 회의입니다."),
     // 이미 시작(ONGOING)된 회의를 수정하려는 경우
     SESSION_ALREADY_STARTED(HttpStatus.BAD_REQUEST, "이미 시작된 회의입니다."),
     // 이미 종료(ENDED)된 회의를 수정하려는 경우
