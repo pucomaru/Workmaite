@@ -29,7 +29,11 @@ public enum ErrorCode {
     // 회의록
     MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
     MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
-    MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다.");
+
+    // 자료
+    REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 자료입니다."),
+    REPORT_ALREADY_APPROVED(HttpStatus.BAD_REQUEST, "이미 승인된 자료는 재제출할 수 없습니다."),
+    MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다."),
     // Session - 회의 도메인 에러
     // 회의 조회 시 존재하지 않는 경우
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의입니다."),
