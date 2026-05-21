@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
 import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
+import ProcessStepBar from '../components/ProcessStepBar.vue'
+import FileUploadArea from '../components/FileUploadArea.vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -192,9 +194,22 @@ const SUPERVISOR = {
   endpoint: '/api/agent/supervisor/chat',
 }
 
+const SUPERVISOR_EXTRACT = {
+  name: '워크메이트 AI', nameEn: 'Workmate AI',
+  avatar: hyeanAvatar,
+  greeting: '회의록과 자료를 분석해서 과제를 추출했습니다.\n추출된 과제 목록을 검토해보시고, 수정이 필요한 항목이 있으면 말씀해주세요.\n\n예시: "3번 과제 담당자를 홍길동으로 바꿔줘", "2번과 4번 과제를 합쳐줘", "이 과제가 왜 추출됐는지 설명해줘"',
+  suggested: ['각 과제가 추출된 이유를 설명해줘', '비슷한 과제들을 하나로 합쳐줘', '담당 부서 배정이 적절한지 검토해줘'],
+  endpoint: '/api/agent/supervisor/chat',
+}
+
 const agentSidebarOpen = ref(false)
 const currentAgent = ref('supervisor')
-const agentInfo = computed(() => SUPERVISOR)
+const agentInfo = computed(() => {
+  if (detailTab.value === 'task' && showExtractFlow.value && extractPhase.value !== 'context') {
+    return SUPERVISOR_EXTRACT
+  }
+  return SUPERVISOR
+})
 const allMessages = ref({ supervisor: [] })
 const currentMessages = computed(() => allMessages.value['supervisor'])
 const agentInput = ref('')
@@ -238,13 +253,43 @@ async function sendAgentMsg() {
   agentLoading.value = true
   await nextTick()
   if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+
+  // 과제 탭 추출 결과 단계 → chat-extract 엔드포인트로 과제 목록 업데이트
+  const isExtractMode = detailTab.value === 'task' &&
+    (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
+    detailMeeting.value
+
+  if (isExtractMode) {
+    try {
+      const { data } = await api.post('/api/agent/archive/chat-extract', {
+        meeting_id: detailMeeting.value.id,
+        message: content,
+        chat_history: [{ agendas: extractResult.value }],
+      })
+      agentMsg.content = data.reply || '과제 목록을 업데이트했습니다.'
+      if (data.agendas && data.agendas.length) {
+        extractResult.value = data.agendas.map(ag => ({
+          ...ag, _state: null, _editing: false,
+          _editTitle: ag.title,
+          _editBullets: (ag.bullets || []).join('\n')
+        }))
+      }
+    } catch {
+      agentMsg.content = '과제 업데이트 중 오류가 발생했습니다.'
+    } finally {
+      agentLoading.value = false
+    }
+    return
+  }
+
+  // 일반 모드: supervisor 채팅
   const history = allMessages.value[key].slice(0, -1).map(m => ({
     role: m.role === 'user' ? 'user' : 'assistant', content: m.content,
   }))
   try {
     await streamPost(
       agentInfo.value.endpoint,
-      { meeting_id: 0, message: content, chat_history: history },
+      { meeting_id: detailMeeting.value?.id || 0, message: content, chat_history: history },
       (chunk) => { agentMsg.content += chunk; if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight },
       () => { agentLoading.value = false }
     )
@@ -375,16 +420,119 @@ let hoverNodeIdx = -1
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
 const detailTodos = ref([])
+
+// 현재 회의체 참여 부서 목록
+const detailMemberDepts = computed(() => {
+  const depts = new Set((detailMeeting.value?.members || [])
+    .map(mb => mb.department || mb.dept || '')
+    .filter(Boolean))
+  return depts
+})
+
+// 팀별 그룹핑 (현재 회의체 관련 부서만)
+const groupedTodos = computed(() => {
+  const groups = {}
+  for (const todo of detailTodos.value) {
+    const dept = todo.assignee_dept || todo.dept || '미배정'
+    if (!groups[dept]) groups[dept] = []
+    groups[dept].push(todo)
+  }
+  return groups
+})
 const groupTodoRatio = ref(new Map())
 const showExtractModal = ref(false)
+const detailTab = ref('basic') // 'basic' | 'task'
 const showAssignModal = ref(false)
-const extractResult = ref([])
+const showAssignView = ref(false) // 인라인 배정 뷰
+// meeting_id별 추출 상태 캐시
+const _extractCache = ref({})
+function _getCache(id) {
+  if (!id) return { phase: 'context', result: [], showFlow: false }
+  if (!_extractCache.value[id]) _extractCache.value[id] = { phase: 'context', result: [], showFlow: false }
+  return _extractCache.value[id]
+}
+const extractPhase = computed({
+  get: () => _getCache(detailMeeting.value?.id).phase,
+  set: (val) => { const c = _getCache(detailMeeting.value?.id); c.phase = val }
+})
+const selectedMinutes = ref([]) // 선택된 회의록 ID
+const selectedFiles = ref([]) // 선택된 파일 ID
+const selectedSimilarDocs = ref([]) // 선택된 유사 문서 ID
+const uploadedCtxFiles = ref([]) // 새로 업로드된 파일
+
+function onCtxFilesAdded(files) {
+  uploadedCtxFiles.value.push(...files)
+  selectedFiles.value.push(...files.map((_, i) => 'upload_' + (uploadedCtxFiles.value.length - files.length + i)))
+}
+const extractResult = computed({
+  get: () => _getCache(detailMeeting.value?.id).result,
+  set: (val) => { const c = _getCache(detailMeeting.value?.id); c.result = val }
+})
+const showExtractFlow = computed({
+  get: () => {
+    const c = _getCache(detailMeeting.value?.id)
+    return c.showFlow || c.phase !== 'context'
+  },
+  set: (val) => { _getCache(detailMeeting.value?.id).showFlow = val }
+})
 const assignResult = ref([])
 const extractLoading = ref(false)
 const assignLoading = ref(false)
 
+// 과제 탭에서 인라인으로 추출 실행
+async function runExtract() {
+  // 추출 전용 인사말로 에이전트 채팅 초기화
+  allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
+  agentSidebarOpen.value = true
+  extractPhase.value = 'result'
+  if (!detailMeeting.value) return
+  extractLoading.value = true
+  extractResult.value = []
+  try {
+    // multipart form 구성 (파일 직접 전송)
+    const formData = new FormData()
+    formData.append('meeting_id', String(detailMeeting.value.id))
+    formData.append('selected_file_ids', JSON.stringify(
+      selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
+    ))
+    formData.append('selected_similar_docs', JSON.stringify(selectedSimilarDocs.value))
+
+    // 새로 업로드된 파일 추가
+    for (const file of uploadedCtxFiles.value) {
+      formData.append('files', file)
+    }
+
+    const { data } = await api.post('/api/agent/archive/extract-agendas', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+
+    if (data.agendas && data.agendas.length) {
+      extractResult.value = data.agendas.map(ag => ({
+        ...ag,
+        _state: null,
+        _editing: false,
+        _editTitle: ag.title,
+        _editBullets: (ag.bullets || []).join('\n')
+      }))
+    } else if (data.error) {
+      console.error('추출 오류:', data.error)
+      extractResult.value = []
+    } else {
+      extractResult.value = []
+    }
+  } catch (e) {
+    console.error('extract error', e)
+    extractResult.value = []
+  } finally {
+    extractLoading.value = false
+  }
+}
+
+// extractTextFromFile 함수 제거 (백엔드에서 처리)
+
 async function openExtractModal() {
   showExtractModal.value = true
+  agentSidebarOpen.value = true
   if (!detailMeeting.value) return
   extractLoading.value = true
   extractResult.value = []
@@ -413,28 +561,27 @@ async function openAssignModal() {
   if (!detailMeeting.value) return
   assignLoading.value = true
   assignResult.value = []
-  try {
-    const todos = (await api.get(`/api/meetings/${detailMeeting.value.id}/todos`)).data || []
-    assignResult.value = todos.map(t => ({
-      content: t.content,
-      assignee: t.assignee_name || '-',
-      dept: t.assignee_dept || '-',
-      due: t.due_date,
-      status: t.status,
-      priority: t.priority,
+
+  // 승인된 추출 과제를 배정 목록으로 변환
+  const approved = extractResult.value.filter(a => a._state === 'approved')
+  if (approved.length) {
+    assignResult.value = approved.map(a => ({
+      content: a.title,
+      assignee: '',
+      dept: a.department || '',
+      due: null,
+      status: 'pending',
+      priority: a.priority || 'normal',
+      bullets: a.bullets || [],
       _editing: false,
-      _editContent: t.content,
-      _editAssignee: t.assignee_name || '-',
-      _editStatus: t.status,
-      _editPriority: t.priority,
+      _editContent: a.title,
+      _editAssignee: '',
+      _editStatus: 'pending',
+      _editPriority: a.priority || 'normal',
       _state: null,
     }))
-  } catch {
-    assignResult.value = [
-      { content: 'API 명세서 초안 작성', assignee: '정다은', dept: '개발팀', due: null, status: 'in_progress', priority: 'urgent_important', _editing: false, _editContent: 'API 명세서 초안 작성', _editAssignee: '정다은', _editStatus: 'in_progress', _editPriority: 'urgent_important', _state: null },
-      { content: '캠페인 소재 3종 제작', assignee: '한소희', dept: '마케팅팀', due: null, status: 'pending', priority: 'important', _editing: false, _editContent: '캠페인 소재 3종 제작', _editAssignee: '한소희', _editStatus: 'pending', _editPriority: 'important', _state: null },
-    ]
-  } finally { assignLoading.value = false }
+  }
+  assignLoading.value = false
 }
 function saveAssignItem(i) {
   const t = assignResult.value[i]
@@ -460,20 +607,64 @@ function rejectAssignItem(i) {
 function addAssignItem() {
   assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editStatus: 'pending', _editPriority: 'normal', _state: null })
 }
-function saveApprovedTasks() {
+async function saveApprovedTasks() {
   const approved = assignResult.value.filter(t => t._state === 'approved')
-  // 기존 todos를 승인 항목으로 콐체 (승인된 것만 분모)
-  detailTodos.value = approved.map(t => ({ content: t.content, assignee: t.assignee, status: t.status, priority: t.priority }))
-  const total = approved.length
-  const done = approved.filter(t => t.status === 'done').length
-  if (detailMeeting.value) {
-    groupTodoRatio.value = new Map(groupTodoRatio.value).set(detailMeeting.value.id, total ? done / total : null)
+  if (!approved.length || !detailMeeting.value) return
+
+  const savingFlag = ref(false)
+  if (savingFlag.value) return
+  savingFlag.value = true
+
+  try {
+    const saved = []
+    for (const t of approved) {
+      try {
+        const { data } = await api.post(`/api/meetings/${detailMeeting.value.id}/todos`, {
+          content: t.content,
+          assignee_name: t.assignee || null,
+          assignee_dept: t.dept || null,
+          priority: t.priority || 'normal',
+          status: t.status || 'pending',
+          source_type: 'meeting_minutes',
+          due_date: t.due || null,
+        })
+        saved.push(data)
+      } catch (e) {
+        console.error('과제 저장 실패:', t.content, e)
+      }
+    }
+
+    // DB 저장 후 목록 새로고침
+    detailTodos.value = (await api.get(`/api/meetings/${detailMeeting.value.id}/todos`)).data || []
+
+    const total = detailTodos.value.length
+    const done = detailTodos.value.filter(t => t.status === 'done').length
+    groupTodoRatio.value = new Map(groupTodoRatio.value).set(
+      detailMeeting.value.id, total ? done / total : null
+    )
+
+    // 추출 단계 초기화
+    extractPhase.value = 'context'
+    showExtractFlow.value = false
+    assignResult.value = []
+
+    alert(`${saved.length}개 과제가 저장되었습니다.`)
+  } catch (e) {
+    console.error('저장 오류:', e)
+    alert('저장 중 오류가 발생했습니다.')
   }
-  showAssignModal.value = false
 }
 
 const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
 const STATUS_LABEL = { pending: '대기', in_progress: '진행중', done: '완료' }
+
+function goToProcessStep(step) {
+  if (step === 'context' && (extractPhase.value === 'result' || extractPhase.value === 'assign')) {
+    extractPhase.value = 'context'
+  } else if (step === 'result' && extractPhase.value === 'assign') {
+    extractPhase.value = 'result'
+  }
+}
 
 // ─── 회의체 설정 모달 (MeetingGroupsPage 동일 패턴) ────────────
 const settingsModal = ref(null)
@@ -569,7 +760,12 @@ function initials(name) { return (name || '?')[0] }
 
 async function openDetail(groupData) {
   if (!groupData) return
-  detailMeeting.value = groupData; detailOpen.value = true
+  const isSameMeeting = detailMeeting.value?.id === groupData.id
+  detailMeeting.value = groupData; detailOpen.value = true; detailTab.value = 'basic'
+  if (!isSameMeeting) {
+    selectedMinutes.value = []; selectedFiles.value = []
+    selectedSimilarDocs.value = []; uploadedCtxFiles.value = []
+  }
   hoverNode.value = null
   detailTodos.value = []
   try {
@@ -621,7 +817,20 @@ const PRESENTATION_CRITERIA = [
 ]
 
 const showUploadModal = ref(false)
-const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성' })
+const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', file: null })
+const uploadMeetingTodos = ref([]) // 선택된 회의체의 과제 목록
+
+watch(() => uploadForm.value.meetingId, async (id) => {
+  uploadMeetingTodos.value = []
+  uploadForm.value.relatedTodoId = ''
+  if (!id) return
+  // node id가 'mg-13' 형식이므로 숫자만 추출
+  const meetingId = id.replace('mg-', '')
+  if (!meetingId) return
+  try {
+    uploadMeetingTodos.value = (await api.get(`/api/meetings/${meetingId}/todos`)).data || []
+  } catch { uploadMeetingTodos.value = [] }
+})
 
 // ─── 파일 노드 AI 검토 패널 ────────────────────────────────────
 const fileReviewPanel = ref(null)  // { node, aiResult, extracting, assigning, extractedAgendas }
@@ -1673,7 +1882,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
           </div>
 
+          <!-- 탭 -->
+          <div class="detail-tabs">
+            <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
+            <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
+          </div>
+
           <div class="detail-body">
+
+            <!-- ── 기본 탭 ── -->
+            <template v-if="detailTab==='basic'">
 
             <!-- 소개 -->
             <div v-if="detailMeeting?.purpose || detailMeeting?.description" class="detail-section">
@@ -1737,18 +1955,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
 
-            <!-- 과제 추출 / 과제 배정 버튼 -->
-            <div class="detail-action-row">
-              <button class="detail-action-btn btn-extract" @click="openExtractModal">
-                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                과제 추출
-              </button>
-              <button class="detail-action-btn btn-assign" @click="openAssignModal">
-                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-                과제 배정
-              </button>
-            </div>
-
             <!-- 최근 로그 -->
             <div class="detail-section">
               <div class="detail-section-label-row">
@@ -1769,6 +1975,223 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
 
+            </template><!-- /기본 탭 -->
+
+            <!-- ── 과제 탭 ── -->
+            <template v-if="detailTab==='task'">
+
+              <!-- ── 메인 뷰: 등록된 과제 + AI 추출 버튼 ── -->
+              <template v-if="!showExtractFlow">
+
+                <!-- 등록된 과제 목록 (맨 위) -->
+                <div class="detail-section">
+                  <div class="detail-section-label-row">
+                    <span class="detail-section-label">등록된 과제</span>
+                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.length }}건</span>
+                  </div>
+                  <div v-if="!detailTodos.length" class="detail-log-empty">등록된 과제가 없습니다.</div>
+                  <template v-else>
+                    <div v-for="(todos, dept) in groupedTodos" :key="dept" class="todo-dept-group">
+                      <div class="todo-dept-header">
+                        <span class="todo-dept-name">{{ dept || '미배정' }}</span>
+                        <span class="todo-dept-count">{{ todos.length }}건</span>
+                      </div>
+                      <div class="detail-todo-list">
+                        <div v-for="todo in todos" :key="todo.id||todo.content" class="detail-todo-item">
+                          <div class="detail-todo-status" :class="{
+                            'ts-done': todo.status==='done',
+                            'ts-progress': todo.status==='in_progress',
+                            'ts-risk': todo.status==='at_risk',
+                            'ts-pending': !todo.status||todo.status==='pending'
+                          }">
+                            {{ todo.status==='done' ? '완료' : todo.status==='in_progress' ? '진행' : todo.status==='at_risk' ? '위험' : '대기' }}
+                          </div>
+                          <div class="detail-todo-info">
+                            <div class="detail-todo-title">{{ todo.content }}</div>
+                            <div class="detail-todo-meta">
+                              <span v-if="todo.assignee_name||todo.assignee">{{ todo.assignee_name||todo.assignee }}</span>
+                              <span v-if="todo.due_date"> · {{ formatDate(todo.due_date) }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- AI 과제 추출 실행 버튼 -->
+                <button class="ctx-run-btn" @click="showExtractFlow=true">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
+                  AI 과제 추출 실행
+                </button>
+
+              </template><!-- /메인 뷰 -->
+
+              <!-- ── 추출 플로우 뷰 ── -->
+              <template v-else>
+
+                <!-- 프로세스 인디케이터 -->
+                <div class="task-process-bar">
+                  <ProcessStepBar
+                    :steps="['자료선정', '추출', '배정']"
+                    :current-step="extractPhase==='context' ? 0 : extractPhase==='result' ? 1 : 2"
+                    @step-click="i => goToProcessStep(i===0 ? 'context' : 'result')"
+                  />
+                </div>
+
+                <!-- 자료선정 단계 -->
+                <template v-if="extractPhase==='context'">
+                  <div class="ctx-section">
+                    <div class="ctx-section-title">
+                      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                      추가 자료 선택
+                    </div>
+                    <!-- 기존 자료 목록 -->
+                    <div class="ctx-file-list">
+                      <label v-for="r in (detailMeeting?.reports||[])" :key="'r'+r.id" class="ctx-file-item">
+                        <input type="checkbox" :value="r.id" v-model="selectedFiles" class="ctx-checkbox" />
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">{{ r.file_name || '보고서' }}</span>
+                        <span class="ctx-file-date">{{ r.submitted_at ? formatDate(r.submitted_at) : '' }}</span>
+                      </label>
+                      <label v-for="f in (detailMeeting?.files||[])" :key="'f'+f.id" class="ctx-file-item">
+                        <input type="checkbox" :value="f.id" v-model="selectedFiles" class="ctx-checkbox" />
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.585a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                        <span class="ctx-file-name">{{ f.file_name || f.name || '발제자료' }}</span>
+                      </label>
+                      <!-- 새로 업로드된 파일 -->
+                      <div v-for="(uf, i) in uploadedCtxFiles" :key="'uf'+i" class="ctx-file-item ctx-file-uploaded">
+                        <input type="checkbox" :value="'upload_'+i" v-model="selectedFiles" class="ctx-checkbox" checked />
+                        <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">{{ uf.name }}</span>
+                        <span class="ctx-file-date ctx-new-tag">새 파일</span>
+                        <button class="ctx-file-remove" @click.prevent="uploadedCtxFiles.splice(i,1)">×</button>
+                      </div>
+                    </div>
+                    <!-- 파일 업로드 영역 -->
+                    <FileUploadArea multiple @change="onCtxFilesAdded" />
+                  </div>
+
+                  <div class="ctx-section">
+                    <div class="ctx-section-title">
+                      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                      유사 문서 추천
+                    </div>
+                    <div class="ctx-file-list">
+                      <label class="ctx-file-item">
+                        <input type="checkbox" v-model="selectedSimilarDocs" value="sim_1" class="ctx-checkbox" />
+                        <svg width="10" height="10" fill="none" stroke="#a78bfa" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">운영위원회 회의록 3월</span>
+                        <span class="ctx-sim-score">유사도 87%</span>
+                      </label>
+                      <label class="ctx-file-item">
+                        <input type="checkbox" v-model="selectedSimilarDocs" value="sim_2" class="ctx-checkbox" />
+                        <svg width="10" height="10" fill="none" stroke="#a78bfa" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">2025_전략보고서.pdf</span>
+                        <span class="ctx-sim-score">유사도 79%</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <button class="ctx-run-btn" @click="runExtract">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
+                    과제 추출하기
+                  </button>
+                </template><!-- /자료선정 단계 -->
+
+                <!-- 추출·배정 단계 -->
+                <template v-if="extractPhase==='result' || extractPhase==='assign'">
+
+                  <template v-if="extractPhase==='result'">
+                    <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
+                    <template v-else-if="extractResult.length">
+                      <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
+                      <div class="detail-extract-list">
+                        <div v-for="(ag, i) in extractResult" :key="i" class="detail-extract-item" :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
+                          <div class="dei-num">{{ i+1 }}</div>
+                          <div class="dei-body">
+                            <template v-if="!ag._editing">
+                              <div class="dei-title">{{ ag.title }}</div>
+                              <ul class="dei-bullets"><li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li></ul>
+                            </template>
+                            <template v-else>
+                              <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" />
+                              <textarea class="dei-textarea" v-model="ag._editBullets" placeholder="세부 내용" rows="3"></textarea>
+                            </template>
+                          </div>
+                          <div class="dei-actions">
+                            <template v-if="!ag._editing">
+                              <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                              <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                              <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                            </template>
+                            <template v-else>
+                              <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                              <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                      <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가</button>
+                      <div class="detail-extract-footer detail-extract-footer--col">
+                        <span class="dei-count">승인 {{ extractResult.filter(a=>a._state==='approved').length }} / 반려 {{ extractResult.filter(a=>a._state==='rejected').length }} / 미검토 {{ extractResult.filter(a=>!a._state).length }}</span>
+                        <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state==='approved').length" @click="extractPhase='assign'; openAssignModal()">배정으로 이동 →</button>
+                      </div>
+                    </template>
+                  </template>
+
+                  <template v-if="extractPhase==='assign'">
+                    <div v-if="assignLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>과제를 불러오는 중...</span></div>
+                    <div v-else-if="!assignResult.length" class="detail-log-empty">배정된 과제가 없습니다.</div>
+                    <template v-else>
+                      <div class="detail-extract-list">
+                        <div v-for="(t, i) in assignResult" :key="i" class="detail-extract-item" :class="{ 'ei-approved': t._state==='approved', 'ei-rejected': t._state==='rejected' }">
+                          <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
+                          <div class="dei-body">
+                            <template v-if="!t._editing">
+                              <div class="dei-title" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</div>
+                              <div class="dei-meta-row">
+                                <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
+                                <span class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
+                                <span class="dei-assignee">{{ t.assignee }} · {{ t.dept }}</span>
+                              </div>
+                            </template>
+                            <template v-else>
+                              <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" />
+                              <div class="dei-edit-row">
+                                <input class="dei-input" v-model="t._editAssignee" placeholder="담당자" style="flex:1" />
+                                <select class="dei-select" v-model="t._editPriority"><option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option></select>
+                                <select class="dei-select" v-model="t._editStatus"><option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option></select>
+                              </div>
+                            </template>
+                          </div>
+                          <div class="dei-actions">
+                            <template v-if="!t._editing">
+                              <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                              <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                              <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="rejectAssignItem(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                            </template>
+                            <template v-else>
+                              <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                              <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                      <button class="gm-add-btn" style="margin-top:6px" @click="addAssignItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가</button>
+                      <div class="detail-extract-footer detail-extract-footer--col">
+                        <span class="dei-count">승인 {{ assignResult.filter(t=>t._state==='approved').length }} / 반려 {{ assignResult.filter(t=>t._state==='rejected').length }} / 미검토 {{ assignResult.filter(t=>!t._state).length }}</span>
+                        <button class="detail-action-btn btn-extract" :disabled="!assignResult.filter(t=>t._state==='approved').length" @click="saveApprovedTasks">승인 {{ assignResult.filter(t=>t._state==='approved').length }}건 저장</button>
+                      </div>
+                    </template>
+                  </template>
+
+                </template><!-- /추출·배정 단계 -->
+
+              </template><!-- /추출 플로우 뷰 -->
+
+            </template><!-- /과제 탭 -->
+
           </div>
           </div>
         </Transition>
@@ -1785,7 +2208,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <button class="zoom-btn" @click="targetZoom = Math.min(4, targetZoom * 1.3)" title="확대 (Zoom In)">+</button>
           <button class="zoom-btn zoom-reset" @click="targetZoom = 1.0; targetCamX = 0; targetCamY = 0; targetCamZ = 0" title="초기화 (Reset)">⌂</button>
           <button class="zoom-btn" @click="targetZoom = Math.max(0.25, targetZoom / 1.3)" title="축소 (Zoom Out)">−</button>
-          <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">✋</button>
+          <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+          </button>
         </div>
         <canvas v-show="!loading && viewMode==='graph'"
           ref="canvasRef"
@@ -1835,204 +2260,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <span class="float-btn-label">자료 업로드</span>
           </div>
         </div>
-
-        <!-- 과제 추출 모달 -->
-        <BaseModal v-model="showExtractModal" width="min(580px, 95vw)">
-          <template #title>
-            <div class="gm-modal-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              <span>과제 추출</span>
-              <span class="gm-modal-ai-tag">AI 추청</span>
-            </div>
-          </template>
-          <div class="gm-body-inner">
-            <!-- 로딩 -->
-            <div v-if="extractLoading" class="gm-loading-block">
-              <div class="gm-spinner"></div>
-              <div class="gm-loading-text">
-                <div class="gm-loading-main">AI가 회의록을 분석하고 있습니다</div>
-                <div class="gm-loading-sub">취지 파악 · 파일 참조 · 과제 산출 중…</div>
-              </div>
-            </div>
-            <!-- 빈 상태 -->
-            <div v-else-if="!extractResult.length" class="gm-empty-block">
-              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              <span>추출된 과제가 없습니다</span>
-            </div>
-            <!-- 결과 목록 -->
-            <template v-else>
-              <div class="gm-list-meta">
-                AI가 {{ extractResult.length }}개 과제를 추천했습니다.
-              </div>
-              <div class="gm-extract-list">
-                <div v-for="(ag, i) in extractResult" :key="i"
-                     class="gm-extract-item"
-                     :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
-                  <div class="gm-ei-left">
-                    <span class="gm-ei-num">{{ i+1 }}</span>
-                  </div>
-                  <div class="gm-ei-body">
-                    <template v-if="!ag._editing">
-                      <div class="gm-ei-title">{{ ag.title }}</div>
-                      <ul class="gm-ei-bullets">
-                        <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
-                      </ul>
-                    </template>
-                    <template v-else>
-                      <input class="gm-ei-input" v-model="ag._editTitle" placeholder="과제 제목" />
-                      <textarea class="gm-ei-textarea" v-model="ag._editBullets" placeholder="세부 내용 (줄바꿈으로 구분)" rows="3"></textarea>
-                    </template>
-                  </div>
-                  <div class="gm-ei-actions">
-                    <template v-if="!ag._editing">
-                      <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true" title="편집">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')" title="승인">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                      </button>
-                      <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected')" title="반려">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      </button>
-                    </template>
-                    <template v-else>
-                      <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag._editing=false; ag._state='approved'" title="저장">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                      </button>
-                      <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false" title="취소">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      </button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-              <button class="gm-add-btn" @click="addExtractItem">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                항목 직접 추가
-              </button>
-            </template>
-          </div>
-          <template #footer>
-            <span class="gm-footer-count" v-if="extractResult.length">
-              승인 {{ extractResult.filter(a=>a._state==='approved').length }} /
-              반려 {{ extractResult.filter(a=>a._state==='rejected').length }} /
-              미검토 {{ extractResult.filter(a=>!a._state).length }}
-            </span>
-            <div style="display:flex;gap:8px;margin-left:auto">
-              <button class="gm-btn-secondary" @click="showExtractModal=false">닫기</button>
-              <button class="gm-btn-primary" :disabled="extractLoading || !extractResult.filter(a=>a._state==='approved').length"
-                @click="openAssignModal(); showExtractModal=false">배정으로 이동 →</button>
-            </div>
-          </template>
-        </BaseModal>
-
-        <!-- 과제 배정 모달 -->
-        <BaseModal v-model="showAssignModal" width="min(680px, 95vw)">
-          <template #title>
-            <div class="gm-modal-title">
-              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-              <span>과제 배정 관리</span>
-              <span class="gm-modal-ai-tag">AI 추천</span>
-            </div>
-          </template>
-          <div class="gm-body-inner">
-            <!-- 로딩 -->
-            <div v-if="assignLoading" class="gm-loading-block">
-              <div class="gm-spinner"></div>
-              <div class="gm-loading-text">
-                <div class="gm-loading-main">과제를 불러오는 중입니다</div>
-                <div class="gm-loading-sub">담당자 매칭 · 우선순위 산정 · 상태 확인 중…</div>
-              </div>
-            </div>
-            <!-- 빈 상태 -->
-            <div v-else-if="!assignResult.length" class="gm-empty-block">
-              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-              <span>배정된 과제가 없습니다</span>
-            </div>
-            <!-- 결과 -->
-            <template v-else>
-              <div class="gm-list-meta">
-                AI가 회의 내용을 바탕으로 {{ assignResult.length }}개 과제를 추천했습니다.
-                편집 후 승인하시거나 반려하세요.
-              </div>
-              <div class="gm-assign-list">
-                <div v-for="(t, i) in assignResult" :key="i"
-                     class="gm-assign-item"
-                     :class="{ 'ai-approved': t._state==='approved', 'ai-rejected': t._state==='rejected' }">
-                  <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
-                  <div class="gm-ai-main">
-                    <!-- 읽기 모드 -->
-                    <template v-if="!t._editing">
-                      <div class="gm-ai-row1">
-                        <span class="gm-ai-content" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</span>
-                        <div class="gm-ai-chips">
-                          <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
-                          <span class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
-                        </div>
-                      </div>
-                      <div class="gm-ai-row2">
-                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                        <span>{{ t.assignee }}</span>
-                        <span class="gm-ai-dept">{{ t.dept }}</span>
-                      </div>
-                    </template>
-                    <!-- 편집 모드 -->
-                    <template v-else>
-                      <input class="gm-ei-input" v-model="t._editContent" placeholder="과제 내용" />
-                      <div class="gm-edit-row">
-                        <input class="gm-ei-input gm-edit-half" v-model="t._editAssignee" placeholder="담당자" />
-                        <select class="gm-ei-select" v-model="t._editPriority">
-                          <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
-                        </select>
-                        <select class="gm-ei-select" v-model="t._editStatus">
-                          <option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option>
-                        </select>
-                      </div>
-                    </template>
-                  </div>
-                  <div class="gm-ai-actions">
-                    <template v-if="!t._editing">
-                      <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true" title="편집">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'" title="승인">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                      </button>
-                      <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="rejectAssignItem(i)" title="반려">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      </button>
-                    </template>
-                    <template v-else>
-                      <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)" title="저장">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                      </button>
-                      <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)" title="취소">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                      </button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-              <button class="gm-add-btn" @click="addAssignItem">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                과제 직접 추가
-              </button>
-            </template>
-          </div>
-          <template #footer>
-            <span class="gm-footer-count" v-if="assignResult.length">
-              승인 {{ assignResult.filter(t=>t._state==='approved').length }} /
-              반려 {{ assignResult.filter(t=>t._state==='rejected').length }} /
-              미검토 {{ assignResult.filter(t=>!t._state).length }}
-            </span>
-            <div style="display:flex;gap:8px;margin-left:auto">
-              <button class="gm-btn-secondary" @click="showAssignModal=false">닫기</button>
-              <button class="gm-btn-primary"
-                :disabled="assignLoading || !assignResult.filter(t=>t._state==='approved').length"
-                @click="saveApprovedTasks">승인 {{ assignResult.filter(t=>t._state==='approved').length }}건 저장</button>
-            </div>
-          </template>
-        </BaseModal>
 
         <!-- Drag preview line SVG overlay -->
         <svg v-if="floatDragging && floatDragPreviewLine"
@@ -2384,13 +2611,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- Step indicator -->
         <div class="upload-step-bar">
-          <div class="upload-step" :class="{ active: uploadStep===1, done: uploadStep>1 }">
-            <span class="step-num">1</span><span class="step-label">자료 정보 입력</span>
-          </div>
-          <div class="step-sep">→</div>
-          <div class="upload-step" :class="{ active: uploadStep===2 }">
-            <span class="step-num">2</span><span class="step-label">AI 검토 결과</span>
-          </div>
+          <ProcessStepBar
+            :steps="['자료 정보 입력', 'AI 검토 결과']"
+            :current-step="uploadStep - 1"
+            @step-click="i => { if (i === 0) uploadStep = 1 }"
+          />
         </div>
 
         <!-- ── Step 1: 수동 입력 ── -->
@@ -2400,20 +2625,35 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
           <div class="modal-body">
+            <!-- 파일 첨부 -->
+            <div class="form-field">
+              <label>파일 첨부 <span class="req">*</span></label>
+              <FileUploadArea
+                :file="uploadForm.file"
+                @change="files => { uploadForm.file = files[0]; uploadForm.label = uploadForm.label || files[0]?.name }"
+              />
+            </div>
             <div class="form-field">
               <label>파일 이름 <span class="req">*</span></label>
               <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
             </div>
+            <!-- 관련 회의체 선택 -->
             <div class="form-field">
-              <label>파일 유형</label>
-              <div class="file-type-row">
-                <button v-for="ft in FILE_TYPES" :key="ft"
-                  class="file-type-btn" :class="{ active: uploadForm.fileType===ft }"
-                  :style="uploadForm.fileType===ft ? { borderColor: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', color: ft==='회의록'?'#60a5fa':ft==='발제자료'?'#a78bfa':'#34d399', background: ft==='회의록'?'rgba(96,165,250,.12)':ft==='발제자료'?'rgba(167,139,250,.12)':'rgba(52,211,153,.12)' } : {}"
-                  @click="uploadForm.fileType=ft">{{ ft }}</button>
-              </div>
+              <label>관련 회의체 <span class="req">*</span></label>
+              <select v-model="uploadForm.meetingId" class="form-input">
+                <option value="">회의체 선택...</option>
+                <option v-for="n in gNodes.filter(n=>n.type==='meeting_group')" :key="n.id" :value="n.id">{{ n.label }}</option>
+              </select>
             </div>
+            <!-- 연관 과제 선택 -->
             <div class="form-field">
+              <label>연관 과제</label>
+              <select v-model="uploadForm.relatedTodoId" class="form-input" :disabled="!uploadForm.meetingId">
+                <option value="">{{ uploadForm.meetingId ? '과제 선택 안 함' : '회의체를 먼저 선택하세요' }}</option>
+                <option v-for="t in uploadMeetingTodos" :key="t.id" :value="t.id">{{ t.content }}</option>
+              </select>
+            </div>
+<div class="form-field">
               <label>업로드 부서 <span class="req">*</span><span style="font-size:11px;opacity:.55;margin-left:6px">수동 연결 필수</span></label>
               <select v-model="uploadForm.connectNodeId" class="form-input">
                 <option value="">부서/조직 선택...</option>
@@ -2430,7 +2670,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <span class="conn-rel" :style="{color:REL_COLORS[autoRel(uploadForm.connectNodeId,'file')]||'#a78bfa'}">{{ autoRel(uploadForm.connectNodeId,'file') }}</span>
               <span class="conn-arrow">→</span>
               <span class="conn-node file">{{ uploadForm.label }}</span>
-              <span class="file-type-tag" :style="{color: uploadForm.fileType==='회의록'?'#60a5fa':uploadForm.fileType==='발제자료'?'#a78bfa':'#34d399'}">{{ uploadForm.fileType }}</span>
             </div>
           </div>
           <div class="modal-footer">
@@ -2815,6 +3054,83 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-close { background:none;border:1px solid rgba(255,255,255,.08);cursor:pointer;color:#555;padding:0;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .15s; }
 .detail-close:hover { color:#ccc;background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15); }
 /* Body */
+.dei-meta-row { display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap; }
+.dei-assignee { font-size:10px;color:#64748b; }
+.dei-edit-row { display:flex;gap:4px;margin-top:4px; }
+.dei-select { background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:3px 5px;font-size:11px;color:#e2e8f0;outline:none; }
+.ctx-upload-area { margin-top:8px;border:1.5px dashed rgba(255,255,255,.12);border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:border-color .18s,background .18s;color:#475569; }
+.ctx-upload-area:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:#64748b; }
+.ctx-upload-area svg { color:#475569; }
+.ctx-upload-area span { font-size:11px; }
+.ctx-upload-hint { font-size:10px;color:#334155; }
+.ctx-file-uploaded { background:rgba(16,185,129,.04); }
+.ctx-new-tag { color:#10b981 !important;font-weight:600; }
+.ctx-file-remove { margin-left:auto;background:none;border:none;color:#ef4444;cursor:pointer;font-size:13px;padding:0 2px;line-height:1; }
+.ctx-section { padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05); }
+.ctx-section:last-of-type { border-bottom:none; }
+.ctx-section-title { display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px; }
+.ctx-auto-tag { font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(16,185,129,.15);color:#10b981;font-weight:600;text-transform:none;letter-spacing:0; }
+.ctx-opt-tag { font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(59,130,246,.15);color:#3b82f6;font-weight:600;text-transform:none;letter-spacing:0; }
+.ctx-emb-tag { font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,.15);color:#a78bfa;font-weight:600;text-transform:none;letter-spacing:0; }
+.ctx-auto-list { display:flex;flex-direction:column;gap:5px; }
+.ctx-auto-item { display:flex;align-items:center;gap:6px;font-size:11px;color:#94a3b8; }
+.ctx-file-list { display:flex;flex-direction:column;gap:5px; }
+.ctx-file-item { display:flex;align-items:center;gap:6px;font-size:11px;color:#94a3b8;cursor:pointer;padding:4px 6px;border-radius:5px;transition:background .15s; }
+.ctx-file-item:hover { background:rgba(255,255,255,.04); }
+.ctx-checkbox { width:12px;height:12px;accent-color:#3b82f6;cursor:pointer; }
+.ctx-file-name { flex:1;color:#cbd5e1; }
+.ctx-file-date { font-size:10px;color:#475569; }
+.ctx-sim-score { font-size:10px;color:#a78bfa;font-weight:600; }
+.ctx-empty { font-size:11px;color:#475569;padding:4px 0; }
+.ctx-run-btn { width:100%;margin-top:14px;padding:9px;background:#3b82f6;border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:background .18s; }
+.ctx-run-btn:hover { background:#2563eb; }
+.ctx-phase-header { display:flex;align-items:center;gap:6px;padding:8px 0 10px; }
+.ctx-back-btn { font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;padding:0; }
+.ctx-back-btn:hover { color:#94a3b8; }
+.ctx-phase-label { font-size:11px;color:#475569;font-weight:600; }
+.ctx-phase-label.active { color:#3b82f6; }
+.ctx-phase-arrow { font-size:11px;color:#334155; }
+.task-process-bar { padding:12px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:4px; }
+.detail-extract-footer--col { flex-direction:column;align-items:stretch;gap:8px; }
+.detail-extract-footer--col .detail-action-btn { width:100%; }
+.detail-extract-header { display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px; }
+.detail-extract-title { display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em; }
+.detail-extract-loading { display:flex;align-items:center;gap:8px;padding:14px 0;color:#64748b;font-size:12px; }
+.detail-extract-meta { font-size:11px;color:#64748b;padding:4px 0 8px; }
+.detail-extract-list { display:flex;flex-direction:column;gap:6px; }
+.detail-extract-item { display:flex;align-items:flex-start;gap:7px;padding:9px 10px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06);transition:border-color .18s; }
+.detail-extract-item.ei-approved { border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.06); }
+.detail-extract-item.ei-rejected { border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.04);opacity:.6; }
+.dei-num { font-size:10px;font-weight:700;color:#475569;min-width:16px;margin-top:2px; }
+.dei-body { flex:1;min-width:0; }
+.dei-title { font-size:12px;font-weight:600;color:#e2e8f0;line-height:1.4; }
+.dei-bullets { margin:4px 0 0 12px;padding:0;font-size:11px;color:#64748b;line-height:1.6; }
+.dei-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:#e2e8f0;outline:none; }
+.dei-textarea { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:11px;color:#e2e8f0;outline:none;resize:vertical;margin-top:4px; }
+.dei-actions { display:flex;flex-direction:column;gap:4px; }
+.detail-extract-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px; }
+.dei-count { font-size:11px;color:#64748b; }
+.detail-divider { height:1px;background:rgba(255,255,255,.06);margin:10px 0; }
+.detail-tabs { display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 14px; }
+.detail-tab { background:none;border:none;padding:8px 14px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;transition:all .18s; }
+.detail-tab.active { color:#fff;border-bottom-color:#3b82f6; }
+.detail-tab:hover:not(.active) { color:#94a3b8; }
+.detail-todo-list { display:flex;flex-direction:column;gap:6px;margin-top:4px; }
+.todo-dept-group { margin-bottom:10px; }
+.todo-dept-header { display:flex;align-items:center;justify-content:space-between;padding:4px 6px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:5px; }
+.todo-dept-name { font-size:11px;font-weight:700;color:#94a3b8; }
+.todo-dept-count { font-size:10px;color:#475569; }
+.upload-file-drop { border:1.5px dashed rgba(255,255,255,.15);border-radius:8px;padding:12px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#64748b;transition:border-color .18s,background .18s; }
+.upload-file-drop:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:#94a3b8; }
+.detail-todo-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid rgba(255,255,255,.05); }
+.detail-todo-status { font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;margin-top:1px; }
+.ts-done { background:rgba(16,185,129,.15);color:#10b981; }
+.ts-progress { background:rgba(59,130,246,.15);color:#3b82f6; }
+.ts-risk { background:rgba(239,68,68,.15);color:#ef4444; }
+.ts-pending { background:rgba(100,116,139,.15);color:#94a3b8; }
+.detail-todo-info { flex:1;min-width:0; }
+.detail-todo-title { font-size:12px;font-weight:500;color:#e2e8f0;line-height:1.4; }
+.detail-todo-meta { font-size:10px;color:#64748b;margin-top:3px; }
 .detail-body { flex:1;overflow-y:auto;padding:12px 14px 20px;display:flex;flex-direction:column;gap:0; }
 .detail-body::-webkit-scrollbar { width:3px; }
 .detail-body::-webkit-scrollbar-track { background:transparent; }
@@ -3347,6 +3663,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-close { color:#94a3b8;border-color:#e2e8f0; }
 .day-mode .detail-close:hover { background:#f1f5f9; }
 .day-mode .detail-section-label { color:#94a3b8; }
+.day-mode .ctx-upload-area { border-color:rgba(0,0,0,.12); }
+.day-mode .ctx-upload-area:hover { border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.04); }
+.day-mode .detail-tabs { border-bottom-color:rgba(0,0,0,.08); }
+.day-mode .detail-tab { color:#94a3b8; }
+.day-mode .detail-tab.active { color:#1e293b;border-bottom-color:#3b82f6; }
+.day-mode .detail-todo-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.06); }
+.day-mode .detail-todo-title { color:#1e293b; }
+.day-mode .detail-extract-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.06); }
+.day-mode .dei-title { color:#1e293b; }
+.day-mode .dei-input,.day-mode .dei-textarea { background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.1);color:#1e293b; }
 .day-mode .detail-purpose { background:#fff;border-color:#e2e8f0;color:#475569; }
 .day-mode .detail-info-key { color:#94a3b8; }
 .day-mode .detail-info-val { color:#1e293b; }
@@ -3494,6 +3820,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-modal-box .req { color:#ef4444; }
 .archive-modal-box .form-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;font-family:inherit;width:100%;box-sizing:border-box; }
 .archive-modal-box .form-input:focus { border-color:rgba(96,165,250,.5); }
+.archive-modal-box select.form-input { appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 10px center;background-size:10px 6px;padding-right:28px;cursor:pointer; }
+.archive-modal-box.day-mode select.form-input { background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 10px center #f8fafc;background-size:10px 6px; }
 .archive-modal-box .form-textarea { resize:vertical;min-height:64px; }
 .archive-modal-box .btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:13px;font-weight:600;cursor:pointer;color:#94a3b8;transition:all .15s; }
 .archive-modal-box .btn-cancel:hover { background:rgba(255,255,255,.1); }
@@ -3585,15 +3913,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .tt-edit-btn { margin-top:6px;width:100%;padding:5px 0;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;cursor:pointer;transition:all .15s; }
 .tt-edit-btn:hover { background:rgba(96,165,250,.15);border-color:#60a5fa;color:#93c5fd; }
 /* ── Upload 2-step styles ──────────────────────────────────── */
-.upload-step-bar { display:flex;align-items:center;gap:8px;padding:14px 20px 0;font-size:12px; }
-.upload-step { display:flex;align-items:center;gap:6px;color:#475569; }
-.upload-step.active .step-num { background:#3b82f6;color:#fff; }
-.upload-step.done .step-num { background:#10b981;color:#fff; }
-.step-num { width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.12);color:#64748b;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.step-label { font-size:11px;font-weight:500; }
-.upload-step.active .step-label { color:#93c5fd; }
-.upload-step.done .step-label { color:#6ee7b7; }
-.step-sep { color:#475569;font-size:13px; }
+.upload-step-bar { padding:14px 20px 10px; }
 .upload-dept-hint { display:flex;align-items:center;gap:5px;font-size:11px;color:#f59e0b;margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2); }
 /* AI result body */
 .ai-result-body { max-height:420px;overflow-y:auto; }
@@ -3663,9 +3983,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .ai-dept-chip:hover { border-color:rgba(16,185,129,.4);color:#6ee7b7; }
 .ai-dept-chip.selected { border-color:#10b981;background:rgba(16,185,129,.1);color:#6ee7b7; }
 /* day-mode overrides */
-.archive-modal-box.day-mode .step-num { background:#e2e8f0;color:#475569; }
-.archive-modal-box.day-mode .upload-step.active .step-label { color:#3b82f6; }
-.archive-modal-box.day-mode .upload-step.done .step-label { color:#10b981; }
 .archive-modal-box.day-mode .ai-section-title { color:#1e293b; }
 .archive-modal-box.day-mode .ag-content { color:#1e293b; }
 .archive-modal-box.day-mode .ai-check-row { background:#f8fafc;border-color:#e2e8f0; }

@@ -900,7 +900,304 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
     }
 
 
-# ─── 아카이브 자료 AI 분석 ─────────────────────
+# ─── 아카이브 과제 추출 (컨텍스트 기반) ──────────────────────────────────
+@router.post("/archive/extract-agendas")
+async def archive_extract_agendas(
+    meeting_id: int = Form(...),
+    selected_file_ids: str = Form("[]"),   # JSON 문자열
+    selected_similar_docs: str = Form("[]"),
+    files: List[UploadFile] = File(default=[]),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    아카이브 과제 탭에서 호출되는 AI 과제 추출 엔드포인트.
+    - 회의체 기본 정보 (목적, 지침, 구성원)
+    - 최근 회의록 최대 3건
+    - 미완료 과제
+    - 선택된 파일 (DB 저장 파일 or 새로 업로드)
+    를 컨텍스트로 조합해 LLM에 전달, 구조화된 과제 목록을 반환한다.
+    """
+    import json as _json, os as _os, re as _re
+
+    selected_ids = _json.loads(selected_file_ids) if selected_file_ids else []
+
+    # ── 1. 회의체 기본 정보 ────────────────────────────────────────────
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not meeting:
+        return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
+
+    meeting_context = _get_meeting_context(db, meeting_id)
+    departments = _get_member_departments(db, meeting_id)
+    knowledge = _get_knowledge(db, meeting_id)
+
+    # ── 2. 최근 회의록 (최대 3건) ──────────────────────────────────────
+    previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
+
+    # ── 3. 미완료 과제 ────────────────────────────────────────────────
+    pending_todos = db.query(models.Todo).filter(
+        models.Todo.meeting_id == meeting_id,
+        models.Todo.status.in_(["pending", "in_progress", "at_risk"]),
+    ).order_by(models.Todo.created_at.desc()).limit(10).all()
+
+    pending_todos_text = ""
+    if pending_todos:
+        todo_lines = []
+        for t in pending_todos:
+            assignee = f" (담당: {t.assignee_name}" if t.assignee_name else ""
+            if t.assignee_dept and assignee:
+                assignee += f", {t.assignee_dept}"
+            if assignee:
+                assignee += ")"
+            due = f" [마감: {t.due_date.strftime('%Y-%m-%d')}]" if t.due_date else ""
+            todo_lines.append(f"- [{t.status}] {t.content}{assignee}{due}")
+        pending_todos_text = "\n".join(todo_lines)
+
+    # ── 4. 파일 텍스트 추출 ───────────────────────────────────────────
+    file_texts = []
+
+    # DB에 저장된 보고서
+    for fid in selected_ids:
+        try:
+            report = db.query(models.Report).filter(models.Report.id == int(fid)).first()
+            if report and report.file_path and _os.path.exists(report.file_path):
+                with open(report.file_path, "rb") as f:
+                    raw = f.read()
+                text = _extract_text_from_file(raw, report.file_name or "")
+                if text.strip():
+                    file_texts.append(f"[보고서: {report.file_name}]\n{text[:4000]}")
+        except Exception as e:
+            print(f"[DB 파일 추출 오류] {e}")
+
+    # 새로 업로드된 파일 (multipart)
+    for upload in files:
+        if not upload or not upload.filename:
+            continue
+        try:
+            raw = await upload.read()
+            fname = upload.filename.lower()
+            text = _extract_text_from_file(raw, fname)
+            if text.strip():
+                file_texts.append(f"[첨부: {upload.filename}]\n{text[:4000]}")
+            else:
+                file_texts.append(f"[첨부: {upload.filename}] - 텍스트 추출 불가")
+        except Exception as e:
+            print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
+
+    # ── 5. 프롬프트 구성 ──────────────────────────────────────────────
+    context_parts = [f"[회의체 정보]\n{meeting_context}"]
+
+    if meeting.guidelines:
+        context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
+
+    if previous_minutes:
+        minutes_text = "\n\n".join(
+            f"[회의록 {i+1}]\n{m}" for i, m in enumerate(previous_minutes)
+        )
+        context_parts.append(f"[최근 회의록]\n{minutes_text}")
+
+    if pending_todos_text:
+        context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
+
+    if file_texts:
+        context_parts.append(f"[첨부 자료]\n" + "\n\n".join(file_texts))
+
+    if knowledge:
+        kb_text = "\n".join(
+            f"- [{k['category']}] {k['title']}: {k['content']}" for k in knowledge[:5]
+        )
+        context_parts.append(f"[조직 암묵지]\n{kb_text}")
+
+    full_context = "\n\n".join(context_parts)
+
+    # ── 6. LLM 호출 ───────────────────────────────────────────────────
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    llm = ChatOpenAI(
+        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        temperature=0.15,
+        api_key=_os.getenv("OPENAI_API_KEY"),
+    )
+
+    dept_list = ", ".join(departments) if departments else "정보 없음"
+
+    system_prompt = f"""당신은 회의체 운영 전문 AI입니다.
+주어진 컨텍스트(회의체 정보, 회의록, 미완료 과제, 첨부 자료)를 분석하여
+다음 회의에서 다뤄야 할 핵심 과제와 아젠다를 추출해 주세요.
+
+참여 부서: {dept_list}
+
+규칙:
+1. 첨부 자료가 있으면 그 내용을 최우선으로 분석하여 구체적인 후속 과제를 추출하세요
+2. 미완료 과제가 있으면 반드시 포함하되 중복은 제거하세요
+3. 과제는 실행 가능하고 구체적으로 작성하세요 (문서에서 언급된 날짜, 수치, 담당자 반영)
+4. bullets는 과제의 세부 실행 항목 2-4개로 작성하세요
+5. 3-6개 과제를 추출하세요
+6. 문서에 일정이 명시되어 있으면 bullets에 반드시 포함하세요
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{{
+  "agendas": [
+    {{
+      "title": "과제/아젠다 제목",
+      "bullets": ["세부 항목1", "세부 항목2", "세부 항목3"],
+      "department": "담당부서명 또는 null",
+      "priority": "urgent_important" | "important" | "urgent" | "normal"
+    }}
+  ]
+}}"""
+
+    human_prompt = f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{full_context}"
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt),
+        ])
+        raw_text = response.content.strip()
+        print(f"[LLM RAW] {raw_text[:500]}")
+        try:
+            match = _re.search(r'\{[\s\S]*\}', raw_text)
+            if match:
+                json_str = match.group(0)
+                open_count = json_str.count('{') - json_str.count('}')
+                if open_count > 0:
+                    json_str += '}' * open_count
+                parsed = _json.loads(json_str)
+            else:
+                parsed = _json.loads(raw_text)
+        except Exception as parse_err:
+            print(f"[JSON 파싱 오류] {parse_err}")
+            parsed = {"agendas": []}
+        agendas = parsed.get("agendas", [])
+        print(f"[AGENDAS] {agendas}")
+        result = []
+        for ag in agendas:
+            result.append({
+                "title": ag.get("title", ""),
+                "bullets": ag.get("bullets", []),
+                "department": ag.get("department"),
+                "priority": ag.get("priority", "normal"),
+                "_state": None,
+                "_editing": False,
+            })
+
+        return {
+            "agendas": result,
+            "context_used": {
+                "minutes_count": len(previous_minutes),
+                "todos_count": len(pending_todos),
+                "files_count": len(file_texts),
+            }
+        }
+
+    except Exception as e:
+        print(f"[archive/extract-agendas 오류] {e}")
+        return {"agendas": [], "error": f"AI 분석 중 오류: {str(e)}"}
+
+
+# ─── 아카이브 채팅 기반 과제 업데이트 ──────────────────────────────────────
+@router.post("/archive/chat-extract")
+async def archive_chat_extract(
+    data: schemas.AgentChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    아카이브 과제 탭 채팅 - 사용자가 채팅으로 과제를 수정/추가 요청하면
+    현재 추출된 과제 목록을 업데이트해서 반환한다.
+    """
+    import json as _json, os as _os, re as _re
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    meeting_id = data.meeting_id
+    message = data.message or ""
+    current_agendas = data.chat_history[0].get("agendas", []) if data.chat_history else []
+
+    meeting_context = _get_meeting_context(db, meeting_id) if meeting_id else ""
+    departments = _get_member_departments(db, meeting_id) if meeting_id else []
+    dept_list = ", ".join(departments) if departments else "정보 없음"
+
+    llm = ChatOpenAI(
+        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        temperature=0.15,
+        api_key=_os.getenv("OPENAI_API_KEY"),
+    )
+
+    current_agendas_text = _json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
+
+    system_prompt = f"""당신은 회의체 과제 관리 AI입니다.
+현재 추출된 과제 목록과 사용자의 요청을 바탕으로 과제 목록을 업데이트해주세요.
+
+회의체 정보: {meeting_context}
+참여 부서: {dept_list}
+
+현재 과제 목록:
+{current_agendas_text}
+
+규칙:
+1. 사용자가 과제 추가를 요청하면 새 과제를 목록에 추가하세요
+2. 사용자가 과제 수정을 요청하면 해당 과제를 수정하세요
+3. 사용자가 과제 삭제를 요청하면 해당 과제를 제거하세요
+4. 변경되지 않은 과제는 그대로 유지하세요
+5. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
+
+{{
+  "agendas": [
+    {{
+      "title": "과제 제목",
+      "bullets": ["세부 항목1", "세부 항목2"],
+      "department": "담당부서 또는 null",
+      "priority": "urgent_important" | "important" | "urgent" | "normal"
+    }}
+  ],
+  "message": "변경 사항 설명 (한 문장)"
+}}"""
+
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=message),
+        ])
+        raw_text = response.content.strip()
+        print(f"[chat-extract RAW] {raw_text[:300]}")
+
+        try:
+            match = _re.search(r'\{{[\s\S]*\}}', raw_text)
+            if match:
+                json_str = match.group(0)
+                open_count = json_str.count('{') - json_str.count('}')
+                if open_count > 0:
+                    json_str += '}' * open_count
+                parsed = _json.loads(json_str)
+            else:
+                parsed = _json.loads(raw_text)
+        except Exception:
+            parsed = {"agendas": current_agendas, "message": raw_text}
+
+        agendas = parsed.get("agendas", current_agendas)
+        reply_msg = parsed.get("message", "과제 목록을 업데이트했습니다.")
+
+        result = [
+            {
+                "title": ag.get("title", ""),
+                "bullets": ag.get("bullets", []),
+                "department": ag.get("department"),
+                "priority": ag.get("priority", "normal"),
+                "_state": None,
+                "_editing": False,
+            }
+            for ag in agendas
+        ]
+        return {"agendas": result, "reply": reply_msg}
+
+    except Exception as e:
+        print(f"[chat-extract 오류] {e}")
+        return {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
+
 @router.post("/archive/analyze-file")
 async def analyze_archive_file(
     data: dict,
