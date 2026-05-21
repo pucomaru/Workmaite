@@ -1,6 +1,19 @@
 spring:
   application:
     name: workmaite-server
+
+  profiles:
+    active: local
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: true
+
 jwt:
   secret: workmaite-secret-key-must-be-at-least-32-characters-long
   access-token-expiration: 1800000    # 30분 (ms)
