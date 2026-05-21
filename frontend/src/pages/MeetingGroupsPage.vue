@@ -1,0 +1,621 @@
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useMeetingsStore } from '../stores/meetings'
+import { useThemeStore } from '../stores/theme'
+import api from '../api'
+import MemberInvite from '../components/MemberInvite.vue'
+import AppTable from '../components/AppTable.vue'
+
+const mgColumns = [
+  { label: '', width: '28px' },
+  { label: '회의체명' },
+  { label: '간사', width: '160px' },
+  { label: '참여조직', width: '180px' },
+  { label: '참여자', width: '150px' },
+  { label: '', width: '72px' }
+]
+
+const meetingsStore = useMeetingsStore()
+const themeStore = useThemeStore()
+const nightMode = computed(() => themeStore.nightMode)
+
+const search = ref('')
+const statusTab = ref('active')
+const expandedId = ref(null)
+const membersCache = ref({})
+const loadingMembers = ref({})
+
+const filteredGroups = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return meetingsStore.meetings.filter(m => {
+    const matchStatus = statusTab.value === 'active'
+      ? (!m.status || m.status === 'active')
+      : m.status === 'ended'
+    const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
+    return matchStatus && matchSearch
+  })
+})
+
+const activeCount = computed(() =>
+  meetingsStore.meetings.filter(m => !m.status || m.status === 'active').length)
+const endedCount = computed(() =>
+  meetingsStore.meetings.filter(m => m.status === 'ended').length)
+
+async function loadMembers(meetingId) {
+  if (membersCache.value[meetingId]) return
+  loadingMembers.value[meetingId] = true
+  try {
+    const res = await api.get(`/api/meetings/${meetingId}/members`)
+    membersCache.value[meetingId] = res.data
+  } catch { membersCache.value[meetingId] = [] }
+  finally { loadingMembers.value[meetingId] = false }
+}
+
+function toggleExpand(id) {
+  if (expandedId.value === id) { expandedId.value = null; return }
+  expandedId.value = id
+  loadMembers(id)
+}
+
+// ── Create ────────────────────────────────────────────────────
+const showCreate = ref(false)
+const creating = ref(false)
+const createForm = ref({ title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' })
+const createMembers = ref([])  // { userId, name, email, role }
+
+function openCreate() {
+  createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
+  createMembers.value = []
+  showCreate.value = true
+}
+
+async function submitCreate() {
+  if (!createForm.value.title.trim()) return
+  creating.value = true
+  try {
+    const meeting = await meetingsStore.createMeeting({
+      title: createForm.value.title,
+      purpose: createForm.value.purpose,
+      start_date: createForm.value.start_date || null,
+      end_date: createForm.value.end_date || null,
+      guidelines: createForm.value.guidelines || null,
+      meeting_type: createForm.value.meeting_type || null,
+    })
+    for (const mb of createMembers.value) {
+      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: mb.userId, role: mb.role })
+    }
+    showCreate.value = false
+  } catch (e) { alert(e.response?.data?.detail || '생성 실패') }
+  finally { creating.value = false }
+}
+
+// ── Delete ────────────────────────────────────────────────────
+const deletingId = ref(null)
+async function deleteMeeting(m) {
+  if (!confirm(`"${m.title}" 회의체를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return
+  deletingId.value = m.id
+  try {
+    await meetingsStore.deleteMeeting(m.id)
+    if (expandedId.value === m.id) expandedId.value = null
+    delete membersCache.value[m.id]
+  } catch (e) { alert(e.response?.data?.detail || '삭제 실패') }
+  finally { deletingId.value = null }
+}
+
+// ── Settings ──────────────────────────────────────────────────
+const settingsModal = ref(null)
+const settingsSearchQ = ref('')
+const settingsSearchResults = ref([])
+const settingsSearchLoading = ref(false)
+let settingsSearchTimer = null
+
+async function openSettings(m) {
+  let members = membersCache.value[m.id] ? [...membersCache.value[m.id]] : []
+  if (!members.length) {
+    try {
+      const res = await api.get(`/api/meetings/${m.id}/members`)
+      membersCache.value[m.id] = res.data
+      members = [...res.data]
+    } catch {}
+  }
+  settingsModal.value = {
+    meeting: m,
+    form: { title: m.title, purpose: m.purpose || '', start_date: m.start_date ? m.start_date.slice(0,10) : '', end_date: m.end_date ? m.end_date.slice(0,10) : '', guidelines: m.guidelines || '', meeting_type: m.meeting_type || 'Weekly' },
+    members: members.map(mb => ({
+      id: mb.id,
+      userId: mb.user?.id || mb.user_id,
+      name: mb.user?.name || mb.userName || mb.name || '?',
+      email: mb.user?.email || mb.email || '',
+      role: mb.role || 'presenter',
+    })),
+    removedIds: [],
+  }
+  settingsSearchQ.value = ''
+  settingsSearchResults.value = []
+}
+
+function closeSettings() { settingsModal.value = null }
+
+function watchSettingsSearch(q) {
+  settingsSearchQ.value = q
+  clearTimeout(settingsSearchTimer)
+  if (!q.trim()) { settingsSearchResults.value = []; return }
+  settingsSearchTimer = setTimeout(async () => {
+    settingsSearchLoading.value = true
+    try {
+      const res = await api.get('/api/users/search', { params: { q } })
+      settingsSearchResults.value = res.data
+    } catch { settingsSearchResults.value = [] }
+    finally { settingsSearchLoading.value = false }
+  }, 300)
+}
+
+function addMemberToSettings(user) {
+  if (!settingsModal.value) return
+  if (settingsModal.value.members.find(m => m.userId === user.id)) return
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
+  settingsSearchQ.value = ''
+  settingsSearchResults.value = []
+}
+
+function removeMemberFromSettings(idx) {
+  const m = settingsModal.value.members[idx]
+  if (m.id) settingsModal.value.removedIds.push(m.id)
+  settingsModal.value.members.splice(idx, 1)
+}
+
+const savingSettings = ref(false)
+async function saveSettings() {
+  if (!settingsModal.value) return
+  savingSettings.value = true
+  const { meeting, form, members, removedIds } = settingsModal.value
+  try {
+    await api.patch(`/api/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
+    for (const memberId of removedIds) {
+      await api.delete(`/api/meetings/${meeting.id}/members/${memberId}`)
+    }
+    for (const mb of members.filter(m => m.id === null)) {
+      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: mb.userId, role: mb.role })
+    }
+    await meetingsStore.fetchMeetings()
+    const res = await api.get(`/api/meetings/${meeting.id}/members`)
+    membersCache.value[meeting.id] = res.data
+    settingsModal.value = null
+  } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
+  finally { savingSettings.value = false }
+}
+
+const ROLE_MAP = { admin: '간사', presenter: '참여자' }
+function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
+function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
+function fmtDate(s) {
+  if (!s) return ''
+  const d = new Date(s)
+  return isNaN(d) ? s : `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
+}
+function initials(name) { return (name || '?')[0] }
+const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
+function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
+function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
+function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.organization || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
+function getPresenterCount(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role !== 'admin').length }
+
+onMounted(async () => {
+  await meetingsStore.fetchMeetings()
+  // Preload member counts for table display
+  meetingsStore.meetings.forEach(m => loadMembers(m.id))
+})
+</script>
+
+<template>
+  <div class="mg-page page-full-height" :class="{ 'day-mode': !nightMode }">
+
+    <div class="archive-header">
+      <div class="header-title-wrap">
+        <h1 class="archive-title">회의체 관리</h1>
+      </div>
+      <div class="search-wrap">
+        <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input v-model="search" class="search-input" placeholder="회의체 검색..." />
+      </div>
+      <div class="status-tabs">
+        <button :class="{ active: statusTab==='active' }" @click="statusTab='active'">
+          진행 중 <span class="tab-cnt">{{ activeCount }}</span>
+        </button>
+        <button :class="{ active: statusTab==='ended' }" @click="statusTab='ended'">
+          완료 <span class="tab-cnt">{{ endedCount }}</span>
+        </button>
+      </div>
+      <div class="plus-wrap">
+        <button class="create-meeting-btn" @click="openCreate">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+          회의체 생성
+        </button>
+      </div>
+    </div>
+
+    <div class="mg-body">
+      <div v-if="!meetingsStore.meetings.length" class="mg-empty">
+        <div class="empty-icon">🗂️</div>
+        <p>아직 참여 중인 회의체가 없습니다.</p>
+      </div>
+      <div v-else-if="!filteredGroups.length" class="mg-empty">
+        <div class="empty-icon">🔍</div>
+        <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '완료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
+      </div>
+      <AppTable v-else :columns="mgColumns" :dark="nightMode">
+            <tr v-for="g in filteredGroups" :key="g.id" class="mg-row">
+              <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
+              <td>
+                <div class="mg-row-title">{{ g.title }}</div>
+                <div class="mg-row-meta">
+                  <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
+                  <span v-if="g.purpose" class="mg-row-desc" :style="g.meeting_type ? 'margin-left:6px' : ''">{{ g.purpose }}</span>
+                </div>
+              </td>
+              <!-- 간사 -->
+              <td>
+                <div v-if="membersCache[g.id]">
+                  <span v-if="getAdmins(g.id).length" class="mg-admin-name">{{ getAdmins(g.id).map(mb => mb.user?.name || mb.name).slice(0,2).join(', ') }}</span>
+                  <span v-else class="mg-row-nodates">-</span>
+                </div>
+                <span v-else class="mg-row-nodates">-</span>
+              </td>
+              <!-- 참여조직 -->
+              <td>
+                <div v-if="membersCache[g.id]">
+                  <div v-if="getOrgs(g.id).length" class="mg-org-tags">
+                    <span v-for="org in getOrgs(g.id).slice(0,2)" :key="org" class="mg-org-tag">{{ org }}</span>
+                    <span v-if="getOrgs(g.id).length > 2" class="mg-member-more">+{{ getOrgs(g.id).length - 2 }}</span>
+                  </div>
+                  <span v-else class="mg-row-nodates">-</span>
+                </div>
+                <span v-else class="mg-row-nodates">-</span>
+              </td>
+              <!-- 참여자 -->
+              <td>
+                <span v-if="membersCache[g.id]" class="mg-member-count-label">{{ membersCache[g.id].length }}명</span>
+                <span v-else class="mg-row-nodates">-</span>
+              </td>
+              <td>
+                <div class="action-btns">
+                  <button v-if="canManage(g)" class="mg-icon-btn settings" @click.stop="openSettings(g)" title="설정">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                  </button>
+                  <button v-if="canManage(g)" class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+      </AppTable>
+    </div>
+
+    <Teleport to="body">
+      <!-- Create modal -->
+      <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate=false">
+        <div class="modal-box" :class="{ 'day-mode': !nightMode }">
+          <div class="modal-header">
+            <span class="modal-title">회의체 생성</span>
+            <button class="modal-close" @click="showCreate=false">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-field">
+              <label>회의체 이름 <span class="req">*</span></label>
+              <input v-model="createForm.title" class="form-input" placeholder="예: 전략기획위원회" />
+            </div>
+            <div class="form-field">
+              <label>소개</label>
+              <textarea v-model="createForm.purpose" class="form-input form-textarea" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
+            </div>
+            <div class="form-field">
+              <label>유형</label>
+              <select v-model="createForm.meeting_type" class="form-input form-select">
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly</option>
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="form-field">
+                <label>시작일</label>
+                <input type="date" v-model="createForm.start_date" class="form-input" />
+              </div>
+              <div class="form-field">
+                <label>종료일</label>
+                <input type="date" v-model="createForm.end_date" class="form-input" />
+              </div>
+            </div>
+            <div class="form-field">
+              <label>운영 지침</label>
+              <textarea v-model="createForm.guidelines" class="form-input form-textarea" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
+예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
+            </div>
+            <div class="form-field">
+              <label>멤버 초대</label>
+              <MemberInvite v-model="createMembers" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="showCreate=false">취소</button>
+            <button class="btn-primary" :disabled="!createForm.title.trim() || creating" @click="submitCreate">{{ creating ? '생성 중...' : '생성' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings modal -->
+      <div v-if="settingsModal" class="modal-backdrop" @click.self="closeSettings">
+        <div class="modal-box settings-modal" :class="{ 'day-mode': !nightMode }">
+          <div class="modal-header">
+            <span class="modal-title">회의체 설정</span>
+            <button class="modal-close" @click="closeSettings">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="modal-body settings-body">
+            <div class="settings-section">
+              <div class="settings-section-title">기본 정보</div>
+              <div class="form-field">
+                <label>회의체 이름 <span class="req">*</span></label>
+                <input v-model="settingsModal.form.title" class="form-input" />
+              </div>
+              <div class="form-field">
+                <label>소개</label>
+                <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+              </div>
+              <div class="form-field">
+                <label>유형</label>
+                <select v-model="settingsModal.form.meeting_type" class="form-input form-select">
+                  <option value="Weekly">Weekly</option>
+                  <option value="Monthly">Monthly</option>
+                  <option value="Quarterly">Quarterly</option>
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="form-field">
+                  <label>시작일</label>
+                  <input type="date" v-model="settingsModal.form.start_date" class="form-input" />
+                </div>
+                <div class="form-field">
+                  <label>종료일</label>
+                  <input type="date" v-model="settingsModal.form.end_date" class="form-input" />
+                </div>
+              </div>
+              <div class="form-field">
+                <label>회의체 지침</label>
+                <textarea v-model="settingsModal.form.guidelines" class="form-input form-textarea" rows="4" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">
+                참여자 <span class="member-cnt-badge">{{ settingsModal.members.length }}명</span>
+              </div>
+              <div class="member-search-wrap">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input :value="settingsSearchQ" @input="watchSettingsSearch($event.target.value)" class="member-search-input" placeholder="이름 또는 이메일로 검색 후 추가..." />
+                <span v-if="settingsSearchLoading" class="search-spinner">↻</span>
+              </div>
+              <div v-if="settingsSearchResults.length" class="member-search-results">
+                <div v-for="u in settingsSearchResults" :key="u.id" class="member-search-item" @click="addMemberToSettings(u)">
+                  <div class="ms-avatar" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
+                  <div class="ms-info">
+                    <span class="ms-name">{{ u.name || '이름없음' }}</span>
+                    <span class="ms-email">{{ u.email }}</span>
+                  </div>
+                  <span class="ms-add-hint">+ 추가</span>
+                </div>
+              </div>
+              <div class="settings-member-list">
+                <div v-if="!settingsModal.members.length" class="settings-empty-members">참여자가 없습니다.</div>
+                <div v-for="(mb, idx) in settingsModal.members" :key="mb.userId" class="settings-member-row">
+                  <div class="sm-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
+                  <div class="sm-info">
+                    <span class="sm-name">{{ mb.name }}</span>
+                    <span class="sm-email">{{ mb.email }}</span>
+                  </div>
+                  <select v-model="mb.role" class="sm-role-select">
+                    <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
+                  </select>
+                  <button class="sm-remove" @click="removeMemberFromSettings(idx)" title="제거">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" @click="closeSettings">취소</button>
+            <button class="btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+  </div>
+</template>
+
+<style scoped>
+.mg-page { display:flex;flex-direction:column;height:100%; }
+
+.archive-header { display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0f172a;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
+.header-title-wrap { flex-shrink:0; }
+.archive-title { font-size:16px;font-weight:700;color:#f1f5f9;margin:0; }
+.search-wrap { position:relative;flex:1;min-width:160px;max-width:320px; }
+.search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#475569;pointer-events:none; }
+.search-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 28px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box; }
+.search-input::placeholder { color:#334155; }
+.search-input:focus { border-color:rgba(96,165,250,.5); }
+.status-tabs { display:flex;gap:4px;background:rgba(255,255,255,.06);border-radius:8px;padding:3px; }
+.status-tabs button { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
+.status-tabs button.active { background:#1e3a5f;color:#93c5fd; }
+.tab-cnt { font-size:11px;font-weight:700;background:rgba(255,255,255,.1);border-radius:99px;padding:1px 6px; }
+.status-tabs button.active .tab-cnt { background:rgba(147,197,253,.2); }
+.plus-wrap { flex-shrink:0;margin-left:auto; }
+.create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s; }
+.create-meeting-btn:hover { opacity:.85; }
+
+.day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
+.day-mode .archive-title { color:#1e293b; }
+.day-mode .search-input { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
+.day-mode .search-input::placeholder { color:#94a3b8; }
+.day-mode .search-icon { color:#94a3b8; }
+.day-mode .status-tabs { background:rgba(0,0,0,.05); }
+.day-mode .status-tabs button { color:#64748b; }
+.day-mode .status-tabs button.active { background:#dbeafe;color:#1d4ed8; }
+.day-mode .status-tabs button.active .tab-cnt { background:rgba(29,78,216,.15); }
+
+.mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
+.mg-row { border-bottom:1px solid rgba(255,255,255,.06);transition:background .1s;cursor:default;background:transparent; }
+.mg-row:hover { background:rgba(255,255,255,.04); }
+.mg-row-title { font-size:13px;font-weight:600;color:#e2e8f0; }
+.day-mode .mg-row { border-bottom-color:#f1f5f9;background:#fff; }
+.day-mode .mg-row:hover { background:#f8fafc; }
+.day-mode .mg-row-title { color:#1e293b; }
+.mg-row-desc { font-size:11px;color:#94a3b8;margin-top:2px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.mg-row-members { display:flex;align-items:center;gap:3px; }
+.mg-mini-avatar { width:22px;height:22px;border-radius:50%;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #fff; }
+.mg-member-more { font-size:11px;color:#94a3b8;margin-left:2px; }
+.mg-admin-name { font-size:12px;color:#475569;margin-left:4px; }
+.mg-member-count-label { font-size:12px;color:#64748b;margin-left:4px; }
+.mg-org-tags { display:flex;flex-wrap:wrap;gap:4px;align-items:center; }
+.mg-org-tag { font-size:11px;font-weight:500;padding:2px 7px;border-radius:99px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;white-space:nowrap; }
+.mg-row-meta { display:flex;align-items:center;flex-wrap:wrap;margin-top:2px; }
+.mg-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
+.form-select { cursor:pointer; }
+.mg-row-dates { font-size:11px;color:#94a3b8;white-space:nowrap; }
+.mg-row-nodates { color:#475569; }
+.day-mode .mg-row-nodates { color:#cbd5e1; }
+.action-btns { display:flex;gap:4px;align-items:center; }
+.mg-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#64748b;gap:8px;padding:60px 0; }
+.empty-icon { font-size:36px; }
+.mg-empty p { margin:0;font-size:14px; }
+
+.mg-card { border:1px solid rgba(255,255,255,.09);border-radius:10px;overflow:hidden;background:rgba(255,255,255,.03); }
+.mg-card-header { display:flex;align-items:center;justify-content:space-between;padding:13px 16px;cursor:pointer;transition:background .15s;user-select:none; }
+.mg-card-header:hover { background:rgba(255,255,255,.04); }
+.mg-card-left { display:flex;align-items:center;gap:10px;min-width:0;flex:1; }
+.mg-status-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
+.mg-status-dot.active { background:#22c55e; }
+.mg-status-dot.ended { background:#64748b; }
+.mg-card-info { display:flex;flex-direction:column;gap:2px;min-width:0; }
+.mg-card-title { font-size:14px;font-weight:600;color:#f1f5f9; }
+.mg-card-desc { font-size:11px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px; }
+.mg-card-right { display:flex;align-items:center;gap:6px;flex-shrink:0; }
+.mg-member-badge { font-size:11px;font-weight:600;color:#64748b;background:rgba(255,255,255,.06);border-radius:99px;padding:2px 8px;border:1px solid rgba(255,255,255,.08); }
+.mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:#93c5fd;background:rgba(96,165,250,.1); }
+.mg-icon-btn.delete:hover { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }
+.mg-icon-btn:disabled { opacity:.4;cursor:not-allowed; }
+.mg-chevron { color:#475569;transition:transform .2s;flex-shrink:0; }
+.mg-chevron.open { transform:rotate(180deg); }
+
+.day-mode .mg-card { border-color:#e2e8f0;background:#fff; }\n.day-mode .mg-row { border-bottom-color:#f1f5f9; }\n.day-mode .mg-row:hover { background:#f8fafc; }\n.day-mode .mg-row-title { color:#1e293b; }
+.day-mode .mg-card-header:hover { background:#f8fafc; }
+.day-mode .mg-card-title { color:#1e293b; }
+.day-mode .mg-card-desc { color:#94a3b8; }
+.day-mode .mg-member-badge { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
+.day-mode .mg-icon-btn { border-color:#e2e8f0;background:#fff;color:#64748b; }
+
+.mg-member-wrap { border-top:1px solid rgba(255,255,255,.07);padding:10px 16px;display:flex;flex-direction:column;gap:6px; }
+.mg-members-state { font-size:12px;color:#475569;padding:4px 0; }
+.mg-member-list { display:flex;flex-direction:column;gap:3px; }
+.mg-member-row { display:flex;align-items:center;gap:10px;padding:5px 6px;border-radius:7px;transition:background .1s; }
+.mg-member-row:hover { background:rgba(255,255,255,.04); }
+.mg-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.mg-member-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
+.mg-member-name { font-size:13px;font-weight:600;color:#e2e8f0; }
+.mg-member-email { font-size:11px;color:#475569; }
+.mg-role-text { font-size:11px;color:#64748b;font-weight:600;flex-shrink:0; }
+.day-mode .mg-member-wrap { border-top-color:#f1f5f9; }
+.day-mode .mg-member-row:hover { background:#f8fafc; }
+.day-mode .mg-member-name { color:#1e293b; }
+
+.expand-enter-active,.expand-leave-active { transition:opacity .2s; }
+.expand-enter-from,.expand-leave-to { opacity:0; }
+
+.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
+.modal-box { background:#1e293b;border-radius:14px;width:440px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1); }
+.settings-modal { width:520px; }
+.modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.08); }
+.modal-title { font-size:15px;font-weight:700;color:#f1f5f9; }
+.modal-close { width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.07);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
+.modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto; }
+.modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid rgba(255,255,255,.08); }
+
+.form-field { display:flex;flex-direction:column;gap:5px; }
+.form-field label { font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em; }
+.req { color:#ef4444; }
+.form-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;font-family:inherit;width:100%;box-sizing:border-box; }
+.form-input:focus { border-color:rgba(96,165,250,.5);background:rgba(255,255,255,.08); }
+.form-textarea { resize:vertical;min-height:64px; }
+
+.btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:13px;font-weight:600;cursor:pointer;color:#94a3b8;transition:all .15s; }
+.btn-cancel:hover { background:rgba(255,255,255,.1); }
+.btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.btn-primary:hover { opacity:.85; }
+.btn-primary:disabled { opacity:.4;cursor:not-allowed; }
+
+.settings-body { gap:0; }
+.settings-section { padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px; }
+.settings-section:last-child { border-bottom:none;padding-bottom:0; }
+.settings-section-title { font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
+.member-cnt-badge { font-size:11px;font-weight:700;background:rgba(96,165,250,.15);color:#93c5fd;border-radius:99px;padding:1px 7px;text-transform:none;letter-spacing:0; }
+
+.member-search-wrap { display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.05); }
+.member-search-wrap svg { color:#475569;flex-shrink:0; }
+.member-search-input { flex:1;border:none;background:none;color:#f1f5f9;font-size:12px;outline:none; }
+.member-search-input::placeholder { color:#334155; }
+.search-spinner { color:#64748b;font-size:14px;flex-shrink:0; }
+
+.member-search-results { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;background:#0f172a; }
+.member-search-item { display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;transition:background .1s; }
+.member-search-item:hover { background:rgba(255,255,255,.06); }
+.ms-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.ms-info { flex:1;display:flex;flex-direction:column; }
+.ms-name { font-size:13px;font-weight:600;color:#f1f5f9; }
+.ms-email { font-size:11px;color:#475569; }
+.ms-add-hint { font-size:11px;font-weight:700;color:#3b82f6;flex-shrink:0; }
+.ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
+.ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+.ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
+.ms-role-btn.admin:hover { background:#2563eb; }
+
+.settings-member-list { display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto; }
+.settings-empty-members { font-size:12px;color:#475569;padding:6px 0; }
+.settings-member-row { display:flex;align-items:center;gap:10px;padding:5px 6px;border-radius:7px;transition:background .1s; }
+.settings-member-row:hover { background:rgba(255,255,255,.04); }
+.sm-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.sm-info { flex:1;display:flex;flex-direction:column;min-width:0; }
+.sm-name { font-size:13px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sm-email { font-size:11px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sm-role-select { padding:3px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#94a3b8;font-size:11px;font-weight:600;outline:none;cursor:pointer;flex-shrink:0; }
+.sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.08);color:#f87171;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s; }
+.sm-remove:hover { background:rgba(239,68,68,.2); }
+
+/* ── Day-mode modal overrides ─────────────────────────────── */
+.modal-box.day-mode { background:#fff;border-color:#e2e8f0;box-shadow:0 24px 64px rgba(0,0,0,.15); }
+.modal-box.day-mode .modal-header { border-bottom-color:#e2e8f0; }
+.modal-box.day-mode .modal-title { color:#1e293b; }
+.modal-box.day-mode .modal-close { background:#f1f5f9;color:#64748b; }
+.modal-box.day-mode .modal-close:hover { background:#e2e8f0;color:#1e293b; }
+.modal-box.day-mode .modal-footer { border-top-color:#e2e8f0; }
+.modal-box.day-mode .form-field label { color:#475569; }
+.modal-box.day-mode .form-input { background:#fff;border-color:#e2e8f0;color:#1e293b; }
+.modal-box.day-mode .form-input:focus { border-color:#3b82f6;background:#f8fafc; }
+.modal-box.day-mode .form-input::placeholder { color:#94a3b8; }
+.modal-box.day-mode .btn-cancel { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
+.modal-box.day-mode .btn-cancel:hover { background:#e2e8f0; }
+.modal-box.day-mode .settings-section { border-bottom-color:#f1f5f9; }
+.modal-box.day-mode .settings-section-title { color:#64748b; }
+.modal-box.day-mode .member-search-wrap { border-color:#e2e8f0;background:#f8fafc; }
+.modal-box.day-mode .member-search-input { color:#1e293b; }
+.modal-box.day-mode .member-search-input::placeholder { color:#94a3b8; }
+.modal-box.day-mode .member-search-results { border-color:#e2e8f0;background:#fff; }
+.modal-box.day-mode .member-search-item:hover { background:#f8fafc; }
+.modal-box.day-mode .ms-name { color:#1e293b; }
+.modal-box.day-mode .settings-member-row:hover { background:#f8fafc; }
+.modal-box.day-mode .sm-name { color:#1e293b; }
+.modal-box.day-mode .sm-role-select { border-color:#e2e8f0;background:#f1f5f9;color:#475569; }
+</style>
