@@ -23,7 +23,12 @@ public enum ErrorCode {
     // 인증
     INVALID_TOKEN(HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다."),
     EXPIRED_TOKEN(HttpStatus.UNAUTHORIZED, "만료된 토큰입니다."),
-    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다.");
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
+
+    // 회의록
+    MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
+    MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
+    MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다.");
 
     private final HttpStatus status;  // HTTP 상태코드
     private final String message;     // 에러 메시지
