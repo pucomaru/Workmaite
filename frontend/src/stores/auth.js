@@ -1,0 +1,48 @@
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import api from '../api'
+
+function safeParseUser() {
+  try { return JSON.parse(localStorage.getItem('user') || 'null') }
+  catch { return null }
+}
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref(safeParseUser())
+  const token = ref(localStorage.getItem('token') || '')
+
+  async function login(employee_id, password) {
+    const { data } = await api.post('/api/auth/login', { employee_id, password })
+    token.value = data.access_token
+    user.value = data.user
+    localStorage.setItem('token', data.access_token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+  }
+
+  async function loginWithEmail(email, password) {
+    const { data } = await api.post('/api/auth/login', { employee_id: email, password })
+    token.value = data.access_token
+    user.value = data.user
+    localStorage.setItem('token', data.access_token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+  }
+
+  async function register(form) {
+    await api.post('/api/auth/register', form)
+  }
+
+  async function updateProfile(data) {
+    const { data: updated } = await api.patch('/api/auth/me', data)
+    user.value = updated
+    localStorage.setItem('user', JSON.stringify(updated))
+  }
+
+  function logout() {
+    token.value = ''
+    user.value = null
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+  }
+
+  return { user, token, login, loginWithEmail, register, updateProfile, logout }
+})
