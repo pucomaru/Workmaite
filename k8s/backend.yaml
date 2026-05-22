@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-backend
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workmaite-backend
+  template:
+    metadata:
+      labels:
+        app: workmaite-backend
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: workmaite-backend
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:cicd-pipeline
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workmaite-backend
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: workmaite-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
