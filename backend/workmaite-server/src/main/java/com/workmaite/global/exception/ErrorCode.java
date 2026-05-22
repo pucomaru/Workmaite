@@ -29,7 +29,8 @@ public enum ErrorCode {
     // 회의록
     MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
     MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
-
+    MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다."),
+    
     // 조직
     ORGANIZATION_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 구성원입니다."),
 
@@ -45,7 +46,7 @@ public enum ErrorCode {
     MEETING_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회의체에 존재하지 않는 참여자입니다."),
     MEETING_MEMBER_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 추가된 참여자입니다."),
     MEETING_ACCESS_DENIED(HttpStatus.FORBIDDEN, "간사 권한이 필요합니다."),
-
+  
     // Session - 회의 도메인 에러
     // 회의 조회 시 존재하지 않는 경우
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의입니다."),
@@ -56,7 +57,13 @@ public enum ErrorCode {
     // 이미 종료(ENDED)된 회의를 수정하려는 경우
     SESSION_ALREADY_ENDED(HttpStatus.BAD_REQUEST, "이미 종료된 회의입니다."),
     // 간사(secretary) 권한 없이 회의를 수정/삭제하려는 경우
-    UNAUTHORIZED_SESSION_ACCESS(HttpStatus.FORBIDDEN, "회의에 대한 접근 권한이 없습니다.");
+    UNAUTHORIZED_SESSION_ACCESS(HttpStatus.FORBIDDEN, "회의에 대한 접근 권한이 없습니다."),
+
+    // Script - STT 세그먼트 도메인 에러
+    // 세그먼트 조회 시 존재하지 않는 경우
+    SCRIPT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 스크립트입니다."),
+    // 수정/삭제 요청한 세그먼트가 경로의 sessionId와 다른 세션에 속한 경우
+    SCRIPT_SESSION_MISMATCH(HttpStatus.BAD_REQUEST, "해당 세션의 스크립트가 아닙니다.");
 
     private final HttpStatus status;  // HTTP 상태코드
     private final String message;     // 에러 메시지
