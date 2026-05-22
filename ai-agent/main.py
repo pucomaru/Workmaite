@@ -10,3 +10,8 @@ app = FastAPI(
 @app.get("/health")
 def health():
     return {"status": "UP"}
+
+
+@app.get("/ai/health")
+def ai_health():
+    return {"status": "UP"}
