@@ -36,6 +36,7 @@ const nightMode = computed(() => themeStore.nightMode)
 const minutes = ref([])
 const reports = ref([])
 const membersData = ref([])
+const tasksData = ref([])
 const loading = ref(true)
 const search = ref('')
 const expandedMeeting = ref(null)
@@ -363,8 +364,10 @@ function onGlobalMouseMove(e) {
       const w = canvas.offsetWidth, h = canvas.offsetHeight
       if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
               let closest = null, minDist = Infinity
+        const docValidTypes = ['meeting_group', 'dept', 'task']
         gNodes.forEach((n, i) => {
-          if (n.type !== 'meeting_group') return
+          const isDoc = floatDragging.value === 'doc'
+          if (isDoc ? !docValidTypes.includes(n.type) : n.type !== 'meeting_group') return
           const p = projectNode(n, w, h)
           const zf = Math.max(.6, Math.min(2.5, worldZoom))
           const d = Math.hypot(p.sx - mx, p.sy - my)
@@ -374,8 +377,21 @@ function onGlobalMouseMove(e) {
         if (closest) {
           floatDragPreviewLine.value = { x1: closest.proj.sx, y1: closest.proj.sy, x2: mx, y2: my }
           if (floatDragging.value === 'doc' || floatDragging.value === 'session') {
-            expandedHubIdx = closest.idx; expandedDeptIdx = null
-            const n = closest.node
+            const hubNode = closest.node
+            let hubIdx = closest.idx
+            if (hubNode.type !== 'meeting_group') {
+              // meetingGroupId가 저장된 경우 바로 조회 (dept, task 공통)
+              if (hubNode.meetingGroupId) {
+                const mgi = gNodes.findIndex(n => n.id === hubNode.meetingGroupId)
+                if (mgi >= 0) hubIdx = mgi
+              } else {
+                // mg→dept (from=mg, to=dept) or mg→task (from=mg, to=task)
+                const mgEdge = gEdges.find(e => e.to === closest.idx && gNodes[e.from]?.type === 'meeting_group')
+                if (mgEdge) hubIdx = mgEdge.from
+              }
+            }
+            expandedHubIdx = hubIdx; expandedDeptIdx = null
+            const n = gNodes[hubIdx] || closest.node
             targetCamX = n.x * .55; targetCamY = n.y * .55; targetCamZ = n.z * .55
             targetZoom = Math.min(3.0, Math.max(targetZoom, 1.6))
           }
@@ -402,9 +418,32 @@ function onGlobalMouseUp() {
         selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
         openCreateModal()
       } else if (type === 'doc') {
-        uploadForm.value.connectNodeId = target.node.id
-        openUploadModal()
-        activateReviewMode()
+        const tn = target.node
+        const docValidTypes = ['meeting_group', 'dept', 'task']
+        if (!docValidTypes.includes(tn.type)) {
+          alert('회의체, 부서, 또는 과제 노드에만 자료를 연결할 수 있습니다.')
+        } else {
+          const ctx = {}
+          if (tn.type === 'meeting_group') {
+            ctx.meetingId = tn.id
+          } else if (tn.type === 'dept') {
+            ctx.connectNodeId = tn.id
+            // 새 스킴: mg→dept (from=mg, to=dept)
+            ctx.meetingId = tn.meetingGroupId || ''
+            if (!ctx.meetingId) {
+              const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
+              if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
+            }
+          } else if (tn.type === 'task') {
+            ctx.relatedTodoId = String(tn.data?.id || '')
+            // meetingGroupId 직접 사용
+            ctx.meetingId = tn.meetingGroupId || ''
+            // 새 스킴: dept→task (from=dept, to=task)
+            const deptEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'dept')
+            if (deptEdge) ctx.connectNodeId = gNodes[deptEdge.from]?.id || ''
+          }
+          openUploadModal(ctx)
+        }
       } else if (type === 'session') {
         openSessionModal(target.node.data?.id || null)
       }
@@ -439,6 +478,35 @@ const groupedTodos = computed(() => {
   }
   return groups
 })
+// D-day: detailMeeting의 end_date 기준 남은 일수
+const detailDday = computed(() => {
+  const ed = detailMeeting.value?.end_date
+  if (!ed) return null
+  const now = new Date(); now.setHours(0,0,0,0)
+  const due = new Date(ed); due.setHours(0,0,0,0)
+  return Math.ceil((due - now) / 86400000)
+})
+
+// 부서별 보고서 제출 현황
+const detailDeptStatus = computed(() => {
+  const depts = [...new Set((detailMeeting.value?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))]
+  return depts.map(dept => {
+    const tasks = detailTodos.value.filter(t => (t.assignee_dept||t.dept||'') === dept)
+    const submitted = tasks.length === 0 || tasks.every(t => t.status === 'done')
+    const pending = tasks.filter(t => t.status !== 'done')
+    let minDays = null
+    if (pending.length > 0) {
+      const now = new Date(); now.setHours(0,0,0,0)
+      const days = pending.filter(t => t.due_date).map(t => {
+        const due = new Date(t.due_date); due.setHours(0,0,0,0)
+        return Math.ceil((due - now) / 86400000)
+      })
+      if (days.length) minDays = Math.min(...days)
+    }
+    return { dept, submitted, pendingCount: pending.length, minDays }
+  })
+})
+
 const groupTodoRatio = ref(new Map())
 const showExtractModal = ref(false)
 const detailTab = ref('basic') // 'basic' | 'task'
@@ -819,8 +887,13 @@ const PRESENTATION_CRITERIA = [
 const showUploadModal = ref(false)
 const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', file: null })
 const uploadMeetingTodos = ref([]) // 선택된 회의체의 과제 목록
+// 드래그로 자동 입력된 필드 추적 (직접 선택 시에는 표시 안 함)
+const prefilledCtx = ref({ meetingId: false, connectNodeId: false, relatedTodoId: false })
 
+let _pendingRelatedTodoId = ''
 watch(() => uploadForm.value.meetingId, async (id) => {
+  const pendingTodo = _pendingRelatedTodoId
+  _pendingRelatedTodoId = ''
   uploadMeetingTodos.value = []
   uploadForm.value.relatedTodoId = ''
   if (!id) return
@@ -829,6 +902,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   if (!meetingId) return
   try {
     uploadMeetingTodos.value = (await api.get(`/api/meetings/${meetingId}/todos`)).data || []
+    if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
   } catch { uploadMeetingTodos.value = [] }
 })
 
@@ -903,7 +977,7 @@ async function assignTasks() {
 }
 
 // ─── Ontology edge relation constants ─────────────────────────
-const REL_COLORS = { '소속':'#94a3b8','참여':'#3b82f6','소위원회':'#a78bfa','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#6b7280' }
+const REL_COLORS = { '소속':'#94a3b8','참여':'#3b82f6','소위원회':'#a78bfa','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#6b7280','과제':'#fb923c' }
 function hexToRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
   return `rgba(${r},${g},${b},${a})`
@@ -915,14 +989,16 @@ const REL_MATRIX = {
   'meeting_group→meeting_group': '소위원회',
   'session→meeting_group': '관련',
   'person→meeting_group': '참여',
+  'meeting_group→task':  '과제',
   'meeting_group→file': '생성',
+  'task→file':           '생성',
   'session→file':        '생성',
   'dept→file':           '담당',
   'org→file':            '관련',
   'person→file':         '담당',
 }
 function autoRel(sourceNodeId, targetType) {
-  const srcNode = connectableNodes.value.find(n => n.id === sourceNodeId)
+  const srcNode = gNodes.find(n => n.id === sourceNodeId)
   const key = `${srcNode?.type}→${targetType}`
   return REL_MATRIX[key] || '관련'
 }
@@ -940,7 +1016,17 @@ const connectableNodes = computed(() => {
 
 // ─── Upload: dept-only connectable nodes ──────────────────────
 const deptConnectableNodes = computed(() => {
-  return connectableNodes.value.filter(n => n.type === 'dept' || n.type === 'org')
+  // 선택된 회의체가 있으면 해당 회의체에 속한 부서만, 없으면 전체 유니크 부서
+  if (uploadForm.value.meetingId) {
+    return gNodes
+      .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
+      .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+  }
+  const seen = new Set()
+  return gNodes
+    .filter(n => n.type === 'dept')
+    .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
+    .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
 })
 
 // ─── Upload: AI analysis state ────────────────────────────────
@@ -950,13 +1036,29 @@ const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
 const selectedAgendas = ref([])      // indices of agendas to apply
 const selectedRelDepts = ref([])     // dept names to auto-connect
 
-function openUploadModal() {
+function openUploadModal(ctx = {}) {
   showUploadModal.value = true
   uploadStep.value = 1
   aiResult.value = null
   selectedAgendas.value = []
   selectedRelDepts.value = []
-  uploadForm.value = { label:'', fileType:'보고자료', connectNodeId:'' }
+  // 드래그로 자동 입력된 필드 기록
+  prefilledCtx.value = {
+    meetingId: !!ctx.meetingId,
+    connectNodeId: !!ctx.connectNodeId,
+    relatedTodoId: !!ctx.relatedTodoId,
+  }
+  // store pending relatedTodoId so the meetingId watcher can restore it after fetching todos
+  _pendingRelatedTodoId = String(ctx.relatedTodoId || '')
+  uploadForm.value = {
+    label: '',
+    fileType: '보고자료',
+    connectNodeId: ctx.connectNodeId || '',
+    relType: '생성',
+    meetingId: ctx.meetingId || '',
+    relatedTodoId: ctx.relatedTodoId ? String(ctx.relatedTodoId) : '',
+    file: null
+  }
 }
 
 // Build graph context string for AI
@@ -1072,21 +1174,27 @@ function doAddFile() {
 const meetingGroups = computed(() => {
   const map = new Map()
   meetingsStore.meetings.forEach(m => {
-    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [] })
+    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [], tasks: [] })
   })
   // Add minutes & reports
   minutes.value.forEach(m => {
-    if (!map.has(m.meeting_id)) map.set(m.meeting_id, { id: m.meeting_id, title: m.meeting_title, minutes: [], reports: [], members: [] })
+    if (!map.has(m.meeting_id)) map.set(m.meeting_id, { id: m.meeting_id, title: m.meeting_title, minutes: [], reports: [], members: [], tasks: [] })
     map.get(m.meeting_id).minutes.push(m)
   })
   reports.value.forEach(r => {
-    if (!map.has(r.meeting_id)) map.set(r.meeting_id, { id: r.meeting_id, title: r.meeting_title, minutes: [], reports: [], members: [] })
+    if (!map.has(r.meeting_id)) map.set(r.meeting_id, { id: r.meeting_id, title: r.meeting_title, minutes: [], reports: [], members: [], tasks: [] })
     map.get(r.meeting_id).reports.push(r)
   })
   membersData.value.forEach(mb => {
     if (map.has(mb.meetingId)) {
       const g = map.get(mb.meetingId)
       if (!g.members.find(m => m.userId === mb.userId)) g.members.push(mb)
+    }
+  })
+  tasksData.value.forEach(t => {
+    if (map.has(t.meetingId)) {
+      const g = map.get(t.meetingId)
+      if (!g.tasks.find(x => x.id === t.id)) g.tasks.push(t)
     }
   })
   const result = [...map.values()]
@@ -1237,125 +1345,132 @@ function buildGraphNodes() {
   const nodes = [], edges = []
   const data = meetingGroups.value
 
-  // ── 방사형(Radial) 레이아웃 ──────────────────────────────
-  // 중심: 조직 노드
-  // 1링: 부서 노드  (R=230)
-  // 2링: 회의체 노드 (R=460)
-  // 3링: 세션 노드  (R=660)
-  // 4링: 파일 노드  (R=840)
-  // XZ 평면에 배치, Y는 링별 약간의 높낮이
-  const R = { dept: 230, meeting_group: 460, session: 660, file: 840 }
-  const Y = { org: 0, dept: -20, meeting_group: 0, session: 20, file: 10 }
-
+  // ── 계층 구조: org → 회의체 → 부서 → 과제 → 회의 → 파일 ──
+  // 부서는 각 회의체에 종속 (공유 링 없음)
+  const R = { meeting_group: 260, dept: 440, person: 340, task: 620, session: 790, file: 950 }
+  const Y = { org: 0, meeting_group: 0, dept: -15, person: -40, task: 15, session: 25, file: 10 }
   const TWO_PI = Math.PI * 2
 
-  // ── 조직 root (중심) ──────────────────────────────────────
+  // org (중심)
   const orgIdx = nodes.length
   const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
   nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:Y.org, z:0 })
 
-  // ── 부서 수집 ─────────────────────────────────────────────
-  const deptIdxMap = new Map()
-  const deptMembersMap = new Map()
-  data.forEach(g => {
-    ;(g.members||[]).forEach(mb => {
-      const d = mb.department || mb.dept || '미지정'
-      if (!deptMembersMap.has(d)) deptMembersMap.set(d, [])
-      const list = deptMembersMap.get(d)
-      if (!list.find(m => m.userId === mb.userId)) list.push(mb)
-    })
-  })
-  const uniqueDepts = [...deptMembersMap.keys()]
-
-  // ── 회의체별 각도 먼저 배정 (2링 기준으로 전체 구도 결정) ─
   const mgCount = data.length
   const mgAngles = data.map((_, gi) => (gi / Math.max(mgCount, 1)) * TWO_PI)
+  const sectorWidth = TWO_PI / Math.max(mgCount, 1)
 
-  // ── 부서 각도: 해당 부서가 참여하는 회의체 각도의 평균 ────
-  const deptAngleMap = new Map()
-  uniqueDepts.forEach(deptName => {
-    const relAngles = data
-      .map((g, gi) => (g.members||[]).some(mb => (mb.department||mb.dept||'미지정') === deptName) ? mgAngles[gi] : null)
-      .filter(a => a !== null)
-    // 원형 평균 (circular mean)
-    if (relAngles.length) {
-      const sx = relAngles.reduce((s,a) => s + Math.cos(a), 0)
-      const sz = relAngles.reduce((s,a) => s + Math.sin(a), 0)
-      deptAngleMap.set(deptName, Math.atan2(sz, sx))
-    } else {
-      deptAngleMap.set(deptName, 0)
-    }
-  })
-  // 부서 각도 충돌 방지: 정렬 후 최소 간격 보장
-  const sortedDepts = [...uniqueDepts].sort((a,b) => deptAngleMap.get(a) - deptAngleMap.get(b))
-  const MIN_DEPT_ANG = uniqueDepts.length > 1 ? TWO_PI / uniqueDepts.length * 0.7 : 0
-  sortedDepts.forEach((d, di) => {
-    if (di > 0) {
-      const prev = deptAngleMap.get(sortedDepts[di-1])
-      let cur = deptAngleMap.get(d)
-      if (cur - prev < MIN_DEPT_ANG) deptAngleMap.set(d, prev + MIN_DEPT_ANG)
-    }
-  })
-
-  // ── 부서 노드 배치 ────────────────────────────────────────
-  uniqueDepts.forEach((deptName, di) => {
-    const deptIdx = nodes.length
-    deptIdxMap.set(deptName, deptIdx)
-    const ang = deptAngleMap.get(deptName)
-    const dx = Math.cos(ang) * R.dept
-    const dz = Math.sin(ang) * R.dept
-    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:dx, y:Y.dept, z:dz, members:deptMembersMap.get(deptName) })
-    edges.push({ from:orgIdx, to:deptIdx, rel:'소속' })
-  })
-
-  // ── 사람 (부서 바깥쪽으로 팬아웃) ────────────────────────
-  const personIdxMap = new Map()
-  uniqueDepts.forEach(deptName => {
-    const deptIdx = deptIdxMap.get(deptName)
-    const members = deptMembersMap.get(deptName) || []
-    const dn = nodes[deptIdx]
-    const ang = deptAngleMap.get(deptName)
-    members.forEach((mb, mi) => {
-      const pKey = String(mb.userId)
-      if (!personIdxMap.has(pKey)) {
-        const personIdx = nodes.length
-        personIdxMap.set(pKey, personIdx)
-        const spread = (mi - (members.length-1)/2) * 0.18
-        const pAng = ang + spread
-        const pr = R.dept - 80
-        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role,
-          x:Math.cos(pAng)*pr, y:Y.dept-40, z:Math.sin(pAng)*pr })
-        edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
-      }
-    })
-  })
-
-  // ── 회의체 노드 배치 ──────────────────────────────────────
-  const mgIdxList = []
   data.forEach((g, gi) => {
     const mgIdx = nodes.length
-    mgIdxList.push(mgIdx)
     const ang = mgAngles[gi]
-    const mx = Math.cos(ang) * R.meeting_group
-    const mz = Math.sin(ang) * R.meeting_group
-    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:mx, y:Y.meeting_group, z:mz, data:g, groupIdx:gi })
+    const mgNodeId = `mg-${g.id||gi}`
+    nodes.push({ id:mgNodeId, label:g.title||`회의체${gi+1}`, type:'meeting_group',
+      x:Math.cos(ang)*R.meeting_group, y:Y.meeting_group, z:Math.sin(ang)*R.meeting_group,
+      data:g, groupIdx:gi })
+    edges.push({ from:orgIdx, to:mgIdx, rel:'소속' })
 
-    // 부서 →[참여]→ 회의체
-    const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
-    partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:di, to:mgIdx, rel:'참여' }) })
+    // ── 부서 노드 (이 회의체 전용) ─────────────────────────────
+    const membersByDept = new Map()
+    ;(g.members||[]).forEach(mb => {
+      const d = mb.department || mb.dept || '미지정'
+      if (!membersByDept.has(d)) membersByDept.set(d, [])
+      membersByDept.get(d).push(mb)
+    })
+    const depts = [...membersByDept.keys()]
+    const dCount = depts.length
+    const deptFan = dCount > 1 ? Math.min(sectorWidth * 0.42, 0.55) / (dCount - 1) : 0
+    const deptIdxMap = new Map()
 
-    // 세션/파일: 회의체 각도를 중심으로 방사상 fan-out
-    const sCount = (g.minutes||[]).length
-    const rCount = (g.reports||[]).length
-    const totalFiles = sCount + rCount
-    const fanSpread = Math.min(0.35, (totalFiles > 1 ? 0.18 : 0))
+    depts.forEach((deptName, di) => {
+      const dAng = ang + (di - (dCount-1)/2) * deptFan
+      const deptIdx = nodes.length
+      deptIdxMap.set(deptName, deptIdx)
+      nodes.push({ id:`dept-${g.id||gi}-${deptName}`, label:deptName, type:'dept',
+        x:Math.cos(dAng)*R.dept, y:Y.dept, z:Math.sin(dAng)*R.dept,
+        members:membersByDept.get(deptName), groupIdx:gi, meetingGroupId:mgNodeId })
+      edges.push({ from:mgIdx, to:deptIdx, rel:'참여' })
 
-    ;(g.minutes||[]).forEach((m, mi) => {
-      const sAng = ang + (mi - (sCount-1)/2) * fanSpread * (sCount > 1 ? 1 : 0)
+      // 구성원 노드
+      const members = membersByDept.get(deptName) || []
+      members.forEach((mb, mi) => {
+        const spread = (mi - (members.length-1)/2) * 0.15
+        const personIdx = nodes.length
+        nodes.push({ id:`person-${g.id||gi}-${mb.userId}`, label:mb.userName||'?', type:'person',
+          userId:mb.userId, role:mb.role,
+          x:Math.cos(dAng+spread)*R.person, y:Y.person, z:Math.sin(dAng+spread)*R.person,
+          groupIdx:gi })
+        edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
+      })
+    })
+
+    // ── 과제 노드: 담당 부서에 연결, 없으면 순환 배분 ────────
+    const taskList = g.tasks || []
+    const tasksByDept = new Map()
+    depts.forEach(d => tasksByDept.set(d, []))
+    const unassigned = []
+    taskList.forEach(task => {
+      const d = task.assignee_dept || task.dept || ''
+      if (d && tasksByDept.has(d)) tasksByDept.get(d).push(task)
+      else unassigned.push(task)
+    })
+    unassigned.forEach((task, ti) => {
+      if (depts.length > 0) tasksByDept.get(depts[ti % depts.length]).push(task)
+    })
+
+    const taskIdxByTodoId = new Map()
+    const allTaskIdxList = []
+
+    depts.forEach(deptName => {
+      const deptIdx = deptIdxMap.get(deptName)
+      const deptNode = nodes[deptIdx]
+      const dAng = deptNode ? Math.atan2(deptNode.z, deptNode.x) : ang
+      const deptTasks = tasksByDept.get(deptName) || []
+      const tCount = deptTasks.length
+      const tFan = tCount > 1 ? Math.min(0.22, 0.14) : 0
+      deptTasks.forEach((task, ti) => {
+        const tAng = dAng + (ti - (tCount-1)/2) * tFan
+        const taskNodeIdx = nodes.length
+        allTaskIdxList.push(taskNodeIdx)
+        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
+        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
+          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
+          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
+        edges.push({ from:deptIdx, to:taskNodeIdx, rel:'담당' })
+        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+      })
+    })
+
+    // 부서가 없을 때 과제를 회의체에 직접 연결
+    if (depts.length === 0 && taskList.length > 0) {
+      taskList.forEach((task, ti) => {
+        const tAng = ang + (ti - (taskList.length-1)/2) * 0.2
+        const taskNodeIdx = nodes.length
+        allTaskIdxList.push(taskNodeIdx)
+        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
+        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
+          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
+          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
+        edges.push({ from:mgIdx, to:taskNodeIdx, rel:'과제' })
+        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+      })
+    }
+
+    // ── 회의(세션) 노드: 과제에 순환 배분 ─────────────────────
+    const sessions = g.minutes || []
+    const tTotal = allTaskIdxList.length
+    sessions.forEach((m, mi) => {
+      const parentTaskIdx = tTotal > 0 ? allTaskIdxList[mi % tTotal] : mgIdx
+      const parentNode = nodes[parentTaskIdx]
+      const pAng = parentNode ? Math.atan2(parentNode.z, parentNode.x) : ang
+      // 같은 부모를 공유하는 세션 수 & 순번 계산
+      const sibCount = sessions.filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
+      const sibIdx = sessions.slice(0, mi).filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
+      const sFan = sibCount > 1 ? Math.min(0.22, 0.14) : 0
+      const sAng = pAng + (sibIdx - (sibCount-1)/2) * sFan
       const sIdx = nodes.length
       nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session',
         x:Math.cos(sAng)*R.session, y:Y.session, z:Math.sin(sAng)*R.session, groupIdx:gi, data:m })
-      edges.push({ from:mgIdx, to:sIdx, rel:'개최' })
+      edges.push({ from:parentTaskIdx, to:sIdx, rel:'개최' })
 
       const fIdx = nodes.length
       nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록',
@@ -1363,13 +1478,18 @@ function buildGraphNodes() {
       edges.push({ from:sIdx, to:fIdx, rel:'생성' })
     })
 
+    // ── 보고서 파일: 관련 과제 노드에 연결 ─────────────────────
     ;(g.reports||[]).forEach((rp, ri) => {
-      const baseAng = ang + (sCount > 0 ? fanSpread * sCount * 0.5 + 0.12 : 0)
-      const rAng = baseAng + ri * 0.14
+      const relTodoId = String(rp.related_todo_id || '')
+      let fromIdx = allTaskIdxList.length > 0 ? allTaskIdxList[0] : mgIdx
+      if (relTodoId && taskIdxByTodoId.has(relTodoId)) fromIdx = taskIdxByTodoId.get(relTodoId)
+      const fromNode = nodes[fromIdx]
+      const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
+      const rAng = bAng + (ri - ((g.reports||[]).length-1)/2) * 0.12
       const rIdx = nodes.length
       nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료',
         x:Math.cos(rAng)*R.file, y:Y.file-15, z:Math.sin(rAng)*R.file, groupIdx:gi })
-      edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
+      edges.push({ from:fromIdx, to:rIdx, rel:'생성' })
     })
   })
 
@@ -1413,8 +1533,18 @@ const PALETTE=['#60a5fa','#34d399','#f472b6','#fbbf24','#a78bfa','#fb923c','#38b
 
 function computeUrgency(g) {
   if (g?.urgency) return g.urgency
-  if (!g?.minutes?.length && !g?.reports?.length) return 'critical'
-  if (!g?.reports?.length) return 'warning'
+  const tasks = g?.tasks || []
+  const now = new Date(); now.setHours(0,0,0,0)
+  let minDays = Infinity
+  tasks.forEach(t => {
+    if (t.status === 'done') return
+    if (!t.due_date) return
+    const due = new Date(t.due_date); due.setHours(0,0,0,0)
+    const days = Math.ceil((due - now) / 86400000)
+    if (days >= 0 && days < minDays) minDays = days
+  })
+  if (minDays <= 1) return 'critical'   // 하루 이하: 빨간색
+  if (minDays <= 3) return 'warning'    // 3일 이하: 노란색
   return 'normal'
 }
 function getHubFill(g) {
@@ -1426,28 +1556,50 @@ function getHubFill(g) {
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
-    // Default view: org + dept + meeting_group
-    gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
+    // 기본: org + 회의체만 표시
+    gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
   } else {
     const hubNode = gNodes[expandedHubIdx]
     if (hubNode?.type === 'meeting_group') {
       vis.add(expandedHubIdx)
+      // 회의체 → 부서
       gEdges.forEach(e => {
-        if (e.from === expandedHubIdx) {
+        if (e.from !== expandedHubIdx) return
+        const dNode = gNodes[e.to]
+        if (!dNode) return
+        // 직접 연결된 task (부서 없을 때)
+        if (dNode.type === 'task') {
           vis.add(e.to)
-          // session 하위 file도 표시
-          if (gNodes[e.to]?.type === 'session') gEdges.forEach(e2 => { if (e2.from === e.to) vis.add(e2.to) })
+          gEdges.forEach(e2 => {
+            if (e2.from !== e.to) return
+            vis.add(e2.to) // session 또는 file
+            if (gNodes[e2.to]?.type === 'session') gEdges.forEach(e3 => { if (e3.from === e2.to) vis.add(e3.to) })
+          })
+          return
         }
-        if (e.to === expandedHubIdx) vis.add(e.from)
+        if (dNode.type !== 'dept') return
+        vis.add(e.to) // 부서
+        const deptIdx = e.to
+        // person: expandedDeptIdx 클릭 시만 표시
+        if (expandedDeptIdx === deptIdx) {
+          gEdges.forEach(e2 => { if (e2.from === deptIdx && gNodes[e2.to]?.type === 'person') vis.add(e2.to) })
+        }
+        // 부서 → 과제
+        gEdges.forEach(e2 => {
+          if (e2.from !== deptIdx || gNodes[e2.to]?.type !== 'task') return
+          vis.add(e2.to)
+          const taskIdx = e2.to
+          // 과제 → 세션 + 보고서 파일
+          gEdges.forEach(e3 => {
+            if (e3.from !== taskIdx) return
+            vis.add(e3.to)
+            // 세션 → 회의록 파일
+            if (gNodes[e3.to]?.type === 'session') gEdges.forEach(e4 => { if (e4.from === e3.to) vis.add(e4.to) })
+          })
+        })
       })
-      if (expandedDeptIdx !== null) {
-        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
-      }
     } else {
-      gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
-      if (expandedDeptIdx !== null) {
-        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
-      }
+      gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
     }
   }
   return vis
@@ -1548,6 +1700,14 @@ function drawArchiveGraph() {
         ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
       }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
+    } else if(n.type==='task'){
+      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
+      ctx.beginPath()
+      ctx.moveTo(p.sx,p.sy-r);ctx.lineTo(p.sx+r*0.85,p.sy);ctx.lineTo(p.sx,p.sy+r);ctx.lineTo(p.sx-r*0.85,p.sy)
+      ctx.closePath()
+      ctx.fillStyle=isDark?'rgba(251,146,60,0.75)':'rgba(254,215,170,0.92)';ctx.fill()
+      ctx.strokeStyle=isDark?'#fb923c':'#ea580c';ctx.lineWidth=isFocused?2:1;ctx.stroke()
+      if(p.scale>.32){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(254,215,170,${Math.min(1,p.scale*1.5)})`:`rgba(124,45,18,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='session'){
       const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
       roundRect(ctx,p.sx-r,p.sy-r*0.75,r*2,r*1.5,r*.3)
@@ -1625,8 +1785,10 @@ function onMouseMove(e) {
   if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;return}
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
+  const hoverVis = getVisibleSet()
   gNodes.forEach((n,i)=>{
-    if(!['meeting_group','dept','org'].includes(n.type)) return
+    if(!['meeting_group','dept','org','task'].includes(n.type)) return
+    if(!hoverVis.has(i)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
     const d=Math.hypot(p.sx-mx,p.sy-my)
@@ -1664,7 +1826,7 @@ function onCanvasClick(e) {
     if(!getVisibleSet().has(i)) return
     const p=projectNode(n,w,h)
     const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='session'?11:n.type==='person'?11:9
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='task'?12:n.type==='session'?11:n.type==='person'?11:9
     const d=Math.hypot(p.sx-mx,p.sy-my)
     if(d<baseR*p.scale*zf+6&&d<minDist){minDist=d;closest=i}
   })
@@ -1672,14 +1834,17 @@ function onCanvasClick(e) {
     const n=gNodes[closest]
     if(n.type==='meeting_group') {
       if(selectedNodeIdx.value===closest) {
-        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null
-        targetZoom=Math.max(1.0,targetZoom/1.6)
+        // 선택 해제: 전체 맵으로 복귀
+        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null; focusNode=null
+        targetZoom=1.0
         targetCamX=0;targetCamY=0;targetCamZ=0
+        breadcrumb.value=[]
       } else {
         selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
         targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
         targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
         breadcrumb.value=[{ label: n.label, idx: closest, type: 'meeting_group' }]
+        focusNode=closest
         openDetail(n.data)
       }
     } else if(n.type==='dept') {
@@ -1692,10 +1857,13 @@ function onCanvasClick(e) {
       } else {
         breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
       }
+      focusNode=closest
     } else if(n.type==='file') {
       openFileReview(n)
+      focusNode=closest
+    } else {
+      focusNode=closest
     }
-    focusNode=closest
   } else {
     // 배경 클릭: 아무것도 하지 않음
   }
@@ -1742,14 +1910,20 @@ onMounted(async () => {
       api.get('/api/meetings').catch(()=>({data:[]})),
     ])
     minutes.value=m.data; reports.value=r.data
-    const memberResults = await Promise.all(
-      mtgs.data.map(mtg =>
+    const [memberResults, todoResults] = await Promise.all([
+      Promise.all(mtgs.data.map(mtg =>
         api.get(`/api/meetings/${mtg.id}/members`)
           .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role,department:mb.user?.department||'',organization:mb.user?.organization||'',position:mb.user?.position||''})))
           .catch(()=>[])
-      )
-    )
+      )),
+      Promise.all(mtgs.data.map(mtg =>
+        api.get(`/api/meetings/${mtg.id}/todos`)
+          .then(res=>res.data.map(t=>({...t, meetingId:mtg.id, meetingTitle:mtg.title})))
+          .catch(()=>[])
+      ))
+    ])
     membersData.value=memberResults.flat()
+    tasksData.value=todoResults.flat()
   } catch(e) {
     console.warn('archive data fetch error', e)
   } finally {
@@ -1920,39 +2094,48 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <!-- 진행 현황 -->
             <div class="detail-section">
               <div class="detail-section-label">진행 현황</div>
-              <!-- 게이지바 -->
-              <div class="detail-gauge-wrap">
-                <div class="detail-gauge-track">
-                  <div class="detail-gauge-fill"
-                    :style="{ width: detailTodos.length ? (detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) + '%' : '0%' }"></div>
-                </div>
-                <span class="detail-gauge-label">
-                  <template v-if="detailTodos.length">{{ detailTodos.filter(t=>t.status==='done').length }}/{{ detailTodos.length }} 완료 ({{ Math.round(detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) }}%)</template>
-                  <template v-else>과제 없음</template>
-                </span>
+
+              <!-- D-day -->
+              <div class="dday-row">
+                <template v-if="detailDday !== null">
+                  <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'">
+                    {{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}
+                  </span>
+                  <span class="dday-label">{{ detailDday <= 0 ? '마감일이 지났습니다' : `마감일까지 ${detailDday}일 남음` }}</span>
+                  <span class="dday-date">{{ formatDate(detailMeeting.end_date) }}</span>
+                </template>
+                <span v-else class="dday-label" style="color:#475569">마감일 미지정</span>
               </div>
-              <!-- 인라인 지표 -->
-              <div class="detail-inline-stats">
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  보고자료 ({{ detailMeeting?.reports?.length||0 }}건)
-                  <span class="dis-recent">최근 {{ detailMeeting?.reports?.slice(-1)[0]?.submitted_at ? formatDate(detailMeeting.reports.slice(-1)[0].submitted_at) : '없음' }}</span>
+
+              <!-- 팀별 제출 현황 -->
+              <div v-if="detailDeptStatus.length" class="dept-submit-section">
+                <div class="dept-submit-header">
+                  <span class="dept-submit-title">팀 제출 현황</span>
+                  <span class="dept-submit-summary">
+                    <span class="dss-done">{{ detailDeptStatus.filter(d=>d.submitted).length }}팀 완료</span>
+                    <template v-if="detailDeptStatus.filter(d=>!d.submitted).length">
+                      <span class="dss-sep">·</span>
+                      <span class="dss-pending">{{ detailDeptStatus.filter(d=>!d.submitted).length }}팀 미제출</span>
+                    </template>
+                  </span>
                 </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                  발제자료 ({{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').length }}건)
-                  <span class="dis-recent">최근 {{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0]?.created_at ? formatDate((detailMeeting.files.filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0].created_at)) : '없음' }}</span>
-                </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  회의록 ({{ detailMeeting?.minutes?.length||0 }}건)
-                  <span class="dis-recent">최근 {{ detailMeeting?.minutes?.slice(-1)[0]?.ended_at ? formatDate(detailMeeting.minutes.slice(-1)[0].ended_at) : '없음' }}</span>
-                </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7l2 2 4-4"/></svg>
-                  과제 대기 {{ detailTodos.filter(t=>t.status==='pending'||!t.status).length }}건 · 진행 {{ detailTodos.filter(t=>t.status==='in_progress').length }}건 · 완료 {{ detailTodos.filter(t=>t.status==='done').length }}건
+                <div class="dept-submit-list">
+                  <div v-for="ds in detailDeptStatus" :key="ds.dept" class="dept-submit-item" :class="{ 'dsi-done': ds.submitted, 'dsi-pending': !ds.submitted, 'dsi-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }">
+                    <div class="dsi-dot" :class="{ 'dsi-dot-done': ds.submitted, 'dsi-dot-pending': !ds.submitted, 'dsi-dot-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }"></div>
+                    <span class="dsi-name">{{ ds.dept }}</span>
+                    <template v-if="ds.submitted">
+                      <span class="dsi-status dsi-status-done">제출 완료</span>
+                    </template>
+                    <template v-else>
+                      <span class="dsi-status dsi-status-pending">미제출 {{ ds.pendingCount }}건</span>
+                      <span v-if="ds.minDays !== null" class="dsi-deadline" :class="{ 'dsi-deadline-urgent': ds.minDays <= 3, 'dsi-deadline-critical': ds.minDays <= 1 }">
+                        {{ ds.minDays <= 0 ? '마감초과' : `D-${ds.minDays}` }}
+                      </span>
+                    </template>
+                  </div>
                 </div>
               </div>
+              <div v-else class="detail-log-empty">참여 부서 정보가 없습니다.</div>
             </div>
 
             <!-- 최근 로그 -->
@@ -2046,18 +2229,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
                       추가 자료 선택
                     </div>
-                    <!-- 기존 자료 목록 -->
+                    <!-- 기존 자료 목록: 실제 파일이 있는 항목만 표시 -->
                     <div class="ctx-file-list">
-                      <label v-for="r in (detailMeeting?.reports||[])" :key="'r'+r.id" class="ctx-file-item">
+                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>r.file_name||r.file_url)" :key="'r'+r.id" class="ctx-file-item">
                         <input type="checkbox" :value="r.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">{{ r.file_name || '보고서' }}</span>
+                        <span class="ctx-file-name">{{ r.file_name }}</span>
                         <span class="ctx-file-date">{{ r.submitted_at ? formatDate(r.submitted_at) : '' }}</span>
                       </label>
-                      <label v-for="f in (detailMeeting?.files||[])" :key="'f'+f.id" class="ctx-file-item">
+                      <label v-for="f in (detailMeeting?.files||[]).filter(f=>f.file_name||f.name||f.file_url)" :key="'f'+f.id" class="ctx-file-item">
                         <input type="checkbox" :value="f.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.585a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                        <span class="ctx-file-name">{{ f.file_name || f.name || '발제자료' }}</span>
+                        <span class="ctx-file-name">{{ f.file_name || f.name }}</span>
                       </label>
                       <!-- 새로 업로드된 파일 -->
                       <div v-for="(uf, i) in uploadedCtxFiles" :key="'uf'+i" class="ctx-file-item ctx-file-uploaded">
@@ -2621,7 +2804,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <!-- ── Step 1: 수동 입력 ── -->
         <template v-if="uploadStep===1">
           <div class="modal-header">
-            <span class="modal-title">자료 업로드 <span style="font-size:11px;opacity:.6;font-weight:400">— 부서 연결 후 AI가 자동 검토합니다</span></span>
+            <span class="modal-title">자료 업로드</span>
             <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
           <div class="modal-body">
@@ -2633,37 +2816,49 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 @change="files => { uploadForm.file = files[0]; uploadForm.label = uploadForm.label || files[0]?.name }"
               />
             </div>
-            <div class="form-field">
-              <label>파일 이름 <span class="req">*</span></label>
-              <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+            <div class="form-field-row">
+              <div class="form-field" style="flex:2">
+                <label>자료명 <span class="req">*</span></label>
+                <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+              </div>
+              <div class="form-field" style="flex:1">
+                <label>자료 유형</label>
+                <select v-model="uploadForm.fileType" class="form-input">
+                  <option v-for="ft in FILE_TYPES" :key="ft" :value="ft">{{ ft }}</option>
+                </select>
+              </div>
             </div>
-            <!-- 관련 회의체 선택 -->
+
+            <!-- 관련 회의체 -->
             <div class="form-field">
-              <label>관련 회의체 <span class="req">*</span></label>
-              <select v-model="uploadForm.meetingId" class="form-input">
+              <label>관련 회의체 <span class="req">*</span><span v-if="prefilledCtx.meetingId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.meetingId" class="form-input" :class="{ 'prefilled': uploadForm.meetingId }"
+                @change="prefilledCtx.meetingId = false; prefilledCtx.connectNodeId = false">
                 <option value="">회의체 선택...</option>
                 <option v-for="n in gNodes.filter(n=>n.type==='meeting_group')" :key="n.id" :value="n.id">{{ n.label }}</option>
               </select>
             </div>
-            <!-- 연관 과제 선택 -->
+
+            <!-- 업로드 부서 -->
             <div class="form-field">
-              <label>연관 과제</label>
-              <select v-model="uploadForm.relatedTodoId" class="form-input" :disabled="!uploadForm.meetingId">
-                <option value="">{{ uploadForm.meetingId ? '과제 선택 안 함' : '회의체를 먼저 선택하세요' }}</option>
+              <label>업로드 부서 <span class="req">*</span><span v-if="prefilledCtx.connectNodeId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.connectNodeId" class="form-input" :class="{ 'prefilled': uploadForm.connectNodeId }"
+                @change="prefilledCtx.connectNodeId = false">
+                <option value="">부서 선택...</option>
+                <option v-for="n in deptConnectableNodes" :key="n.id" :value="n.id">{{ n.label }}</option>
+              </select>
+            </div>
+
+            <!-- 연관 과제 -->
+            <div class="form-field">
+              <label>연관 과제 <span class="req">*</span><span v-if="prefilledCtx.relatedTodoId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.relatedTodoId" class="form-input" :class="{ 'prefilled': uploadForm.relatedTodoId }"
+                :disabled="!uploadForm.meetingId" @change="prefilledCtx.relatedTodoId = false">
+                <option value="">{{ uploadForm.meetingId ? '과제 선택...' : '회의체를 먼저 선택하세요' }}</option>
                 <option v-for="t in uploadMeetingTodos" :key="t.id" :value="t.id">{{ t.content }}</option>
               </select>
             </div>
-<div class="form-field">
-              <label>업로드 부서 <span class="req">*</span><span style="font-size:11px;opacity:.55;margin-left:6px">수동 연결 필수</span></label>
-              <select v-model="uploadForm.connectNodeId" class="form-input">
-                <option value="">부서/조직 선택...</option>
-                <option v-for="n in deptConnectableNodes" :key="n.id" :value="n.id">[{{ n.typeLabel }}] {{ n.label }}</option>
-              </select>
-              <div v-if="!uploadForm.connectNodeId" class="upload-dept-hint">
-                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                업로드 담당 부서를 먼저 선택해야 AI 분석이 시작됩니다.
-              </div>
-            </div>
+
             <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
               <span class="conn-node">{{ deptConnectableNodes.find(n=>n.id===uploadForm.connectNodeId)?.label }}</span>
               <span class="conn-arrow">→</span>
@@ -2675,7 +2870,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="modal-footer">
             <button class="btn-cancel" @click="showUploadModal=false">취소</button>
             <button class="btn-primary"
-              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId"
+              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId || !uploadForm.relatedTodoId"
               @click="runAiAnalysis">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:5px"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
               AI 검토 시작
@@ -3142,6 +3337,52 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-section-label-row { display:flex;align-items:center;justify-content:space-between; }
 .detail-section-label-row .detail-section-label { margin-bottom:0; }
 /* gauge bar */
+/* ── D-day ──────────────────────────────────────────────────── */
+.dday-row { display:flex;align-items:center;gap:7px;margin-bottom:10px; }
+.dday-badge { font-size:11px;font-weight:800;padding:3px 9px;border-radius:99px;letter-spacing:.02em;flex-shrink:0; }
+.dday-normal { background:rgba(59,130,246,.18);color:#93c5fd; }
+.dday-warning { background:rgba(245,158,11,.2);color:#fbbf24; }
+.dday-critical { background:rgba(239,68,68,.22);color:#f87171; }
+.dday-over { background:rgba(100,116,139,.18);color:#94a3b8; }
+.dday-label { font-size:11px;color:#64748b;flex:1; }
+.dday-date { font-size:10px;color:#3b4152;flex-shrink:0; }
+/* ── 팀 제출 현황 ───────────────────────────────────────────── */
+.dept-submit-section { display:flex;flex-direction:column;gap:5px; }
+.dept-submit-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:2px; }
+.dept-submit-title { font-size:11px;font-weight:600;color:#64748b; }
+.dept-submit-summary { font-size:10.5px;display:flex;align-items:center;gap:4px; }
+.dss-done { color:#4ade80; }
+.dss-sep { color:#374151; }
+.dss-pending { color:#f87171; }
+.dept-submit-list { display:flex;flex-direction:column;gap:3px; }
+.dept-submit-item { display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05); }
+.dept-submit-item.dsi-done { border-color:rgba(74,222,128,.1); }
+.dept-submit-item.dsi-urgent { border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04); }
+.dsi-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
+.dsi-dot-done { background:#4ade80; }
+.dsi-dot-pending { background:#64748b; }
+.dsi-dot-urgent { background:#f59e0b; }
+.dsi-name { flex:1;font-size:11.5px;color:#94a3b8; }
+.dsi-status { font-size:10.5px;font-weight:600;flex-shrink:0; }
+.dsi-status-done { color:#4ade80; }
+.dsi-status-pending { color:#64748b; }
+.dsi-deadline { font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;flex-shrink:0; }
+.dsi-deadline-urgent { background:rgba(245,158,11,.18);color:#fbbf24; }
+.dsi-deadline-critical { background:rgba(239,68,68,.2);color:#f87171; }
+/* day-mode overrides */
+.day-mode .dday-normal { background:rgba(59,130,246,.1);color:#1d4ed8; }
+.day-mode .dday-warning { background:rgba(245,158,11,.12);color:#d97706; }
+.day-mode .dday-critical { background:rgba(239,68,68,.12);color:#dc2626; }
+.day-mode .dday-over { background:#f1f5f9;color:#64748b; }
+.day-mode .dday-label { color:#94a3b8; }
+.day-mode .dday-date { color:#cbd5e1; }
+.day-mode .dept-submit-item { background:#f8fafc;border-color:#f1f5f9; }
+.day-mode .dept-submit-item.dsi-done { border-color:rgba(22,163,74,.15); }
+.day-mode .dept-submit-item.dsi-urgent { border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04); }
+.day-mode .dsi-name { color:#475569; }
+.day-mode .dss-done { color:#16a34a; }
+.day-mode .dss-pending { color:#dc2626; }
+/* legacy gauge (kept for other uses) */
 .detail-gauge-wrap { display:flex;align-items:center;gap:8px; }
 .detail-gauge-track { flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden; }
 .detail-gauge-fill { height:100%;border-radius:99px;background:rgba(134,239,172,.7);transition:width .4s ease; }
@@ -3915,6 +4156,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* ── Upload 2-step styles ──────────────────────────────────── */
 .upload-step-bar { padding:14px 20px 10px; }
 .upload-dept-hint { display:flex;align-items:center;gap:5px;font-size:11px;color:#f59e0b;margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2); }
+/* 자동입력됨 텍스트 (배지 없이 인라인) */
+.archive-modal-box .prefill-label { font-size:11px;font-weight:500;color:#4ade80;margin-left:6px; }
+.archive-modal-box.day-mode .prefill-label { color:#16a34a; }
+/* 사이드바이사이드 폼 필드 행 */
+.archive-modal-box .form-field-row { display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+/* 자동입력된 필드 시각적 강조 */
+.archive-modal-box .form-input.prefilled { border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.06); }
+.archive-modal-box.day-mode .form-input.prefilled { border-color:rgba(22,163,74,.4);background:rgba(22,163,74,.06); }
 /* AI result body */
 .ai-result-body { max-height:420px;overflow-y:auto; }
 
