@@ -1,4 +1,4 @@
-package com.workmaite.domain.home.dto;
+package com.workmaite.domain.sessions.dto;
 
 import com.workmaite.domain.sessions.entity.MeetingSession;
 import lombok.Builder;

@@ -1,4 +1,4 @@
-package com.workmaite.domain.home.dto;
+package com.workmaite.domain.meetings.dto;
 
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.entity.MeetingPriority;
