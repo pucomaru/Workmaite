@@ -30,6 +30,9 @@ public enum ErrorCode {
     MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
     MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
 
+    // 조직
+    ORGANIZATION_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 구성원입니다."),
+
     // 안건
     AGENDA_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 안건입니다."),
 
