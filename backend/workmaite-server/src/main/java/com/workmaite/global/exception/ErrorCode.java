@@ -30,9 +30,22 @@ public enum ErrorCode {
     MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
     MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
     MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다."),
+    
+    // 조직
+    ORGANIZATION_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 구성원입니다."),
+
+    // 안건
+    AGENDA_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 안건입니다."),
+
+    // 자료
+    REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 자료입니다."),
+    REPORT_ALREADY_APPROVED(HttpStatus.BAD_REQUEST, "이미 승인된 자료는 재제출할 수 없습니다."),
+   
     // Session - 회의 도메인 에러
     // 회의 조회 시 존재하지 않는 경우
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의입니다."),
+    // SCHEDULED 상태가 아닌 회의를 일시정지하려는 경우 (pause는 ONGOING 상태에서만 가능)
+    SESSION_NOT_STARTED(HttpStatus.BAD_REQUEST, "시작되지 않은 회의입니다."),
     // 이미 시작(ONGOING)된 회의를 수정하려는 경우
     SESSION_ALREADY_STARTED(HttpStatus.BAD_REQUEST, "이미 시작된 회의입니다."),
     // 이미 종료(ENDED)된 회의를 수정하려는 경우
