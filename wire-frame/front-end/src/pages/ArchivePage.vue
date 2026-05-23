@@ -365,13 +365,15 @@ function onGlobalMouseMove(e) {
       if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
               let closest = null, minDist = Infinity
         const docValidTypes = ['meeting_group', 'dept', 'task']
+        const zf = Math.max(.6, Math.min(2.5, worldZoom))
         gNodes.forEach((n, i) => {
           const isDoc = floatDragging.value === 'doc'
           if (isDoc ? !docValidTypes.includes(n.type) : n.type !== 'meeting_group') return
-          const p = projectNode(n, w, h)
-          const zf = Math.max(.6, Math.min(2.5, worldZoom))
-          const d = Math.hypot(p.sx - mx, p.sy - my)
-          if (d < 22 * p.scale * zf + 70 && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: p } }
+          let sx, sy
+          if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
+          else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
+          const d = Math.hypot(sx - mx, sy - my)
+          if (d < 22 * zf + 70 && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: { sx, sy } } }
         })
         floatDragTarget = closest
         if (closest) {
@@ -380,20 +382,19 @@ function onGlobalMouseMove(e) {
             const hubNode = closest.node
             let hubIdx = closest.idx
             if (hubNode.type !== 'meeting_group') {
-              // meetingGroupId가 저장된 경우 바로 조회 (dept, task 공통)
               if (hubNode.meetingGroupId) {
                 const mgi = gNodes.findIndex(n => n.id === hubNode.meetingGroupId)
                 if (mgi >= 0) hubIdx = mgi
               } else {
-                // mg→dept (from=mg, to=dept) or mg→task (from=mg, to=task)
                 const mgEdge = gEdges.find(e => e.to === closest.idx && gNodes[e.from]?.type === 'meeting_group')
                 if (mgEdge) hubIdx = mgEdge.from
               }
             }
-            expandedHubIdx = hubIdx; expandedDeptIdx = null
-            const n = gNodes[hubIdx] || closest.node
-            targetCamX = n.x * .55; targetCamY = n.y * .55; targetCamZ = n.z * .55
-            targetZoom = Math.min(3.0, Math.max(targetZoom, 1.6))
+            if (expandedHubIdx !== hubIdx) {
+              expandedHubIdx = hubIdx; expandedDeptIdx = null
+              targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
+              targetPan2DX=0; targetPan2DY=0; pan2DX=0; pan2DY=0
+            }
           }
         } else { floatDragPreviewLine.value = null }
       } else { floatDragTarget = null; floatDragPreviewLine.value = null }
@@ -416,6 +417,8 @@ function onGlobalMouseUp() {
       // Dropped onto a meeting_group node
       if (type === 'meeting') {
         selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
+        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
         openCreateModal()
       } else if (type === 'doc') {
         const tn = target.node
@@ -724,7 +727,7 @@ async function saveApprovedTasks() {
 }
 
 const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
-const STATUS_LABEL = { pending: '대기', in_progress: '진행중', done: '완료' }
+const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승인대기', done: '완료' }
 
 function goToProcessStep(step) {
   if (step === 'context' && (extractPhase.value === 'result' || extractPhase.value === 'assign')) {
@@ -826,6 +829,12 @@ const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function initials(name) { return (name || '?')[0] }
 
+function goToList(meetingId) {
+  _listSnapshot.expandedMeeting = meetingId || null
+  viewMode.value = 'list'
+  detailOpen.value = false
+}
+
 async function openDetail(groupData) {
   if (!groupData) return
   const isSameMeeting = detailMeeting.value?.id === groupData.id
@@ -865,6 +874,12 @@ let gNodes = [], gEdges = []
 let expandedHubIdx = null
 let expandedDeptIdx = null
 let rotationPaused = false
+// 2D tree mode pan state (used when expandedHubIdx !== null)
+let pan2DX = 0, pan2DY = 0, targetPan2DX = 0, targetPan2DY = 0
+let _treePositions = null // Map<idx, {sx, sy}> cached each frame in 2D mode
+let dragNode2D = null // idx of node being dragged in 2D tree mode
+let dragNode2DMoved = false
+const _node2DOffsets = new Map() // Map<idx, {dx,dy}> — accumulated screen-pixel offsets from dragging
 // Float button drag state
 const floatDragging = ref(null)       // null | 'meeting' | 'doc'
 const floatDragPos = ref({ x: 0, y: 0 })
@@ -1353,7 +1368,7 @@ function buildGraphNodes() {
 
   // org (중심)
   const orgIdx = nodes.length
-  const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
+  const orgLabel = authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
   nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:Y.org, z:0 })
 
   const mgCount = data.length
@@ -1616,6 +1631,48 @@ function getRelatedIndices(mgIdx) {
   return related
 }
 
+function computeTreeLayout(hubIdx, w, h) {
+  const naturalPos = new Map() // natural (unzoomed) positions
+  const visSet = getVisibleSet()
+  const TOP = 60, GAP = 130, PAD = 50
+
+  function kids(idx) {
+    return gEdges
+      .filter(e => e.from === idx && visSet.has(e.to) && gNodes[e.to]?.type !== 'person')
+      .map(e => e.to)
+  }
+  const _lc = new Map()
+  function leafCount(idx) {
+    if (_lc.has(idx)) return _lc.get(idx)
+    const ch = kids(idx)
+    const c = ch.length ? ch.reduce((s, ci) => s + leafCount(ci), 0) : 1
+    _lc.set(idx, c); return c
+  }
+  function placeNatural(idx, cx, y) {
+    naturalPos.set(idx, { cx, y })
+    const ch = kids(idx)
+    if (!ch.length) return
+    const total = ch.reduce((s, ci) => s + leafCount(ci), 0)
+    const spread = Math.min(w - PAD * 2, Math.max(ch.length * 90, total * 100))
+    let x = cx - spread / 2
+    for (const ci of ch) {
+      const frac = leafCount(ci) / total
+      placeNatural(ci, x + frac * spread / 2, y + GAP)
+      x += frac * spread
+    }
+  }
+  placeNatural(hubIdx, w / 2, TOP)
+  // Apply zoom (anchored at hub top-center) and pan
+  const pos = new Map()
+  naturalPos.forEach(({ cx, y }, idx) => {
+    pos.set(idx, {
+      sx: w/2 + (cx - w/2) * worldZoom + pan2DX,
+      sy: TOP  + (y  - TOP) * worldZoom + pan2DY,
+    })
+  })
+  return pos
+}
+
 function drawArchiveGraph() {
   const canvas = canvasRef.value; if (!canvas||!ctx) return
   const w=canvas.offsetWidth,h=canvas.offsetHeight
@@ -1625,19 +1682,37 @@ function drawArchiveGraph() {
   if(!isDark){ctx.fillStyle='#eef2ff';ctx.fillRect(0,0,w,h)}
   if(!gNodes.length){ctx.fillStyle=isDark?'rgba(148,163,184,.5)':'rgba(100,116,139,.6)';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('데이터를 불러오는 중...',w/2,h/2);return}
   const visibleSet = getVisibleSet()
-  const projected=gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
+  const is2D = expandedHubIdx !== null
+  let projected
+  if (is2D) {
+    _treePositions = computeTreeLayout(expandedHubIdx, w, h)
+    if (_node2DOffsets.size > 0) {
+      _node2DOffsets.forEach((off, idx) => {
+        const tp = _treePositions.get(idx)
+        if (tp) _treePositions.set(idx, { sx: tp.sx + off.dx, sy: tp.sy + off.dy })
+      })
+    }
+    projected = gNodes.map((n, i) => {
+      const tp = _treePositions.get(i)
+      return { sx: tp ? tp.sx : -9999, sy: tp ? tp.sy : -9999, scale: 1.0, z: tp ? tp.sy : 0, node: n, idx: i }
+    })
+  } else {
+    _treePositions = null
+    projected = gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
+  }
   const order=projected.slice().sort((a,b)=>a.z-b.z)
   const zf=Math.max(0.6,Math.min(2.5,worldZoom))
   const now = Date.now() / 1000
   gEdges.forEach(e => {
     const { from, to, rel } = e
-    if (!visibleSet.has(from)||!visibleSet.has(to)) return
+    if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
+    else { if (!visibleSet.has(from)||!visibleSet.has(to)) return }
     if (from>=projected.length||to>=projected.length) return
     const pa=projected[from], pb=projected[to]
     const relColor = REL_COLORS[rel] || '#60a5fa'
     const isFocused = focusNode!==null&&(focusNode===from||focusNode===to)
-    const alpha = isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2))
-    const lw = isFocused ? 1.8 : 0.9
+    const alpha = is2D ? (isFocused ? 0.85 : 0.55) : (isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2)))
+    const lw = isFocused ? 1.8 : (is2D ? 1.2 : 0.9)
     const dx=pb.sx-pa.sx, dy=pb.sy-pa.sy
     const len=Math.sqrt(dx*dx+dy*dy)
     if (len < 8) return
@@ -1654,7 +1729,7 @@ function drawArchiveGraph() {
     const px2=-uy*as*0.44, py2=ux*as*0.44
     ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
     ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
-    // Relation label (hide implicit structural edges)
+    // Relation label
     if (rel && rel !== '개최' && rel !== '생성' && len > 42 && zf > 0.85) {
       const lx=(pa.sx+pb.sx)/2-uy*8, ly=(pa.sy+pb.sy)/2+ux*8
       ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
@@ -1665,6 +1740,7 @@ function drawArchiveGraph() {
   })
   order.forEach(p=>{
     if(!visibleSet.has(p.idx)) return
+    if(is2D && !_treePositions?.has(p.idx)) return
     const n=p.node,isFocused=focusNode===p.idx
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
@@ -1678,7 +1754,14 @@ function drawArchiveGraph() {
       for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
       ctx.strokeStyle=isDark?'rgba(148,163,184,0.6)':'rgba(71,85,105,0.8)'; ctx.lineWidth=1.5; ctx.stroke()
-      if(p.scale>.25){const fs=Math.max(10,Math.min(16,Math.round(12*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(255,255,255,0.95)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';const orgDisp=n.label||'조직';ctx.fillText(orgDisp.length>6?orgDisp.slice(0,5)+'…':orgDisp,p.sx,p.sy)}
+      if(p.scale>.22){
+        const iconColor=isDark?'rgba(226,232,240,0.85)':'rgba(255,255,255,0.9)'
+        const headR=r*0.26, bodyR=r*0.33, headY=p.sy-r*0.22, bodyY=p.sy+r*0.12
+        ctx.fillStyle=iconColor
+        ctx.beginPath(); ctx.arc(p.sx,headY,headR,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(p.sx,bodyY+bodyR*0.6,bodyR,Math.PI,Math.PI*2); ctx.fill()
+        if(p.scale>.3){const fs=Math.max(8,Math.min(13,Math.round(9*zf)));ctx.fillStyle=iconColor;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';const nm=n.label||'나';ctx.fillText(nm.length>5?nm.slice(0,4)+'…':nm,p.sx,p.sy+r*0.55)}
+      }
     } else if(n.type==='meeting_group'){
       const hubColor=getHubFill(n.data)
       const urgency=computeUrgency(n.data)
@@ -1701,71 +1784,106 @@ function drawArchiveGraph() {
       }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='task'){
-      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
+      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
       ctx.beginPath()
       ctx.moveTo(p.sx,p.sy-r);ctx.lineTo(p.sx+r*0.85,p.sy);ctx.lineTo(p.sx,p.sy+r);ctx.lineTo(p.sx-r*0.85,p.sy)
       ctx.closePath()
       ctx.fillStyle=isDark?'rgba(251,146,60,0.75)':'rgba(254,215,170,0.92)';ctx.fill()
-      ctx.strokeStyle=isDark?'#fb923c':'#ea580c';ctx.lineWidth=isFocused?2:1;ctx.stroke()
-      if(p.scale>.32){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(254,215,170,${Math.min(1,p.scale*1.5)})`:`rgba(124,45,18,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
+      ctx.strokeStyle=isDark?'#fb923c':'#ea580c';ctx.lineWidth=isFocused?2:1.2;ctx.stroke()
+      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?`rgba(254,215,170,${Math.min(1,p.scale*1.5)})`:`rgba(124,45,18,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='session'){
-      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
+      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
       roundRect(ctx,p.sx-r,p.sy-r*0.75,r*2,r*1.5,r*.3)
       ctx.fillStyle=isDark?'rgba(5,150,105,0.7)':'rgba(209,250,229,0.9)'; ctx.fill()
-      ctx.strokeStyle=isDark?'#34d399':'#10b981'; ctx.lineWidth=isFocused?1.8:0.9; ctx.stroke()
-      if(p.scale>.35&&zf>.7){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(167,243,208,${Math.min(1,p.scale*1.6)})`:`rgba(6,78,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
+      ctx.strokeStyle=isDark?'#34d399':'#10b981'; ctx.lineWidth=isFocused?1.8:1.0; ctx.stroke()
+      if(p.scale>.22&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?`rgba(167,243,208,${Math.min(1,p.scale*1.6)})`:`rgba(6,78,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='file'){
       const ftColor = n.fileType==='회의록'?'#60a5fa':n.fileType==='발제자료'?'#a78bfa':'#34d399'
       const ftBg = n.fileType==='회의록'?(isDark?'rgba(30,58,138,0.8)':'rgba(219,234,254,0.9)'):n.fileType==='발제자료'?(isDark?'rgba(76,29,149,0.8)':'rgba(237,233,254,0.9)'):(isDark?'rgba(5,78,22,0.8)':'rgba(220,252,231,0.9)')
-      const r=Math.min(15,(isFocused?11:8)*p.scale*zf)
+      const r=Math.min(22,(isFocused?17:14)*p.scale*zf)
       roundRect(ctx,p.sx-r,p.sy-r,r*2,r*2,r*.4)
-      ctx.fillStyle=ftBg; ctx.fill(); ctx.strokeStyle=ftColor+'bb'; ctx.lineWidth=0.9; ctx.stroke()
+      ctx.fillStyle=ftBg; ctx.fill(); ctx.strokeStyle=ftColor+'bb'; ctx.lineWidth=1.0; ctx.stroke()
       // File type icon letter
-      if(r>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle=ftColor;ctx.font=`bold ${Math.max(7,Math.round(r*0.9))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
-      if(p.scale>.38&&zf>.75){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.6)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
+      if(r>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle=ftColor;ctx.font=`bold ${Math.max(8,Math.round(r*0.95))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
+      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.6)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
     } else if(n.type==='dept'){
       const isExpanded=expandedDeptIdx===p.idx
-      const r=Math.min(18,(isFocused||isExpanded?14:11)*p.scale*zf)
+      const r=Math.min(28,(isFocused||isExpanded?22:18)*p.scale*zf)
       ctx.beginPath()
       for(let a=0;a<6;a++){const ang=a*Math.PI/3-Math.PI/6;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath()
       ctx.fillStyle=isDark?'rgba(71,85,105,0.75)':'rgba(148,163,184,0.85)'; ctx.fill()
-      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)'; ctx.lineWidth=isExpanded?1.5:0.8; ctx.stroke()
-      if(p.scale>.32){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy)}
+      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)'; ctx.lineWidth=isExpanded?1.5:0.9; ctx.stroke()
+      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>6?n.label.slice(0,5)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='person'){
-      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
+      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
       if(isDark){grad.addColorStop(0,'rgba(139,92,246,.9)');grad.addColorStop(1,'rgba(109,40,217,.5)')}
       else{grad.addColorStop(0,'rgba(167,139,250,.95)');grad.addColorStop(1,'rgba(124,58,237,.6)')}
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
-      ctx.strokeStyle=n.role==='admin'?'#fbbf24':'#a78bfa';ctx.lineWidth=n.role==='admin'?2:1;ctx.stroke()
-      if(p.scale>.3&&r>7){ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,Math.min(14,Math.round(10*zf*p.scale)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label[0]||'?',p.sx,p.sy)}
-      if(p.scale>.4&&zf>.8){ctx.fillStyle=isDark?`rgba(196,181,253,${Math.min(1,p.scale*1.5)})`:`rgba(76,29,149,${Math.min(1,p.scale*1.5)})`;ctx.font=`${Math.max(9,Math.min(14,Math.round(11*zf)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy+r+3)}
+      ctx.strokeStyle=n.role==='admin'?'#fbbf24':'#a78bfa';ctx.lineWidth=n.role==='admin'?2:1.2;ctx.stroke()
+      if(p.scale>.2&&r>7){ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(9,Math.min(15,Math.round(11*zf)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label[0]||'?',p.sx,p.sy)}
+      if(p.scale>.3&&zf>.5){ctx.fillStyle=isDark?`rgba(124,58,237,${Math.min(1,p.scale*1.5)})`:`rgba(76,29,149,${Math.min(1,p.scale*1.5)})`;ctx.font=`${Math.max(9,Math.min(14,Math.round(11*zf)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy+r+3)}
     }
     ctx.globalAlpha=1
   })
 }
 
 function animateGraph() {
-  if(autoRotate && !rotationPaused) rotY+=.002
+  if(expandedHubIdx === null && autoRotate && !rotationPaused) rotY+=.002
   camX+=(targetCamX-camX)*.05;camY+=(targetCamY-camY)*.05;camZ+=(targetCamZ-camZ)*.05
   worldZoom+=(targetZoom-worldZoom)*.1
+  pan2DX+=(targetPan2DX-pan2DX)*.12;pan2DY+=(targetPan2DY-pan2DY)*.12
   drawArchiveGraph()
   animId=requestAnimationFrame(animateGraph)
 }
 
 // ─── Mouse ────────────────────────────────────────────────────
-function onMouseDown(e) { isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY; if(isPanMode.value) e.preventDefault() }
+function onMouseDown(e) {
+  if (expandedHubIdx !== null && !isPanMode.value && _treePositions) {
+    const canvas = canvasRef.value
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect()
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top
+      const zf = Math.max(.6, Math.min(2.5, worldZoom))
+      let hitNode = null, minDist = Infinity
+      _treePositions.forEach((tp, idx) => {
+        const n = gNodes[idx]
+        if (!n || n.type === 'meeting_group') return
+        const d = Math.hypot(tp.sx - mx, tp.sy - my)
+        const baseR = n.type==='org'?22:n.type==='dept'?18:22
+        if (d < baseR * zf + 10 && d < minDist) { minDist = d; hitNode = idx }
+      })
+      if (hitNode !== null) {
+        dragNode2D = hitNode; dragNode2DMoved = false
+        lastMx = e.clientX; lastMy = e.clientY
+        e.preventDefault(); return
+      }
+    }
+  }
+  isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY
+  if(isPanMode.value) e.preventDefault()
+}
 
 function onMouseMove(e) {
   if (bottomResizing) return
+  if (dragNode2D !== null) {
+    const dx = e.clientX - lastMx, dy = e.clientY - lastMy
+    const cur = _node2DOffsets.get(dragNode2D) || { dx: 0, dy: 0 }
+    _node2DOffsets.set(dragNode2D, { dx: cur.dx + dx, dy: cur.dy + dy })
+    lastMx = e.clientX; lastMy = e.clientY
+    dragNode2DMoved = true
+    return
+  }
   if(isDragging){
     const dx=e.clientX-lastMx, dy=e.clientY-lastMy
-    if(isPanMode.value){
+    if(expandedHubIdx !== null) {
+      // 2D tree mode: always pan
+      targetPan2DX += dx; pan2DX += dx
+      targetPan2DY += dy; pan2DY += dy
+    } else if(isPanMode.value){
       const canvas=canvasRef.value
-      const w=canvas?canvas.offsetWidth:800, h=canvas?canvas.offsetHeight:600
-      // 화면 픽셀 → 3D 좌표 역변환: fov/(fov+z+400) ≈ 0.6, worldZoom 반영
-      const fovScale = 600 / (600 + 400)  // depth=0 기준 투영 배율
+      const fovScale = 600 / (600 + 400)
       const panScale = 1 / (fovScale * worldZoom)
       targetCamX -= dx * panScale
       targetCamY -= dy * panScale
@@ -1786,24 +1904,29 @@ function onMouseMove(e) {
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
   const hoverVis = getVisibleSet()
+  const zf=Math.max(.6,Math.min(2.5,worldZoom))
   gNodes.forEach((n,i)=>{
-    if(!['meeting_group','dept','org','task'].includes(n.type)) return
+    if(!['meeting_group','dept','org','task','session','file'].includes(n.type)) return
     if(!hoverVis.has(i)) return
-    const p=projectNode(n,w,h)
-    const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<30*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
+    let sx, sy
+    if(_treePositions?.has(i)) {
+      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
+    } else if(expandedHubIdx === null) {
+      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
+    } else return
+    const d=Math.hypot(sx-mx,sy-my)
+    if(d<30*zf+10&&d<minDist){minDist=d;closest=i}
   })
   hoverNodeIdx = closest !== null ? closest : -1
   hoverNode.value = closest !== null ? gNodes[closest] : null
 }
 
 function onMouseUp() {
-  isDragging=false
+  isDragging=false; dragNode2D=null
 }
 
 function onMouseLeave() {
-  isDragging=false
+  isDragging=false; dragNode2D=null
   hoverNode.value=null
   hoverNodeIdx=-1
 }
@@ -1816,19 +1939,26 @@ onWheel._t=null
 
 function onCanvasClick(e) {
   if(isDragging) return
+  if(dragNode2DMoved) { dragNode2DMoved=false; return }
   if(isPanMode.value) return  // 패닝 모드일 때 노드 클릭 무시
   const canvas=canvasRef.value;if(!canvas) return
   const rect=canvas.getBoundingClientRect()
   const mx=e.clientX-rect.left,my=e.clientY-rect.top
   const w=canvas.offsetWidth,h=canvas.offsetHeight
+  const visSet = getVisibleSet()
   let closest=null,minDist=Infinity
+  const zf=Math.max(.6,Math.min(2.5,worldZoom))
   gNodes.forEach((n,i)=>{
-    if(!getVisibleSet().has(i)) return
-    const p=projectNode(n,w,h)
-    const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='task'?12:n.type==='session'?11:n.type==='person'?11:9
-    const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<baseR*p.scale*zf+6&&d<minDist){minDist=d;closest=i}
+    if(!visSet.has(i)) return
+    let sx, sy
+    if(_treePositions?.has(i)) {
+      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
+    } else {
+      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
+    }
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?14:n.type==='task'?13:n.type==='session'?12:n.type==='person'?11:10
+    const d=Math.hypot(sx-mx,sy-my)
+    if(d<baseR*zf+6&&d<minDist){minDist=d;closest=i}
   })
   if(closest!==null){
     const n=gNodes[closest]
@@ -1836,13 +1966,15 @@ function onCanvasClick(e) {
       if(selectedNodeIdx.value===closest) {
         // 선택 해제: 전체 맵으로 복귀
         selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null; focusNode=null
+        _node2DOffsets.clear()
         targetZoom=1.0
         targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
         breadcrumb.value=[]
       } else {
         selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
-        targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
-        targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
+        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
         breadcrumb.value=[{ label: n.label, idx: closest, type: 'meeting_group' }]
         focusNode=closest
         openDetail(n.data)
@@ -1850,8 +1982,6 @@ function onCanvasClick(e) {
     } else if(n.type==='dept') {
       expandedDeptIdx = expandedDeptIdx===closest ? null : closest
       if(expandedDeptIdx!==null) {
-        targetCamX=n.x*.6;targetCamY=n.y*.6;targetCamZ=n.z*.6
-        targetZoom=Math.min(3.5,targetZoom*1.2)
         const hubEntry = breadcrumb.value.find(b=>b.type==='meeting_group')
         breadcrumb.value = hubEntry ? [hubEntry,{label:n.label,idx:closest,type:'dept'}] : [{label:n.label,idx:closest,type:'dept'}]
       } else {
@@ -1878,21 +2008,20 @@ function onTouchEnd(){isDragging=false}
 function onBreadcrumbReset() {
   breadcrumb.value = []; selectedNodeIdx.value = null
   expandedHubIdx = null; expandedDeptIdx = null
+  _node2DOffsets.clear()
   targetCamX = 0; targetCamY = 0; targetCamZ = 0
-  targetZoom = Math.max(1.0, targetZoom / 1.5)
+  targetZoom = 1.0
+  targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
 }
 
 function onBreadcrumbClick(item, index) {
   breadcrumb.value = breadcrumb.value.slice(0, index + 1)
   if(item.type === 'meeting_group') {
     selectedNodeIdx.value = item.idx; expandedHubIdx = item.idx; expandedDeptIdx = null
-    const n = gNodes[item.idx]
-    if(n) { targetCamX=n.x*.55; targetCamY=n.y*.55; targetCamZ=n.z*.55 }
-    targetZoom = Math.min(3.0, Math.max(targetZoom, 1.0) * 1.2)
+    targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
+    targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
   } else if(item.type === 'dept') {
     expandedDeptIdx = item.idx
-    const n = gNodes[item.idx]
-    if(n) { targetCamX=n.x*.6; targetCamY=n.y*.6; targetCamZ=n.z*.6 }
   }
 }
 
@@ -2050,9 +2179,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <button class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
-              <button class="detail-close" @click="detailOpen=false" title="닫기">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-              </button>
             </div>
           </div>
 
@@ -2142,7 +2268,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-section">
               <div class="detail-section-label-row">
                 <span class="detail-section-label">최근 로그</span>
-                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="viewMode='list'; detailOpen=false">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
+                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="goToList(detailMeeting?.id)">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
               </div>
               <div class="detail-log-list">
                 <template v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length">
@@ -2379,6 +2505,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </Transition>
 
+        <!-- Sidebar toggle handle — visible whenever a meeting is selected -->
+        <button v-if="detailMeeting && viewMode==='graph'"
+          class="sidebar-toggle-handle"
+          :style="{ left: (detailOpen ? sidebarW : 0) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }"
+          @click="detailOpen = !detailOpen"
+          :title="detailOpen ? '사이드바 접기' : '사이드바 펼치기'">
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path v-if="detailOpen" d="M6 1L1 7L6 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path v-else d="M2 1L7 7L2 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+
         <!-- Graph view -->
         <div v-if="loading && viewMode==='graph'" class="graph-loading">
           <div class="graph-loading-spinner"></div>
@@ -2413,13 +2551,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- 온톨로지 범례 -->
         <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto">
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;border-radius:0;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)"></div>조직</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:rgba(71,85,105,0.85);clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)"></div>나</div>
           <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#3b82f6"></div>회의체</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#10b981;border-radius:2px"></div>회의</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#f59e0b;border-radius:2px"></div>파일</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)"></div>부서</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#a78bfa"></div>사람</div>
-
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:rgba(71,85,105,0.75);clip-path:polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)"></div>부서</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:rgba(251,146,60,0.75);clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)"></div>과제</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:rgba(5,150,105,0.7);border:1px solid #34d399;border-radius:2px"></div>회의</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:rgba(30,58,138,0.8);border:1px solid #60a5fa;border-radius:2px"></div>파일</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#7c3aed;border:1px solid #a78bfa"></div>사람</div>
         </div>
 
         <!-- Graph floating action buttons (top-right of canvas) -->
@@ -3248,6 +3386,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-icon-btn:hover { background:rgba(255,255,255,.07);color:#aaa;border-color:rgba(255,255,255,.15); }
 .detail-close { background:none;border:1px solid rgba(255,255,255,.08);cursor:pointer;color:#555;padding:0;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .15s; }
 .detail-close:hover { color:#ccc;background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15); }
+.sidebar-toggle-handle { position:absolute;top:50%;transform:translateY(-50%);width:16px;height:48px;background:rgba(30,30,40,0.92);border:1px solid rgba(255,255,255,.1);border-left:none;border-radius:0 8px 8px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#64748b;z-index:25;padding:0;transition:background .15s,color .15s; }
+.sidebar-toggle-handle:hover { background:rgba(50,50,70,0.98);color:#94a3b8; }
 /* Body */
 .dei-meta-row { display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap; }
 .dei-assignee { font-size:10px;color:#64748b; }
@@ -3507,6 +3647,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .cp-urgent_important { color:var(--text);border-color:var(--border); }
 .cp-important,.cp-urgent { color:var(--text-muted); }
 .cs-done { color:var(--text); }
+.cs-submitted { color:#fb923c;font-weight:600; }
 .cs-in_progress { color:var(--text-muted); }
 .cs-pending,.cs-at_risk,.cs-delayed { color:var(--text-muted);opacity:.8; }
 /* 액션 버튼 */
@@ -3540,29 +3681,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .gm-btn-primary:hover:not(:disabled) { background:var(--surface-hover,rgba(0,0,0,.1));border-color:var(--text-muted); }
 .gm-btn-primary:disabled { opacity:.35;cursor:not-allowed; }
 
-/* 회의체 설정 모달 */
-.gsm-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center; }
-.gsm-modal { background:#1e293b;border:1px solid #334155;border-radius:14px;width:420px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5); }
-.gsm-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #334155; }
-.gsm-title { font-size:15px;font-weight:700;color:#f1f5f9; }
-.gsm-close { background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px; }
-.gsm-close:hover { color:#e2e8f0;background:#334155; }
-.gsm-body { padding:20px;display:flex;flex-direction:column;gap:16px; }
-.gsm-field { display:flex;flex-direction:column;gap:6px; }
-.gsm-label { font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em; }
-.gsm-input { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none; }
-.gsm-input:focus { border-color:#3b82f6; }
-.gsm-textarea { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none;resize:vertical;font-family:inherit; }
-.gsm-textarea:focus { border-color:#3b82f6; }
-.gsm-members { display:flex;flex-wrap:wrap;gap:6px; }
-.gsm-member-chip { display:flex;align-items:center;gap:5px;background:#334155;border-radius:99px;padding:3px 10px 3px 5px;font-size:12px;color:#cbd5e1; }
-.gsm-avatar { width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700; }
-.gsm-empty { font-size:12px;color:#475569; }
-.gsm-footer { display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #334155; }
-.gsm-cancel { padding:7px 18px;border-radius:7px;border:1px solid #334155;background:none;color:#94a3b8;font-size:13px;cursor:pointer; }
-.gsm-cancel:hover { background:#334155;color:#e2e8f0; }
-.gsm-save { padding:7px 18px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
-.gsm-save:hover { background:#2563eb; }
 .detail-section { display:flex;flex-direction:column;gap:4px; }
 .detail-section-label { font-size:10px;font-weight:700;color:#3a3a3a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px; }
 .detail-doc-item { display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04); }
@@ -3903,6 +4021,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-icon-btn:hover { background:#f1f5f9; }
 .day-mode .detail-close { color:#94a3b8;border-color:#e2e8f0; }
 .day-mode .detail-close:hover { background:#f1f5f9; }
+.day-mode .sidebar-toggle-handle { background:rgba(241,245,249,0.96);border-color:#e2e8f0;color:#94a3b8; }
+.day-mode .sidebar-toggle-handle:hover { background:#e2e8f0;color:#475569; }
 .day-mode .detail-section-label { color:#94a3b8; }
 .day-mode .ctx-upload-area { border-color:rgba(0,0,0,.12); }
 .day-mode .ctx-upload-area:hover { border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.04); }
@@ -4100,7 +4220,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .archive-modal-box .sm-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
 .archive-modal-box .sm-name { font-size:12px;font-weight:600;color:#e2e8f0; }
 .archive-modal-box .sm-email { font-size:11px;color:#475569; }
-.archive-modal-box .sm-role-select { font-size:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;color:#94a3b8;padding:2px 5px;cursor:pointer;flex-shrink:0; }
+.archive-modal-box .sm-role-select { font-size:11px;appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 6px center;background-size:8px 5px;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:#94a3b8;padding:4px 22px 4px 8px;cursor:pointer;flex-shrink:0;outline:none; }
+.archive-modal-box .sm-role-select:focus { border-color:rgba(96,165,250,.5); }
+.archive-modal-box.day-mode .sm-role-select { background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 6px center #f8fafc;background-size:8px 5px;border-color:#e2e8f0;color:#475569; }
 .archive-modal-box .sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.1);color:#f87171;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
 .archive-modal-box .sm-remove:hover { background:rgba(239,68,68,.2); }
 /* 주간 모드 */
