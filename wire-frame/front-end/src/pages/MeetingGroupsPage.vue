@@ -9,6 +9,7 @@ import AppTable from '../components/AppTable.vue'
 const mgColumns = [
   { label: '', width: '28px' },
   { label: '회의체명' },
+  { label: '유형', width: '100px' },
   { label: '간사', width: '160px' },
   { label: '참여조직', width: '180px' },
   { label: '참여자', width: '150px' },
@@ -28,18 +29,19 @@ const loadingMembers = ref({})
 const filteredGroups = computed(() => {
   const q = search.value.trim().toLowerCase()
   return meetingsStore.meetings.filter(m => {
+    const matchRole = meetingsStore.meetingRoles[m.id] != null
     const matchStatus = statusTab.value === 'active'
       ? (!m.status || m.status === 'active')
       : m.status === 'ended'
     const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
-    return matchStatus && matchSearch
+    return matchRole && matchStatus && matchSearch
   })
 })
 
 const activeCount = computed(() =>
-  meetingsStore.meetings.filter(m => !m.status || m.status === 'active').length)
+  meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && (!m.status || m.status === 'active')).length)
 const endedCount = computed(() =>
-  meetingsStore.meetings.filter(m => m.status === 'ended').length)
+  meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && m.status === 'ended').length)
 
 async function loadMembers(meetingId) {
   if (membersCache.value[meetingId]) return
@@ -248,10 +250,14 @@ onMounted(async () => {
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
                 <div class="mg-row-title">{{ g.title }}</div>
-                <div class="mg-row-meta">
-                  <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
-                  <span v-if="g.purpose" class="mg-row-desc" :style="g.meeting_type ? 'margin-left:6px' : ''">{{ g.purpose }}</span>
-                </div>
+                <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                  {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+                </span>
+              </td>
+              <!-- 유형 -->
+              <td>
+                <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
+                <span v-else class="mg-row-nodates">-</span>
               </td>
               <!-- 간사 -->
               <td>
@@ -516,6 +522,12 @@ onMounted(async () => {
 .day-mode .mg-card-desc { color:#94a3b8; }
 .day-mode .mg-member-badge { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
 .day-mode .mg-icon-btn { border-color:#e2e8f0;background:#fff;color:#64748b; }
+/* ── Role badges ── */
+.mg-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:3px; }
+.mg-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
+.mg-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.day-mode .mg-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
+.day-mode .mg-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
 
 .mg-member-wrap { border-top:1px solid rgba(255,255,255,.07);padding:10px 16px;display:flex;flex-direction:column;gap:6px; }
 .mg-members-state { font-size:12px;color:#475569;padding:4px 0; }

@@ -462,6 +462,13 @@ let hoverNodeIdx = -1
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
 const detailTodos = ref([])
+const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
+
+function openNodeDetail(n) {
+  detailNode.value = n
+  detailMeeting.value = null
+  detailOpen.value = true
+}
 
 // 현재 회의체 참여 부서 목록
 const detailMemberDepts = computed(() => {
@@ -825,6 +832,15 @@ async function saveSettings() {
 
 const ROLE_MAP = { admin: '간사', presenter: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
+
+// ─── Role-based helpers ───────────────────────────────────────
+const detailMyRole = computed(() =>
+  detailMeeting.value?.id ? (meetingsStore.meetingRoles[detailMeeting.value.id] ?? null) : null
+)
+const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
+const isAnyAdmin = computed(() =>
+  Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')
+)
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function initials(name) { return (name || '?')[0] }
@@ -839,6 +855,7 @@ async function openDetail(groupData) {
   if (!groupData) return
   const isSameMeeting = detailMeeting.value?.id === groupData.id
   detailMeeting.value = groupData; detailOpen.value = true; detailTab.value = 'basic'
+  detailNode.value = null // 회의체 오픈 시 노드 초기화
   if (!isSameMeeting) {
     selectedMinutes.value = []; selectedFiles.value = []
     selectedSimilarDocs.value = []; uploadedCtxFiles.value = []
@@ -1188,7 +1205,10 @@ function doAddFile() {
 
 const meetingGroups = computed(() => {
   const map = new Map()
-  meetingsStore.meetings.forEach(m => {
+  // 본인이 참여 중인 회의체만 포함
+  meetingsStore.meetings
+    .filter(m => meetingsStore.meetingRoles[m.id] != null)
+    .forEach(m => {
     map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [], tasks: [] })
   })
   // Add minutes & reports
@@ -1987,11 +2007,14 @@ function onCanvasClick(e) {
       } else {
         breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
       }
+      openNodeDetail(n)
       focusNode=closest
     } else if(n.type==='file') {
       openFileReview(n)
+      openNodeDetail(n)
       focusNode=closest
     } else {
+      openNodeDetail(n)
       focusNode=closest
     }
   } else {
@@ -2158,13 +2181,15 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
 
-          <!-- Header -->
+          <!-- ── Header: meeting_group ── -->
+          <template v-if="detailMeeting">
           <div class="detail-header">
             <div class="detail-header-icon">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
             </div>
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
+              <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-presenter'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ detailMeeting?.members?.length||0 }}명</span>
                 <span class="detail-meta-dot">·</span>
@@ -2176,7 +2201,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
             <div class="detail-header-actions">
-              <button class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정">
+              <button v-if="isDetailAdmin" class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정 (간사만 가능)">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
             </div>
@@ -2328,8 +2353,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   </template>
                 </div>
 
-                <!-- AI 과제 추출 실행 버튼 -->
-                <button class="ctx-run-btn" @click="showExtractFlow=true">
+                <!-- AI 과제 추출 실행 버튼 (간사만 가능) -->
+                <button v-if="isDetailAdmin" class="ctx-run-btn" @click="showExtractFlow=true">
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
                   AI 과제 추출 실행
                 </button>
@@ -2502,11 +2527,228 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </template><!-- /과제 탭 -->
 
           </div>
+          </template><!-- /detailMeeting -->
+
+          <!-- ── Node detail (부서/과제/회의/파일/사람/아젠다) ── -->
+          <template v-else-if="detailNode">
+          <div class="detail-header">
+            <!-- 노드 유형별 아이콘 -->
+            <div class="detail-header-icon">
+              <!-- 부서 -->
+              <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              <!-- 과제 -->
+              <svg v-else-if="detailNode.type==='task'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              <!-- 회의(session) -->
+              <svg v-else-if="detailNode.type==='session'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <!-- 파일 -->
+              <svg v-else-if="detailNode.type==='file'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <!-- 사람 -->
+              <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div class="detail-header-left">
+              <div class="detail-meeting-name">{{ detailNode.label }}</div>
+              <div class="detail-meta-row">
+                <span class="detail-meta">{{ { dept:'부서', task:'과제', session: detailNode.subType==='agenda'?'아젠다':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
+              </div>
+            </div>
+            <div class="detail-header-actions">
+              <button class="detail-icon-btn" @click="detailOpen=false" title="닫기">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="detail-body">
+
+            <!-- 부서 -->
+            <template v-if="detailNode.type==='dept'">
+              <div class="detail-section">
+                <div class="detail-section-label">구성원</div>
+                <div v-if="detailNode.members?.length" class="node-member-list">
+                  <div v-for="mb in detailNode.members" :key="mb.userId" class="node-member-row">
+                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? '#3b82f6' : '#475569' }">{{ (mb.userName||'?')[0] }}</div>
+                    <div class="node-member-info">
+                      <span class="node-member-name">{{ mb.userName || mb.name || '-' }}</span>
+                      <span class="node-member-role">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="node-empty">구성원 정보 없음</div>
+              </div>
+            </template>
+
+            <!-- 과제 -->
+            <template v-else-if="detailNode.type==='task'">
+              <div class="detail-section">
+                <div class="detail-purpose">{{ detailNode.data?.content || detailNode.label }}</div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">상태</span>
+                    <span class="detail-info-val">{{ { todo:'미완료', in_progress:'진행중', done:'완료' }[detailNode.data?.status] || detailNode.data?.status || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">우선순위</span>
+                    <span class="detail-info-val">{{ { high:'상', normal:'중', low:'하' }[detailNode.data?.priority] || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">마감일</span>
+                    <span class="detail-info-val">{{ detailNode.data?.due_date ? formatDate(detailNode.data.due_date) : '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">담당부서</span>
+                    <span class="detail-info-val">{{ detailNode.data?.assignee_dept || detailNode.data?.dept || '-' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- 회의(session) 또는 아젠다 -->
+            <template v-else-if="detailNode.type==='session'">
+              <div v-if="detailNode.subType==='agenda'" class="detail-section">
+                <div class="detail-section-label">아젠다 내용</div>
+                <div class="detail-purpose">{{ detailNode.fullContent || detailNode.label }}</div>
+                <div v-if="detailNode.department" class="detail-info-grid" style="margin-top:8px">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">담당부서</span>
+                    <span class="detail-info-val">{{ detailNode.department }}</span>
+                  </div>
+                </div>
+              </div>
+              <template v-else>
+                <div class="detail-section">
+                  <div class="detail-info-grid">
+                    <div class="detail-info-item">
+                      <span class="detail-info-key">회의 회차</span>
+                      <span class="detail-info-val">{{ detailNode.data?.session_number ? detailNode.data.session_number + '차' : '-' }}</span>
+                    </div>
+                    <div class="detail-info-item">
+                      <span class="detail-info-key">일시</span>
+                      <span class="detail-info-val">{{ detailNode.data?.ended_at ? formatDate(detailNode.data.ended_at) : '-' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="detailNode.data?.summary || detailNode.data?.content" class="detail-section">
+                  <div class="detail-section-label">요약</div>
+                  <div class="detail-purpose">{{ detailNode.data?.summary || detailNode.data?.content }}</div>
+                </div>
+              </template>
+            </template>
+
+            <!-- 파일(문서/회의록) -->
+            <template v-else-if="detailNode.type==='file'">
+              <template v-if="fileReviewPanel">
+                <!-- 액션 버튼 -->
+                <div class="detail-section">
+                  <div class="fr-actions">
+                    <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                      {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
+                    </button>
+                    <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                      {{ fileReviewPanel.extracting ? '추출 중...' : '아젠다 추출' }}
+                    </button>
+                    <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
+                      {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정' }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- AI 검토 없을 때 -->
+                <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="detail-section" style="text-align:center;padding:20px 0">
+                  <div style="font-size:12px;color:#64748b;margin-bottom:10px">AI 검토 결과가 없습니다.</div>
+                  <button class="btn-primary" style="font-size:12px;padding:6px 14px" @click="rerunFileReview">AI 검토 시작</button>
+                </div>
+
+                <!-- 로딩 -->
+                <div v-else-if="fileReviewAnalyzing" class="detail-section">
+                  <div class="ai-loading-wrap">
+                    <div class="ai-loading-spinner"></div>
+                    <div class="ai-loading-text">AI가 자료를 검토하고 있습니다…</div>
+                  </div>
+                </div>
+
+                <!-- 검토 결과 -->
+                <template v-else-if="fileReviewPanel.aiResult">
+                  <div class="detail-section">
+                    <div class="ai-score-section">
+                      <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
+                      <div class="ai-score-gauge-wrap">
+                        <svg width="110" height="60" viewBox="0 0 110 60">
+                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
+                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
+                            :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
+                            stroke-width="10" stroke-linecap="round"
+                            :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
+                          <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
+                            :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
+                        </svg>
+                        <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
+                          {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
+                        </div>
+                      </div>
+                      <div class="ai-feedback-list">
+                        <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
+                          <span class="fb-dot">•</span> {{ fb }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 발제자료 기준 체크 -->
+                  <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="detail-section">
+                    <div class="detail-section-label">발제자료 검토 기준 (Why/What/How)</div>
+                    <div class="criteria-list">
+                      <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
+                        <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
+                          <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                          <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                        </span>
+                        <div class="criteria-text">
+                          <div class="criteria-label">{{ c.label }}</div>
+                          <div class="criteria-desc">{{ c.desc }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 추출된 아젠다 -->
+                <div v-if="fileReviewPanel.extractedAgendas.length" class="detail-section">
+                  <div class="detail-section-label">추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)</div>
+                  <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
+                    <div class="ea-title">{{ ag.title }}</div>
+                    <ul class="ea-bullets">
+                      <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </template>
+            </template>
+
+            <!-- 사람 -->
+            <template v-else-if="detailNode.type==='person'">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">역할</span>
+                    <span class="detail-info-val">{{ detailNode.role==='admin' ? '간사' : '참여자' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+          </div>
+          </template><!-- /detailNode -->
+
           </div>
         </Transition>
 
-        <!-- Sidebar toggle handle — visible whenever a meeting is selected -->
-        <button v-if="detailMeeting && viewMode==='graph'"
+        <!-- Sidebar toggle handle — visible whenever a meeting or node is selected -->
+        <button v-if="(detailMeeting || detailNode) && viewMode==='graph'"
           class="sidebar-toggle-handle"
           :style="{ left: (detailOpen ? sidebarW : 0) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }"
           @click="detailOpen = !detailOpen"
@@ -2568,13 +2810,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -2640,6 +2882,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
                           <div class="lv-group-name">{{ g.title }}</div>
                           <div class="lv-name-meta">
                             <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                            <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                              {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -2652,7 +2897,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   <!-- Expanded history rows -->
                   <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
                     <td colspan="3" class="lv-expanded-td">
-                      <table class="lv-hist-table">
+                      <table class="app-table lv-hist-table">
                         <thead>
                           <tr>
                             <th>설명</th>
@@ -3123,112 +3368,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </template>
 
-      </div>
-    </div>
-  </Teleport>
-
-  <!-- ── 파일 AI 검토 패널 ── -->
-  <Teleport to="body">
-    <div v-if="fileReviewPanel" class="archive-modal-backdrop" @click.self="fileReviewPanel=null">
-      <div class="archive-modal-box file-review-box" :class="{ 'day-mode': !nightMode }">
-        <div class="modal-header">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0">
-            <span class="file-type-tag" :style="{color: FILE_TYPE_COLORS[fileReviewPanel.node.fileType]||'#94a3b8', background: 'rgba(0,0,0,.12)', padding:'2px 8px', borderRadius:'99px', fontSize:'11px', fontWeight:700, flexShrink:0}">{{ fileReviewPanel.node.fileType }}</span>
-            <span class="modal-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fileReviewPanel.node.label }}</span>
-          </div>
-          <button class="modal-close" @click="fileReviewPanel=null"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-        </div>
-
-        <div class="modal-body ai-result-body">
-          <!-- 액션 버튼 행 -->
-          <div class="fr-actions">
-            <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-              {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
-            </button>
-            <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              {{ fileReviewPanel.extracting ? '추출 중...' : '과제(아젠다) 추출' }}
-            </button>
-            <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
-              {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정 (GraphRAG)' }}
-            </button>
-          </div>
-
-          <!-- AI 검토 없을 때 -->
-          <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="ai-empty" style="text-align:center;padding:32px 0">
-            <div style="font-size:13px;color:#64748b;margin-bottom:12px">AI 검토 결과가 없습니다.</div>
-            <button class="btn-primary" style="font-size:12px;padding:7px 16px" @click="rerunFileReview">AI 검토 시작</button>
-          </div>
-
-          <!-- 로딩 -->
-          <div v-else-if="fileReviewAnalyzing" class="ai-loading-wrap">
-            <div class="ai-loading-spinner"></div>
-            <div class="ai-loading-text">AI가 자료를 재검토하고 있습니다…</div>
-          </div>
-
-          <!-- 검토 결과 -->
-          <template v-else-if="fileReviewPanel.aiResult">
-            <!-- 점수 -->
-            <div class="ai-score-section">
-              <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
-              <div class="ai-score-gauge-wrap">
-                <svg width="110" height="60" viewBox="0 0 110 60">
-                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
-                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
-                    :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
-                    stroke-width="10" stroke-linecap="round"
-                    :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
-                  <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
-                    :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
-                </svg>
-                <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
-                  {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
-                </div>
-              </div>
-              <div class="ai-feedback-list">
-                <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
-                  <span class="fb-dot">•</span> {{ fb }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 발제자료 기준 체크 -->
-            <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="ai-section">
-              <div class="ai-section-title">
-                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                발제자료 검토 기준 (Why/What/How)
-              </div>
-              <div class="criteria-list">
-                <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
-                  <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
-                    <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-                    <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-                  </span>
-                  <div class="criteria-text">
-                    <div class="criteria-label">{{ c.label }}</div>
-                    <div class="criteria-desc">{{ c.desc }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- 추출된 아젠다 -->
-          <div v-if="fileReviewPanel.extractedAgendas.length" class="ai-section">
-            <div class="ai-section-title">
-              <svg width="13" height="13" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)
-            </div>
-            <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
-              <div class="ea-title">{{ ag.title }}</div>
-              <ul class="ea-bullets">
-                <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </Teleport>
@@ -4103,8 +4242,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
 .day-mode .lv-group-name { color:#1e293b; }
 .lv-expanded-td { padding:0 !important;background:rgba(255,255,255,.02); }
-.lv-hist-table { width:100%;border-collapse:collapse;font-size:12px; }
-.lv-hist-table th { padding:7px 12px;font-size:11px;font-weight:600;color:#64748b;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.lv-hist-table { font-size:12px; }
+.lv-hist-table th { padding:7px 12px;font-size:11px;font-weight:600;color:#64748b;text-align:left;text-transform:none;letter-spacing:0;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.lv-hist-table td { padding:8px 12px; }
 .lv-hist-row { border-bottom:1px solid rgba(255,255,255,.05); }
 .lv-hist-row td { padding:8px 12px;vertical-align:middle;color:#cbd5e1;font-size:12px; }
 .lv-hist-desc-inner { display:flex;align-items:center;gap:6px; }
@@ -4119,7 +4259,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-no-file { color:#475569; }
 .lv-hist-empty { padding:14px 12px;color:#64748b;font-size:12px; }
 .day-mode .lv-expanded-td { background:#f8fafc; }
-.day-mode .lv-hist-table th { border-bottom-color:#e2e8f0;background:#f1f5f9;color:#64748b; }
+.day-mode .lv-hist-table th { border-bottom-color:#e2e8f0;background:#f1f5f9;color:#64748b;text-transform:none;letter-spacing:0; }
 .day-mode .lv-hist-row { border-bottom-color:#f1f5f9; }
 .day-mode .lv-hist-row td { color:#334155; }
 .day-mode .lv-hist-manager { color:#64748b; }
@@ -4128,6 +4268,29 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .lv-dl-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
 .day-mode .lv-title { color:#64748b; }
 .day-mode .lv-count { color:#94a3b8; }
+/* ── Role badges ── */
+.detail-role-badge { display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-top:3px;width:fit-content; }
+.detail-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3); }
+.detail-role-badge.role-presenter { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
+.lv-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-left:5px; }
+.lv-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
+.lv-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.day-mode .detail-role-badge.role-admin { background:rgba(59,130,246,.1);color:#2563eb;border-color:rgba(59,130,246,.25); }
+.day-mode .detail-role-badge.role-presenter { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
+.day-mode .lv-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
+.day-mode .lv-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
+/* ── Node detail styles ── */
+.node-member-list { display:flex;flex-direction:column;gap:5px; }
+.node-member-row { display:flex;align-items:center;gap:9px;padding:4px 0; }
+.node-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.node-member-info { display:flex;flex-direction:column;gap:1px; }
+.node-member-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.node-member-role { font-size:10px;color:#64748b; }
+.node-empty { font-size:12px;color:#475569;padding:8px 0; }
+.node-feedback-list { margin:4px 0 0 12px;padding:0;list-style:disc;display:flex;flex-direction:column;gap:4px; }
+.node-feedback-list li { font-size:12px;color:#94a3b8;line-height:1.45; }
+.day-mode .node-member-name { color:#1e293b; }
+.day-mode .node-feedback-list li { color:#64748b; }
 </style>
 
 <!-- Teleport(body) 대상 모달은 scoped CSS가 적용되지 않으므로 별도 전역 스타일 블록 사용 -->
