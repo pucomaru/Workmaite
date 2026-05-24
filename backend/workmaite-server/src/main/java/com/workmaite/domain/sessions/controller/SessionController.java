@@ -3,6 +3,7 @@ package com.workmaite.domain.sessions.controller;
 import com.workmaite.domain.sessions.dto.SessionCreateRequest;
 import com.workmaite.domain.sessions.dto.SessionResponse;
 import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
+import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.SessionStatus;
 import com.workmaite.domain.sessions.service.SessionService;
 import com.workmaite.global.common.ApiResponse;
@@ -10,16 +11,36 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * 회의 관련 API
+ * GET    /api/v1/me/sessions                           - 내 예정된 회의 목록 조회
+ * GET    /api/v1/meetings/{meetingId}/sessions         - 회의체별 회의 목록 조회
+ * POST   /api/v1/meetings/{meetingId}/sessions         - 회의 생성 (secretary 권한)
+ * GET    /api/v1/sessions/{sessionId}                  - 회의 상세 조회
+ * PATCH  /api/v1/sessions/{sessionId}                  - 회의 수정 (secretary 권한)
+ * DELETE /api/v1/sessions/{sessionId}                  - 회의 삭제 (secretary 권한)
+ * POST   /api/v1/sessions/{sessionId}/start            - 회의 시작 (secretary 권한)
+ * POST   /api/v1/sessions/{sessionId}/pause            - 회의 정지 (secretary 권한)
+ * POST   /api/v1/sessions/{sessionId}/end              - 회의 종료 (secretary 권한)
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1")
 public class SessionController {
 
     private final SessionService sessionService;
+
+    @GetMapping("/me/sessions")
+    public ResponseEntity<ApiResponse<List<UpcomingSessionResponse>>> getMyUpcomingSessions(
+            Authentication authentication) {
+        Long userId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.getMyUpcomingSessions(userId)));
+    }
 
     @GetMapping("/meetings/{meetingId}/sessions")
     public ResponseEntity<ApiResponse<List<SessionResponse>>> getSessions(
