@@ -1,8 +1,11 @@
 package com.workmaite.domain.sessions.service;
 
+import com.workmaite.domain.meetings.entity.Meeting;
+import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.sessions.dto.SessionCreateRequest;
 import com.workmaite.domain.sessions.dto.SessionResponse;
 import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
+import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.MeetingSession;
 import com.workmaite.domain.sessions.entity.SessionStatus;
 import com.workmaite.domain.sessions.repository.SessionRepository;
@@ -12,14 +15,40 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
+/**
+ * 회의 비즈니스 로직
+ * - 내 예정된 회의: 로그인 유저가 속한 전체 회의체의 SCHEDULED 세션을 일시 순으로 반환, D-day 포함
+ * - 목록 조회: 특정 회의체의 세션 목록, status 필터 가능
+ * - 생성·수정·삭제: secretary 권한 확인은 Controller에서 처리
+ * - 진행 상태 전환: SCHEDULED → ONGOING → ENDED 단방향 흐름
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class SessionService {
 
     private final SessionRepository sessionRepository;
+    private final MeetingRepository meetingRepository;
+
+    // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
+    public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
+        List<MeetingSession> sessions = sessionRepository.findUpcomingByUserId(userId, SessionStatus.SCHEDULED);
+        if (sessions.isEmpty()) return List.of();
+
+        List<Long> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
+        Map<Long, String> meetingTitleMap = meetingRepository.findAllById(meetingIds)
+                .stream().collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
+
+        LocalDate today = LocalDate.now();
+        return sessions.stream()
+                .map(s -> UpcomingSessionResponse.from(s, meetingTitleMap.get(s.getMeetingId()), today))
+                .toList();
+    }
 
     public List<SessionResponse> getSessions(Long meetingId, SessionStatus status) {
         List<MeetingSession> sessions = (status != null)
