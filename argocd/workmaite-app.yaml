@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workmaite-team9
+  namespace: skala-argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/als7928/Workmaite.git
+    targetRevision: cicd-pipeline
+    path: k8s
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: skala3-finalproj-class2-team9
+
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

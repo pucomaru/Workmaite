@@ -81,3 +81,9 @@ docker-compose.override.yml
 *.bak
 *.tmp
 *.orig
+# Java / Maven / Spring Boot
+target/
+*.class
+*.jar
+*.war
+*.ear
