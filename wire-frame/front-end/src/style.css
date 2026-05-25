@@ -793,3 +793,88 @@ html.night-mode .mem-status-bar.refreshing { background: #2e1065 !important; col
 html.night-mode .mem-status-bar.done { background: #052e16 !important; color: #4ade80 !important; }
 html.night-mode .mem-toolbar { background: #1e293b !important; border-color: #334155 !important; }
 html.night-mode .mem-scroll { background: #162032 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   공유 UI 컴포넌트 (Shared UI Components)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── App Select: compact dropdown with custom arrow ── */
+.app-select { font-size:11px;appearance:none;-webkit-appearance:none;background:#f1f5f9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 6px center;background-size:8px 5px;border:1px solid #e2e8f0;border-radius:6px;color:#475569;padding:4px 22px 4px 8px;cursor:pointer;outline:none;flex-shrink:0; }
+.app-select:focus { border-color:rgba(96,165,250,.5); }
+.app-select option { background:#fff;color:#1e293b; }
+.day-mode .app-select { background:#f1f5f9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 6px center;background-size:8px 5px;border-color:#e2e8f0;color:#475569; }
+.day-mode .app-select option { background:#fff;color:#1e293b; }
+html.night-mode .app-select { background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 6px center !important;background-size:8px 5px !important;border-color:rgba(255,255,255,.1) !important;color:#94a3b8 !important; }
+html.night-mode .app-select option { background:#1e293b !important;color:#f1f5f9 !important; }
+
+/* ── App Tabs: pill toggle buttons ── */
+.app-tabs { display:flex;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:2px;gap:2px;flex-shrink:0; }
+.app-tab { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.app-tab:hover { color:#475569; }
+.app-tab.active { background:#fff;color:#2563eb;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:1px 6px; }
+.app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
+.day-mode .app-tabs { background:#fff;border-color:#e2e8f0; }
+.day-mode .app-tab { color:#94a3b8; }
+.day-mode .app-tab.active { background:#eff6ff;color:#2563eb;box-shadow:none; }
+.day-mode .app-tab-badge { background:rgba(0,0,0,.06); }
+.day-mode .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
+html.night-mode .app-tabs { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.1) !important; }
+html.night-mode .app-tab { color:#64748b !important; }
+html.night-mode .app-tab:hover { color:#94a3b8 !important; }
+html.night-mode .app-tab.active { background:rgba(96,165,250,.2) !important;color:#93c5fd !important;box-shadow:none !important; }
+html.night-mode .app-tab-badge { background:rgba(255,255,255,.1) !important; }
+html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2) !important; }
+
+/* ── App Modal ── */
+.app-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
+.app-modal { background:#fff;border-radius:16px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden; }
+.app-modal-sm { width:420px; }
+.app-modal-md { width:480px; }
+.app-modal-lg { width:520px; }
+.app-modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-title { font-size:15px;font-weight:700;color:#1e293b; }
+.app-modal-close { width:28px;height:28px;border-radius:7px;border:none;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
+.app-modal-close:hover { background:#e2e8f0;color:#1e293b; }
+.app-modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:72vh; }
+.app-modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-field { display:flex;flex-direction:column;gap:5px; }
+.app-modal-field label { font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.04em; }
+.app-modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+.app-modal-input { padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:#f8fafc;outline:none;width:100%;box-sizing:border-box;font-family:inherit;color:#1e293b; }
+.app-modal-input:focus { border-color:rgba(96,165,250,.6); }
+textarea.app-modal-input { resize:vertical;min-height:64px; }
+select.app-modal-input { appearance:none;-webkit-appearance:none;background:#f8fafc url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 10px center;background-size:10px 6px;padding-right:28px;cursor:pointer; }
+.app-btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;transition:all .15s; }
+.app-btn-cancel:hover { background:#f1f5f9; }
+.app-btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.app-btn-primary:hover { opacity:.85; }
+.app-btn-primary:disabled { opacity:.4;cursor:not-allowed; }
+/* dark variant (explicit class, used by MeetingGroupsPage & ArchivePage) */
+.app-modal.dark { background:#1e293b;border-color:rgba(255,255,255,.1);box-shadow:0 24px 64px rgba(0,0,0,.4); }
+.app-modal.dark .app-modal-header { border-bottom-color:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-title { color:#f1f5f9; }
+.app-modal.dark .app-modal-close { background:rgba(255,255,255,.07);color:#64748b; }
+.app-modal.dark .app-modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
+.app-modal.dark .app-modal-footer { border-top-color:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-field label { color:#64748b; }
+.app-modal.dark .app-modal-input { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#f1f5f9; }
+.app-modal.dark .app-modal-input:focus { border-color:rgba(96,165,250,.5);background:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-input::placeholder { color:#334155; }
+.app-modal.dark select.app-modal-input { background-color:rgba(255,255,255,.06);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:10px 6px; }
+.app-modal.dark .app-btn-cancel { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#94a3b8; }
+.app-modal.dark .app-btn-cancel:hover { background:rgba(255,255,255,.1); }
+/* night-mode for pages without explicit dark class (SessionPage, OrganizationPage) */
+html.night-mode .app-modal { background:#1e293b !important;border-color:rgba(255,255,255,.1) !important;box-shadow:0 24px 64px rgba(0,0,0,.4) !important; }
+html.night-mode .app-modal-header { border-bottom-color:rgba(255,255,255,.08) !important; }
+html.night-mode .app-modal-title { color:#f1f5f9 !important; }
+html.night-mode .app-modal-close { background:rgba(255,255,255,.07) !important;color:#64748b !important; }
+html.night-mode .app-modal-close:hover { background:rgba(255,255,255,.12) !important;color:#94a3b8 !important; }
+html.night-mode .app-modal-footer { border-top-color:rgba(255,255,255,.08) !important; }
+html.night-mode .app-modal-field label { color:#64748b !important; }
+html.night-mode .app-modal-input { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.12) !important;color:#f1f5f9 !important; }
+html.night-mode .app-modal-input:focus { border-color:rgba(96,165,250,.5) !important; }
+html.night-mode .app-modal-input::placeholder { color:#334155 !important; }
+html.night-mode select.app-modal-input { background-color:rgba(255,255,255,.06) !important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") !important;background-repeat:no-repeat !important;background-position:right 10px center !important;background-size:10px 6px !important; }
+html.night-mode .app-btn-cancel { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.12) !important;color:#94a3b8 !important; }
+html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !important; }
