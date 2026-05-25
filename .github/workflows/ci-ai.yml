@@ -3,7 +3,7 @@ name: CI - AI
 on:
   push:
     branches:
-      - develop          # develop 브랜치 push 시 실행
+      - main          # main 브랜치 push 시 실행
     paths:
       - 'ai/**'          # ai 폴더 변경 시에만 실행
 
@@ -51,4 +51,4 @@ jobs:
           git config user.email "github-actions@github.com"
           git add k8s/ai.yaml
           git commit -m "ci: update ai image tag to ${{ env.IMAGE_TAG }}"
-          git push origin develop
+          git push origin main
