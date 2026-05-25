@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+export const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 /** HTTP BASE_URL을 WebSocket URL로 변환합니다. */
 export function toWsUrl(path) {
