@@ -40,8 +40,7 @@ public enum ErrorCode {
     // 자료
     REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 자료입니다."),
     REPORT_ALREADY_APPROVED(HttpStatus.BAD_REQUEST, "이미 승인된 자료는 재제출할 수 없습니다."),
-  
-    MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다."),
+
     // 회의체
     MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의체입니다."),
     MEETING_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회의체에 존재하지 않는 참여자입니다."),
