@@ -1,7 +1,7 @@
 import os
 import base64
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
 import models
@@ -271,42 +271,6 @@ async def get_archive(
     }
 
 
-@router.get("/nodes")
-async def list_nodes(label: str = Query(...)):
-    if label not in ALLOWED_LABELS:
-        raise HTTPException(status_code=400, detail=f"허용되지 않는 레이블: {label}")
-    try:
-        rows = await _run_cypher(
-            f"MATCH (n:{label}) RETURN n.id AS id, coalesce(n.name, n.title, n.id) AS name ORDER BY name"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
-    return rows
-
-
-@router.get("/node/{node_id}/relations")
-async def get_node_relations(node_id: str):
-    try:
-        rows = await _run_cypher(
-            """
-            MATCH (n {id: $node_id})-[r]-(m)
-            RETURN type(r) AS rel_type,
-                   startNode(r).id = $node_id AS is_outgoing,
-                   m.id AS node_id,
-                   labels(m)[0] AS node_label,
-                   coalesce(m.name, m.title, m.id) AS node_name
-            """,
-            {"node_id": node_id},
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
-    return rows
-
-
 @router.post("/relationships")
 async def create_relationship(data: dict):
     from_id = data.get("from_id", "")
@@ -325,21 +289,3 @@ async def create_relationship(data: dict):
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
     return {"ok": True}
 
-
-@router.delete("/relationships")
-async def delete_relationship(data: dict):
-    from_id = data.get("from_id", "")
-    rel_type = data.get("rel_type", "")
-    to_id = data.get("to_id", "")
-    if rel_type not in ALLOWED_REL_TYPES:
-        raise HTTPException(status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}")
-    try:
-        await _run_cypher(
-            f"MATCH (a {{id: $from_id}})-[r:{rel_type}]->(b {{id: $to_id}}) DELETE r",
-            {"from_id": from_id, "to_id": to_id},
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
-    return {"ok": True}

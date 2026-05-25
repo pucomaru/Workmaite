@@ -13,7 +13,7 @@ import models
 from websocket_manager import manager
 from auth import get_current_user
 
-from routers import auth, meetings, agendas, todos, reports, sessions, notifications, card_news, tacit_knowledge, agents, chat_history, livekit, neo4j_graph
+from routers import auth, meetings, todos, sessions, notifications, agents, chat_history, neo4j_graph
 
 
 @asynccontextmanager
@@ -60,16 +60,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # Routers
 app.include_router(auth.router)
 app.include_router(meetings.router)
-app.include_router(agendas.router)
 app.include_router(todos.router)
-app.include_router(reports.router)
 app.include_router(sessions.router)
 app.include_router(notifications.router)
-app.include_router(card_news.router)
-app.include_router(tacit_knowledge.router)
 app.include_router(agents.router)
 app.include_router(chat_history.router)
-app.include_router(livekit.router)
 app.include_router(neo4j_graph.router)
 
 

@@ -1,39 +1,11 @@
-from datetime import datetime, timedelta
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["todos"])
-
-
-@router.get("/todos/urgent")
-def urgent_todos(
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    deadline = datetime.utcnow() + timedelta(days=3)
-    todos = db.query(models.Todo).filter(
-        models.Todo.user_id == current_user.id,
-        models.Todo.status == "pending",
-        models.Todo.due_date <= deadline,
-    ).order_by(models.Todo.due_date.asc()).all()
-    return todos
-
-
-@router.get("/meetings/{meeting_id}/todos/mine", response_model=List[schemas.TodoOut])
-def my_todos(
-    meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return db.query(models.Todo).filter(
-        models.Todo.meeting_id == meeting_id,
-        models.Todo.user_id == current_user.id,
-    ).all()
-
 
 @router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
 def all_todos(
@@ -71,74 +43,6 @@ def create_todo(
     db.commit()
     db.refresh(todo)
     return todo
-
-
-@router.patch("/todos/{todo_id}", response_model=schemas.TodoOut)
-def update_todo(
-    todo_id: int,
-    data: schemas.TodoUpdate,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    todo = db.query(models.Todo).filter(
-        models.Todo.id == todo_id,
-    ).first()
-    if not todo:
-        raise HTTPException(status_code=404, detail="Not found")
-    if data.content is not None:
-        todo.content = data.content
-    if data.assignee_name is not None:
-        todo.assignee_name = data.assignee_name
-    if data.assignee_dept is not None:
-        todo.assignee_dept = data.assignee_dept
-    if data.how is not None:
-        todo.how = data.how
-    if data.why is not None:
-        todo.why = data.why
-    if data.priority is not None:
-        todo.priority = data.priority
-    if data.tags is not None:
-        todo.tags = data.tags
-    if data.due_date is not None:
-        todo.due_date = data.due_date
-    if data.status is not None:
-        old_status = todo.status
-        todo.status = data.status
-
-        if data.status == "done" and old_status != "done":
-            event = models.TacitEvent(
-                event_type="todo_completed",
-                meeting_id=todo.meeting_id,
-                payload={"todo_id": todo_id, "content": todo.content},
-                actor_id=current_user.id,
-            )
-            db.add(event)
-        elif data.status in ("at_risk", "delayed"):
-            event = models.TacitEvent(
-                event_type="todo_delayed",
-                meeting_id=todo.meeting_id,
-                payload={"todo_id": todo_id, "content": todo.content},
-                actor_id=current_user.id,
-            )
-            db.add(event)
-
-    db.commit()
-    db.refresh(todo)
-    return todo
-
-
-@router.delete("/todos/{todo_id}")
-def delete_todo(
-    todo_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
-    if not todo:
-        raise HTTPException(status_code=404, detail="Not found")
-    db.delete(todo)
-    db.commit()
-    return {"ok": True}
 
 
 @router.get("/calendar/events")
