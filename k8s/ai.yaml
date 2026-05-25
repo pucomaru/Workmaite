@@ -6,34 +6,37 @@ metadata:
   labels:
     app: workmaite-ai
 spec:
-  replicas: 1
+  replicas: 1  # 실행할 Pod 개수
   selector:
     matchLabels:
-      app: workmaite-ai
+      app: workmaite-ai  # 아래 template labels와 반드시 일치해야 함
   template:
     metadata:
       labels:
         app: workmaite-ai
     spec:
       imagePullSecrets:
-        - name: harbor-secret
+        - name: harbor-secret  # Harbor 인증 정보 (교육환경에서 네임스페이스에 미리 등록됨)
       containers:
         - name: workmaite-ai
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:cicd-pipeline
-          imagePullPolicy: Always
+          # GitHub Actions에서 커밋 SHA로 태그를 동적으로 업데이트함
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:latest
+          imagePullPolicy: Always  # 같은 태그라도 항상 최신 이미지 pull
           ports:
-            - containerPort: 8000
+            - containerPort: 8000  # FastAPI 기본 포트
+          # readinessProbe: 트래픽 받을 준비됐는지 확인 (실패 시 트래픽 차단)
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 5   # Pod 시작 후 5초 뒤부터 체크
+            periodSeconds: 10        # 10초마다 체크
+          # livenessProbe: Pod가 살아있는지 확인 (실패 시 Pod 재시작)
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 15  # readinessProbe보다 늦게 시작
             periodSeconds: 20
 ---
 apiVersion: v1
@@ -44,10 +47,10 @@ metadata:
   labels:
     app: workmaite-ai
 spec:
-  type: ClusterIP
+  type: ClusterIP  # 클러스터 내부에서만 접근 가능, 외부 노출은 Ingress가 담당
   selector:
-    app: workmaite-ai
+    app: workmaite-ai  # 이 label을 가진 Pod로 트래픽 전달
   ports:
     - name: http
-      port: 8000
-      targetPort: 8000
+      port: 8000        # Service가 받는 포트
+      targetPort: 8000  # 실제 Pod의 포트 (containerPort와 일치)

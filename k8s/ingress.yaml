@@ -6,26 +6,27 @@ metadata:
   labels:
     app: workmaite
 spec:
-  ingressClassName: public-nginx
+  ingressClassName: public-nginx  # 교육환경에서 제공하는 Nginx Ingress 클래스명
   rules:
     - http:
         paths:
+          # 경로 우선순위: 구체적인 경로를 앞에 배치해야 함
           - path: /api
-            pathType: Prefix
+            pathType: Prefix  # /api, /api/v1/... 등 하위 경로 전부 매칭 → Spring Boot
             backend:
               service:
                 name: workmaite-backend
                 port:
                   number: 8080
           - path: /ai
-            pathType: Prefix
+            pathType: Prefix  # /ai, /ai/... 등 하위 경로 전부 매칭 → FastAPI
             backend:
               service:
                 name: workmaite-ai
                 port:
                   number: 8000
           - path: /
-            pathType: Prefix
+            pathType: Prefix  # 위 경로에 매칭 안 된 나머지 전부 → Vue 프론트엔드
             backend:
               service:
                 name: workmaite-frontend
