@@ -32,7 +32,7 @@ api.interceptors.response.use(
 
 export default api
 
-export async function streamPost(path, body, onChunk, onDone) {
+export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight) {
   const token = localStorage.getItem('token')
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
@@ -61,7 +61,13 @@ export async function streamPost(path, body, onChunk, onDone) {
       if (line.startsWith('data: ')) {
         const data = line.slice(6)
         if (data === '[DONE]') { onDone?.(); return }
-        onChunk(data.replace(/\\n/g, '\n'))
+        if (data.startsWith('[PLANNING] ') && onPlanning) {
+          onPlanning(data.slice(11))
+        } else if (data.startsWith('[HIGHLIGHT] ') && onHighlight) {
+          try { onHighlight(JSON.parse(data.slice(12))) } catch {}
+        } else {
+          onChunk(data.replace(/\\n/g, '\n'))
+        }
       }
     }
   }
