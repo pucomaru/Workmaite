@@ -10,12 +10,17 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const currentLoopIdx = ref(0)   // MeetingNav ↔ SessionsPage 공유
 
   async function fetchMeetings() {
-    const { data } = await api.get('/api/meetings')
+    const { data } = await api.get('/api/v1/meetings')
+    meetings.value = data
+  }
+
+  async function fetchMyMeetings() {
+    const { data } = await api.get('/api/v1/me/meetings')
     meetings.value = data
   }
 
   async function fetchMeeting(id) {
-    const { data } = await api.get(`/api/meetings/${id}`)
+    const { data } = await api.get(`/api/v1/meetings/${id}`)
     currentMeeting.value = data
     return data
   }
@@ -96,7 +101,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
 
   return {
     meetings, currentMeeting, myRole, currentMembers, currentLoopIdx,
-    fetchMeetings, fetchMeeting, fetchMembers, fetchRole,
+    fetchMeetings, fetchMyMeetings, fetchMeeting, fetchMembers, fetchRole,
     createMeeting, updateTitle, terminateMeeting, deleteMeeting,
     addMember, updateMemberRole, removeMember, leaveMeeting,
   }

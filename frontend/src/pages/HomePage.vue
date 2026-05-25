@@ -12,6 +12,7 @@ const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 const calendarEvents = ref([])
+const upcomingSessionsRaw = ref([])
 const showCreateModal = ref(false)
 const form = ref({ title: '', purpose: '', start_date: '', end_date: '' })
 const memberSearch = ref('')
@@ -134,22 +135,20 @@ function clickMiniDay(d) {
 
 // ── Data loading ─────────────────────────────────────────────
 onMounted(async () => {
-  await meetingsStore.fetchMeetings()
+  await meetingsStore.fetchMyMeetings()
   try {
-    const calRes = await api.get('/api/calendar/events')
-    calendarEvents.value = calRes.data
-  } catch {}
-  // 각 회의체에 대한 내 권한 병렬 조회
-  await Promise.all(
-    meetingsStore.meetings.map(async (m) => {
-      try {
-        const { data } = await api.get(`/api/meetings/${m.id}/my-role`)
-        meetingRoles.value[m.id] = data.role
-      } catch {
-        meetingRoles.value[m.id] = null
-      }
+    const calRes = await api.get('/api/v1/home/calendar', {
+      params: { view: calView.value, date: fmtISO(cursor.value) }
     })
-  )
+    calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
+      ...s,
+      date: s.scheduledAt,
+    }))
+  } catch {}
+  try {
+    const sessRes = await api.get('/api/v1/me/sessions')
+    upcomingSessionsRaw.value = sessRes.data ?? []
+  } catch {}
 })
 
 // ── 회의체 종료 / 삭제 ─────────────────────────────────────────
@@ -232,13 +231,7 @@ const endedMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'ended')
 )
 
-// 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
-const upcomingSessions = computed(() => {
-  const todayStr = fmtISO(new Date())
-  return calendarEvents.value
-    .filter(e => e.type === 'session' && e.date >= todayStr)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-})
+const upcomingSessions = computed(() => upcomingSessionsRaw.value)
 </script>
 
 <template>
@@ -259,14 +252,14 @@ const upcomingSessions = computed(() => {
             <span style="font-size:15px;flex-shrink:0">🎙</span>
             <div class="flex-grow-1 min-w-0">
               <div class="fw-medium text-truncate">{{ s.title }}</div>
-              <div v-if="s.meeting_title" class="text-muted" style="font-size:11px">{{ s.meeting_title }}</div>
+              <div v-if="s.meetingTitle" class="text-muted" style="font-size:11px">{{ s.meetingTitle }}</div>
             </div>
             <span class="badge rounded-pill"
-              :style="{ background: getDday(s.date) <= 3 ? '#fef3c7' : '#f1f5f9', color: getDday(s.date) <= 3 ? '#92400e' : '#64748b' }">
-              {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
+              :style="{ background: s.dDay <= 3 ? '#fef3c7' : '#f1f5f9', color: s.dDay <= 3 ? '#92400e' : '#64748b' }">
+              {{ s.dDay === 0 ? 'D-day' : `D-${s.dDay}` }}
             </span>
-            <span class="badge badge-app-primary">{{ formatDate(s.date) }}</span>
-            <button v-if="s.meeting_id" class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px" @click="router.push(`/meetings/${s.meeting_id}/agenda`)">이동 ›</button>
+            <span class="badge badge-app-primary">{{ formatDate(s.scheduledAt) }}</span>
+            <button v-if="s.meetingId" class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px" @click="router.push(`/meetings/${s.meetingId}/agenda`)">이동 ›</button>
           </div>
         </div>
       </div>
