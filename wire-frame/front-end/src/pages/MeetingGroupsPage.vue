@@ -9,11 +9,12 @@ import AppTable from '../components/AppTable.vue'
 const mgColumns = [
   { label: '', width: '28px' },
   { label: '회의체명' },
+  { label: '역할', width: '80px' },
   { label: '유형', width: '100px' },
   { label: '간사', width: '160px' },
   { label: '참여조직', width: '180px' },
   { label: '참여자', width: '150px' },
-  { label: '', width: '72px' }
+  { label: '', width: '72px', noResize: true }
 ]
 
 const meetingsStore = useMeetingsStore()
@@ -89,6 +90,17 @@ async function submitCreate() {
     showCreate.value = false
   } catch (e) { alert(e.response?.data?.detail || '생성 실패') }
   finally { creating.value = false }
+}
+
+// ── End (완료 처리) ──────────────────────────────────────────
+const endingId = ref(null)
+async function endMeeting(m) {
+  if (!confirm(`"${m.title}" 회의체를 완료 상태로 변경하시겠습니까?`)) return
+  endingId.value = m.id
+  try {
+    await meetingsStore.terminateMeeting(m.id)
+  } catch (e) { alert(e.response?.data?.detail || '완료 처리 실패') }
+  finally { endingId.value = null }
 }
 
 // ── Delete ────────────────────────────────────────────────────
@@ -250,6 +262,8 @@ onMounted(async () => {
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
                 <div class="mg-row-title">{{ g.title }}</div>
+              </td>
+              <td>
                 <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
                   {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                 </span>
@@ -288,7 +302,12 @@ onMounted(async () => {
                   <button v-if="canManage(g)" class="mg-icon-btn settings" @click.stop="openSettings(g)" title="설정">
                     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                   </button>
-                  <button v-if="canManage(g)" class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
+                  <!-- 진행중: 완료 처리 버튼 -->
+                  <button v-if="canManage(g) && statusTab==='active'" class="mg-icon-btn end" @click.stop="endMeeting(g)" :disabled="endingId===g.id" title="완료 처리">
+                    <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                  </button>
+                  <!-- 완료: 삭제 버튼 -->
+                  <button v-if="canManage(g) && statusTab==='ended'" class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
                     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                   </button>
                 </div>
@@ -500,6 +519,7 @@ onMounted(async () => {
 .mg-member-badge { font-size:11px;font-weight:600;color:#64748b;background:rgba(255,255,255,.06);border-radius:99px;padding:2px 8px;border:1px solid rgba(255,255,255,.08); }
 .mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
 .mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:#93c5fd;background:rgba(96,165,250,.1); }
+.mg-icon-btn.end:hover { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
 .mg-icon-btn.delete:hover { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }
 .mg-icon-btn:disabled { opacity:.4;cursor:not-allowed; }
 .mg-chevron { color:#475569;transition:transform .2s;flex-shrink:0; }

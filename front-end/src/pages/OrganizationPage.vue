@@ -216,19 +216,19 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
       </div>
 
-      <select v-model="selectedMeetingId" class="org-meeting-select">
+      <select v-model="selectedMeetingId" class="org-meeting-select app-select">
         <option value="all">전체 회의체</option>
         <option v-for="m in meetingsStore.meetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
       </select>
 
-      <div class="org-role-chips">
-        <button class="org-chip" :class="{ active: activeRoleFilter === 'all' }" @click="activeRoleFilter = 'all'">
-          <span class="org-chip-count">{{ baseCounts.all }}</span> 전체
+      <div class="app-tabs">
+        <button class="app-tab" :class="{ active: activeRoleFilter === 'all' }" @click="activeRoleFilter = 'all'">
+          <span class="app-tab-badge">{{ baseCounts.all }}</span> 전체
         </button>
         <button v-for="r in ROLES" :key="r.value"
-          class="org-chip" :class="{ active: activeRoleFilter === r.value }"
+          class="app-tab" :class="{ active: activeRoleFilter === r.value }"
           @click="activeRoleFilter = r.value">
-          <span class="org-chip-count">{{ baseCounts[r.value] || 0 }}</span> {{ r.label }}
+          <span class="app-tab-badge">{{ baseCounts[r.value] || 0 }}</span> {{ r.label }}
         </button>
       </div>
 
@@ -254,7 +254,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
             </td>
             <td class="cell-role">
-              <select class="role-inline-select" :value="member.role" @change="updateMemberRole(member, $event.target.value)">
+              <select class="app-select" :value="member.role" @change="updateMemberRole(member, $event.target.value)">
                 <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
               </select>
             </td>
@@ -303,105 +303,105 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
     <!-- Add member modal -->
     <Teleport to="body">
-      <div v-if="showAddModal" class="modal-backdrop" @click.self="showAddModal = false">
-        <div class="modal-box">
-          <div class="modal-header">
-            <span class="modal-title">구성원 추가</span>
-            <button class="modal-close-btn" @click="showAddModal = false">
+      <div v-if="showAddModal" class="app-modal-backdrop" @click.self="showAddModal = false">
+        <div class="app-modal app-modal-sm">
+          <div class="app-modal-header">
+            <span class="app-modal-title">구성원 추가</span>
+            <button class="app-modal-close" @click="showAddModal = false">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="modal-body">
+          <div class="app-modal-body">
             <!-- Name & Email -->
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">이름 <span class="req">*</span></label>
-                <input v-model="addForm.name" class="form-input-sm" placeholder="홍길동" />
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>이름 <span class="req">*</span></label>
+                <input v-model="addForm.name" class="app-modal-input" placeholder="홍길동" />
               </div>
-              <div class="form-group">
-                <label class="form-label">이메일</label>
-                <input v-model="addForm.email" class="form-input-sm" placeholder="example@company.com" />
+              <div class="app-modal-field">
+                <label>이메일</label>
+                <input v-model="addForm.email" class="app-modal-input" placeholder="example@company.com" />
               </div>
             </div>
             <!-- Organization & Department -->
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">조직명</label>
-                <input v-model="addForm.organization" class="form-input-sm" placeholder="예: 워크메이트" />
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>조직명</label>
+                <input v-model="addForm.organization" class="app-modal-input" placeholder="예: 워크메이트" />
               </div>
-              <div class="form-group">
-                <label class="form-label">부서명</label>
-                <input v-model="addForm.department" class="form-input-sm" placeholder="예: 전략기획팀" />
+              <div class="app-modal-field">
+                <label>부서명</label>
+                <input v-model="addForm.department" class="app-modal-input" placeholder="예: 전략기획팀" />
               </div>
             </div>
             <!-- Position & Role -->
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">직책</label>
-                <input v-model="addForm.position" class="form-input-sm" placeholder="예: 팀장" />
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>직책</label>
+                <input v-model="addForm.position" class="app-modal-input" placeholder="예: 팀장" />
               </div>
-              <div class="form-group">
-                <label class="form-label">역할</label>
-                <select v-model="addForm.role" class="form-select-sm">
+              <div class="app-modal-field">
+                <label>역할</label>
+                <select v-model="addForm.role" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
                   <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="showAddModal = false">취소</button>
-            <button class="btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">추가</button>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="showAddModal = false">취소</button>
+            <button class="app-btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">추가</button>
           </div>
         </div>
       </div>
 
 
       <!-- Edit member modal -->
-      <div v-if="editModal" class="modal-backdrop" @click.self="editModal = null">
-        <div class="modal-box">
-          <div class="modal-header">
-            <span class="modal-title">구성원 정보 수정</span>
-            <button class="modal-close-btn" @click="editModal = null">
+      <div v-if="editModal" class="app-modal-backdrop" @click.self="editModal = null">
+        <div class="app-modal app-modal-sm">
+          <div class="app-modal-header">
+            <span class="app-modal-title">구성원 정보 수정</span>
+            <button class="app-modal-close" @click="editModal = null">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="modal-body">
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">이름</label>
-                <input v-model="editModal.name" class="form-input-sm" placeholder="홍길동" />
+          <div class="app-modal-body">
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>이름</label>
+                <input v-model="editModal.name" class="app-modal-input" placeholder="홍길동" />
               </div>
-              <div class="form-group">
-                <label class="form-label">이메일</label>
-                <input :value="editModal.email" class="form-input-sm" disabled style="background:#f8fafc;color:#94a3b8" />
-              </div>
-            </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">조직명</label>
-                <input v-model="editModal.organization" class="form-input-sm" placeholder="예: 워크메이트" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">부서명</label>
-                <input v-model="editModal.department" class="form-input-sm" placeholder="예: 전략기획팀" />
+              <div class="app-modal-field">
+                <label>이메일</label>
+                <input :value="editModal.email" class="app-modal-input" disabled style="background:#f8fafc;color:#94a3b8" />
               </div>
             </div>
-            <div class="form-row-2">
-              <div class="form-group">
-                <label class="form-label">직책</label>
-                <input v-model="editModal.position" class="form-input-sm" placeholder="예: 팀장" />
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>조직명</label>
+                <input v-model="editModal.organization" class="app-modal-input" placeholder="예: 워크메이트" />
               </div>
-              <div class="form-group">
-                <label class="form-label">역할</label>
-                <select v-model="editModal.role" class="form-select-sm">
+              <div class="app-modal-field">
+                <label>부서명</label>
+                <input v-model="editModal.department" class="app-modal-input" placeholder="예: 전략기획팀" />
+              </div>
+            </div>
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
+                <label>직책</label>
+                <input v-model="editModal.position" class="app-modal-input" placeholder="예: 팀장" />
+              </div>
+              <div class="app-modal-field">
+                <label>역할</label>
+                <select v-model="editModal.role" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
                   <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="editModal = null">취소</button>
-            <button class="btn-primary" @click="saveEdit">저장</button>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="editModal = null">취소</button>
+            <button class="app-btn-primary" @click="saveEdit">저장</button>
           </div>
         </div>
       </div>
@@ -426,32 +426,19 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .search-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 28px;font-size:12px;color:#e2e8f0;outline:none; }
 .search-input::placeholder { color:#334155; }
 .search-input:focus { border-color:rgba(96,165,250,.5); }
-.plus-wrap { position:relative;flex-shrink:0; }
+.plus-wrap { position:relative;flex-shrink:0;margin-left:auto; }
 .create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
 .create-meeting-btn:hover { opacity:.85; }
 
-/* Meeting select */
-.org-meeting-select { padding:6px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:12px;font-weight:500;color:#e2e8f0;background:rgba(255,255,255,.06);outline:none;cursor:pointer;min-width:120px; }
-.org-meeting-select option { background:#1e293b;color:#f1f5f9; }
+/* Meeting select — layout-only overrides; visual style from global .app-select */
+.org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
 
-/* Role chips */
-.org-role-chips { display:flex;gap:6px;flex-wrap:wrap; }
-.org-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.org-chip:hover { color:#94a3b8;border-color:rgba(255,255,255,.2); }
-.org-chip.active { background:rgba(96,165,250,.15);border-color:rgba(96,165,250,.4);color:#93c5fd;font-weight:700; }
-.org-chip-count { font-size:13px;font-weight:800; }
-
-/* Day-mode overrides – identical to ArchivePage */
+/* Day-mode overrides */
 .day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
 .day-mode .archive-title { color:#1e293b; }
 .day-mode .search-input { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
 .day-mode .search-input::placeholder { color:#94a3b8; }
 .day-mode .search-icon { color:#94a3b8; }
-.day-mode .org-meeting-select { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
-.day-mode .org-meeting-select option { background:#fff;color:#1e293b; }
-.day-mode .org-chip { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
-.day-mode .org-chip:hover { border-color:#94a3b8; }
-.day-mode .org-chip.active { background:#dbeafe;border-color:#93c5fd;color:#1d4ed8; }
 
 /* Table */
 .table-wrap {
@@ -496,10 +483,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .day-mode .member-name-text { color: #1e293b; }
 
 .cell-role { color: #94a3b8; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.role-inline-select { font-size: 12px; font-weight: 600; color: #94a3b8; background: transparent; border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 2px 6px; cursor: pointer; outline: none; }
-.role-inline-select:hover { border-color: var(--primary); color: var(--primary); }
 .day-mode .cell-role { color: #475569; }
-.day-mode .role-inline-select { color: #475569; border-color: rgba(203,213,225,.5); }
 .cell-muted { color: #64748b; }
 .day-mode .cell-muted { color: #475569; }
 .cell-meetings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -547,66 +531,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .empty-icon-lg { font-size: 40px; margin-bottom: 10px; }
 .empty-state p { margin: 0; font-size: 14px; }
 
-/* Modal */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.modal-box {
-  background: #fff;
-  border-radius: 16px;
-  width: 420px;
-  max-width: 92vw;
-  box-shadow: 0 20px 60px rgba(0,0,0,.2);
-  overflow: hidden;
-}
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--border);
-}
-.modal-title { font-size: 15px; font-weight: 700; color: #1e293b; }
-.modal-close-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: #f1f5f9;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
-.modal-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 12px 20px 16px;
-  border-top: 1px solid var(--border);
-}
-
-.form-group { display: flex; flex-direction: column; gap: 5px; }
-.form-label { font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .04em; }
-.form-select-sm, .form-input-sm {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  background: #f8fafc;
-  outline: none;
-  width: 100%;
-}
-.form-select-sm:focus, .form-input-sm:focus { border-color: var(--primary); background: #fff; }
-.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.req { color:#ef4444; }
 .rel { position: relative; }
 
 .dropdown-results {
@@ -655,14 +580,4 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 }
 .role-dot-sm { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
-.btn-cancel {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  color: #64748b;
-}
 </style>

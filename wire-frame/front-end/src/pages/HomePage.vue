@@ -294,10 +294,10 @@ const sessionColumns = [
 
 const meetingColumns = [
   { label: '회의체명' },
-  { label: '우선순위', width: '80px' },
+  { label: '유형', width: '90px' },
   { label: '담당자', width: '90px' },
   { label: '마감일', width: '110px' },
-  { label: '유형', width: '90px' },
+  { label: '우선순위', width: '80px' },
 ]
 
 const upcomingSessions = computed(() => {
@@ -346,22 +346,19 @@ const upcomingSessions = computed(() => {
             <div class="fw-semibold">{{ m.title }}</div>
           </td>
           <td>
-            <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
-            <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
-            <span v-else class="priority-indicator mid">— 중</span>
+            <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td>
             <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
               {{ formatDate(m.due_date || m.end_date) }}
-              <span v-if="getDday(m.due_date || m.end_date) !== null && getDday(m.due_date || m.end_date) <= 7" class="ms-1" style="font-size:11px;color:#1e293b">
-                (D-{{ getDday(m.due_date || m.end_date) }})
-              </span>
             </span>
             <span v-else class="text-muted">-</span>
           </td>
           <td>
-            <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
+            <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
+            <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
+            <span v-else class="priority-indicator mid">— 중</span>
           </td>
         </tr>
       </AppTable>

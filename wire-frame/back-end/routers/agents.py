@@ -8,6 +8,7 @@ from database import get_db, SessionLocal
 from auth import get_current_user
 from agents import gaon, naru, ara, naon, hyean
 from datetime import datetime
+from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
 
@@ -649,18 +650,161 @@ async def supervisor_chat(
         "Supervisor 대화", f'"{msg[:80]}"'
     )
 
+    # ── 현재 사용자 접근 권한 범위 사전 확인 ────────────────────────────
+    user_person_id: str | None = None
+    user_allowed_mg_ids: set[str] = set()
+    is_admin = (
+        "admin" in (current_user.employee_id or "").lower()
+        or current_user.position in ("대표", "CEO", "임원")
+    )
+    try:
+        p_rows = await run_cypher(
+            "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
+            "RETURN p.id AS pid LIMIT 1",
+            {"email": current_user.employee_id or "", "name": current_user.name or ""},
+        )
+        if p_rows:
+            user_person_id = p_rows[0]["pid"]
+            mg_access_rows = await run_cypher(
+                "MATCH (p:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "RETURN mg.id AS mg_id",
+                {"pid": user_person_id},
+            )
+            user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
+    except Exception:
+        pass  # Neo4j 불가 → SQLite fallback 사용
+
+    # SQLite 기반 소속 meeting_id 집합 (fallback)
+    user_sqlite_meeting_ids: set[int] = {
+        mm.meeting_id
+        for mm in db.query(models.MeetingMember).filter(
+            models.MeetingMember.user_id == current_user.id
+        ).all()
+    }
+
     async def stream():
+        # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
+        neo4j_ctx = {}
+        neo4j_ctx_str = ""
+        hl_candidates: list[str] = []  # AI 답변과 대조할 그래프 노드 레이블 후보
+        try:
+            yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
+
+            if data.meeting_id:
+                mid_neo4j = f"mg-{int(data.meeting_id):03d}"
+
+                # ── 접근 권한 확인 ──
+                if not is_admin:
+                    if user_allowed_mg_ids:
+                        has_access = mid_neo4j in user_allowed_mg_ids
+                    else:
+                        # Neo4j 조회 실패 시 SQLite 멤버십으로 확인
+                        has_access = data.meeting_id in user_sqlite_meeting_ids
+                    if not has_access:
+                        yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
+                        yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
+                        yield "data: [DONE]\n\n"
+                        return
+
+                yield f"data: [PLANNING] 회의체 데이터 검색 중...\n\n"
+                neo4j_ctx = await get_meeting_graph_context(data.meeting_id)
+
+                if neo4j_ctx.get("meeting", {}).get("title"):
+                    mg_title = neo4j_ctx["meeting"]["title"]
+                    yield f"data: [PLANNING] [{mg_title}] 회의체 정보 확인\n\n"
+
+                if neo4j_ctx.get("agendas"):
+                    count = len(neo4j_ctx["agendas"])
+                    yield f"data: [PLANNING] 아젠다 {count}건 분석\n\n"
+
+                if neo4j_ctx.get("decisions"):
+                    count = len(neo4j_ctx["decisions"])
+                    yield f"data: [PLANNING] 의사결정 사항 {count}건 확인\n\n"
+
+                neo4j_ctx_str = graph_context_to_str(neo4j_ctx)
+
+                # HL 후보 수집: 회의체/아젠다/세션/의사결정 레이블
+                if neo4j_ctx.get("meeting", {}).get("title"):
+                    hl_candidates.append(neo4j_ctx["meeting"]["title"])
+                for ag in neo4j_ctx.get("agendas", []):
+                    if ag.get("title"): hl_candidates.append(ag["title"])
+                for s in neo4j_ctx.get("recent_sessions", []):
+                    if s.get("title"): hl_candidates.append(s["title"])
+                for dec in neo4j_ctx.get("decisions", []):
+                    c = dec.get("content", "")
+                    if c: hl_candidates.append(c[:30])
+            else:
+                yield f"data: [PLANNING] {current_user.name}님의 업무 지식 그래프 탐색 중\n\n"
+                try:
+                    if user_person_id:
+                        # 현재 사용자의 소속 회의체만 조회
+                        person_rows = await run_cypher(
+                            "MATCH (p:Person {id: $pid})-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                            "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
+                            {"pid": user_person_id},
+                        )
+                    elif is_admin:
+                        person_rows = await run_cypher(
+                            "MATCH (p:Person)-[r:MEMBER_OF]->(mg:MeetingGroup) "
+                            "RETURN p.name AS person, mg.title AS meeting, r.role AS role"
+                        )
+                    else:
+                        person_rows = []
+                    if person_rows:
+                        yield f"data: [PLANNING] 구성원 소속 회의체 {len(person_rows)}건 확인\n\n"
+                        lines = []
+                        from collections import defaultdict
+                        pm: dict = defaultdict(list)
+                        for row in person_rows:
+                            pm[row.get("person", "?")].append(row.get("meeting", "?"))
+                        for person, mtgs in pm.items():
+                            lines.append(f"- {person}: {', '.join(mtgs)}")
+                        neo4j_ctx_str = "[구성원 소속 회의체]\n" + "\n".join(lines)
+                        # HL 후보: 소속 회의체 이름
+                        for row in person_rows:
+                            t = row.get("meeting", "")
+                            if t and t not in hl_candidates:
+                                hl_candidates.append(t)
+                    else:
+                        org_rows = await run_cypher(
+                            "MATCH (org:Organization) RETURN org.name AS name LIMIT 1"
+                        )
+                        if org_rows:
+                            yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
+                except Exception:
+                    pass
+
+            yield f"data: [PLANNING] {_route} 에이전트에 위임 — 응답 생성 중...\n\n"
+        except Exception as e:
+            yield f"data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
+
+        # ── 서브에이전트 스트리밍 ────────────────────────────────────────
+        _user_scope_header = (
+            f"[현재 사용자] {current_user.name}"
+            + (f" / {current_user.position}" if current_user.position else "")
+            + (f" / {current_user.department}" if current_user.department else "")
+            + "\n[데이터 접근 범위] 본인이 소속된 회의체의 정보만 제공합니다. "
+            "다른 사용자 또는 비소속 회의체의 민감 정보는 노출하지 마세요.\n"
+        )
+
+        def _enrich(base_ctx: str) -> str:
+            """사용자 범위 헤더 + SQLite 컨텍스트 + Neo4j 그래프 컨텍스트를 합칩니다."""
+            parts = [_user_scope_header, base_ctx]
+            if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
+                parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
+            return "\n\n".join(parts)
+
         if _route == 'gaon':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             departments = _get_member_departments(db, data.meeting_id)
-            meeting_context = _get_meeting_context(db, data.meeting_id)
+            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
             gen = gaon.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes, knowledge=knowledge,
                 departments=departments, meeting_context=meeting_context,
             )
         elif _route == 'naru':
-            meeting_context = _get_meeting_context(db, data.meeting_id)
+            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
             gen = naru.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 knowledge=knowledge, meeting_context=meeting_context,
@@ -675,10 +819,10 @@ async def supervisor_chat(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes,
                 current_agendas=[{'content': a.content, 'department': a.department} for a in agendas],
-                meeting_context=_get_meeting_context(db, data.meeting_id),
+                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
         elif _route == 'naon':
-            meeting_context = _get_meeting_context(db, data.meeting_id)
+            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
             gen = naon.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 meeting_context=meeting_context,
@@ -688,16 +832,41 @@ async def supervisor_chat(
                 models.MeetingMember.meeting_id == data.meeting_id,
                 models.MeetingMember.user_id == current_user.id,
             ).first()
+            # 현재 사용자의 접근 범위로 필터링된 상태 빌드
+            hyean_status = await _build_neo4j_meeting_status(
+                person_id=None if is_admin else user_person_id
+            )
+            if not hyean_status:
+                hyean_status = _build_all_meetings_status(
+                    db, user_id=None if is_admin else current_user.id
+                )
+            if data.meeting_id and neo4j_ctx:
+                hyean_status["current_meeting"] = neo4j_ctx  # 이미 조회된 Neo4j 컨텍스트 재사용
+            elif data.meeting_id:
+                hyean_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
             gen = hyean.status_stream(
-                meeting_status=_build_meeting_status(db, data.meeting_id),
+                meeting_status=hyean_status,
                 user_role=member.role if member else "presenter",
                 active_knowledge=knowledge,
                 chat_history=data.chat_history,
                 message=msg,
                 user_name=current_user.name,
+                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
+        # ── LLM 응답 스트리밍 + 전체 텍스트 수집 ──────────────────────
+        collected: list[str] = []
         async for chunk in gen:
+            collected.append(chunk)
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+
+        # ── AI 기반 하이라이팅: 답변에 실제 언급된 그래프 노드 추출 ──────
+        if hl_candidates and collected:
+            import json as _json
+            full_text = "".join(collected)
+            matched = [c for c in hl_candidates if c and c in full_text]
+            if matched:
+                yield f"data: [HIGHLIGHT] {_json.dumps(matched, ensure_ascii=False)}\n\n"
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -715,8 +884,34 @@ async def hyean_chat(
         models.MeetingMember.user_id == current_user.id,
     ).first()
     user_role = member.role if member else "presenter"
-    meeting_status = _build_meeting_status(db, data.meeting_id)
+
+    # 현재 사용자 접근 범위 확인
+    is_admin_hyean = (
+        "admin" in (current_user.employee_id or "").lower()
+        or current_user.position in ("대표", "CEO", "임원")
+    )
+    hyean_person_id: str | None = None
+    try:
+        p_rows = await run_cypher(
+            "MATCH (p:Person) WHERE p.email = $email OR p.name = $name RETURN p.id AS pid LIMIT 1",
+            {"email": current_user.employee_id or "", "name": current_user.name or ""},
+        )
+        if p_rows:
+            hyean_person_id = p_rows[0]["pid"]
+    except Exception:
+        pass
+
+    meeting_status = await _build_neo4j_meeting_status(
+        person_id=None if is_admin_hyean else hyean_person_id
+    )
+    if not meeting_status:
+        meeting_status = _build_all_meetings_status(
+            db, user_id=None if is_admin_hyean else current_user.id
+        )
+    if data.meeting_id:
+        meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
+    meeting_context = _get_meeting_context(db, data.meeting_id)
     background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "현황 대화", f'"{ data.message[:80] }"')
 
     async def stream():
@@ -727,6 +922,7 @@ async def hyean_chat(
             chat_history=data.chat_history,
             message=data.message,
             user_name=current_user.name,
+            meeting_context=meeting_context,
         ):
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
@@ -876,15 +1072,50 @@ def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
 
 
 def _build_meeting_status(db: Session, meeting_id: int) -> dict:
+    # meeting_id가 없으면 전체 회의체·구성원 현황 반환
+    if not meeting_id:
+        return _build_all_meetings_status(db)
+
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).all()
     reports = db.query(models.Report).filter(models.Report.meeting_id == meeting_id).all()
     todos = db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).all()
     sessions = db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id
     ).all()
+    members = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == meeting_id
+    ).all()
+
+    # 아젠다 내용 목록
+    agenda_list = [
+        {"content": a.content, "department": a.department or "", "status": a.status}
+        for a in agendas
+    ]
+    # 과제 상세 목록 (미완료 우선)
+    todo_list = []
+    for t in sorted(todos, key=lambda x: x.status != "pending"):
+        todo_list.append({
+            "content": t.content,
+            "status": t.status,
+            "assignee": t.assignee_name or t.assignee_dept or "",
+            "deadline": t.due_date.strftime("%Y-%m-%d") if t.due_date else None,
+        })
+    # 구성원 목록
+    member_list = []
+    for m in members:
+        u = db.query(models.User).filter(models.User.id == m.user_id).first()
+        if u:
+            member_list.append({"name": u.name, "department": u.department or "", "role": m.role})
 
     return {
-        "agendas": {"total": len(agendas), "confirmed": sum(1 for a in agendas if a.status == "confirmed")},
+        "meeting": {"title": meeting.title if meeting else "", "purpose": meeting.purpose if meeting else ""},
+        "members": member_list,
+        "agendas": {
+            "total": len(agendas),
+            "confirmed": sum(1 for a in agendas if a.status == "confirmed"),
+            "items": agenda_list,
+        },
         "reports": {
             "total": len(reports),
             "submitted": sum(1 for r in reports if r.status == "submitted"),
@@ -895,8 +1126,180 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
             "total": len(todos),
             "pending": sum(1 for t in todos if t.status == "pending"),
             "done": sum(1 for t in todos if t.status == "done"),
+            "items": todo_list[:10],
         },
         "sessions": {"total": len(sessions), "ended": sum(1 for s in sessions if s.status == "ended")},
+    }
+
+
+def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
+    """SQLite 기반 조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
+    if user_id is not None:
+        allowed_ids = {
+            mm.meeting_id
+            for mm in db.query(models.MeetingMember).filter(
+                models.MeetingMember.user_id == user_id
+            ).all()
+        }
+        meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(allowed_ids)).all()
+    else:
+        meetings = db.query(models.Meeting).all()
+    all_members = db.query(models.MeetingMember).all()
+    all_users = {u.id: u for u in db.query(models.User).all()}
+
+    # 구성원별 소속 회의체 매핑
+    person_map: dict = {}
+    for mm in all_members:
+        u = all_users.get(mm.user_id)
+        if not u:
+            continue
+        if u.name not in person_map:
+            person_map[u.name] = {
+                "name": u.name,
+                "department": u.department or "",
+                "position": u.position or "",
+                "organization": u.organization or "",
+                "meetings": [],
+            }
+        mtg = next((m for m in meetings if m.id == mm.meeting_id), None)
+        if mtg:
+            person_map[u.name]["meetings"].append({
+                "title": mtg.title,
+                "role": mm.role,
+                "purpose": mtg.purpose or "",
+            })
+
+    # 회의체별 요약
+    meeting_summaries = []
+    for m in meetings:
+        mems = [mm for mm in all_members if mm.meeting_id == m.id]
+        member_names = []
+        for mm in mems:
+            u = all_users.get(mm.user_id)
+            if u:
+                member_names.append(u.name)
+        todos_cnt = db.query(models.Todo).filter(models.Todo.meeting_id == m.id).count()
+        pending_cnt = db.query(models.Todo).filter(
+            models.Todo.meeting_id == m.id, models.Todo.status == "pending"
+        ).count()
+        meeting_summaries.append({
+            "title": m.title,
+            "purpose": m.purpose or "",
+            "members": member_names,
+            "todos_total": todos_cnt,
+            "todos_pending": pending_cnt,
+        })
+
+    if user_id:
+        _u = db.query(models.User).filter(models.User.id == user_id).first()
+        scope_label = f"{_u.name}의 소속 회의체" if _u else "소속 회의체"
+    else:
+        scope_label = "전체 조직"
+    return {
+        "scope": scope_label,
+        "meetings": meeting_summaries,
+        "persons": list(person_map.values()),
+    }
+
+
+async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
+    """Neo4j에서 조직 현황 구성 — hyean의 primary 소스.
+    person_id가 주어지면 해당 Person이 소속된 회의체만 반환."""
+    try:
+        if person_id:
+            # 해당 사용자의 소속 회의체만 조회
+            mg_rows = await run_cypher(
+                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
+                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
+                "       p.name AS person_name, p.id AS person_id, "
+                "       type(rel) AS rel_type, d.name AS department",
+                {"pid": person_id},
+            )
+            agenda_rows = await run_cypher(
+                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg) "
+                "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
+                "       ag.priority AS priority",
+                {"pid": person_id},
+            )
+            person_rows = await run_cypher(
+                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg) "
+                "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
+                {"pid": person_id},
+            )
+            scope_label = "소속 회의체 (Neo4j)"
+        else:
+            # admin: 전체 조회
+            mg_rows = await run_cypher(
+                "MATCH (mg:MeetingGroup) "
+                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
+                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
+                "       p.name AS person_name, p.id AS person_id, "
+                "       type(rel) AS rel_type, d.name AS department"
+            )
+            agenda_rows = await run_cypher(
+                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg:MeetingGroup) "
+                "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
+                "       ag.priority AS priority"
+            )
+            person_rows = await run_cypher(
+                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                "RETURN p.name AS person, mg.title AS meeting, type(r) AS role"
+            )
+            scope_label = "전체 조직 (Neo4j)"
+    except Exception as e:
+        return {}  # Neo4j 불가 시 빈 dict 반환 → caller에서 fallback
+
+    # 회의체별 빌드
+    meetings_map: dict = {}
+    for row in mg_rows:
+        mg_id = row.get("mg_id", "")
+        if mg_id not in meetings_map:
+            meetings_map[mg_id] = {
+                "id": mg_id,
+                "title": row.get("title", ""),
+                "purpose": row.get("purpose", ""),
+                "members": [],
+                "agendas": [],
+            }
+        if row.get("person_id"):
+            mg = meetings_map[mg_id]
+            if not any(m["name"] == row["person_name"] for m in mg["members"]):
+                mg["members"].append({
+                    "name": row.get("person_name", "?"),
+                    "department": row.get("department") or "",
+                    "role": "admin" if row.get("rel_type") == "ADMIN_OF" else "member",
+                })
+    for row in agenda_rows:
+        mg_id = row.get("mg_id", "")
+        if mg_id in meetings_map:
+            meetings_map[mg_id]["agendas"].append({
+                "content": row.get("content", ""),
+                "status": row.get("status", ""),
+                "priority": row.get("priority", ""),
+            })
+
+    # 구성원별 소속 회의체 매핑
+    from collections import defaultdict
+    pm: dict = defaultdict(list)
+    for row in person_rows:
+        pm[row.get("person", "?")].append({
+            "title": row.get("meeting", "?"),
+            "role": "admin" if row.get("role") == "ADMIN_OF" else "member",
+        })
+    persons = [
+        {"name": name, "meetings": mtgs}
+        for name, mtgs in pm.items()
+    ]
+
+    return {
+        "scope": scope_label,
+        "meetings": list(meetings_map.values()),
+        "persons": persons,
     }
 
 
@@ -1219,7 +1622,12 @@ async def analyze_archive_file(
     file_name: str = data.get("file_name", "")
     file_type: str = data.get("file_type", "")
     dept_name: str = data.get("dept_name", "")
-    graph_context: str = data.get("graph_context", "")  # JSON-serialised nodes/edges summary
+    graph_context: str = data.get("graph_context", "")
+    file_content: str = data.get("file_content", "")
+
+    has_content = file_content and file_content not in (
+        "[파일 미첨부 — 이름만 입력됨]", "[바이너리 파일 — 내용 추출 불가]", ""
+    )
 
     # 글로벌 암묵지 컨텍스트 로드
     knowledge_items = _get_knowledge(db)
@@ -1234,28 +1642,34 @@ async def analyze_archive_file(
     )
 
     system_msg = SystemMessage(content="""당신은 조직 온톨로지·지식 관리 전문 AI입니다.
-파일 이름, 유형, 업로드 부서, 그리고 현재 조직 그래프(GraphDB) 맥락을 바탕으로
+파일 이름, 유형, 업로드 부서, 실제 파일 내용(제공된 경우), 조직 그래프 맥락을 바탕으로
 해당 자료의 적합성·완성도를 평가하고 아래 JSON을 반드시 반환하세요.
 
 {
   "score": <0-100 정수>,
-  "feedback": ["피드백 항목1", "피드백 항목2", ...],  // 3-5개, 구체적이고 건설적으로
+  "feedback": ["피드백 항목1", "피드백 항목2", ...],
   "agendas": [
-    {"content": "아젠다 내용", "department": "담당부서명"},
-    ...
-  ],  // 1-3개
-  "related_depts": ["부서명1", "부서명2", ...]  // 유관부서 2-4개
+    {"content": "아젠다 내용", "department": "담당부서명"}
+  ],
+  "related_depts": ["부서명1", "부서명2", ...]
 }
 
-- score: 파일명·유형·부서 적합성, 그래프 맥락 연계도 등을 종합한 점수
-- feedback: 보완할 점, 잘된 점 포함
-- agendas: 이 자료가 다음 회의에서 다뤄야 할 아젠다 제안
-- related_depts: 이 자료와 협업이 필요한 유관부서 (그래프에 이미 존재하는 부서 우선)
+중요 채점 기준:
+- 파일 내용이 없거나 "[파일 미첨부]" 상태이면 score는 최대 30점이며, feedback에 "파일 내용 없음" 반드시 명시
+- "[바이너리 파일]"이면 내용 평가 불가이므로 score는 최대 50점
+- 실제 내용이 있으면 내용의 구체성, 완성도, 회의 적합성을 종합 평가 (0-100 전체 범위 사용)
+- score: 파일명·유형·부서 적합성 + 실제 내용 완성도 + 그래프 맥락 연계도 종합
+- feedback: 보완할 점, 잘된 점 포함 (3-5개, 구체적으로)
+- agendas: 이 자료가 다음 회의에서 다뤄야 할 아젠다 제안 (1-3개)
+- related_depts: 유관부서 (그래프에 이미 존재하는 부서 우선, 2-4개)
 반드시 JSON만 반환하고 다른 설명은 쓰지 마세요.""")
 
     human_msg = HumanMessage(content=f"""파일 이름: {file_name}
 파일 유형: {file_type}
 업로드 부서: {dept_name}
+
+[파일 내용]
+{file_content if file_content else "[파일 미첨부 — 이름만 입력됨]"}
 
 [현재 조직 그래프 맥락]
 {graph_context or '(그래프 정보 없음)'}

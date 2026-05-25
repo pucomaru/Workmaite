@@ -332,10 +332,10 @@ async function doCreateSessionForm() {
               <i class="bi bi-record-fill"></i> REC
             </span>
           </div>
-          <div class="sp-tabs">
-            <button class="sp-tab" :class="{ active: activeTab === 'transcript' }" @click="activeTab='transcript'">대화 기록</button>
-            <button class="sp-tab" :class="{ active: activeTab === 'script' }" @click="activeTab='script'">스크립트</button>
-            <button v-if="showMinutesTab" class="sp-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
+          <div class="app-tabs">
+            <button class="app-tab" :class="{ active: activeTab === 'transcript' }" @click="activeTab='transcript'">대화 기록</button>
+            <button class="app-tab" :class="{ active: activeTab === 'script' }" @click="activeTab='script'">스크립트</button>
+            <button v-if="showMinutesTab" class="app-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
           </div>
         </div>
 
@@ -494,12 +494,12 @@ async function doCreateSessionForm() {
           <img :src="hyeanAvatar" class="sp-agent-avatar" alt="워크메이트 AI" />
           <div class="sp-agent-header-text">
             <div class="sp-agent-name">워크메이트 AI</div>
+            <div class="sp-agent-sub">회의 AI 어시스턴트</div>
           </div>
-          <span class="sp-agent-badge">AI</span>
         </div>
-        <button class="sp-agent-clear" @click="wmMessages=[{role:'agent',content:'안녕하세요! 워크메이트 AI입니다 😊\n무엇이든 질문하세요.'}]" title="대화 초기화">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-        </button>
+        <div class="sp-agent-header-actions">
+          <button class="sp-agent-new-chat" @click="wmMessages=[{role:'agent',content:'안녕하세요! 워크메이트 AI입니다 😊\n무엇이든 질문하세요.'}]">새 채팅</button>
+        </div>
       </div>
       <div ref="messagesEl" class="sp-agent-messages">
         <div v-for="(msg, i) in wmMessages" :key="i" class="sp-msg-row" :class="msg.role">
@@ -516,8 +516,10 @@ async function doCreateSessionForm() {
         </div>
       </div>
       <div class="sp-agent-input">
-        <textarea v-model="wmInput" class="sp-ara-textarea" rows="1" placeholder="회의에 대해 질문하세요..." @keydown="onWmKeydown"></textarea>
-        <button class="sp-ara-send" :disabled="wmLoading||!wmInput.trim()" @click="sendAra">전송</button>
+        <div class="sp-agent-input-row">
+          <textarea v-model="wmInput" class="sp-ara-textarea" rows="1" placeholder="질문하세요..." @keydown="onWmKeydown"></textarea>
+          <button class="sp-ara-send" :disabled="wmLoading||!wmInput.trim()" @click="sendAra">전송</button>
+        </div>
       </div>
     </div>
 
@@ -525,35 +527,35 @@ async function doCreateSessionForm() {
 
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
-    <div v-if="showCreateSession" class="sp-modal-backdrop" @click.self="showCreateSession=false">
-      <div class="sp-modal-box">
-        <div class="sp-modal-header">
-          <span class="sp-modal-title">회의 생성</span>
-          <button class="sp-modal-close" @click="showCreateSession=false">
+    <div v-if="showCreateSession" class="app-modal-backdrop" @click.self="showCreateSession=false">
+      <div class="app-modal app-modal-sm">
+        <div class="app-modal-header">
+          <span class="app-modal-title">회의 생성</span>
+          <button class="app-modal-close" @click="showCreateSession=false">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
-        <div class="sp-modal-body">
-          <div class="sp-mf">
+        <div class="app-modal-body">
+          <div class="app-modal-field">
             <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="createSessionForm.title" class="sp-mi" placeholder="예: 2025 전략 수립 1차" />
+            <input v-model="createSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
           </div>
-          <div class="sp-mf">
+          <div class="app-modal-field">
             <label>회의 소개</label>
-            <textarea v-model="createSessionForm.purpose" class="sp-mi" rows="2" placeholder="이번 회의의 목적이나 주요 내용..."></textarea>
+            <textarea v-model="createSessionForm.purpose" class="app-modal-input" rows="2" placeholder="이번 회의의 목적이나 주요 내용..."></textarea>
           </div>
-          <div class="sp-mf">
+          <div class="app-modal-field">
             <label>회의 날짜</label>
-            <input type="datetime-local" v-model="createSessionForm.date" class="sp-mi" />
+            <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
           </div>
-          <div class="sp-mf">
+          <div class="app-modal-field">
             <label>구성원</label>
             <MemberInvite v-model="createSessionMembers" />
           </div>
         </div>
-        <div class="sp-modal-footer">
-          <button class="sp-btn-cancel" @click="showCreateSession=false">취소</button>
-          <button class="sp-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()" @click="doCreateSessionForm">
+        <div class="app-modal-footer">
+          <button class="app-btn-cancel" @click="showCreateSession=false">취소</button>
+          <button class="app-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()" @click="doCreateSessionForm">
             {{ creatingSessionForm ? '생성 중...' : '생성' }}
           </button>
         </div>
@@ -573,16 +575,6 @@ async function doCreateSessionForm() {
 .sp-create-btn { display:flex;align-items:center;gap:4px;padding:4px 9px;border-radius:7px;border:1px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap; }
 .sp-create-btn:hover { background:var(--primary);color:#fff; }
 /* ── Session create modal ── */
-.sp-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:center;justify-content:center; }
-.sp-modal-box { background:#fff;border-radius:14px;width:420px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2); }
-.sp-modal-header { display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border); }
-.sp-modal-title { font-size:15px;font-weight:700;color:#1e293b; }
-.sp-modal-close { width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:#fff;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center; }
-.sp-modal-close:hover { background:#f1f5f9;color:#475569; }
-.sp-modal-body { flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:12px; }
-.sp-mf { display:flex;flex-direction:column;gap:4px; }
-.sp-mf label { font-size:12px;font-weight:600;color:#475569; }
-.sp-mi { border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;color:#1e293b;outline:none;resize:vertical;font-family:inherit;width:100%;box-sizing:border-box; }
 .sp-mi:focus { border-color:var(--primary); }
 .sp-ms-wrap { display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px; }
 .sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:#1e293b; }
@@ -601,12 +593,6 @@ async function doCreateSessionForm() {
 .sp-sm-role-tag.presenter { background:#f0fdf4;color:#16a34a; }
 .sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
 .sp-sm-rm:hover { color:#ef4444; }
-.sp-modal-footer { display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 14px;border-top:1px solid var(--border); }
-.sp-btn-cancel { padding:7px 16px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer; }
-.sp-btn-cancel:hover { background:#f1f5f9; }
-.sp-btn-primary { padding:7px 18px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
-.sp-btn-primary:disabled { opacity:.5;cursor:not-allowed; }
-.sp-btn-primary:not(:disabled):hover { opacity:.9; }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
 
@@ -642,9 +628,6 @@ async function doCreateSessionForm() {
 .rec-live { font-size:11px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
-.sp-tabs { display:flex;gap:2px;background:#f1f5f9;border-radius:7px;padding:2px;flex-shrink:0; }
-.sp-tab { padding:5px 12px;border-radius:5px;border:none;background:none;font-size:12px;font-weight:500;color:var(--text-muted);cursor:pointer;transition:all .15s; }
-.sp-tab.active { background:#fff;color:var(--primary);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08); }
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-height:0; }
 .sp-tab-body::-webkit-scrollbar { width:4px; }
@@ -681,7 +664,7 @@ async function doCreateSessionForm() {
 .minutes-md :deep(li) { margin-bottom:2px; }
 
 /* Control bar */
-.sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible; }
+.sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer;transition:all .15s; }
@@ -720,33 +703,34 @@ async function doCreateSessionForm() {
 /* ── Right: 워크메이트 AI ── */
 .sp-agent-panel { width:290px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff;overflow:hidden;height:100%; }
 .sp-agent-header { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0;background:linear-gradient(135deg,#eff6ff 0%,#f0fdf4 100%); }
-.sp-agent-header-brand { display:flex;align-items:center;gap:8px;min-width:0;flex:1; }
+.sp-agent-header-brand { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
 .sp-agent-avatar { width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #93c5fd; }
-.sp-agent-header-text { flex:1;min-width:0; }
-.sp-agent-name { font-size:13px;font-weight:700;color:#1e293b; }
-.sp-agent-sub { font-size:10px;color:#64748b; }
-.sp-agent-badge { font-size:9px;font-weight:800;background:linear-gradient(135deg,#3b82f6,#10b981);color:#fff;border-radius:99px;padding:2px 6px;letter-spacing:.04em;flex-shrink:0; }
-.sp-agent-clear { width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:#fff;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s; }
-.sp-agent-clear:hover { background:#f1f5f9;color:#475569; }
-.sp-agent-messages { flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px; }
+.sp-agent-header-text { display:flex;flex-direction:column;min-width:0;flex:1; }
+.sp-agent-name { font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-sub { font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-header-actions { display:flex;align-items:center;gap:5px;flex-shrink:0; }
+.sp-agent-new-chat { background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:all .15s;white-space:nowrap; }
+.sp-agent-new-chat:hover { background:#eff6ff;border-color:#93c5fd;color:var(--primary); }
+.sp-agent-messages { flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px; }
 .sp-agent-messages::-webkit-scrollbar { width:3px; }
 .sp-agent-messages::-webkit-scrollbar-thumb { background:#e2e8f0; }
 .sp-msg-row { display:flex;flex-direction:column;gap:3px; }
 .sp-msg-row.user { align-items:flex-end; }
-.sp-agent-label { display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:2px; }
-.sp-msg-avatar { width:14px;height:14px;border-radius:50%;object-fit:cover; }
-.sp-bubble { padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.55;max-width:95%;word-break:break-word; }
+.sp-agent-label { display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--text-muted); }
+.sp-msg-avatar { width:15px;height:15px;border-radius:50%;object-fit:cover; }
+.sp-bubble { padding:8px 11px;border-radius:10px;font-size:13px;line-height:1.55;max-width:90%;word-break:break-word;border:1px solid transparent; }
 .sp-bubble.user { background:var(--primary);color:#fff;border-radius:10px 10px 2px 10px; }
-.sp-bubble.agent { background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1px solid #93c5fd;color:#1e3a5f;border-radius:2px 10px 10px 10px; }
+.sp-bubble.agent { background:linear-gradient(135deg,#eff6ff,#f0fdf4);border-color:#93c5fd;color:#1e3a5f;border-radius:2px 10px 10px 10px; }
 .sp-bubble.agent :deep(p) { margin:0 0 6px; }
 .sp-bubble.agent :deep(p:last-child) { margin:0; }
-.typing { display:flex;gap:4px;align-items:center;padding:10px 14px; }
-.typing span { width:5px;height:5px;background:#60a5fa;border-radius:50%;animation:bounce .8s infinite; }
+.typing { display:flex;gap:4px;align-items:center; }
+.typing span { width:5px;height:5px;background:#94a3b8;border-radius:50%;animation:bounce .8s infinite; }
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
-.sp-agent-input { display:flex;align-items:flex-end;gap:6px;padding:8px 10px;border-top:1px solid var(--border);flex-shrink:0; }
-.sp-ara-textarea { flex:1;resize:none;min-height:34px;max-height:80px;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;outline:none;font-family:inherit; }
+.sp-agent-input { padding:7px 9px;border-top:1px solid var(--border);flex-shrink:0; }
+.sp-agent-input-row { display:flex;align-items:flex-end;gap:4px; }
+.sp-ara-textarea { flex:1;resize:none;overflow:hidden;min-height:34px;max-height:80px;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box; }
 .sp-ara-textarea:focus { border-color:var(--primary); }
 .sp-ara-send { padding:6px 12px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
 .sp-ara-send:disabled { opacity:.4;cursor:not-allowed; }

@@ -22,7 +22,7 @@ now = datetime.utcnow()
 # ─── 사용자 ─────────────────────────────────────────────────
 users_data = [
     # 본사
-    dict(name="김민준", employee_id="admin@company.com",    password_hash=get_password_hash("1234"), department="기획팀",   organization="본사", position="팀장"),
+    dict(name="김민준", employee_id="admin@company.com",    password_hash=get_password_hash("1234"), department="기획팀",   organization="본사", position="팀장"),  # id=1, DB name was '안민혁' → updated to '김민준'
     dict(name="이수연", employee_id="user1@company.com",    password_hash=get_password_hash("1234"), department="전략팀",   organization="본사", position="대리"),
     dict(name="박지훈", employee_id="user2@company.com",    password_hash=get_password_hash("1234"), department="운영팀",   organization="본사", position="팀장"),
     dict(name="정다은", employee_id="user3@company.com",    password_hash=get_password_hash("1234"), department="개발팀",   organization="본사", position="선임"),

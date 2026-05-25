@@ -17,7 +17,7 @@
           >
             {{ col.label ?? '' }}
             <div
-              v-if="i < columns.length - 1 && !col.noResize && !columns[i + 1]?.noResize"
+              v-if="i < columns.length - 1"
               class="col-resize-handle"
               @mousedown.prevent="startResize($event, i)"
             ></div>
@@ -42,37 +42,23 @@ defineProps({
 const colWidths = ref([])
 let resizing = null
 
-const MIN_COL_WIDTH = 40
-
 function startResize(e, colIndex) {
   const th = e.target.closest('th')
   const startX = e.clientX
+  const startWidth = th.offsetWidth
 
   if (!colWidths.value.length) {
     const allThs = th.closest('tr').querySelectorAll('th')
     colWidths.value = Array.from(allThs).map(h => h.offsetWidth)
   }
 
-  resizing = {
-    colIndex,
-    startX,
-    startWidth: colWidths.value[colIndex],
-    nextStartWidth: colWidths.value[colIndex + 1],
-  }
+  resizing = { colIndex, startX, startWidth }
 
   const onMouseMove = (ev) => {
     if (!resizing) return
     const dx = ev.clientX - resizing.startX
-
-    // 양쪽 모두 최솟값 보장
-    const maxDx = resizing.nextStartWidth - MIN_COL_WIDTH
-    const minDx = -(resizing.startWidth - MIN_COL_WIDTH)
-    const clampedDx = Math.max(minDx, Math.min(maxDx, dx))
-
-    const newCols = [...colWidths.value]
-    newCols[resizing.colIndex] = resizing.startWidth + clampedDx
-    newCols[resizing.colIndex + 1] = resizing.nextStartWidth - clampedDx
-    colWidths.value = newCols
+    const newWidth = Math.max(40, resizing.startWidth + dx)
+    colWidths.value = colWidths.value.map((w, i) => i === resizing.colIndex ? newWidth : w)
   }
 
   const onMouseUp = () => {
@@ -116,28 +102,14 @@ function startResize(e, colIndex) {
   background: #f8fafc;
   user-select: none;
 }
-.app-table th:last-child {
-  position: sticky;
-  right: 0;
-  z-index: 2;
-}
 .app-table td {
   padding: 11px 16px;
   vertical-align: middle;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 0;
+  border-right: 1px solid #f1f5f9;
 }
 .app-table td:last-child {
-  position: sticky;
-  right: 0;
-  background: #fff;
-  z-index: 1;
-  max-width: none;
-  overflow: visible;
-  white-space: nowrap;
+  border-right: none;
 }
 /* Column resize handle – doubles as visible divider */
 .col-resize-handle {
@@ -145,7 +117,7 @@ function startResize(e, colIndex) {
   right: 0;
   top: 0;
   height: 100%;
-  width: 2px;
+  width: 3px;
   background: #e2e8f0;
   cursor: col-resize;
   z-index: 1;
@@ -154,7 +126,7 @@ function startResize(e, colIndex) {
 .col-resize-handle:hover,
 .col-resize-handle:active {
   background: #94a3b8;
-  width: 3px;
+  width: 4px;
 }
 /* ── Dark variant ── */
 .app-table-dark {
@@ -169,15 +141,9 @@ function startResize(e, colIndex) {
   background: transparent;
   color: #64748b;
 }
-.app-table-dark .app-table th:last-child {
-  background: #1e2d3e;
-}
 .app-table-dark .app-table td {
   color: #e2e8f0;
   border-right-color: rgba(255,255,255,.05);
-}
-.app-table-dark .app-table td:last-child {
-  background: #1e293b;
 }
 .app-table-dark .col-resize-handle {
   background: rgba(255,255,255,.12);

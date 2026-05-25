@@ -167,6 +167,18 @@ async function fetchTranscriptSummary() {
   if (!transcriptLines.value.length) return
   summarizingTranscript.value = true; showSummary.value = true; transcriptSummary.value = ''
   const text = transcriptLines.value.map(l => `[${l.time}] ${l.text}`).join('\n')
+  const sessionTitle = activeSession.value?.title || '회의'
+
+  // ── 우측 채팅에 AI 사고 과정 표시 ──────────────────────────
+  const userMsg = `"${sessionTitle}" 대화 내용을 요약해줘`
+  const thinkingSteps = [
+    `대화 텍스트 분석 중 (${transcriptLines.value.length}개 발화)...`,
+    `핵심 발언 및 반복 주제 추출`,
+    `Neo4j Context Graph: Evidence 노드 연결 준비`,
+    `요약 생성 중...`,
+  ]
+  injectAction(userMsg, thinkingSteps, '').then(() => {/* noop */})
+  // 실제 summary는 스트리밍으로 별도 표시 (중앙 패널)
   try {
     await streamPost('/api/agent/ara/sessions-chat',
       { meeting_id: 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
@@ -179,6 +191,22 @@ async function fetchTranscriptSummary() {
 async function generateMinutes() {
   if (generatingMinutes.value) return
   generatingMinutes.value = true; showMinutesTab.value = true; activeTab.value = 'minutes'
+
+  const sessionTitle = activeSession.value?.title || '회의'
+
+  // ── 우측 채팅에 AI 사고 과정 표시 ──────────────────────────
+  const userMsg = `"${sessionTitle}" 회의록을 생성해줘`
+  const thinkingSteps = [
+    `Neo4j → MATCH (s:Session {title:"${sessionTitle}"}) 조회`,
+    `MATCH (s)-[:HAS_AGENDA]->(a:Agenda) 아젠다 노드 수집`,
+    `MATCH (s)-[:PRODUCED]->(doc:Document) 기존 회의록 확인`,
+    `Context Graph: Decision 및 Evidence 노드 분석`,
+    `발언 기록 및 액션 아이템 추출 중...`,
+    `회의록 초안 구성 중...`,
+  ]
+  const agentReply = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 중앙 패널 **회의록 탭**에 저장되었습니다.\n\n주요 결정 사항이나 후속 과제에 대해 더 알고 싶은 내용이 있으면 질문해 주세요.`
+  injectAction(userMsg, thinkingSteps, agentReply)
+
   // Demo: simulate generated minutes
   await new Promise(r => setTimeout(r, 1200))
   const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
@@ -220,24 +248,70 @@ const wmInput = ref('')
 const wmLoading = ref(false)
 const messagesEl = ref(null)
 
+// ─── 사고 과정 helper ─────────────────────────────────────────
+async function _runThinkingSteps(thinkingMsg, steps, delayMs = 380) {
+  for (const step of steps) {
+    thinkingMsg.steps.push(step)
+    await new Promise(r => setTimeout(r, delayMs))
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+  }
+  thinkingMsg.done = true
+  thinkingMsg.open = false // 완료 후 자동 접힘
+}
+
+// ─── 좌측 액션 → 우측 채팅 주입 ──────────────────────────────
+async function injectAction(userText, thinkingSteps, agentReply) {
+  if (wmLoading.value) return
+  wmMessages.value.push({ role: 'user', content: userText })
+  const thinkingMsg = { role: 'thinking', steps: [], open: true, done: false }
+  wmMessages.value.push(thinkingMsg)
+  wmLoading.value = true
+  await nextTick()
+  if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+  await _runThinkingSteps(thinkingMsg, thinkingSteps)
+  const agentMsg = { role: 'agent', content: '' }
+  wmMessages.value.push(agentMsg)
+  await nextTick()
+  // 타입라이터 효과로 응답 표시
+  for (let i = 0; i < agentReply.length; i++) {
+    agentMsg.content += agentReply[i]
+    if (i % 4 === 0) {
+      await new Promise(r => setTimeout(r, 12))
+      if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    }
+  }
+  wmLoading.value = false
+}
+
 async function sendAra() {
   const text = wmInput.value.trim()
   if (!text || wmLoading.value) return
   wmInput.value = ''
+
   wmMessages.value.push({ role: 'user', content: text })
-  const agentMsg = { role: 'agent', content: '' }
-  wmMessages.value.push(agentMsg)
+
+  // 사고 과정 블록 (실시간 [THINKING] 이벤트로 채움)
+  const thinkingMsg = { role: 'thinking', steps: [], open: true, done: false }
+  wmMessages.value.push(thinkingMsg)
   wmLoading.value = true
   await nextTick()
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  const history = wmMessages.value.slice(0, -1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
+
+  const agentMsg = { role: 'agent', content: '' }
+  wmMessages.value.push(agentMsg)
+
+  const history = wmMessages.value
+    .filter(m => m.role === 'user' || m.role === 'agent')
+    .slice(0, -1)
+    .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
     await streamPost('/api/agent/supervisor/chat',
-      { meeting_id: 0, message: text, chat_history: history },
+      { meeting_id: selectedMeeting.value?.id || 0, message: text, chat_history: history },
       (chunk) => { agentMsg.content += chunk; if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight },
-      () => { wmLoading.value = false }
+      () => { thinkingMsg.done = true; thinkingMsg.open = false; wmLoading.value = false },
+      (step) => { thinkingMsg.steps.push(step); nextTick(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }) }
     )
-  } catch { agentMsg.content = '응답 중 오류가 발생했습니다.'; wmLoading.value = false }
+  } catch { agentMsg.content = '응답 중 오류가 발생했습니다.'; thinkingMsg.done = true; thinkingMsg.open = false; wmLoading.value = false }
 }
 
 function onWmKeydown(e) { if (e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); sendAra() } }
@@ -502,16 +576,58 @@ async function doCreateSessionForm() {
         </div>
       </div>
       <div ref="messagesEl" class="sp-agent-messages">
-        <div v-for="(msg, i) in wmMessages" :key="i" class="sp-msg-row" :class="msg.role">
-          <template v-if="msg.role==='agent'&&msg.content">
+        <div v-for="(msg, i) in wmMessages" :key="i" class="sp-msg-row" :class="msg.role === 'thinking' ? 'thinking' : msg.role">
+
+          <!-- 사고 과정 블록 -->
+          <template v-if="msg.role==='thinking'">
+            <div class="sp-thinking-block" :class="{ done: msg.done, open: msg.open }">
+              <button class="sp-thinking-toggle" @click="msg.open = !msg.open">
+                <span class="sp-neo4j-badge">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="4" r="2.5"/><circle cx="4" cy="20" r="2.5"/><circle cx="20" cy="20" r="2.5"/><line x1="12" y1="6.5" x2="4.8" y2="17.5"/><line x1="12" y1="6.5" x2="19.2" y2="17.5"/><line x1="6" y1="20" x2="18" y2="20"/></svg>
+                  Neo4j
+                </span>
+                <svg v-if="!msg.done" class="sp-thinking-spinner" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00ab36" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00ab36" stroke-width="2.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                <span class="sp-thinking-label">{{ msg.done ? 'Knowledge Graph 조회 완료' : 'Knowledge Graph 분석 중...' }}</span>
+                <span class="sp-thinking-count">{{ msg.steps.length }} queries</span>
+                <svg class="sp-thinking-chev" :class="{ rotated: msg.open }" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              <div v-if="msg.open" class="sp-thinking-steps">
+                <div v-for="(step, si) in msg.steps" :key="si"
+                     class="sp-thinking-step fade-in"
+                     :class="{
+                       'sp-step-cypher': step.includes('MATCH') || step.includes('RETURN'),
+                       'sp-step-data':   !step.includes('MATCH') && (step.includes('→') || step.includes('수신') || step.includes('수집') || step.includes('발견')),
+                       'sp-step-route':  step.includes('위임') || step.includes('라우팅'),
+                     }">
+                  <span v-if="step.includes('MATCH') || step.includes('RETURN')" class="sp-step-icon-cypher">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+                  </span>
+                  <span v-else-if="step.includes('→') || step.includes('수신') || step.includes('수집') || step.includes('발견')" class="sp-step-icon-data">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="8" cy="12" r="3"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><line x1="11" y1="11" x2="16" y2="8"/><line x1="11" y1="13" x2="16" y2="16"/></svg>
+                  </span>
+                  <span v-else class="sp-step-num">{{ si + 1 }}</span>
+                  <span class="sp-step-text">{{ step }}</span>
+                </div>
+                <div v-if="!msg.done" class="sp-thinking-step sp-step-pending">
+                  <span class="sp-step-dots"><span></span><span></span><span></span></span>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- AI 응답 -->
+          <template v-else-if="msg.role==='agent'&&msg.content">
             <div class="sp-agent-label">
               <img :src="hyeanAvatar" class="sp-msg-avatar" />워크메이트 AI
             </div>
             <div class="sp-bubble agent" v-html="renderMd(msg.content)"></div>
           </template>
+
+          <!-- 사용자 메시지 -->
           <div v-else-if="msg.role==='user'" class="sp-bubble user">{{ msg.content }}</div>
         </div>
-        <div v-if="wmLoading&&wmMessages[wmMessages.length-1]?.content===''" class="sp-msg-row agent">
+        <div v-if="wmLoading&&wmMessages[wmMessages.length-1]?.role==='agent'&&wmMessages[wmMessages.length-1]?.content===''" class="sp-msg-row agent">
           <div class="sp-bubble agent typing"><span></span><span></span><span></span></div>
         </div>
       </div>
@@ -734,6 +850,45 @@ async function doCreateSessionForm() {
 .sp-ara-textarea:focus { border-color:var(--primary); }
 .sp-ara-send { padding:6px 12px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
 .sp-ara-send:disabled { opacity:.4;cursor:not-allowed; }
+
+/* ── Neo4j Knowledge Graph 사고 과정 블록 ──────────────────── */
+.sp-thinking-block { width:100%;border:1px solid rgba(0,171,54,.3);border-radius:10px;background:rgba(0,171,54,.03);overflow:hidden; }
+.sp-thinking-block.done { border-color:rgba(0,171,54,.5);background:rgba(0,171,54,.04); }
+.sp-thinking-toggle { display:flex;align-items:center;gap:6px;width:100%;padding:7px 10px;background:none;border:none;cursor:pointer;color:#374151;font-size:11.5px;font-weight:600;text-align:left; }
+.sp-neo4j-badge { display:inline-flex;align-items:center;gap:3px;background:#00ab36;color:#fff;font-size:9px;font-weight:800;padding:2px 6px 2px 5px;border-radius:4px;letter-spacing:.03em;flex-shrink:0; }
+.sp-thinking-label { flex:1;color:#374151;font-size:11px; }
+.sp-thinking-count { font-size:10px;font-weight:600;color:#00ab36;background:rgba(0,171,54,.1);padding:1px 7px;border-radius:20px;border:1px solid rgba(0,171,54,.2); }
+.sp-thinking-chev { transition:transform .2s;flex-shrink:0;color:#9ca3af; }
+.sp-thinking-chev.rotated { transform:rotate(180deg); }
+
+.sp-thinking-steps { padding:4px 10px 10px;display:flex;flex-direction:column;gap:5px;border-top:1px solid rgba(0,171,54,.12); }
+
+/* 일반 단계 */
+.sp-thinking-step { display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.5; }
+.sp-step-num { flex-shrink:0;width:16px;height:16px;background:rgba(0,0,0,.08);color:#6b7280;border-radius:50%;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1.5px; }
+.sp-step-text { color:#4b5563;word-break:break-all; }
+
+/* Cypher 쿼리 단계 */
+.sp-step-cypher { background:#0d1117;border:1px solid rgba(0,171,54,.35);border-left:3px solid #00ab36;border-radius:6px;padding:5px 8px; }
+.sp-step-cypher .sp-step-text { font-family:'Courier New',monospace;font-size:10.5px;color:#79c0ff;word-break:break-all; }
+.sp-step-icon-cypher { flex-shrink:0;color:#00ab36;margin-top:2px; }
+
+/* 데이터 수신 단계 */
+.sp-step-data { background:rgba(0,171,54,.06);border:1px solid rgba(0,171,54,.2);border-radius:6px;padding:4px 8px; }
+.sp-step-data .sp-step-text { color:#15803d;font-weight:500; }
+.sp-step-icon-data { flex-shrink:0;color:#00ab36;margin-top:2px; }
+
+/* 라우팅 단계 */
+.sp-step-route .sp-step-text { color:#7c3aed;font-style:italic; }
+
+.sp-step-pending { padding-left:2px; }
+.sp-step-dots { display:flex;gap:3px;align-items:center; }
+.sp-step-dots span { width:4px;height:4px;background:#00ab36;border-radius:50%;animation:bounce .8s infinite; }
+.sp-step-dots span:nth-child(2) { animation-delay:.15s; }
+.sp-step-dots span:nth-child(3) { animation-delay:.3s; }
+@keyframes sp-spin { to { transform:rotate(360deg); } }
+.sp-thinking-spinner { animation:sp-spin 1s linear infinite;flex-shrink:0; }
+.sp-msg-row.thinking { padding:0; }
 
 /* ── Minutes upload ── */
 .minutes-upload-row { display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid #f1f5f9;flex-shrink:0; }

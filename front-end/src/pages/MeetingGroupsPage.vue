@@ -9,6 +9,7 @@ import AppTable from '../components/AppTable.vue'
 const mgColumns = [
   { label: '', width: '28px' },
   { label: '회의체명' },
+  { label: '유형', width: '100px' },
   { label: '간사', width: '160px' },
   { label: '참여조직', width: '180px' },
   { label: '참여자', width: '150px' },
@@ -28,18 +29,19 @@ const loadingMembers = ref({})
 const filteredGroups = computed(() => {
   const q = search.value.trim().toLowerCase()
   return meetingsStore.meetings.filter(m => {
+    const matchRole = meetingsStore.meetingRoles[m.id] != null
     const matchStatus = statusTab.value === 'active'
       ? (!m.status || m.status === 'active')
       : m.status === 'ended'
     const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
-    return matchStatus && matchSearch
+    return matchRole && matchStatus && matchSearch
   })
 })
 
 const activeCount = computed(() =>
-  meetingsStore.meetings.filter(m => !m.status || m.status === 'active').length)
+  meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && (!m.status || m.status === 'active')).length)
 const endedCount = computed(() =>
-  meetingsStore.meetings.filter(m => m.status === 'ended').length)
+  meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && m.status === 'ended').length)
 
 async function loadMembers(meetingId) {
   if (membersCache.value[meetingId]) return
@@ -218,12 +220,12 @@ onMounted(async () => {
         <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input v-model="search" class="search-input" placeholder="회의체 검색..." />
       </div>
-      <div class="status-tabs">
-        <button :class="{ active: statusTab==='active' }" @click="statusTab='active'">
-          진행 중 <span class="tab-cnt">{{ activeCount }}</span>
+      <div class="app-tabs">
+        <button class="app-tab" :class="{ active: statusTab==='active' }" @click="statusTab='active'">
+          진행 중 <span class="app-tab-badge">{{ activeCount }}</span>
         </button>
-        <button :class="{ active: statusTab==='ended' }" @click="statusTab='ended'">
-          완료 <span class="tab-cnt">{{ endedCount }}</span>
+        <button class="app-tab" :class="{ active: statusTab==='ended' }" @click="statusTab='ended'">
+          완료 <span class="app-tab-badge">{{ endedCount }}</span>
         </button>
       </div>
       <div class="plus-wrap">
@@ -248,10 +250,14 @@ onMounted(async () => {
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
                 <div class="mg-row-title">{{ g.title }}</div>
-                <div class="mg-row-meta">
-                  <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
-                  <span v-if="g.purpose" class="mg-row-desc" :style="g.meeting_type ? 'margin-left:6px' : ''">{{ g.purpose }}</span>
-                </div>
+                <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                  {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+                </span>
+              </td>
+              <!-- 유형 -->
+              <td>
+                <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
+                <span v-else class="mg-row-nodates">-</span>
               </td>
               <!-- 간사 -->
               <td>
@@ -293,99 +299,99 @@ onMounted(async () => {
 
     <Teleport to="body">
       <!-- Create modal -->
-      <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate=false">
-        <div class="modal-box" :class="{ 'day-mode': !nightMode }">
-          <div class="modal-header">
-            <span class="modal-title">회의체 생성</span>
-            <button class="modal-close" @click="showCreate=false">
+      <div v-if="showCreate" class="app-modal-backdrop" @click.self="showCreate=false">
+        <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
+          <div class="app-modal-header">
+            <span class="app-modal-title">회의체 생성</span>
+            <button class="app-modal-close" @click="showCreate=false">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="modal-body">
-            <div class="form-field">
+          <div class="app-modal-body">
+            <div class="app-modal-field">
               <label>회의체 이름 <span class="req">*</span></label>
-              <input v-model="createForm.title" class="form-input" placeholder="예: 전략기획위원회" />
+              <input v-model="createForm.title" class="app-modal-input" placeholder="예: 전략기획위원회" />
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>소개</label>
-              <textarea v-model="createForm.purpose" class="form-input form-textarea" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
+              <textarea v-model="createForm.purpose" class="app-modal-input" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>유형</label>
-              <select v-model="createForm.meeting_type" class="form-input form-select">
+              <select v-model="createForm.meeting_type" class="app-modal-input">
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
               </select>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <div class="form-field">
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
                 <label>시작일</label>
-                <input type="date" v-model="createForm.start_date" class="form-input" />
+                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
-              <div class="form-field">
+              <div class="app-modal-field">
                 <label>종료일</label>
-                <input type="date" v-model="createForm.end_date" class="form-input" />
+                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>운영 지침</label>
-              <textarea v-model="createForm.guidelines" class="form-input form-textarea" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
+              <textarea v-model="createForm.guidelines" class="app-modal-input" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>멤버 초대</label>
               <MemberInvite v-model="createMembers" />
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="showCreate=false">취소</button>
-            <button class="btn-primary" :disabled="!createForm.title.trim() || creating" @click="submitCreate">{{ creating ? '생성 중...' : '생성' }}</button>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="showCreate=false">취소</button>
+            <button class="app-btn-primary" :disabled="!createForm.title.trim() || creating" @click="submitCreate">{{ creating ? '생성 중...' : '생성' }}</button>
           </div>
         </div>
       </div>
 
       <!-- Settings modal -->
-      <div v-if="settingsModal" class="modal-backdrop" @click.self="closeSettings">
-        <div class="modal-box settings-modal" :class="{ 'day-mode': !nightMode }">
-          <div class="modal-header">
-            <span class="modal-title">회의체 설정</span>
-            <button class="modal-close" @click="closeSettings">
+      <div v-if="settingsModal" class="app-modal-backdrop" @click.self="closeSettings">
+        <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
+          <div class="app-modal-header">
+            <span class="app-modal-title">회의체 설정</span>
+            <button class="app-modal-close" @click="closeSettings">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="modal-body settings-body">
+          <div class="app-modal-body settings-body">
             <div class="settings-section">
               <div class="settings-section-title">기본 정보</div>
-              <div class="form-field">
+              <div class="app-modal-field">
                 <label>회의체 이름 <span class="req">*</span></label>
-                <input v-model="settingsModal.form.title" class="form-input" />
+                <input v-model="settingsModal.form.title" class="app-modal-input" />
               </div>
-              <div class="form-field">
+              <div class="app-modal-field">
                 <label>소개</label>
-                <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+                <textarea v-model="settingsModal.form.purpose" class="app-modal-input" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
               </div>
-              <div class="form-field">
+              <div class="app-modal-field">
                 <label>유형</label>
-                <select v-model="settingsModal.form.meeting_type" class="form-input form-select">
+                <select v-model="settingsModal.form.meeting_type" class="app-modal-input">
                   <option value="Weekly">Weekly</option>
                   <option value="Monthly">Monthly</option>
                   <option value="Quarterly">Quarterly</option>
                 </select>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                <div class="form-field">
+              <div class="app-modal-field-row">
+                <div class="app-modal-field">
                   <label>시작일</label>
-                  <input type="date" v-model="settingsModal.form.start_date" class="form-input" />
+                  <input type="date" v-model="settingsModal.form.start_date" class="app-modal-input" />
                 </div>
-                <div class="form-field">
+                <div class="app-modal-field">
                   <label>종료일</label>
-                  <input type="date" v-model="settingsModal.form.end_date" class="form-input" />
+                  <input type="date" v-model="settingsModal.form.end_date" class="app-modal-input" />
                 </div>
               </div>
-              <div class="form-field">
+              <div class="app-modal-field">
                 <label>회의체 지침</label>
-                <textarea v-model="settingsModal.form.guidelines" class="form-input form-textarea" rows="4" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
+                <textarea v-model="settingsModal.form.guidelines" class="app-modal-input" rows="4" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
               </div>
             </div>
             <div class="settings-section">
@@ -415,7 +421,7 @@ onMounted(async () => {
                     <span class="sm-name">{{ mb.name }}</span>
                     <span class="sm-email">{{ mb.email }}</span>
                   </div>
-                  <select v-model="mb.role" class="sm-role-select">
+                  <select v-model="mb.role" class="app-select">
                     <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
                   </select>
                   <button class="sm-remove" @click="removeMemberFromSettings(idx)" title="제거">
@@ -425,9 +431,9 @@ onMounted(async () => {
               </div>
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="closeSettings">취소</button>
-            <button class="btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="closeSettings">취소</button>
+            <button class="app-btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
           </div>
         </div>
       </div>
@@ -446,11 +452,6 @@ onMounted(async () => {
 .search-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 28px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box; }
 .search-input::placeholder { color:#334155; }
 .search-input:focus { border-color:rgba(96,165,250,.5); }
-.status-tabs { display:flex;gap:4px;background:rgba(255,255,255,.06);border-radius:8px;padding:3px; }
-.status-tabs button { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
-.status-tabs button.active { background:#1e3a5f;color:#93c5fd; }
-.tab-cnt { font-size:11px;font-weight:700;background:rgba(255,255,255,.1);border-radius:99px;padding:1px 6px; }
-.status-tabs button.active .tab-cnt { background:rgba(147,197,253,.2); }
 .plus-wrap { flex-shrink:0;margin-left:auto; }
 .create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s; }
 .create-meeting-btn:hover { opacity:.85; }
@@ -460,11 +461,6 @@ onMounted(async () => {
 .day-mode .search-input { background:rgba(255,255,255,.6);border-color:#e2e8f0;color:#1e293b; }
 .day-mode .search-input::placeholder { color:#94a3b8; }
 .day-mode .search-icon { color:#94a3b8; }
-.day-mode .status-tabs { background:rgba(0,0,0,.05); }
-.day-mode .status-tabs button { color:#64748b; }
-.day-mode .status-tabs button.active { background:#dbeafe;color:#1d4ed8; }
-.day-mode .status-tabs button.active .tab-cnt { background:rgba(29,78,216,.15); }
-
 .mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
 .mg-row { border-bottom:1px solid rgba(255,255,255,.06);transition:background .1s;cursor:default;background:transparent; }
 .mg-row:hover { background:rgba(255,255,255,.04); }
@@ -482,7 +478,6 @@ onMounted(async () => {
 .mg-org-tag { font-size:11px;font-weight:500;padding:2px 7px;border-radius:99px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;white-space:nowrap; }
 .mg-row-meta { display:flex;align-items:center;flex-wrap:wrap;margin-top:2px; }
 .mg-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
-.form-select { cursor:pointer; }
 .mg-row-dates { font-size:11px;color:#94a3b8;white-space:nowrap; }
 .mg-row-nodates { color:#475569; }
 .day-mode .mg-row-nodates { color:#cbd5e1; }
@@ -516,6 +511,12 @@ onMounted(async () => {
 .day-mode .mg-card-desc { color:#94a3b8; }
 .day-mode .mg-member-badge { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
 .day-mode .mg-icon-btn { border-color:#e2e8f0;background:#fff;color:#64748b; }
+/* ── Role badges ── */
+.mg-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:3px; }
+.mg-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
+.mg-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.day-mode .mg-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
+.day-mode .mg-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
 
 .mg-member-wrap { border-top:1px solid rgba(255,255,255,.07);padding:10px 16px;display:flex;flex-direction:column;gap:6px; }
 .mg-members-state { font-size:12px;color:#475569;padding:4px 0; }
@@ -534,88 +535,53 @@ onMounted(async () => {
 .expand-enter-active,.expand-leave-active { transition:opacity .2s; }
 .expand-enter-from,.expand-leave-to { opacity:0; }
 
-.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
-.modal-box { background:#1e293b;border-radius:14px;width:440px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1); }
-.settings-modal { width:520px; }
-.modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.08); }
-.modal-title { font-size:15px;font-weight:700;color:#f1f5f9; }
-.modal-close { width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.07);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
-.modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
-.modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto; }
-.modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid rgba(255,255,255,.08); }
-
-.form-field { display:flex;flex-direction:column;gap:5px; }
-.form-field label { font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em; }
 .req { color:#ef4444; }
-.form-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;font-family:inherit;width:100%;box-sizing:border-box; }
-.form-input:focus { border-color:rgba(96,165,250,.5);background:rgba(255,255,255,.08); }
-.form-textarea { resize:vertical;min-height:64px; }
-
-.btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:13px;font-weight:600;cursor:pointer;color:#94a3b8;transition:all .15s; }
-.btn-cancel:hover { background:rgba(255,255,255,.1); }
-.btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
-.btn-primary:hover { opacity:.85; }
-.btn-primary:disabled { opacity:.4;cursor:not-allowed; }
 
 .settings-body { gap:0; }
-.settings-section { padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px; }
+.settings-section { padding:14px 0;border-bottom:1px solid #f1f5f9;display:flex;flex-direction:column;gap:10px; }
 .settings-section:last-child { border-bottom:none;padding-bottom:0; }
-.settings-section-title { font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
+.settings-section-title { font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
 .member-cnt-badge { font-size:11px;font-weight:700;background:rgba(96,165,250,.15);color:#93c5fd;border-radius:99px;padding:1px 7px;text-transform:none;letter-spacing:0; }
 
-.member-search-wrap { display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.05); }
-.member-search-wrap svg { color:#475569;flex-shrink:0; }
-.member-search-input { flex:1;border:none;background:none;color:#f1f5f9;font-size:12px;outline:none; }
-.member-search-input::placeholder { color:#334155; }
+.member-search-wrap { display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc; }
+.member-search-wrap svg { color:#94a3b8;flex-shrink:0; }
+.member-search-input { flex:1;border:none;background:none;color:#1e293b;font-size:12px;outline:none; }
+.member-search-input::placeholder { color:#94a3b8; }
 .search-spinner { color:#64748b;font-size:14px;flex-shrink:0; }
 
-.member-search-results { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;background:#0f172a; }
+.member-search-results { border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#fff; }
 .member-search-item { display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;transition:background .1s; }
-.member-search-item:hover { background:rgba(255,255,255,.06); }
+.member-search-item:hover { background:#f8fafc; }
 .ms-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .ms-info { flex:1;display:flex;flex-direction:column; }
-.ms-name { font-size:13px;font-weight:600;color:#f1f5f9; }
-.ms-email { font-size:11px;color:#475569; }
+.ms-name { font-size:13px;font-weight:600;color:#1e293b; }
+.ms-email { font-size:11px;color:#94a3b8; }
 .ms-add-hint { font-size:11px;font-weight:700;color:#3b82f6;flex-shrink:0; }
-.ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
-.ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
-.ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
-.ms-role-btn.admin:hover { background:#2563eb; }
 
 .settings-member-list { display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto; }
-.settings-empty-members { font-size:12px;color:#475569;padding:6px 0; }
+.settings-empty-members { font-size:12px;color:#64748b;padding:6px 0; }
 .settings-member-row { display:flex;align-items:center;gap:10px;padding:5px 6px;border-radius:7px;transition:background .1s; }
-.settings-member-row:hover { background:rgba(255,255,255,.04); }
+.settings-member-row:hover { background:#f8fafc; }
 .sm-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .sm-info { flex:1;display:flex;flex-direction:column;min-width:0; }
-.sm-name { font-size:13px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sm-email { font-size:11px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sm-role-select { padding:3px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#94a3b8;font-size:11px;font-weight:600;outline:none;cursor:pointer;flex-shrink:0; }
+.sm-name { font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sm-email { font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.08);color:#f87171;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s; }
 .sm-remove:hover { background:rgba(239,68,68,.2); }
 
-/* ── Day-mode modal overrides ─────────────────────────────── */
-.modal-box.day-mode { background:#fff;border-color:#e2e8f0;box-shadow:0 24px 64px rgba(0,0,0,.15); }
-.modal-box.day-mode .modal-header { border-bottom-color:#e2e8f0; }
-.modal-box.day-mode .modal-title { color:#1e293b; }
-.modal-box.day-mode .modal-close { background:#f1f5f9;color:#64748b; }
-.modal-box.day-mode .modal-close:hover { background:#e2e8f0;color:#1e293b; }
-.modal-box.day-mode .modal-footer { border-top-color:#e2e8f0; }
-.modal-box.day-mode .form-field label { color:#475569; }
-.modal-box.day-mode .form-input { background:#fff;border-color:#e2e8f0;color:#1e293b; }
-.modal-box.day-mode .form-input:focus { border-color:#3b82f6;background:#f8fafc; }
-.modal-box.day-mode .form-input::placeholder { color:#94a3b8; }
-.modal-box.day-mode .btn-cancel { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
-.modal-box.day-mode .btn-cancel:hover { background:#e2e8f0; }
-.modal-box.day-mode .settings-section { border-bottom-color:#f1f5f9; }
-.modal-box.day-mode .settings-section-title { color:#64748b; }
-.modal-box.day-mode .member-search-wrap { border-color:#e2e8f0;background:#f8fafc; }
-.modal-box.day-mode .member-search-input { color:#1e293b; }
-.modal-box.day-mode .member-search-input::placeholder { color:#94a3b8; }
-.modal-box.day-mode .member-search-results { border-color:#e2e8f0;background:#fff; }
-.modal-box.day-mode .member-search-item:hover { background:#f8fafc; }
-.modal-box.day-mode .ms-name { color:#1e293b; }
-.modal-box.day-mode .settings-member-row:hover { background:#f8fafc; }
-.modal-box.day-mode .sm-name { color:#1e293b; }
-.modal-box.day-mode .sm-role-select { border-color:#e2e8f0;background:#f1f5f9;color:#475569; }
+/* ── Dark modal overrides ─────────────────────────────── */
+.app-modal.dark .settings-section { border-bottom-color:rgba(255,255,255,.07); }
+.app-modal.dark .settings-section-title { color:#475569; }
+.app-modal.dark .member-search-wrap { border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05); }
+.app-modal.dark .member-search-wrap svg { color:#475569; }
+.app-modal.dark .member-search-input { color:#f1f5f9; }
+.app-modal.dark .member-search-input::placeholder { color:#334155; }
+.app-modal.dark .member-search-results { border-color:rgba(255,255,255,.1);background:#0f172a; }
+.app-modal.dark .member-search-item:hover { background:rgba(255,255,255,.06); }
+.app-modal.dark .ms-name { color:#f1f5f9; }
+.app-modal.dark .ms-email { color:#475569; }
+.app-modal.dark .settings-member-row:hover { background:rgba(255,255,255,.04); }
+.app-modal.dark .sm-name { color:#f1f5f9; }
+.app-modal.dark .sm-email { color:#475569; }
+.app-modal.dark .settings-empty-members { color:#475569; }
 </style>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
 import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
@@ -16,9 +16,11 @@ import { useThemeStore } from '../stores/theme'
 import hyeanAvatar from '../assets/agents/hyean.png'
 
 const lvColumns = [
-  { label: '회의체명' },
-  { label: '간사', width: '120px' },
-  { label: '이력', width: '80px' }
+  { label: '회의체명', width: '100px' },
+  { label: '유형', width: '10px' },
+  { label: '역할', width: '10px' },
+  { label: '간사', width: '10px' },
+  { label: '이력', width: '10px' }
 ]
 // 서브에이전트 아바타는 내부 라우팅용으로 보존 (사용자에게는 비노출)
 // import gaonAvatar from '../assets/agents/gaon.png'
@@ -38,7 +40,10 @@ const minutes = ref([])
 const reports = ref([])
 const membersData = ref([])
 const tasksData = ref([])
+const neo4jMeetings = ref([])   // Neo4j에서 직접 가져온 회의체 그래프 데이터
+const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
+const neo4jError = ref('')
 const search = ref('')
 const expandedMeeting = ref(null)
 
@@ -84,6 +89,90 @@ function showMapToast(msg) {
   mapToastMsg.value = msg
   clearTimeout(_mapToastTimer)
   _mapToastTimer = setTimeout(() => { mapToastMsg.value = '' }, 2200)
+}
+
+// ─── Neo4j query highlight (챗봇 그래프 탐색 시각화) ──────────
+const queryHlIdxs     = ref(new Set())   // Set<number> — 현재 하이라이트된 노드 인덱스들
+const queryHlEdgeIdxs = ref(new Set())   // Set<number> — 현재 하이라이트된 엣지 인덱스들
+const queryHlStep     = ref('')          // 현재 planning step 텍스트 (HUD 표시용)
+let _queryHlTimer  = null
+
+/** Planning step 텍스트에서 관련 그래프 노드+엣지를 찾아 하이라이트 */
+function _applyQueryHL(step) {
+  clearTimeout(_queryHlTimer)
+  queryHlStep.value = step
+  const newSet = new Set()
+  const specificSet = new Set() // 이름으로 정확히 매칭된 노드 (1-hop 확장 대상)
+
+  if (step) {
+    // 1) [ 이름 ] 패턴 — PLANNING 스텝에서 노드 이름 언급 시 flash
+    const bracketRe = /\[([^\]]+)\]/g
+    let m
+    while ((m = bracketRe.exec(step)) !== null) {
+      const txt = m[1]
+      gNodes.forEach((n, i) => { if (n.label === txt || n.id === txt) { newSet.add(i); specificSet.add(i) } })
+    }
+    // 2) 타입 키워드 → 해당 타입만 flash (노드 확장 없음, PLANNING 시각 피드백용)
+    if (newSet.size === 0) {
+      if (step.includes('회의체') || step.includes('라우팅')) gNodes.forEach((n,i)=>{ if(n.type==='meeting_group') newSet.add(i) })
+      else if (step.includes('아젠다')) gNodes.forEach((n,i)=>{ if(n.type==='agenda') newSet.add(i) })
+      else if (step.includes('의사결정')) gNodes.forEach((n,i)=>{ if(n.type==='decision') newSet.add(i) })
+      else if (step.includes('구성원') || step.includes('소속')) gNodes.forEach((n,i)=>{ if(n.type==='person') newSet.add(i) })
+      else if (step.includes('세션') || step.includes('회의록')) gNodes.forEach((n,i)=>{ if(n.type==='session') newSet.add(i) })
+    }
+  }
+
+  // 이름으로 정확히 매칭된 노드만 1-hop 확장 (타입 flash는 확장 없음)
+  const hlEdgeSet = new Set()
+  if (specificSet.size > 0) {
+    gEdges.forEach((e, ei) => {
+      if (specificSet.has(e.from) || specificSet.has(e.to)) {
+        hlEdgeSet.add(ei)
+        newSet.add(e.from)
+        newSet.add(e.to)
+      }
+    })
+  }
+
+  queryHlIdxs.value = newSet
+  queryHlEdgeIdxs.value = hlEdgeSet
+  if (step) {
+    _queryHlTimer = setTimeout(() => {
+      queryHlIdxs.value = new Set()
+      queryHlEdgeIdxs.value = new Set()
+      queryHlStep.value = ''
+    }, 2500)
+  }
+}
+
+// ── AI 기반 하이라이팅: LLM 답변에서 실제 언급된 노드 레이블 기반 ──────
+let _hlPersistTimer = null
+function _applyHighlightLabels(labels) {
+  clearTimeout(_hlPersistTimer)
+  clearTimeout(_queryHlTimer)
+  const newSet = new Set()
+  const hlEdgeSet = new Set()
+  labels.forEach(lbl => {
+    gNodes.forEach((n, i) => {
+      if (n.label === lbl || (lbl.length >= 6 && n.label?.startsWith(lbl.slice(0, Math.min(lbl.length, 10))))) newSet.add(i)
+    })
+  })
+  // 매칭된 노드와 연결된 엣지 + 1-hop 인접 노드
+  gEdges.forEach((e, ei) => {
+    if (newSet.has(e.from) || newSet.has(e.to)) {
+      hlEdgeSet.add(ei)
+      newSet.add(e.from)
+      newSet.add(e.to)
+    }
+  })
+  queryHlIdxs.value = newSet
+  queryHlEdgeIdxs.value = hlEdgeSet
+  queryHlStep.value = ''
+  // 6초 후 자동 소등
+  _hlPersistTimer = setTimeout(() => {
+    queryHlIdxs.value = new Set()
+    queryHlEdgeIdxs.value = new Set()
+  }, 6000)
 }
 
 // ─── Plus snackbar (removed - replaced by direct button) ──────
@@ -194,7 +283,7 @@ async function doCreateMeeting() {
 const SUPERVISOR = {
   name: '워크메이트 AI', nameEn: 'Workmate AI',
   avatar: hyeanAvatar,
-  greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n회의체 현황 분석, 아젠다·과제 추출, 자료 검토, 카드뉴스 생성까지\n무엇이든 말씀해 주세요.',
+  greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n무엇이든 물어보세요.',
   suggested: ['회의체 현황을 브리핑해줘', '이번 회의 아젠다를 정리해줘', '보고서를 검토해줘'],
   endpoint: '/api/agent/supervisor/chat',
 }
@@ -224,6 +313,121 @@ const agentFileInput = ref(null)
 const agentPendingFiles = ref([])
 const agentTextareaEl = ref(null)
 
+// ─── @ mention ────────────────────────────────────────────────
+const atMenuOpen = ref(false)
+const atQuery = ref('')
+const atCursorPos = ref(0)
+const atHighlight = ref(0)
+const mentionedContexts = ref([]) // [{id, type, label, icon, summary}]
+
+const AT_TYPE_ICONS = { meeting: '🏢', person: '👤', task: '✅', department: '🏬', session: '📅', document: '📄' }
+const AT_TYPE_LABELS = { meeting: '회의체', person: '구성원', task: '과제', department: '부서', session: '회의', document: '문서' }
+
+const atMenuItems = computed(() => {
+  const q = atQuery.value.toLowerCase()
+  const seen = new Set()
+  const items = []
+  // 회의체
+  for (const mg of meetingGroups.value) {
+    const label = mg.title || mg.name || ''
+    if (!label) continue
+    if (!q || label.toLowerCase().includes(q)) {
+      const id = `mg-${mg.id}`
+      if (!seen.has(id)) {
+        seen.add(id)
+        const memberNames = (mg.members || []).map(m => m.name).filter(Boolean).join(', ')
+        const agendaList = (mg.agendas || []).map(a => a.content || a.title).filter(Boolean).slice(0, 3).join(', ')
+        items.push({
+          id, type: 'meeting', label, icon: '🏢',
+          summary: ['[회의체] ' + label, mg.purpose ? '목적: ' + mg.purpose : '', memberNames ? '구성원: ' + memberNames : '', agendaList ? '아젠다: ' + agendaList : ''].filter(Boolean).join('\n'),
+        })
+      }
+    }
+  }
+  // 구성원
+  for (const m of membersData.value) {
+    const label = m.name || ''
+    if (!label) continue
+    if (!q || label.toLowerCase().includes(q)) {
+      const id = `person-${m.id || m.employee_id || m.name}`
+      if (!seen.has(id)) {
+        seen.add(id)
+        items.push({
+          id, type: 'person', label, icon: '👤',
+          summary: ['[구성원] ' + label, m.department ? '부서: ' + m.department : '', m.position ? '직책: ' + m.position : ''].filter(Boolean).join('\n'),
+        })
+      }
+    }
+  }
+  // 과제
+  for (const t of tasksData.value) {
+    const label = (t.content || t.title || '').slice(0, 40)
+    if (!label) continue
+    if (!q || label.toLowerCase().includes(q)) {
+      const id = `task-${t.id}`
+      if (!seen.has(id)) {
+        seen.add(id)
+        const statusLabel = { pending: '대기', done: '완료', in_progress: '진행중', at_risk: '위험' }[t.status] || t.status || ''
+        items.push({
+          id, type: 'task', label, icon: '✅',
+          summary: ['[과제] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.deadline ? '마감: ' + t.deadline : ''].filter(Boolean).join('\n'),
+        })
+      }
+    }
+  }
+  // 현재 선택된 회의체의 세션
+  if (detailMeeting.value?.sessions?.length) {
+    for (const s of detailMeeting.value.sessions) {
+      const label = s.title || s.name || ''
+      if (!label) continue
+      if (!q || label.toLowerCase().includes(q)) {
+        const id = `session-${s.id}`
+        if (!seen.has(id)) {
+          seen.add(id)
+          items.push({ id, type: 'session', label, icon: '📅', summary: ['[회의] ' + label, s.date ? '일시: ' + s.date : ''].filter(Boolean).join('\n') })
+        }
+      }
+    }
+  }
+  return items.slice(0, 8)
+})
+
+function onAgentInput(e) {
+  agentAutoResize()
+  const val = agentInput.value
+  const cursor = e.target.selectionStart
+  const before = val.slice(0, cursor)
+  const atIdx = before.lastIndexOf('@')
+  if (atIdx !== -1) {
+    const query = before.slice(atIdx + 1)
+    if (!query.includes(' ') && !query.includes('\n')) {
+      atQuery.value = query
+      atCursorPos.value = atIdx
+      atMenuOpen.value = true
+      atHighlight.value = 0
+      return
+    }
+  }
+  atMenuOpen.value = false
+}
+
+function selectAtItem(item) {
+  const el = agentTextareaEl.value
+  const cursor = el ? el.selectionStart : agentInput.value.length
+  const val = agentInput.value
+  agentInput.value = val.slice(0, atCursorPos.value) + val.slice(cursor)
+  if (!mentionedContexts.value.find(c => c.id === item.id)) {
+    mentionedContexts.value.push(item)
+  }
+  atMenuOpen.value = false
+  atQuery.value = ''
+  nextTick(() => { agentTextareaEl.value?.focus(); agentAutoResize() })
+}
+
+function removeMentionCtx(id) {
+  mentionedContexts.value = mentionedContexts.value.filter(c => c.id !== id)
+}
+
 function initAgentGreeting() {
   if (!allMessages.value['supervisor'].length)
     allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
@@ -242,8 +446,9 @@ function clearAgentChat() {
 
 async function sendAgentMsg() {
   const text = agentInput.value.trim()
-  if ((!text && !agentPendingFiles.value.length) || agentLoading.value) return
+  if ((!text && !agentPendingFiles.value.length && !mentionedContexts.value.length) || agentLoading.value) return
   agentInput.value = ''
+  atMenuOpen.value = false
   if (agentTextareaEl.value) agentTextareaEl.value.style.height = '36px'
   let content = text
   if (agentPendingFiles.value.length) {
@@ -251,9 +456,23 @@ async function sendAgentMsg() {
     content = text ? `📎 ${names}\n${text}` : `📎 ${names}`
     agentPendingFiles.value = []
   }
+  // @ 컨텍스트를 API 메시지에 주입 (화면에는 chips로만 표시)
+  const ctxSnapshot = [...mentionedContexts.value]
+  if (ctxSnapshot.length) {
+    const ctxBlock = ctxSnapshot.map(c => c.summary).join('\n---\n')
+    content = `${content}\n\n[참조 컨텍스트]\n${ctxBlock}`
+    mentionedContexts.value = []
+  }
   const key = 'supervisor'
-  allMessages.value[key].push({ role: 'user', content })
-  const agentMsg = { role: 'agent', content: '' }
+  // 화면에는 원본 텍스트만 + 참조된 컨텍스트 칩 표시 (API엔 full content 전달)
+  const displayText = text || (agentPendingFiles.value.length ? `📎 파일` : '')
+  allMessages.value[key].push({ role: 'user', content: displayText, contexts: ctxSnapshot })
+
+  // ── 사고 과정 블록 (실시간 백엔드 이벤트로 채움) ──────────────────
+  // reactive()로 감싸야 로컬 변수 변경이 Vue 반응성 시스템에 즉시 반영됨
+  const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
+  allMessages.value[key].push(planningMsg)
+  const agentMsg = reactive({ role: 'agent', content: '' })
   allMessages.value[key].push(agentMsg)
   agentLoading.value = true
   await nextTick()
@@ -265,9 +484,17 @@ async function sendAgentMsg() {
     detailMeeting.value
 
   if (isExtractMode) {
+    const mgTitle = detailMeeting.value?.title || '선택된 회의체'
+    const extractSteps = [
+      `추출 과제 컨텍스트 로드 중 (${extractResult.value.length}건)...`,
+      `MATCH (mg:MeetingGroup {title:"${mgTitle}"})-[:HAS_AGENDA]->(a:Agenda) 조회`,
+      `사용자 수정 요청 분석 중...`,
+      `응답 생성 중...`,
+    ]
     try {
+      await _runPlanningSteps(planningMsg, extractSteps)
       const { data } = await api.post('/api/agent/archive/chat-extract', {
-        meeting_id: detailMeeting.value.id,
+        meeting_id: toSqliteId(detailMeeting.value.id),
         message: content,
         chat_history: [{ agendas: extractResult.value }],
       })
@@ -287,28 +514,97 @@ async function sendAgentMsg() {
     return
   }
 
-  // 일반 모드: supervisor 채팅
-  const history = allMessages.value[key].slice(0, -1).map(m => ({
-    role: m.role === 'user' ? 'user' : 'assistant', content: m.content,
-  }))
+  // 일반 모드: supervisor 채팅 — [PLANNING] 이벤트를 실시간으로 수신
+  const history = allMessages.value[key]
+    .filter(m => m.role === 'user' || m.role === 'agent')
+    .slice(0, -1)
+    .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
     await streamPost(
       agentInfo.value.endpoint,
-      { meeting_id: detailMeeting.value?.id || 0, message: content, chat_history: history },
-      (chunk) => { agentMsg.content += chunk; if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight },
-      () => { agentLoading.value = false }
+      { meeting_id: toSqliteId(detailMeeting.value?.id), message: content, chat_history: history },
+      (chunk) => {
+        agentMsg.content += chunk
+        nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+      },
+      () => {
+        planningMsg.done = true
+        agentLoading.value = false
+        // PLANNING 중 임시 flash 소등 (AI HIGHLIGHT가 없을 경우 대비)
+        if (queryHlIdxs.value.size > 0 && !_hlPersistTimer) _applyQueryHL('')
+        // 응답이 모두 도착한 뒤 1.5초 후 사고 과정 블록 접기
+        setTimeout(() => { planningMsg.open = false }, 1500)
+      },
+      (step) => {
+        planningMsg.steps.push(step)
+        _applyQueryHL(step)
+        nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+      },
+      (labels) => {
+        // AI 기반 하이라이팅: LLM 답변에 실제 언급된 노드
+        _applyHighlightLabels(labels)
+      }
     )
-  } catch { agentMsg.content = '응답 중 오류가 발생했습니다.'; agentLoading.value = false }
+  } catch {
+    agentMsg.content = '응답 중 오류가 발생했습니다.'
+    planningMsg.done = true; planningMsg.open = false
+    agentLoading.value = false
+  }
 }
 
-function onAgentKeydown(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMsg() } }
+function isExtractModeActive() {
+  return detailTab.value === 'task' &&
+    (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
+    !!detailMeeting.value
+}
+
+function onAgentKeydown(e) {
+  if (atMenuOpen.value && atMenuItems.value.length) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); atHighlight.value = (atHighlight.value + 1) % atMenuItems.value.length; return }
+    if (e.key === 'ArrowUp') { e.preventDefault(); atHighlight.value = (atHighlight.value - 1 + atMenuItems.value.length) % atMenuItems.value.length; return }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectAtItem(atMenuItems.value[atHighlight.value]); return }
+    if (e.key === 'Escape') { atMenuOpen.value = false; return }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMsg() }
+}
 function onAgentFileSelected(e) { agentPendingFiles.value.push(...Array.from(e.target.files || [])); e.target.value = '' }
 function agentAutoResize() {
   const el = agentTextareaEl.value; if (!el) return
   el.style.height = '36px'; el.style.height = Math.min(el.scrollHeight, 100) + 'px'
 }
 
-// ─── Bottom panel ─────────────────────────────────────────────
+// ─── 사고 과정 helper ─────────────────────────────────────────
+async function _runPlanningSteps(planningMsg, steps, delayMs = 360) {
+  for (const step of steps) {
+    planningMsg.steps.push(step)
+    await new Promise(r => setTimeout(r, delayMs))
+    nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+  }
+  planningMsg.done = true
+  // extract/inject 모드는 응답 생성 후 바로 접기
+  setTimeout(() => { planningMsg.open = false }, 1200)
+}
+
+// ─── 좌측 액션 → 우측 에이전트 채팅 주입 ─────────────────────
+async function injectActionToAgent(userText, planningSteps, agentReply) {
+  if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; initAgentGreeting() }
+  await nextTick()
+  allMessages.value['supervisor'].push({ role: 'user', content: userText })
+  const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
+  allMessages.value['supervisor'].push(planningMsg)
+  if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+  await _runPlanningSteps(planningMsg, planningSteps)
+  const agentMsg = { role: 'agent', content: '' }
+  allMessages.value['supervisor'].push(agentMsg)
+  for (let i = 0; i < agentReply.length; i++) {
+    agentMsg.content += agentReply[i]
+    if (i % 4 === 0) {
+      await new Promise(r => setTimeout(r, 10))
+      if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+    }
+  }
+}
+
 const bottomMode = ref(null)
 const bottomH = ref(0)
 let bottomResizing = false, brStartY = 0, brStartH = 0
@@ -367,7 +663,7 @@ function onGlobalMouseMove(e) {
       const mx = e.clientX - rect.left, my = e.clientY - rect.top
       const w = canvas.offsetWidth, h = canvas.offsetHeight
       if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
-        const docValidTypes = ['meeting_group', 'dept', 'task']
+        const docValidTypes = ['meeting_group', 'dept', 'agenda']
         const zf = Math.max(.6, Math.min(2.5, worldZoom))
         const snapR = 22 * zf + 70
         // Find closest valid target
@@ -460,7 +756,7 @@ function onGlobalMouseUp() {
             const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
             if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
           }
-        } else if (tn.type === 'task') {
+        } else if (tn.type === 'agenda') {
           ctx.relatedTodoId = String(tn.data?.id || '')
           ctx.meetingId = tn.meetingGroupId || ''
           const deptEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'dept')
@@ -483,11 +779,22 @@ const detailMeeting = ref(null)
 const detailOpen = ref(false)
 const detailTodos = ref([])
 const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
+const nodeDetailTab = ref('basic') // 'basic' | 'rel'
+
+/** Neo4j ID("mg-001") 또는 정수 ID를 SQLite 정수 ID로 변환 */
+function toSqliteId(id) {
+  if (!id && id !== 0) return 0
+  if (typeof id === 'number') return id
+  const m = String(id).match(/(\d+)$/)
+  return m ? parseInt(m[1], 10) : 0
+}
 
 function openNodeDetail(n) {
   detailNode.value = n
   detailMeeting.value = null
   detailOpen.value = true
+  nodeDetailTab.value = 'basic'
+  relAddActive.value = false
 }
 
 // 현재 회의체 참여 부서 목록
@@ -591,6 +898,20 @@ async function runExtract() {
   allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
   agentSidebarOpen.value = true
   extractPhase.value = 'result'
+
+  // ── 사고 과정 주입 ──────────────────────────────────────
+  const mgTitle = detailMeeting.value?.title || '회의체'
+  injectActionToAgent(
+    `"${mgTitle}" 회의록·자료에서 과제를 추출해줘`,
+    [
+      `Neo4j MATCH (mg:MeetingGroup {title:"${mgTitle}"}) 조회`,
+      `MATCH (mg)-[:ATTACHED_TO|PRODUCED]-(doc:Document) 문서 수집`,
+      `선택된 회의록 및 첨부 파일 텍스트 분석 중...`,
+      `Context Graph: 유사 Decision 노드 참조`,
+      `아젠다 후보 생성 중...`,
+    ],
+    `과제 추출이 완료되었습니다.\n추출된 과제를 검토하고, 수정이 필요하면 말씀해 주세요.`
+  )
   if (!detailMeeting.value) return
   extractLoading.value = true
   extractResult.value = []
@@ -644,7 +965,7 @@ async function openExtractModal() {
   extractResult.value = []
   try {
     const { data } = await api.post('/api/agent/archive/extract-agendas', {
-      meeting_id: detailMeeting.value.id,
+      meeting_id: toSqliteId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
     extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: [...(ag.bullets||[])] }))
@@ -936,6 +1257,16 @@ let floatDragTarget = null
 let floatDragStartX = 0, floatDragStartY = 0, floatDragMoved = false
 let floatDragNearInvalidNode = false
 
+// ─── Connection dot / edge-draw state ─────────────────────────
+const connDotVisible = ref(false)   // reactive → drives cursor style
+let connDotNodeIdx = -1
+let connDotSx = 0, connDotSy = 0
+const connDragging = ref(false)     // reactive → drives cursor style
+let connDragFromIdx = -1
+let connDragFromSx = 0, connDragFromSy = 0
+let connDragCurSx = 0, connDragCurSy = 0
+let connDragTargetIdx = -1
+
 // ─── Upload modal ──────────────────────────────────────────────
 const FILE_TYPES = ['보고자료', '발제자료', '회의록']
 const FILE_TYPE_COLORS = { '보고자료': '#34d399', '발제자료': '#a78bfa', '회의록': '#60a5fa' }
@@ -987,6 +1318,21 @@ async function openFileReview(node) {
 async function rerunFileReview() {
   if (!fileReviewPanel.value) return
   fileReviewAnalyzing.value = true
+
+  // ── 사고 과정 주입 ──────────────────────────────────────
+  const fileName = fileReviewPanel.value.node.label
+  injectActionToAgent(
+    `"${fileName}" 파일을 AI로 검토해줘`,
+    [
+      `파일 메타데이터 분석 중: ${fileName}`,
+      `Neo4j MATCH (doc:Document {label:"${fileName}"}) 조회`,
+      `MATCH (doc)-[:ATTACHED_TO]->(mg:MeetingGroup) 관련 회의체 확인`,
+      `Graph Context 기반 내용 적합성 평가 중...`,
+      `AI 검토 결과 생성 중...`,
+    ],
+    `**${fileName}** 검토가 완료되었습니다.\n검토 결과는 좌측 파일 패널에서 확인하세요.`
+  )
+
   try {
     const { data } = await api.post('/api/agent/archive/analyze-file', {
       file_name: fileReviewPanel.value.node.label,
@@ -1006,6 +1352,20 @@ async function rerunFileReview() {
 async function extractAgendas() {
   if (!fileReviewPanel.value) return
   fileReviewPanel.value.extracting = true
+
+  // ── 사고 과정 주입 ──────────────────────────────────────
+  const fileName = fileReviewPanel.value.node.label
+  injectActionToAgent(
+    `"${fileName}"에서 아젠다를 추출해줘`,
+    [
+      `문서 텍스트 파싱: ${fileName}`,
+      `Neo4j MATCH (doc:Document)-[:ATTACHED_TO]->(mg) 맥락 조회`,
+      `핵심 의제 및 결정 사항 식별 중...`,
+      `아젠다 구조화 및 우선순위 분류 중...`,
+    ],
+    `아젠다 추출이 완료되었습니다.\n추출된 아젠다를 검토하고 과제 배정으로 이동하세요.`
+  )
+
   try {
     const { data } = await api.post('/api/agent/archive/extract-agendas', {
       file_name: fileReviewPanel.value.node.label,
@@ -1028,6 +1388,21 @@ async function extractAgendas() {
 async function assignTasks() {
   if (!fileReviewPanel.value) return
   fileReviewPanel.value.assigning = true
+
+  // ── 사고 과정 주입 ──────────────────────────────────────
+  const agendaCount = fileReviewPanel.value.extractedAgendas?.length || 0
+  injectActionToAgent(
+    `추출된 ${agendaCount}개 아젠다를 부서·담당자에게 배정해줘`,
+    [
+      `Neo4j MATCH (p:Person)-[:BELONGS_TO]->(d:Department) 구성원 조회`,
+      `각 아젠다 담당 부서 적합도 분석 중...`,
+      `MATCH (mg)-[:PARTICIPATES_IN]-(d:Department) 참여 부서 확인`,
+      `GraphRAG 기반 최적 배정 후보 생성 중...`,
+      `과제 배정 요청 전송 중...`,
+    ],
+    `${agendaCount}개 아젠다 배정 요청이 완료되었습니다.\nNeo4j에 과제 노드가 생성됩니다.`
+  )
+
   try {
     await api.post('/api/agent/archive/assign-tasks', {
       file_name: fileReviewPanel.value.node.label,
@@ -1041,35 +1416,166 @@ async function assignTasks() {
 }
 
 // ─── Ontology edge relation constants ─────────────────────────
-const REL_COLORS = { '소속':'#a89fd4','참여':'#8b7fc0','소위원회':'#a78bfa','개최':'#c9a870','생성':'#a8a5a2','담당':'#a8a5a2','관련':'#7a8090','과제':'#6abba5' }
+// ── Neo4j 관계명 색상 매핑 ─────────────────────────────────────
+const REL_COLORS = {
+  'PART_OF':        '#a89fd4',  // org → meetingGroup
+  'PARTICIPATES_IN':'#8b7fc0',  // dept/subGroup → meetingGroup
+  'BELONGS_TO':     '#a78bfa',  // person → dept
+  'ADMIN_OF':       '#fbbf24',  // person → meetingGroup (간사)
+  'MEMBER_OF':      '#60a5fa',  // person → meetingGroup (구성원)
+  'ASSIGNED_TO':    '#34d399',  // person → agenda
+  'OWNED_BY':       '#6abba5',  // agenda → meetingGroup
+  'HELD_BY':        '#c9a870',  // session → meetingGroup
+  'COVERS':         '#f472b6',  // session → agenda
+  'PRODUCED':       '#a8a5a2',  // session → document
+  'ATTACHED_TO':    '#fb923c',  // document → meetingGroup
+  'BASED_ON':       '#38bdf8',  // decision → session
+  'CAUSED_BY':      '#86efac',  // decision → agenda
+  'REFERENCES':     '#7a8090',  // generic reference
+}
 function hexToRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
   return `rgba(${r},${g},${b},${a})`
 }
-// 소스 타입 × 대상 타입 → 관계 자동 추론
+// ── 소스 타입 × 대상 타입 → Neo4j 관계 자동 추론 ──────────────
+// 정방향 키 (from→to)로 관계와 Neo4j 방향 정의
+// 역방향으로 드래그해도 canonical 방향을 자동으로 맞춤
 const REL_MATRIX = {
-  'dept→meeting_group': '참여',
-  'org→meeting_group':  '관련',
-  'meeting_group→meeting_group': '소위원회',
-  'session→meeting_group': '관련',
-  'person→meeting_group': '참여',
-  'meeting_group→task':  '과제',
-  'meeting_group→file': '생성',
-  'task→file':           '생성',
-  'session→file':        '생성',
-  'dept→file':           '담당',
-  'org→file':            '관련',
-  'person→file':         '담당',
+  // ── Org / Dept ─────────────────────────────────────────────
+  'dept→meeting_group':          'PARTICIPATES_IN',
+  'org→meeting_group':           'PART_OF',
+  'org→dept':                    'PART_OF',
+  'dept→dept':                   'PART_OF',
+  'person→dept':                 'BELONGS_TO',
+  'dept→file':                   'ATTACHED_TO',
+  'org→file':                    'REFERENCES',
+  // ── MeetingGroup ───────────────────────────────────────────
+  'meeting_group→meeting_group': 'PARTICIPATES_IN',
+  'person→meeting_group':        'MEMBER_OF',
+  'file→meeting_group':          'ATTACHED_TO',
+  // ── Agenda ─────────────────────────────────────────────────
+  'agenda→meeting_group':        'OWNED_BY',
+  'person→agenda':               'ASSIGNED_TO',
+  'file→agenda':                 'REFERENCES',
+  // ── Session ────────────────────────────────────────────────
+  'session→meeting_group':       'HELD_BY',
+  'session→agenda':              'COVERS',
+  'session→file':                'PRODUCED',
+  'session→session':             'FOLLOWED_BY',
+  // ── Decision ───────────────────────────────────────────────
+  'decision→session':            'BASED_ON',
+  'decision→agenda':             'CAUSED_BY',
+  'decision→meeting_group':      'BASED_ON',
+  // ── File / Document ────────────────────────────────────────
+  'file→file':                   'REFERENCES',
+  'file→session':                'REFERENCES',
+  'file→dept':                   'ATTACHED_TO',
+  'person→file':                 'ATTACHED_TO',
 }
 function autoRel(sourceNodeId, targetType) {
   const srcNode = gNodes.find(n => n.id === sourceNodeId)
-  const key = `${srcNode?.type}→${targetType}`
-  return REL_MATRIX[key] || '관련'
+  const fwd = `${srcNode?.type}→${targetType}`
+  if (REL_MATRIX[fwd]) return REL_MATRIX[fwd]
+  // try reverse
+  const rev = `${targetType}→${srcNode?.type}`
+  return REL_MATRIX[rev] || 'REFERENCES'
+}
+
+/**
+ * 드래그 방향에 무관하게 canonical Neo4j 방향을 결정합니다.
+ * @returns {{ rel, neo4jFromId, neo4jToId }}
+ */
+function resolveRel(fromIdx, toIdx) {
+  const fn = gNodes[fromIdx], tn = gNodes[toIdx]
+  const fwd = `${fn?.type}→${tn?.type}`
+  if (REL_MATRIX[fwd]) return { rel: REL_MATRIX[fwd], neo4jFromId: fn?.id, neo4jToId: tn?.id }
+  const rev = `${tn?.type}→${fn?.type}`
+  if (REL_MATRIX[rev]) return { rel: REL_MATRIX[rev], neo4jFromId: tn?.id, neo4jToId: fn?.id }
+  return { rel: 'REFERENCES', neo4jFromId: fn?.id, neo4jToId: tn?.id }
+}
+
+// ─── Relationship manager ─────────────────────────────────────
+const ALL_REL_TYPES = Object.keys(REL_COLORS)
+const graphVersion = ref(0) // bump to force sidebar reactivity when gEdges mutate
+
+const currentNodeId = computed(() => {
+  if (detailMeeting.value) return `mg-${detailMeeting.value.id}`
+  return detailNode.value?.id || null
+})
+
+const currentNodeEdges = computed(() => {
+  graphVersion.value // reactive dep
+  const nodeId = currentNodeId.value
+  if (!nodeId) return []
+  const idx = gNodes.findIndex(n => n.id === nodeId)
+  if (idx < 0) return []
+  return gEdges
+    .map((e, i) => ({ ...e, _idx: i }))
+    .filter(e => e.from === idx || e.to === idx)
+    .map(e => ({
+      _idx: e._idx,
+      fromNode: gNodes[e.from],
+      toNode:   gNodes[e.to],
+      rel:      e.rel,
+      direction: e.from === idx ? 'out' : 'in',
+    }))
+})
+
+const allGraphNodeList = computed(() => {
+  graphVersion.value
+  return gNodes.map(n => ({ id: n.id, label: n.label, type: n.type }))
+})
+
+const relAddActive = ref(false)
+const relAddForm   = ref({ fromId: '', toId: '', rel: 'REFERENCES' })
+const relEditIdx   = ref(null)
+const relEditRel   = ref('')
+
+// Auto-suggest rel type when src/dst change in add form
+watch(() => [relAddForm.value.fromId, relAddForm.value.toId], ([fId, tId]) => {
+  if (!fId || !tId) return
+  const tNode = gNodes.find(n => n.id === tId)
+  relAddForm.value.rel = autoRel(fId, tNode?.type || '') || 'REFERENCES'
+})
+
+function startRelEdit(edgeIdx) {
+  relEditIdx.value = edgeIdx
+  relEditRel.value = gEdges[edgeIdx]?.rel || ''
+}
+function saveRelEdit() {
+  if (relEditIdx.value !== null && gEdges[relEditIdx.value]) {
+    gEdges[relEditIdx.value].rel = relEditRel.value
+  }
+  relEditIdx.value = null
+  graphVersion.value++
+}
+function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
+function doDeleteEdge(edgeIdx) {
+  gEdges.splice(edgeIdx, 1)
+  relEditIdx.value = null
+  graphVersion.value++
+}
+function openAddRel() {
+  relAddForm.value = { fromId: currentNodeId.value || '', toId: '', rel: 'REFERENCES' }
+  relAddActive.value = true
+}
+function doAddRel() {
+  const { fromId, toId, rel } = relAddForm.value
+  if (!fromId || !toId || !rel || fromId === toId) return
+  const fromIdx = gNodes.findIndex(n => n.id === fromId)
+  const toIdx   = gNodes.findIndex(n => n.id === toId)
+  if (fromIdx < 0 || toIdx < 0) return
+  if (gEdges.find(e => e.from === fromIdx && e.to === toIdx)) {
+    showMapToast('이미 연결된 노드입니다.'); return
+  }
+  gEdges.push({ from: fromIdx, to: toIdx, rel })
+  relAddActive.value = false
+  graphVersion.value++
 }
 
 const connectableNodes = computed(() => {
   const groups = meetingGroups.value
-  const result = [{ id:'org-root', label:'조직', typeLabel:'조직', type:'org' }]
+  const result = [{ id:'org-root', label:'나', typeLabel:'구성원', type:'person' }]
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
   depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
@@ -1140,12 +1646,36 @@ async function runAiAnalysis() {
   aiAnalyzing.value = true
   uploadStep.value = 2
   const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
+
+  // 실제 파일 내용 읽기 (텍스트 기반 파일만)
+  let file_content = ''
+  const file = uploadForm.value.file
+  if (file) {
+    const TEXT_EXTS = /\.(txt|md|html|htm|csv|json|xml|log|yaml|yml)$/i
+    if (TEXT_EXTS.test(file.name) || file.type.startsWith('text/')) {
+      try {
+        file_content = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = e => resolve(e.target.result?.slice(0, 4000) || '')
+          reader.onerror = reject
+          reader.readAsText(file, 'UTF-8')
+        })
+      } catch { file_content = '' }
+    } else {
+      // PDF/이미지 등 — 파일명만 있고 내용 없음을 명시
+      file_content = '[바이너리 파일 — 내용 추출 불가]'
+    }
+  }
+  // 파일 자체가 없으면 (이름만 입력한 경우) 명시
+  if (!file_content) file_content = '[파일 미첨부 — 이름만 입력됨]'
+
   try {
     const { data } = await api.post('/api/agent/archive/analyze-file', {
       file_name: uploadForm.value.label,
       file_type: uploadForm.value.fileType,
       dept_name: deptNode?.label || '',
       graph_context: buildGraphContextStr(),
+      file_content,
     })
     aiResult.value = data
     selectedAgendas.value = data.agendas.map((_, i) => i)      // 기본 전체 선택
@@ -1236,6 +1766,10 @@ function doAddFile() {
 
 
 const meetingGroups = computed(() => {
+  // Neo4j 데이터가 있으면 우선 사용 (그래프 온톨로지 기반)
+  if (neo4jMeetings.value.length > 0) return neo4jMeetings.value
+
+  // fallback: SQLite 기반 조합
   const map = new Map()
   // 본인이 참여 중인 회의체만 포함
   meetingsStore.meetings
@@ -1412,33 +1946,42 @@ function buildGraphNodes() {
   const nodes = [], edges = []
   const data = meetingGroups.value
 
-  // ── 계층 구조: org → 회의체 → 부서 → 과제 → 회의 → 파일 ──
-  // 부서는 각 회의체에 종속 (공유 링 없음)
-  const R = { meeting_group: 260, dept: 440, person: 340, task: 620, session: 790, file: 950 }
-  const Y = { org: 0, meeting_group: 0, dept: -15, person: -40, task: 15, session: 25, file: 10 }
+  // ── 반경 정의 (Neo4j 그래프 온톨로지 계층 반영) ─────────────
+  // Organization(중심) → MeetingGroup → Department/Person → Document/Agenda → Session → Decision
+  const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920, decision: 600 }
+  const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12, decision: -20 }
   const TWO_PI = Math.PI * 2
 
-  // org (중심)
+  // ── Person 노드 (현재 로그인 사용자, 중심) ────────────────────
   const orgIdx = nodes.length
-  const orgLabel = authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
-  nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:Y.org, z:0 })
+  const orgLabel = currentPerson.value?.name || authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
+  nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0 })
+
+  // 소속 회의체 없으면 본인 노드만 표시
+  if (!data.length) return { nodes, edges }
 
   const mgCount = data.length
-  const mgAngles = data.map((_, gi) => (gi / Math.max(mgCount, 1)) * TWO_PI)
   const sectorWidth = TWO_PI / Math.max(mgCount, 1)
 
   data.forEach((g, gi) => {
-    const mgIdx = nodes.length
-    const ang = mgAngles[gi]
-    const mgNodeId = `mg-${g.id||gi}`
-    nodes.push({ id:mgNodeId, label:g.title||`회의체${gi+1}`, type:'meeting_group',
-      x:Math.cos(ang)*R.meeting_group, y:Y.meeting_group, z:Math.sin(ang)*R.meeting_group,
-      data:g, groupIdx:gi })
-    edges.push({ from:orgIdx, to:mgIdx, rel:'소속' })
+    const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
+    const mgNodeId = `mg-${g.id || gi}`
 
-    // ── 부서 노드 (이 회의체 전용) ─────────────────────────────
+    // ── MeetingGroup 노드 ─────────────────────────────────────
+    const mgIdx = nodes.length
+    nodes.push({
+      id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'meeting_group',
+      x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
+      data: g, groupIdx: gi
+    })
+    // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
+    const selfRole = meetingsStore.meetingRoles?.[g.id]
+    const selfRel = selfRole === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
+    edges.push({ from: orgIdx, to: mgIdx, rel: selfRel })
+
+    // ── Department 노드: 회의에 PARTICIPATES_IN ───────────────
     const membersByDept = new Map()
-    ;(g.members||[]).forEach(mb => {
+    ;(g.members || []).forEach(mb => {
       const d = mb.department || mb.dept || '미지정'
       if (!membersByDept.has(d)) membersByDept.set(d, [])
       membersByDept.get(d).push(mb)
@@ -1449,18 +1992,39 @@ function buildGraphNodes() {
     const deptIdxMap = new Map()
 
     depts.forEach((deptName, di) => {
-      const dAng = ang + (di - (dCount-1)/2) * deptFan
+      const dAng = ang + (di - (dCount - 1) / 2) * deptFan
       const deptIdx = nodes.length
       deptIdxMap.set(deptName, deptIdx)
-      nodes.push({ id:`dept-${g.id||gi}-${deptName}`, label:deptName, type:'dept',
-        x:Math.cos(dAng)*R.dept, y:Y.dept, z:Math.sin(dAng)*R.dept,
-        members:membersByDept.get(deptName), groupIdx:gi, meetingGroupId:mgNodeId })
-      edges.push({ from:mgIdx, to:deptIdx, rel:'참여' })
+      nodes.push({
+        id: `dept-${g.id || gi}-${deptName}`, label: deptName, type: 'dept',
+        x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
+        members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId
+      })
+      // dept -[PARTICIPATES_IN]→ meetingGroup
+      edges.push({ from: deptIdx, to: mgIdx, rel: 'PARTICIPATES_IN' })
 
-      // 구성원 노드 제거됨 (person 타입 노드 미사용)
+      // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
+      const deptMembers = membersByDept.get(deptName) || []
+      const pCount = deptMembers.length
+      deptMembers.forEach((mb, pi) => {
+        const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
+        const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
+        const pIdx = nodes.length
+        const pName = mb.userName || mb.name || '?'
+        nodes.push({
+          id: `person-${g.id || gi}-${mb.userId || pi}`, label: pName, type: 'person',
+          x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
+          groupIdx: gi, meetingGroupId: mgNodeId, data: mb
+        })
+        // person -[BELONGS_TO]→ dept
+        edges.push({ from: pIdx, to: deptIdx, rel: 'BELONGS_TO' })
+        // person -[ADMIN_OF or MEMBER_OF]→ meetingGroup
+        const memberRel = mb.role === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
+        edges.push({ from: pIdx, to: mgIdx, rel: memberRel })
+      })
     })
 
-    // ── 과제 노드: 담당 부서에 연결, 없으면 순환 배분 ────────
+    // ── Agenda 노드: OWNED_BY meetingGroup ───────────────────
     const taskList = g.tasks || []
     const tasksByDept = new Map()
     depts.forEach(d => tasksByDept.set(d, []))
@@ -1474,8 +2038,8 @@ function buildGraphNodes() {
       if (depts.length > 0) tasksByDept.get(depts[ti % depts.length]).push(task)
     })
 
-    const taskIdxByTodoId = new Map()
-    const allTaskIdxList = []
+    const agendaIdxByTodoId = new Map()
+    const allAgendaIdxList = []
 
     depts.forEach(deptName => {
       const deptIdx = deptIdxMap.get(deptName)
@@ -1485,81 +2049,115 @@ function buildGraphNodes() {
       const tCount = deptTasks.length
       const tFan = tCount > 1 ? Math.min(0.22, 0.14) : 0
       deptTasks.forEach((task, ti) => {
-        const tAng = dAng + (ti - (tCount-1)/2) * tFan
-        const taskNodeIdx = nodes.length
-        allTaskIdxList.push(taskNodeIdx)
-        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
-        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
-          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
-          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
-        edges.push({ from:deptIdx, to:taskNodeIdx, rel:'담당' })
-        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+        const tAng = dAng + (ti - (tCount - 1) / 2) * tFan
+        const agIdx = nodes.length
+        allAgendaIdxList.push(agIdx)
+        const agLabel = (task.content || `아젠다 ${ti + 1}`).slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
+        nodes.push({
+          id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
+          x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId
+        })
+        // agenda -[OWNED_BY]→ meetingGroup
+        edges.push({ from: agIdx, to: mgIdx, rel: 'OWNED_BY' })
+        // person -[ASSIGNED_TO]→ agenda (담당 부서의 첫 번째 구성원)
+        const assigneeDept = task.assignee_dept || deptName
+        const assigneeMembers = membersByDept.get(assigneeDept) || []
+        if (assigneeMembers.length > 0) {
+          const personId = `person-${g.id || gi}-${assigneeMembers[0].userId || 0}`
+          const personIdx = nodes.findIndex(n => n.id === personId)
+          if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: 'ASSIGNED_TO' })
+        }
+        agendaIdxByTodoId.set(String(task.id), agIdx)
       })
     })
 
-    // 부서가 없을 때 과제를 회의체에 직접 연결
+    // 부서 없을 때 아젠다를 회의체에 직접 연결
     if (depts.length === 0 && taskList.length > 0) {
       taskList.forEach((task, ti) => {
-        const tAng = ang + (ti - (taskList.length-1)/2) * 0.2
-        const taskNodeIdx = nodes.length
-        allTaskIdxList.push(taskNodeIdx)
-        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
-        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
-          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
-          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
-        edges.push({ from:mgIdx, to:taskNodeIdx, rel:'과제' })
-        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+        const tAng = ang + (ti - (taskList.length - 1) / 2) * 0.2
+        const agIdx = nodes.length
+        allAgendaIdxList.push(agIdx)
+        const agLabel = (task.content || `아젠다 ${ti + 1}`).slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
+        nodes.push({
+          id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
+          x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId
+        })
+        edges.push({ from: mgIdx, to: agIdx, rel: 'OWNED_BY' })
+        agendaIdxByTodoId.set(String(task.id), agIdx)
       })
     }
 
-    // ── 회의(세션) 노드: 과제에 순환 배분 ─────────────────────
+    // ── Session 노드: HELD_BY meetingGroup, COVERS agenda ────
     const sessions = g.minutes || []
-    const tTotal = allTaskIdxList.length
+    const aTotal = allAgendaIdxList.length
     sessions.forEach((m, mi) => {
-      const parentTaskIdx = tTotal > 0 ? allTaskIdxList[mi % tTotal] : mgIdx
-      const parentNode = nodes[parentTaskIdx]
+      const parentAgIdx = aTotal > 0 ? allAgendaIdxList[mi % aTotal] : mgIdx
+      const parentNode = nodes[parentAgIdx]
       const pAng = parentNode ? Math.atan2(parentNode.z, parentNode.x) : ang
-      // 같은 부모를 공유하는 세션 수 & 순번 계산
-      const sibCount = sessions.filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
-      const sibIdx = sessions.slice(0, mi).filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
+      const sibCount = sessions.filter((_, j) => (aTotal > 0 ? allAgendaIdxList[j % aTotal] : mgIdx) === parentAgIdx).length
+      const sibIdx = sessions.slice(0, mi).filter((_, j) => (aTotal > 0 ? allAgendaIdxList[j % aTotal] : mgIdx) === parentAgIdx).length
       const sFan = sibCount > 1 ? Math.min(0.22, 0.14) : 0
-      const sAng = pAng + (sibIdx - (sibCount-1)/2) * sFan
+      const sAng = pAng + (sibIdx - (sibCount - 1) / 2) * sFan
       const sIdx = nodes.length
-      nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session',
-        x:Math.cos(sAng)*R.session, y:Y.session, z:Math.sin(sAng)*R.session, groupIdx:gi, data:m })
-      edges.push({ from:parentTaskIdx, to:sIdx, rel:'개최' })
+      nodes.push({
+        id: `session-${g.id || gi}-${mi}`,
+        label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
+        x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
+        groupIdx: gi, data: m
+      })
+      // session -[HELD_BY]→ meetingGroup
+      edges.push({ from: sIdx, to: mgIdx, rel: 'HELD_BY' })
+      // session -[COVERS]→ agenda (순환 배분)
+      if (aTotal > 0) edges.push({ from: sIdx, to: allAgendaIdxList[mi % aTotal], rel: 'COVERS' })
 
-      const fIdx = nodes.length
-      nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록',
-        x:Math.cos(sAng)*R.file, y:Y.file, z:Math.sin(sAng)*R.file, groupIdx:gi })
-      edges.push({ from:sIdx, to:fIdx, rel:'생성' })
+      // ── Document 노드 (회의록): session -[PRODUCED]→ document
+      const dIdx = nodes.length
+      nodes.push({
+        id: `file-min-${g.id || gi}-${mi}`,
+        label: m.session_title || `${m.session_number || mi + 1}차 회의록`, type: 'file', fileType: '회의록',
+        x: Math.cos(sAng) * R.file, y: Y.file, z: Math.sin(sAng) * R.file, groupIdx: gi
+      })
+      edges.push({ from: sIdx, to: dIdx, rel: 'PRODUCED' })
     })
 
-    // ── 보고서 파일: 관련 과제 노드에 연결 ─────────────────────
-    ;(g.reports||[]).forEach((rp, ri) => {
+    // ── Document 노드 (보고자료): ATTACHED_TO meetingGroup ───
+    ;(g.reports || []).forEach((rp, ri) => {
       const relTodoId = String(rp.related_todo_id || '')
-      let fromIdx = allTaskIdxList.length > 0 ? allTaskIdxList[0] : mgIdx
-      if (relTodoId && taskIdxByTodoId.has(relTodoId)) fromIdx = taskIdxByTodoId.get(relTodoId)
+      let fromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
+      if (relTodoId && agendaIdxByTodoId.has(relTodoId)) fromIdx = agendaIdxByTodoId.get(relTodoId)
       const fromNode = nodes[fromIdx]
       const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
-      const rAng = bAng + (ri - ((g.reports||[]).length-1)/2) * 0.12
+      const rAng = bAng + (ri - ((g.reports || []).length - 1) / 2) * 0.12
       const rIdx = nodes.length
-      nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료',
-        x:Math.cos(rAng)*R.file, y:Y.file-15, z:Math.sin(rAng)*R.file, groupIdx:gi })
-      edges.push({ from:fromIdx, to:rIdx, rel:'생성' })
+      nodes.push({
+        id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
+        x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi
+      })
+      // document -[ATTACHED_TO]→ meetingGroup
+      edges.push({ from: rIdx, to: mgIdx, rel: 'ATTACHED_TO' })
     })
   })
 
-  // ── 소위원회 엣지 ─────────────────────────────────────────
+  // ── 소위원회 (MeetingGroup -[PARTICIPATES_IN]→ MeetingGroup) ─
   data.forEach(g => {
     if (!g.parent_id) return
-    const subIdx    = nodes.findIndex(n => n.id === `mg-${g.id}`)
+    const subIdx = nodes.findIndex(n => n.id === `mg-${g.id}`)
     const parentIdx = nodes.findIndex(n => n.id === `mg-${g.parent_id}`)
     if (subIdx >= 0 && parentIdx >= 0)
-      edges.push({ from:subIdx, to:parentIdx, rel:'소위원회' })
+      edges.push({ from: subIdx, to: parentIdx, rel: 'PARTICIPATES_IN' })
   })
 
   return { nodes, edges }
+}
+
+/** 노드의 논리적 히트 반경 (연결 점 검출에 사용) */
+function getNodeHitRadius(n, zf, scale = 1.0) {
+  if (n.id === 'org-root')       return Math.min(30, 18 * scale * zf)
+  if (n.type === 'meeting_group') return Math.min(36, 22 * scale * zf)
+  if (n.type === 'person')        return Math.min(22, 14 * scale * zf)
+  return Math.min(28, 18 * scale * zf) // dept, agenda, session, file
 }
 
 function initGraph() {
@@ -1613,46 +2211,59 @@ function getHubFill(g) {
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
-    // 기본: org + 회의체만 표시
-    gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
+    // 기본: 본인(충심 person) + 회의체만 표시
+    gNodes.forEach((n, i) => { if (n.id === 'org-root' || n.type === 'meeting_group') vis.add(i) })
   } else {
     const hubNode = gNodes[expandedHubIdx]
     if (hubNode?.type === 'meeting_group') {
       vis.add(expandedHubIdx)
-      // 회의체 → 부서
+      // ── Neo4j 온톨로지에서 관계 방향에 따른 가시성 ─────────────
+      // dept/person -[PARTICIPATES_IN/BELONGS_TO]→ meetingGroup
+      // agenda -[OWNED_BY]→ meetingGroup
+      // session -[HELD_BY]→ meetingGroup
+      // document -[ATTACHED_TO]→ meetingGroup
       gEdges.forEach(e => {
-        if (e.from !== expandedHubIdx) return
-        const dNode = gNodes[e.to]
-        if (!dNode) return
-        // 직접 연결된 task (부서 없을 때)
-        if (dNode.type === 'task') {
-          vis.add(e.to)
-          gEdges.forEach(e2 => {
-            if (e2.from !== e.to) return
-            vis.add(e2.to) // session 또는 file
-            if (gNodes[e2.to]?.type === 'session') gEdges.forEach(e3 => { if (e3.from === e2.to) vis.add(e3.to) })
-          })
-          return
+        const fromNode = gNodes[e.from], toNode = gNodes[e.to]
+        if (!fromNode || !toNode) return
+        // 회의체에 연결된 노드들을 모두 표시
+        if (e.to === expandedHubIdx) {
+          vis.add(e.from)
+          const fromIdx = e.from
+          // dept → 그 부서에 BELONGS_TO한 person들
+          if (fromNode.type === 'dept') {
+            gEdges.forEach(e2 => {
+              if (e2.to === fromIdx && gNodes[e2.from]?.type === 'person') vis.add(e2.from)
+            })
+          }
+          // agenda → session (COVERS), document (PRODUCED → session → file)
+          if (fromNode.type === 'agenda') {
+            gEdges.forEach(e2 => {
+              if (e2.to === fromIdx && gNodes[e2.from]?.type === 'session') {
+                vis.add(e2.from)
+                const sIdx = e2.from
+                // session → document (PRODUCED)
+                gEdges.forEach(e3 => { if (e3.from === sIdx && gNodes[e3.to]?.type === 'file') vis.add(e3.to) })
+              }
+            })
+          }
         }
-        if (dNode.type !== 'dept') return
-        vis.add(e.to) // 부서
-        const deptIdx = e.to
-        // 부서 → 과제
-        gEdges.forEach(e2 => {
-          if (e2.from !== deptIdx || gNodes[e2.to]?.type !== 'task') return
-          vis.add(e2.to)
-          const taskIdx = e2.to
-          // 과제 → 세션 + 보고서 파일
-          gEdges.forEach(e3 => {
-            if (e3.from !== taskIdx) return
-            vis.add(e3.to)
-            // 세션 → 회의록 파일
-            if (gNodes[e3.to]?.type === 'session') gEdges.forEach(e4 => { if (e4.from === e3.to) vis.add(e4.to) })
-          })
-        })
+        // 회의체에서 나가는 엣지 (PART_OF org → 하위 회의체 PARTICIPATES_IN은 제외)
+        if (e.from === expandedHubIdx) {
+          if (toNode.type === 'agenda') {
+            vis.add(e.to) // 직접 연결된 agenda (부서 없을 때)
+            const agIdx = e.to
+            gEdges.forEach(e2 => {
+              if (e2.to === agIdx && gNodes[e2.from]?.type === 'session') {
+                vis.add(e2.from)
+                const sIdx = e2.from
+                gEdges.forEach(e3 => { if (e3.from === sIdx && gNodes[e3.to]?.type === 'file') vis.add(e3.to) })
+              }
+            })
+          }
+        }
       })
     } else {
-      gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
+      gNodes.forEach((n, i) => { if (n.id === 'org-root' || n.type === 'meeting_group') vis.add(i) })
     }
   }
   return vis
@@ -1670,31 +2281,84 @@ function getRelatedIndices(mgIdx) {
 }
 
 function computeTreeLayout(hubIdx, w, h) {
-  const naturalPos = new Map() // natural (unzoomed) positions
+  const naturalPos = new Map()
   const visSet = getVisibleSet()
-  const TOP = 60, GAP = 130, PAD = 50
+  const TOP = 60, GAP = 140, PAD = 60
+
+  // ── Neo4j 온톨로지 계층 구조 (타입별 명시적 부모→자식 규칙) ──
+  // meetingGroup → dept, agenda, standalone file
+  // dept         → person
+  // agenda       → session
+  // session      → file (PRODUCED)
+  const visited = new Set()
 
   function kids(idx) {
-    return gEdges
-      .filter(e => e.from === idx && visSet.has(e.to))
-      .map(e => e.to)
+    const node = gNodes[idx]
+    if (!node) return []
+    const result = []
+
+    if (node.type === 'meeting_group') {
+      // dept: dept -[PARTICIPATES_IN]→ mg  (역방향 탐색)
+      gEdges.forEach(e => {
+        if (e.to === idx && gNodes[e.from]?.type === 'dept' && visSet.has(e.from) && !visited.has(e.from))
+          result.push(e.from)
+      })
+      // agenda: agenda -[OWNED_BY]→ mg  (역방향 탐색)
+      gEdges.forEach(e => {
+        if (e.to === idx && gNodes[e.from]?.type === 'agenda' && visSet.has(e.from) && !visited.has(e.from))
+          result.push(e.from)
+      })
+      // standalone doc: file -[ATTACHED_TO]→ mg  (역방향 탐색)
+      gEdges.forEach(e => {
+        if (e.to === idx && gNodes[e.from]?.type === 'file' && visSet.has(e.from) && !visited.has(e.from))
+          result.push(e.from)
+      })
+    } else if (node.type === 'dept') {
+      // person: person -[BELONGS_TO]→ dept  (역방향)
+      gEdges.forEach(e => {
+        if (e.to === idx && gNodes[e.from]?.type === 'person' && visSet.has(e.from) && !visited.has(e.from))
+          result.push(e.from)
+      })
+    } else if (node.type === 'agenda') {
+      // session: session -[COVERS]→ agenda  (역방향)
+      gEdges.forEach(e => {
+        if (e.to === idx && gNodes[e.from]?.type === 'session' && visSet.has(e.from) && !visited.has(e.from))
+          result.push(e.from)
+      })
+    } else if (node.type === 'session') {
+      // file: session -[PRODUCED]→ file  (정방향)
+      gEdges.forEach(e => {
+        if (e.from === idx && gNodes[e.to]?.type === 'file' && visSet.has(e.to) && !visited.has(e.to))
+          result.push(e.to)
+      })
+    }
+
+    return [...new Set(result)]
   }
+
   const _lc = new Map()
   function leafCount(idx) {
     if (_lc.has(idx)) return _lc.get(idx)
+    visited.add(idx)
     const ch = kids(idx)
     const c = ch.length ? ch.reduce((s, ci) => s + leafCount(ci), 0) : 1
     _lc.set(idx, c); return c
   }
+  // leafCount 먼저 실행해서 visited 구성
+  leafCount(hubIdx)
+  visited.clear()
+
   function placeNatural(idx, cx, y) {
+    if (visited.has(idx)) return
+    visited.add(idx)
     naturalPos.set(idx, { cx, y })
     const ch = kids(idx)
     if (!ch.length) return
-    const total = ch.reduce((s, ci) => s + leafCount(ci), 0)
-    const spread = Math.min(w - PAD * 2, Math.max(ch.length * 90, total * 100))
+    const total = _lc.get(idx) ?? ch.length
+    const spread = Math.min(w - PAD * 2, Math.max(ch.length * 110, total * 110))
     let x = cx - spread / 2
     for (const ci of ch) {
-      const frac = leafCount(ci) / total
+      const frac = (_lc.get(ci) ?? 1) / total
       placeNatural(ci, x + frac * spread / 2, y + GAP)
       x += frac * spread
     }
@@ -1741,6 +2405,41 @@ function drawArchiveGraph() {
   const order=projected.slice().sort((a,b)=>a.z-b.z)
   const zf=Math.max(0.6,Math.min(2.5,worldZoom))
   const now = Date.now() / 1000
+
+  // ── 하이라이트 엣지 glow pre-pass (노드보다 먼저 그려서 아래 레이어) ──
+  if (queryHlEdgeIdxs.value.size > 0) {
+    const tHL = Date.now() / 350
+    gEdges.forEach((e, ei) => {
+      if (!queryHlEdgeIdxs.value.has(ei)) return
+      const { from, to } = e
+      if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
+      else { if (!visibleSet.has(from) || !visibleSet.has(to)) return }
+      if (from >= projected.length || to >= projected.length) return
+      const pa = projected[from], pb = projected[to]
+      const pulse = 0.55 + 0.45 * Math.sin(tHL * 4)
+      ctx.save()
+      ctx.strokeStyle = `rgba(139,92,246,${0.55 * pulse})`
+      ctx.lineWidth = is2D ? 7 : 6
+      ctx.lineCap = 'round'
+      if (is2D) {
+        const midY = (pa.sy + pb.sy) / 2
+        ctx.beginPath(); ctx.moveTo(pa.sx, pa.sy)
+        ctx.bezierCurveTo(pa.sx, midY, pb.sx, midY, pb.sx, pb.sy); ctx.stroke()
+      } else {
+        const dx = pb.sx - pa.sx, dy = pb.sy - pa.sy
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len < 8) { ctx.restore(); return }
+        const ux = dx / len, uy = dy / len
+        const cpBow = Math.min(len * 0.25, 40)
+        const cpX = (pa.sx + pb.sx) / 2 - uy * cpBow
+        const cpY = (pa.sy + pb.sy) / 2 + ux * cpBow
+        ctx.beginPath(); ctx.moveTo(pa.sx + ux * 12, pa.sy + uy * 12)
+        ctx.quadraticCurveTo(cpX, cpY, pb.sx - ux * 18, pb.sy - uy * 18); ctx.stroke()
+      }
+      ctx.restore()
+    })
+  }
+
   gEdges.forEach(e => {
     const { from, to, rel } = e
     if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
@@ -1756,20 +2455,46 @@ function drawArchiveGraph() {
     if (len < 8) return
     const ux=dx/len, uy=dy/len
     const as = Math.max(5, 8*Math.min(1.4,(pa.scale+pb.scale)/2)*Math.min(1.5,zf))
-    const x1=pa.sx+ux*12, y1=pa.sy+uy*12
-    const x2=pb.sx-ux*(as+10), y2=pb.sy-uy*(as+10)
-    if (Math.sqrt((x2-x1)**2+(y2-y1)**2) < 4) return
-    // Line
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2)
-    ctx.strokeStyle=hexToRgba(relColor,alpha); ctx.lineWidth=lw; ctx.stroke()
-    // Arrowhead
-    const tipX=x2+ux*as, tipY=y2+uy*as
-    const px2=-uy*as*0.44, py2=ux*as*0.44
-    ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
-    ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
+
+    ctx.strokeStyle=hexToRgba(relColor,alpha); ctx.lineWidth=lw
+
+    if (is2D) {
+      // ── 2D 트리: 위→아래 S커브 베지어 연결선 (org차트 스타일) ──
+      const midY = (pa.sy + pb.sy) / 2
+      ctx.beginPath()
+      ctx.moveTo(pa.sx, pa.sy)
+      ctx.bezierCurveTo(pa.sx, midY, pb.sx, midY, pb.sx, pb.sy)
+      ctx.stroke()
+      // 화살표: 종점에서 수직으로 내려오는 방향
+      const aLen = as
+      const tipX = pb.sx, tipY = pb.sy
+      const ax = 0, ay = -1  // 아래→위 방향 (끝점에서 역방향)
+      const px2 = -ay * aLen * 0.44, py2 = ax * aLen * 0.44
+      ctx.beginPath()
+      ctx.moveTo(tipX, tipY)
+      ctx.lineTo(tipX + ax * (-aLen) + px2, tipY + ay * (-aLen) + py2)
+      ctx.lineTo(tipX + ax * (-aLen) - px2, tipY + ay * (-aLen) - py2)
+      ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
+    } else {
+      // ── 3D 글로브: 살짝 휘는 2차 베지어 ──
+      const cpBow = Math.min(len * 0.25, 40)
+      const cpX = (pa.sx + pb.sx) / 2 - uy * cpBow
+      const cpY = (pa.sy + pb.sy) / 2 + ux * cpBow
+      const x1=pa.sx+ux*12, y1=pa.sy+uy*12
+      const x2=pb.sx-ux*(as+10), y2=pb.sy-uy*(as+10)
+      if (Math.sqrt((x2-x1)**2+(y2-y1)**2) < 4) return
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.quadraticCurveTo(cpX,cpY,x2,y2)
+      ctx.stroke()
+      // 화살표
+      const tipX=x2+ux*as, tipY=y2+uy*as
+      const px2=-uy*as*0.44, py2=ux*as*0.44
+      ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
+      ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
+    }
     // Relation label
-    if (rel && rel !== '개최' && rel !== '생성' && len > 42 && zf > 0.85) {
-      const lx=(pa.sx+pb.sx)/2-uy*8, ly=(pa.sy+pb.sy)/2+ux*8
+    if (rel && len > 42 && zf > 0.85) {
+      const lx = is2D ? (pa.sx + pb.sx) / 2 + 6 : (pa.sx+pb.sx)/2-uy*8
+      const ly = is2D ? (pa.sy + pb.sy) / 2       : (pa.sy+pb.sy)/2+ux*8
       ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
       ctx.textAlign='center'; ctx.textBaseline='middle'
       ctx.fillStyle=hexToRgba(relColor,Math.min(1,alpha+0.35))
@@ -1782,7 +2507,7 @@ function drawArchiveGraph() {
     const n=p.node,isFocused=focusNode===p.idx
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
-    if(n.type==='org'){
+    if(n.id === 'org-root'){  // 중심 노드: 본인 (Person)
       const r=Math.min(30,(isFocused?22:18)*p.scale*zf)
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
       grad.addColorStop(0,isDark?'rgba(100,116,139,0.95)':'rgba(71,85,105,0.9)')
@@ -1791,6 +2516,14 @@ function drawArchiveGraph() {
       ctx.beginPath()
       for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
+      // Pentagon stroke — makes the 5-sided shape clearly visible
+      ctx.strokeStyle=isDark?'rgba(148,163,184,0.75)':'rgba(255,255,255,0.85)'
+      ctx.lineWidth=Math.max(1.5,2*Math.min(1,zf))
+      ctx.stroke()
+      if(selectedNodeIdx.value===p.idx||isFocused){
+        ctx.strokeStyle=isDark?'rgba(255,255,255,0.95)':'rgba(30,41,59,0.9)'
+        ctx.lineWidth=2.5; ctx.stroke()
+      }
       if(p.scale>.22){
         const iconColor=isDark?'rgba(226,232,240,0.85)':'rgba(255,255,255,0.9)'
         const headR=r*0.26, bodyR=r*0.33, headY=p.sy-r*0.22, bodyY=p.sy+r*0.12
@@ -1827,12 +2560,17 @@ function drawArchiveGraph() {
         ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
       }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='task'){
+    } else if(n.type==='agenda'){
       const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
       const hw=r*1.6,hh=r*0.65
       roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(8*Math.min(1,zf),hh*0.6))
       ctx.fillStyle='#7ac8b0'; ctx.fill()
       if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(20,60,50,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy)}
+    } else if(n.type==='person'){
+      const r=Math.min(22,(isFocused?18:14)*p.scale*zf)
+      ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2)
+      ctx.fillStyle='#f472b6'; ctx.fill()
+      if(p.scale>.25){const fs=Math.max(8,Math.min(12,Math.round(10*zf)));ctx.fillStyle=`rgba(80,10,40,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>6?n.label.slice(0,5)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='session'){
       const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
       const hw=r*1.6,hh=r*0.65
@@ -1856,6 +2594,114 @@ function drawArchiveGraph() {
     }
     ctx.globalAlpha=1
   })
+
+  // ── Neo4j query highlight rings (챗봇 그래프 탐색 시각화) ─────
+  if (queryHlIdxs.value.size > 0) {
+    const t = Date.now() / 350
+    queryHlIdxs.value.forEach(idx => {
+      if (!visibleSet.has(idx)) return
+      const pp = projected[idx]
+      if (!pp) return
+      const sx = pp.sx, sy = pp.sy
+      const nr = getNodeHitRadius(pp.node, zf, pp.scale || 1)
+      ctx.save()
+      // 1번 파동 — 빠른 확산
+      const phase = (t % 1.0)
+      const scanR  = nr * (1 + phase * 3.0)
+      const scanA  = (1 - phase) * 0.85
+      ctx.beginPath(); ctx.arc(sx, sy, scanR, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(99,102,241,${scanA})`
+      ctx.lineWidth = 3.5; ctx.stroke()
+      // 2번 파동 — 0.4 위상 차
+      const phase2 = ((t + 0.4) % 1.0)
+      const scanR2 = nr * (1 + phase2 * 3.0)
+      const scanA2 = (1 - phase2) * 0.6
+      ctx.beginPath(); ctx.arc(sx, sy, scanR2, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(139,92,246,${scanA2})`
+      ctx.lineWidth = 2.5; ctx.stroke()
+      // 3번 파동 — 0.7 위상 차
+      const phase3 = ((t + 0.7) % 1.0)
+      const scanR3 = nr * (1 + phase3 * 3.0)
+      const scanA3 = (1 - phase3) * 0.35
+      ctx.beginPath(); ctx.arc(sx, sy, scanR3, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(167,139,250,${scanA3})`
+      ctx.lineWidth = 2; ctx.stroke()
+      // 고정 내부 링 — 밝고 두꺼운 테두리
+      const pulse = 0.7 + 0.3 * Math.sin(t * 6)
+      ctx.beginPath(); ctx.arc(sx, sy, nr + 5, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(199,170,255,${pulse})`
+      ctx.lineWidth = 3.5; ctx.stroke()
+      // 노드 중심 glow fill
+      const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, nr)
+      grad.addColorStop(0, `rgba(139,92,246,${0.22 * pulse})`)
+      grad.addColorStop(1, 'rgba(139,92,246,0)')
+      ctx.beginPath(); ctx.arc(sx, sy, nr, 0, Math.PI * 2)
+      ctx.fillStyle = grad; ctx.fill()
+      ctx.restore()
+    })
+  }
+
+  // ── Connection dot (node-edge hover indicator) ────────────────
+  if (connDotNodeIdx >= 0 && !connDragging.value) {
+    const t = Date.now() / 280
+    const pulse = 0.65 + 0.35 * Math.sin(t)
+    ctx.save()
+    // outer glow ring
+    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 11, 0, Math.PI * 2)
+    ctx.strokeStyle = `rgba(52,211,153,${pulse * 0.38})`
+    ctx.lineWidth = 2.5; ctx.stroke()
+    // inner filled dot
+    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 6, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(52,211,153,${pulse})`
+    ctx.fill()
+    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 6, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke()
+    ctx.restore()
+  }
+
+  // ── Connection drag preview (dashed line + arrowhead + target ring) ─
+  if (connDragging.value) {
+    const fsx = connDragFromSx, fsy = connDragFromSy
+    const tsx = connDragCurSx, tsy = connDragCurSy
+    const dx = tsx - fsx, dy = tsy - fsy
+    const len = Math.sqrt(dx * dx + dy * dy)
+    ctx.save()
+    // animated dashed line
+    const dashOffset = -(Date.now() / 50) % 14
+    ctx.setLineDash([8, 5]); ctx.lineDashOffset = dashOffset
+    ctx.strokeStyle = 'rgba(52,211,153,0.88)'; ctx.lineWidth = 2.2
+    ctx.beginPath(); ctx.moveTo(fsx, fsy); ctx.lineTo(tsx, tsy); ctx.stroke()
+    ctx.setLineDash([]); ctx.lineDashOffset = 0
+    // arrowhead at cursor end
+    if (len > 24) {
+      const ux = dx / len, uy = dy / len, as = 11
+      ctx.beginPath()
+      ctx.moveTo(tsx, tsy)
+      ctx.lineTo(tsx - ux * as - uy * as * 0.44, tsy - uy * as + ux * as * 0.44)
+      ctx.lineTo(tsx - ux * as + uy * as * 0.44, tsy - uy * as - ux * as * 0.44)
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(52,211,153,0.92)'; ctx.fill()
+    }
+    // source node dot
+    ctx.beginPath(); ctx.arc(fsx, fsy, 6, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(52,211,153,0.95)'; ctx.fill()
+    ctx.beginPath(); ctx.arc(fsx, fsy, 6, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.5; ctx.stroke()
+    // target highlight ring
+    if (connDragTargetIdx >= 0) {
+      let tgtSx, tgtSy
+      if (_treePositions?.has(connDragTargetIdx)) {
+        const tp = _treePositions.get(connDragTargetIdx); tgtSx = tp.sx; tgtSy = tp.sy
+      } else {
+        const p = projectNode(gNodes[connDragTargetIdx], w, h); tgtSx = p.sx; tgtSy = p.sy
+      }
+      const tPulse = 0.4 + 0.4 * Math.sin(Date.now() / 180)
+      ctx.beginPath(); ctx.arc(tgtSx, tgtSy, 32, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(52,211,153,${tPulse})`
+      ctx.lineWidth = 2.8; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([])
+    }
+    ctx.restore()
+  }
 }
 
 function animateGraph() {
@@ -1869,6 +2715,21 @@ function animateGraph() {
 
 // ─── Mouse ────────────────────────────────────────────────────
 function onMouseDown(e) {
+  // ── Connection dot drag: start drawing a new edge ───────────────
+  if (connDotNodeIdx >= 0 && !floatDragging.value) {
+    connDragging.value = true
+    connDragFromIdx = connDotNodeIdx
+    connDragFromSx = connDotSx; connDragFromSy = connDotSy
+    const canvas = canvasRef.value
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect()
+      connDragCurSx = e.clientX - rect.left
+      connDragCurSy = e.clientY - rect.top
+    }
+    connDragTargetIdx = -1
+    connDotNodeIdx = -1; connDotVisible.value = false
+    e.preventDefault(); return
+  }
   if (expandedHubIdx !== null && !isPanMode.value && _treePositions) {
     const canvas = canvasRef.value
     if (canvas) {
@@ -1925,17 +2786,41 @@ function onMouseMove(e) {
     hoverNodeIdx=-1
     return
   }
+  // ── Connection drag in progress ────────────────────────────
+  if (connDragging.value) {
+    const canvas = canvasRef.value; if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    connDragCurSx = e.clientX - rect.left
+    connDragCurSy = e.clientY - rect.top
+    const w = canvas.offsetWidth, h = canvas.offsetHeight
+    const zf = Math.max(.6, Math.min(2.5, worldZoom))
+    const vis = getVisibleSet()
+    let tIdx = -1, tDist = Infinity
+    gNodes.forEach((n, i) => {
+      if (i === connDragFromIdx) return
+      if (!vis.has(i)) return
+      let sx, sy
+      if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy }
+      else if (expandedHubIdx === null) { const p = projectNode(n, w, h); sx = p.sx; sy = p.sy }
+      else return
+      const d = Math.hypot(sx - connDragCurSx, sy - connDragCurSy)
+      const nr = getNodeHitRadius(n, zf)
+      if (d <= nr + 28 && d < tDist) { tDist = d; tIdx = i }
+    })
+    connDragTargetIdx = tIdx
+    return
+  }
   if(viewMode.value!=='graph') return
   const canvas=canvasRef.value;if(!canvas) return
   const rect=canvas.getBoundingClientRect()
   const mx=e.clientX-rect.left,my=e.clientY-rect.top
-  if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;return}
+  if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;connDotNodeIdx=-1;connDotVisible.value=false;return}
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
   const hoverVis = getVisibleSet()
   const zf=Math.max(.6,Math.min(2.5,worldZoom))
   gNodes.forEach((n,i)=>{
-    if(!['meeting_group','dept','org','task','session','file'].includes(n.type)) return
+    if(!['meeting_group','dept','org','agenda','person','session','file','decision'].includes(n.type)) return
     if(!hoverVis.has(i)) return
     let sx, sy
     if(_treePositions?.has(i)) {
@@ -1948,13 +2833,76 @@ function onMouseMove(e) {
   })
   hoverNodeIdx = closest !== null ? closest : -1
   hoverNode.value = closest !== null ? gNodes[closest] : null
+  // ── Connection dot: detect edge zone ────────────────────────────
+  if (!floatDragging.value) {
+    const DOT_ZONE = 16 // px beyond node radius
+    let newDotIdx = -1, newDotSx = 0, newDotSy = 0, minEdgeDist = Infinity
+    gNodes.forEach((n, i) => {
+      if (!hoverVis.has(i)) return
+      let sx, sy, scale = 1.0
+      if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy }
+      else if (expandedHubIdx === null) { const p = projectNode(n, w, h); sx = p.sx; sy = p.sy; scale = p.scale }
+      else return
+      const d = Math.hypot(sx - mx, sy - my)
+      const nr = getNodeHitRadius(n, zf, scale)
+      const edgeDist = d - nr
+      if (edgeDist >= -4 && edgeDist <= DOT_ZONE && edgeDist < minEdgeDist) {
+        minEdgeDist = edgeDist
+        newDotIdx = i
+        const angle = Math.atan2(my - sy, mx - sx)
+        newDotSx = sx + Math.max(nr, 12) * Math.cos(angle)
+        newDotSy = sy + Math.max(nr, 12) * Math.sin(angle)
+      }
+    })
+    connDotNodeIdx = newDotIdx
+    connDotSx = newDotSx; connDotSy = newDotSy
+    connDotVisible.value = newDotIdx >= 0
+  } else {
+    connDotNodeIdx = -1; connDotVisible.value = false
+  }
 }
 
 function onMouseUp() {
+  // ── Complete connection drag ────────────────────────────────
+  if (connDragging.value) {
+    if (connDragTargetIdx >= 0 && connDragTargetIdx !== connDragFromIdx) {
+      const already = gEdges.some(e =>
+        (e.from === connDragFromIdx && e.to === connDragTargetIdx) ||
+        (e.from === connDragTargetIdx && e.to === connDragFromIdx)
+      )
+      if (already) {
+        showMapToast('이미 연결된 노드입니다.')
+      } else {
+        const fromNode = gNodes[connDragFromIdx]
+        const toNode   = gNodes[connDragTargetIdx]
+        const { rel, neo4jFromId, neo4jToId } = resolveRel(connDragFromIdx, connDragTargetIdx)
+        gEdges.push({ from: connDragFromIdx, to: connDragTargetIdx, rel })
+        graphVersion.value++
+        showMapToast(`${fromNode?.label} → ${toNode?.label} (${rel})`)
+        // ── Neo4j 영속화 ─────────────────────────────────────────
+        if (neo4jFromId && neo4jToId) {
+          api.post('/api/neo4j/relationships', {
+            from_id: neo4jFromId,
+            rel_type: rel,
+            to_id: neo4jToId,
+          }).catch(err => {
+            console.warn('[Neo4j] 관계 저장 실패:', err?.response?.data?.detail || err.message)
+            showMapToast('Neo4j 저장 실패 (로컬에는 반영됨)')
+          })
+        }
+      }
+    }
+    connDragging.value = false; connDragFromIdx = -1; connDragTargetIdx = -1
+    return
+  }
   isDragging=false; dragNode2D=null
 }
 
 function onMouseLeave() {
+  if (connDragging.value) {
+    connDragging.value = false; connDragFromIdx = -1; connDragTargetIdx = -1
+  }
+  connDotNodeIdx = -1; connDotVisible.value = false
   isDragging=false; dragNode2D=null
   hoverNode.value=null
   hoverNodeIdx=-1
@@ -1985,7 +2933,7 @@ function onCanvasClick(e) {
     } else {
       const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
     }
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?14:n.type==='task'?13:n.type==='session'?12:10
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?14:n.type==='agenda'?13:n.type==='person'?11:n.type==='session'?12:10
     const d=Math.hypot(sx-mx,sy-my)
     if(d<baseR*zf+6&&d<minDist){minDist=d;closest=i}
   })
@@ -2065,31 +3013,24 @@ onMounted(async () => {
   window.addEventListener('mouseup', onGlobalMouseUp)
   await meetingsStore.fetchMeetings()
   try {
-    const [m, r, mtgs] = await Promise.all([
-      api.get('/api/all-minutes').catch(()=>({data:[]})),
-      api.get('/api/all-reports').catch(()=>({data:[]})),
-      api.get('/api/meetings').catch(()=>({data:[]})),
-    ])
-    minutes.value=m.data; reports.value=r.data
-    const [memberResults, todoResults] = await Promise.all([
-      Promise.all(mtgs.data.map(mtg =>
-        api.get(`/api/meetings/${mtg.id}/members`)
-          .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role,department:mb.user?.department||'',organization:mb.user?.organization||'',position:mb.user?.position||''})))
-          .catch(()=>[])
-      )),
-      Promise.all(mtgs.data.map(mtg =>
-        api.get(`/api/meetings/${mtg.id}/todos`)
-          .then(res=>res.data.map(t=>({...t, meetingId:mtg.id, meetingTitle:mtg.title})))
-          .catch(()=>[])
-      ))
-    ])
-    membersData.value=memberResults.flat()
-    tasksData.value=todoResults.flat()
+    // ── Neo4j 그래프 데이터 (단일 소스) ──────────────────────────
+    const neo4jResult = await api.get('/api/neo4j/archive')
+    currentPerson.value = neo4jResult?.data?.current_person || null
+    if (!neo4jResult?.data?.meetings?.length) {
+      // 회의체 없음 — 본인 노드만 그래프에 표시 (에러 아님)
+      return
+    }
+    neo4jMeetings.value = neo4jResult.data.meetings
+    minutes.value = neo4jResult.data.minutes || []
+    reports.value = neo4jResult.data.reports || []
+    membersData.value = neo4jResult.data.meetings.flatMap(m => m.members || [])
+    tasksData.value = neo4jResult.data.meetings.flatMap(m => m.tasks || [])
   } catch(e) {
-    console.warn('archive data fetch error', e)
+    console.error('archive fetch error', e)
+    // 연결 실패 시에도 본인 노드는 표시 (currentPerson은 auth store에서 fallback)
   } finally {
-    loading.value=false
-    const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges
+    loading.value = false
+    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
     initGraph()
   }
 })
@@ -2103,6 +3044,12 @@ onBeforeUnmount(()=>{
 // Rebuild graph when new meetings are created
 watch(() => meetingsStore.meetings.length, () => {
   if (loading.value) return  // 초기 로딩 중에는 무시 — finally에서 한 번만 빌드
+  const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+})
+
+// Neo4j 데이터 로드 완료 시 그래프 재빌드
+watch(() => neo4jMeetings.value.length, () => {
+  if (loading.value) return
   const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
 })
 
@@ -2231,6 +3178,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
             <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
             <button v-if="showExtractFlow" class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'">과제추출</button>
+            <button class="detail-tab" :class="{ active: detailTab==='rel' }" @click="detailTab='rel'">관계</button>
           </div>
 
           <div class="detail-body">
@@ -2527,6 +3475,93 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
             </template><!-- /과제추출 탭 -->
 
+            <!-- ── 관계 탭 ── -->
+            <template v-if="detailTab==='rel'">
+              <div class="detail-section">
+                <div class="detail-section-label-row">
+                  <span class="detail-section-label">연결 관계</span>
+                  <button class="detail-more-btn rel-add-trigger" @click="openAddRel">+ 추가</button>
+                </div>
+
+                <div v-if="currentNodeEdges.length" class="rel-list">
+                  <div v-for="edge in currentNodeEdges" :key="edge._idx" class="rel-item">
+                    <!-- 인라인 편집 -->
+                    <template v-if="relEditIdx === edge._idx">
+                      <div class="rel-edit-row">
+                        <select v-model="relEditRel" class="rel-type-select">
+                          <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
+                        </select>
+                        <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
+                        <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
+                      </div>
+                    </template>
+                    <!-- 표시 -->
+                    <template v-else>
+                      <div class="rel-item-main">
+                        <span class="rel-dir">{{ edge.direction==='out' ? '→' : '←' }}</span>
+                        <span class="rel-badge" :style="{ background: REL_COLORS[edge.rel] || '#6b7280' }">{{ edge.rel }}</span>
+                        <span class="rel-target-name" :title="edge.direction==='out' ? edge.toNode?.label : edge.fromNode?.label">
+                          {{ edge.direction==='out' ? edge.toNode?.label : edge.fromNode?.label }}
+                        </span>
+                      </div>
+                      <div class="rel-item-actions">
+                        <button class="rel-btn rel-btn-edit" @click="startRelEdit(edge._idx)" title="관계 유형 수정">
+                          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button class="rel-btn rel-btn-delete" @click="doDeleteEdge(edge._idx)" title="관계 삭제">
+                          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <div v-else class="detail-log-empty">연결된 관계가 없습니다.</div>
+              </div>
+
+              <!-- 관계 추가 폼 -->
+              <div v-if="relAddActive" class="detail-section rel-add-panel">
+                <div class="detail-section-label-row" style="margin-bottom:8px">
+                  <span class="detail-section-label">새 관계 추가</span>
+                  <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <div class="rel-add-form">
+                  <div class="rel-add-field">
+                    <label class="rel-add-label">출발 노드</label>
+                    <select v-model="relAddForm.fromId" class="rel-type-select">
+                      <option value="">선택...</option>
+                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
+                    </select>
+                  </div>
+                  <div class="rel-add-field">
+                    <label class="rel-add-label">관계 유형</label>
+                    <select v-model="relAddForm.rel" class="rel-type-select">
+                      <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">
+                        {{ rt }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="rel-add-field">
+                    <label class="rel-add-label">도착 노드</label>
+                    <select v-model="relAddForm.toId" class="rel-type-select">
+                      <option value="">선택...</option>
+                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
+                        {{ n.label }} ({{ n.type }})
+                      </option>
+                    </select>
+                  </div>
+                  <button
+                    class="app-btn-primary"
+                    style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
+                    :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                    @click="doAddRel">
+                    관계 추가
+                  </button>
+                </div>
+              </div>
+            </template><!-- /관계 탭 -->
+
           </div>
           </template><!-- /detailMeeting -->
 
@@ -2537,8 +3572,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-header-icon">
               <!-- 부서 -->
               <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-              <!-- 과제 -->
-              <svg v-else-if="detailNode.type==='task'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              <!-- 아젠다 -->
+              <svg v-else-if="detailNode.type==='agenda'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
               <!-- 회의(session) -->
               <svg v-else-if="detailNode.type==='session'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
               <!-- 파일 -->
@@ -2549,7 +3584,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', task:'과제', session: detailNode.subType==='agenda'?'아젠다':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='agenda'?'아젠다':'회의', file:'문서', person:'구성원', org:'조직', decision:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
@@ -2559,7 +3594,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
           </div>
 
+          <!-- 탭 -->
+          <div class="detail-tabs">
+            <button class="detail-tab" :class="{ active: nodeDetailTab==='basic' }" @click="nodeDetailTab='basic'">기본</button>
+            <button class="detail-tab" :class="{ active: nodeDetailTab==='rel' }" @click="nodeDetailTab='rel'">관계</button>
+          </div>
+
           <div class="detail-body">
+
+            <!-- ── 기본 탭 ── -->
+            <template v-if="nodeDetailTab==='basic'">
 
             <!-- 부서 -->
             <template v-if="detailNode.type==='dept'">
@@ -2730,6 +3774,92 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </template>
             </template>
 
+            </template><!-- /기본 탭 -->
+
+            <!-- ── 관계 탭 ── -->
+            <template v-if="nodeDetailTab==='rel'">
+
+            <div class="detail-section">
+              <div class="detail-section-label-row">
+                <span class="detail-section-label">연결 관계</span>
+                <button class="detail-more-btn rel-add-trigger" @click="openAddRel">+ 추가</button>
+              </div>
+
+              <div v-if="currentNodeEdges.length" class="rel-list">
+                <div v-for="edge in currentNodeEdges" :key="edge._idx" class="rel-item">
+                  <template v-if="relEditIdx === edge._idx">
+                    <div class="rel-edit-row">
+                      <select v-model="relEditRel" class="rel-type-select">
+                        <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
+                      </select>
+                      <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
+                      <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="rel-item-main">
+                      <span class="rel-dir">{{ edge.direction==='out' ? '→' : '←' }}</span>
+                      <span class="rel-badge" :style="{ background: REL_COLORS[edge.rel] || '#6b7280' }">{{ edge.rel }}</span>
+                      <span class="rel-target-name" :title="edge.direction==='out' ? edge.toNode?.label : edge.fromNode?.label">
+                        {{ edge.direction==='out' ? edge.toNode?.label : edge.fromNode?.label }}
+                      </span>
+                    </div>
+                    <div class="rel-item-actions">
+                      <button class="rel-btn rel-btn-edit" @click="startRelEdit(edge._idx)" title="관계 유형 수정">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      <button class="rel-btn rel-btn-delete" @click="doDeleteEdge(edge._idx)" title="관계 삭제">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <div v-else class="detail-log-empty">연결된 관계가 없습니다.</div>
+            </div>
+
+            <!-- 관계 추가 폼 (노드 공통) -->
+            <div v-if="relAddActive" class="detail-section rel-add-panel">
+              <div class="detail-section-label-row" style="margin-bottom:8px">
+                <span class="detail-section-label">새 관계 추가</span>
+                <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
+                  <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <div class="rel-add-form">
+                <div class="rel-add-field">
+                  <label class="rel-add-label">출발 노드</label>
+                  <select v-model="relAddForm.fromId" class="rel-type-select">
+                    <option value="">선택...</option>
+                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
+                  </select>
+                </div>
+                <div class="rel-add-field">
+                  <label class="rel-add-label">관계 유형</label>
+                  <select v-model="relAddForm.rel" class="rel-type-select">
+                    <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
+                  </select>
+                </div>
+                <div class="rel-add-field">
+                  <label class="rel-add-label">도착 노드</label>
+                  <select v-model="relAddForm.toId" class="rel-type-select">
+                    <option value="">선택...</option>
+                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
+                      {{ n.label }} ({{ n.type }})
+                    </option>
+                  </select>
+                </div>
+                <button
+                  class="app-btn-primary"
+                  style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
+                  :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                  @click="doAddRel">
+                  관계 추가
+                </button>
+              </div>
+            </div>
+
+            </template><!-- /관계 탭 -->
 
           </div>
           </template><!-- /detailNode -->
@@ -2752,7 +3882,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <!-- Graph view -->
         <div v-if="loading && viewMode==='graph'" class="graph-loading">
           <div class="graph-loading-spinner"></div>
-          <span>데이터 불러오는 중...</span>
+          <span>불러오는 중...</span>
         </div>
 
         <!-- Zoom controls (top-left) -->
@@ -2768,7 +3898,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <canvas v-show="!loading && viewMode==='graph'"
           ref="canvasRef"
           class="archive-canvas"
-          :style="{ cursor: isPanMode ? (isDragging ? 'grabbing' : 'grab') : 'default' }"
+          :style="{ cursor: connDragging ? 'crosshair' : connDotVisible ? 'crosshair' : isPanMode ? (isDragging ? 'grabbing' : 'grab') : 'default' }"
           @mousedown="onMouseDown"
           @mousemove="onMouseMove"
           @mouseup="onMouseUp"
@@ -2786,10 +3916,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div v-if="mapToastMsg" class="map-toast">{{ mapToastMsg }}</div>
         </Transition>
 
+        <!-- Neo4j query HUD (챗봇 그래프 탐색 실시간 표시) -->
+        <Transition name="query-hud-fade">
+          <div v-if="queryHlStep" class="query-hud">
+            <span class="query-hud-dot"></span>
+            <span class="query-hud-text">{{ queryHlStep }}</span>
+          </div>
+        </Transition>
+
         <!-- 온톨로지 범례 -->
         <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-circle" style="background:rgba(71,85,105,0.85)"></div>나</div>
+          <div class="legend-onto-item"><svg class="legend-dot-pentagon" width="12" height="12" viewBox="0 0 12 12"><polygon points="6,0.5 11.5,4.1 9.4,11 2.6,11 0.5,4.1" fill="rgba(71,85,105,0.85)" stroke="rgba(148,163,184,0.75)" stroke-width="1"/></svg>나</div>
           <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-circle" style="background:#3b82f6"></div>회의체</div>
           <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#b8aee0"></div>부서</div>
           <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#7ac8b0"></div>과제</div>
@@ -2863,9 +4001,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
           </div>
           <div v-if="loading" class="lv-empty">불러오는 중...</div>
+          <div v-else-if="!meetingGroups.length" class="lv-empty">소속된 회의체가 없습니다.</div>
           <AppTable v-else :columns="lvColumns" :dark="nightMode">
                 <tr v-if="!filteredGroups.length">
-                  <td colspan="3" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
+                  <td colspan="5" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
                 </tr>
                 <template v-for="g in filteredGroups" :key="g.id">
                   <!-- Group row -->
@@ -2873,16 +4012,17 @@ const TYPES=['Draft','In Progress','Done','Pending']
                     <td class="lv-td-name">
                       <div class="lv-name-cell">
                         <svg class="lv-expand-icon" :style="{ transform: expandedMeeting===g.id ? 'rotate(90deg)' : '' }" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-                        <div>
-                          <div class="lv-group-name">{{ g.title }}</div>
-                          <div class="lv-name-meta">
-                            <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
-                            <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
-                              {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
-                            </span>
-                          </div>
-                        </div>
+                        <div class="lv-group-name">{{ g.title }}</div>
                       </div>
+                    </td>
+                    <td class="lv-td-type">
+                      <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                      <span v-else class="lv-type-text" style="color:#94a3b8">-</span>
+                    </td>
+                    <td class="lv-td-role">
+                      <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                        {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+                      </span>
                     </td>
                     <td class="lv-td-secretary">
                       <span class="lv-secretary-text">{{ g.members.find(m => m.role === 'admin')?.userName || g.members.find(m => m.role === 'admin')?.name || '-' }}</span>
@@ -2891,7 +4031,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   </tr>
                   <!-- Expanded history rows -->
                   <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
-                    <td colspan="3" class="lv-expanded-td">
+                    <td colspan="5" class="lv-expanded-td">
                       <table class="app-table lv-hist-table">
                         <thead>
                           <tr>
@@ -3019,34 +4159,106 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
           <!-- Messages -->
           <div ref="agentMessagesEl" class="agent-messages">
-            <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role">
-              <template v-if="msg.role==='agent'&&msg.content">
+            <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role === 'planning' ? 'planning' : msg.role">
+
+              <!-- 사고 과정 블록 -->
+              <template v-if="msg.role==='planning'">
                 <div class="agent-msg-label">
                   <img :src="agentInfo.avatar" class="agent-msg-avatar" />
                   {{ agentInfo.name }}
                 </div>
-                <div class="agent-bubble agent theme-supervisor" v-html="renderMd(msg.content)"></div>
+                <div class="agent-planning-block" :class="{ done: msg.done, open: msg.open }">
+                  <button class="agent-planning-toggle" @click="msg.open = !msg.open">
+                    <svg v-if="!msg.done" class="agent-planning-spinner" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00ab36" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                    <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00ab36" stroke-width="2.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                    <span class="agent-planning-label">
+                      <template v-if="!msg.steps.length">{{ msg.done ? '완료' : '분석 중...' }}</template>
+                      <template v-else>{{ msg.steps[msg.steps.length - 1].length > 58 ? msg.steps[msg.steps.length - 1].slice(0, 57) + '…' : msg.steps[msg.steps.length - 1] }}</template>
+                    </span>
+                    <span class="agent-planning-count">{{ msg.steps.length }} steps</span>
+                    <svg class="agent-planning-chev" :class="{ rotated: msg.open }" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+                  </button>
+                  <div v-if="msg.open" class="agent-planning-steps">
+                    <div v-for="(step, si) in msg.steps" :key="si"
+                         class="agent-planning-step fade-in"
+                         :class="{
+                           'agent-step-data':  step.includes('→') || step.includes('확인') || step.includes('수집') || step.includes('분석'),
+                           'agent-step-route': step.includes('위임') || step.includes('라우팅'),
+                         }">
+                      <span v-if="step.includes('위임') || step.includes('라우팅')" class="agent-step-icon-data">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                      </span>
+                      <span v-else-if="step.includes('확인') || step.includes('분석') || step.includes('수집') || step.includes('탐색')" class="agent-step-icon-data">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="8" cy="12" r="3"/><circle cx="18" cy="7" r="2"/><circle cx="18" cy="17" r="2"/><line x1="11" y1="11" x2="16" y2="8"/><line x1="11" y1="13" x2="16" y2="16"/></svg>
+                      </span>
+                      <span v-else class="agent-step-num">{{ si + 1 }}</span>
+                      <span class="agent-step-text">{{ step }}</span>
+                    </div>
+                    <div v-if="!msg.done" class="agent-planning-step agent-step-pending">
+                      <span class="agent-step-dots"><span></span><span></span><span></span></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- AI 응답 -->
+              <template v-else-if="msg.role==='agent'&&msg.content">
+                <div v-if="currentMessages[i-1]?.role !== 'planning'" class="agent-msg-label">
+                  <img :src="agentInfo.avatar" class="agent-msg-avatar" />
+                  {{ agentInfo.name }}
+                </div>
+                <div class="agent-bubble agent theme-supervisor"
+                     :class="{ 'is-streaming': agentLoading && i === currentMessages.length - 2 }"
+                     v-html="renderMd(msg.content)"></div>
                 <div v-if="i===0&&agentInfo.suggested?.length" class="agent-suggested">
                   <button v-for="s in agentInfo.suggested" :key="s" class="suggested-btn" :disabled="agentLoading" @click="agentInput=s;sendAgentMsg()">{{ s }}</button>
                 </div>
               </template>
-              <div v-else-if="msg.role==='user'" class="agent-bubble user">{{ msg.content }}</div>
+
+              <!-- 사용자 메시지 -->
+              <div v-else-if="msg.role==='user'" class="agent-bubble user">
+                <div>{{ msg.content }}</div>
+                <div v-if="msg.contexts?.length" class="user-ctx-chips">
+                  <span v-for="c in msg.contexts" :key="c.id" class="user-ctx-chip">{{ c.icon }} {{ c.label }}</span>
+                </div>
+              </div>
             </div>
-            <div v-if="agentLoading&&currentMessages[currentMessages.length-1]?.content===''" class="agent-msg-row agent">
+            <div v-if="agentLoading&&currentMessages[currentMessages.length-1]?.role==='agent'&&currentMessages[currentMessages.length-1]?.content===''" class="agent-msg-row agent">
               <div class="agent-bubble agent typing"><span></span><span></span><span></span></div>
             </div>
           </div>
           <!-- Input -->
           <div class="agent-input-area">
+            <!-- @ 드롭다운 -->
+            <Transition name="at-menu">
+              <div v-if="atMenuOpen && atMenuItems.length" class="at-menu">
+                <div v-for="(item, i) in atMenuItems" :key="item.id"
+                  class="at-menu-item" :class="{ active: i === atHighlight }"
+                  @mousedown.prevent="selectAtItem(item)" @mouseover="atHighlight = i">
+                  <span class="at-icon">{{ item.icon }}</span>
+                  <span class="at-type">{{ AT_TYPE_LABELS[item.type] }}</span>
+                  <span class="at-label">{{ item.label }}</span>
+                </div>
+                <div class="at-menu-hint">↑↓ 이동 · Enter 선택 · Esc 닫기</div>
+              </div>
+            </Transition>
+            <!-- 파일 chips -->
             <div v-if="agentPendingFiles.length" class="agent-file-chips">
               <span v-for="f in agentPendingFiles" :key="f.name" class="agent-file-chip">📎 {{ f.name }}</span>
+            </div>
+            <!-- @ 컨텍스트 chips -->
+            <div v-if="mentionedContexts.length" class="agent-ctx-chips">
+              <span v-for="c in mentionedContexts" :key="c.id" class="agent-ctx-chip">
+                {{ c.icon }} {{ c.label }}
+                <button class="ctx-chip-remove" @click="removeMentionCtx(c.id)">×</button>
+              </span>
             </div>
             <div class="agent-input-row">
               <button class="agent-attach-btn" @click="agentFileInput?.click()">＋</button>
               <textarea ref="agentTextareaEl" v-model="agentInput" class="agent-textarea"
-                placeholder="질문하세요..." rows="1"
-                @input="agentAutoResize" @keydown="onAgentKeydown" />
-              <button class="agent-send-btn" :disabled="agentLoading||(!agentInput.trim()&&!agentPendingFiles.length)" @click="sendAgentMsg">전송</button>
+                placeholder="질문하세요... (@로 그래프 컨텍스트 참조)" rows="1"
+                @input="onAgentInput" @keydown="onAgentKeydown" />
+              <button class="agent-send-btn" :disabled="agentLoading||(!agentInput.trim()&&!agentPendingFiles.length&&!mentionedContexts.length)" @click="sendAgentMsg">전송</button>
             </div>
             <input ref="agentFileInput" type="file" multiple style="display:none" @change="onAgentFileSelected" />
           </div>
@@ -3685,6 +4897,33 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .ddl-recent { font-size:10.5px;color:#444;margin-left:auto; }
 .detail-more-btn { font-size:10px;font-weight:600;color:#454545;background:none;border:none;cursor:pointer;padding:0;white-space:nowrap;transition:color .15s; }
 .detail-more-btn:hover { color:#999; }
+/* ── Relationship manager ── */
+.rel-add-trigger { color:#7c6fe0; }
+.rel-add-trigger:hover { color:#a78bfa; }
+.rel-list { display:flex;flex-direction:column;gap:4px;margin-top:6px; }
+.rel-item { display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);min-height:30px; }
+.rel-item-main { display:flex;align-items:center;gap:5px;flex:1;min-width:0; }
+.rel-dir { font-size:11px;font-weight:700;color:#a78bfa;flex-shrink:0; }
+.rel-badge { font-size:9px;font-weight:700;color:#fff;padding:2px 5px;border-radius:4px;flex-shrink:0;letter-spacing:.04em; }
+.rel-target-name { font-size:11px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px; }
+.rel-item-actions { display:flex;gap:3px;flex-shrink:0; }
+.rel-edit-row { display:flex;align-items:center;gap:5px;width:100%; }
+.rel-type-select { flex:1;background:#1e1e2e;border:1px solid rgba(255,255,255,.12);color:#ccc;border-radius:5px;font-size:11px;padding:4px 6px;cursor:pointer;min-width:0; }
+.rel-type-select:focus { outline:none;border-color:#7c6fe0; }
+.rel-btn { display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer;border-radius:4px;padding:4px 7px;font-size:11px;font-weight:600;transition:all .15s; }
+.rel-btn-edit   { background:rgba(99,102,241,.15);color:#818cf8; }
+.rel-btn-edit:hover { background:rgba(99,102,241,.28); }
+.rel-btn-delete { background:rgba(239,68,68,.12);color:#f87171; }
+.rel-btn-delete:hover { background:rgba(239,68,68,.25); }
+.rel-btn-save   { background:rgba(16,185,129,.15);color:#34d399; }
+.rel-btn-save:hover { background:rgba(16,185,129,.28); }
+.rel-btn-cancel { background:rgba(107,114,128,.12);color:#9ca3af; }
+.rel-btn-cancel:hover { background:rgba(107,114,128,.25); }
+.rel-node-section { margin-top:4px; }
+.rel-add-panel { border:1px solid rgba(167,139,250,.18);border-radius:8px;background:rgba(167,139,250,.04);padding:10px; }
+.rel-add-form { display:flex;flex-direction:column;gap:7px; }
+.rel-add-field { display:flex;flex-direction:column;gap:3px; }
+.rel-add-label { font-size:10px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.06em; }
 /* 소개 */
 .detail-purpose { font-size:11.5px;color:#777;line-height:1.65;padding:0 1px; }
 /* 간사·참여부서 key-value 행 */
@@ -3848,6 +5087,60 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .main-area { flex:1;position:relative;overflow:hidden;min-width:0; }
 /* ── Map drag invalid toast ── */
 .map-toast { position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.88);color:#e2e8f0;padding:8px 20px;border-radius:10px;font-size:12px;font-weight:600;z-index:30;pointer-events:none;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.3); }
+
+/* ── Neo4j query HUD ── */
+.query-hud {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(23, 20, 60, 0.93);
+  color: #c4b5fd;
+  padding: 7px 18px 7px 12px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 30;
+  pointer-events: none;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.28), 0 4px 16px rgba(0,0,0,.35);
+}
+.query-hud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #818cf8;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px #818cf8, 0 0 16px rgba(129,140,248,0.5);
+  animation: qhud-blink 0.75s ease-in-out infinite;
+}
+@keyframes qhud-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.3; transform: scale(0.75); }
+}
+.query-hud-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  letter-spacing: -0.01em;
+}
+/* HUD transition */
+.query-hud-fade-enter-active, .query-hud-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.query-hud-fade-enter-from, .query-hud-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
 .map-toast-fade-enter-active,.map-toast-fade-leave-active { transition:opacity .2s,transform .2s; }
 .map-toast-fade-enter-from,.map-toast-fade-leave-to { opacity:0;transform:translateX(-50%) translateY(-6px); }
 .archive-canvas { width:100%;height:100%;cursor:grab;display:block; }
@@ -4023,10 +5316,93 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
+
+/* ── Neo4j Knowledge Graph 사고 과정 블록 ── */
+.agent-msg-row.planning { padding:0; }
+.agent-planning-block { width:100%;border:1px solid rgba(0,171,54,.3);border-radius:10px;background:rgba(0,171,54,.03);overflow:hidden;margin:2px 0; }
+.agent-planning-block.done { border-color:rgba(0,171,54,.5);background:rgba(0,171,54,.04); }
+.agent-planning-toggle { display:flex;align-items:center;gap:6px;width:100%;padding:7px 10px;background:none;border:none;cursor:pointer;color:#374151;font-size:11.5px;font-weight:600;text-align:left; }
+.agent-neo4j-badge { display:inline-flex;align-items:center;gap:3px;background:#00ab36;color:#fff;font-size:9px;font-weight:800;padding:2px 6px 2px 5px;border-radius:4px;letter-spacing:.03em;flex-shrink:0; }
+.agent-planning-label { flex:1;min-width:0;color:#374151;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.agent-planning-count { font-size:10px;font-weight:600;color:#00ab36;background:rgba(0,171,54,.1);padding:1px 7px;border-radius:20px;border:1px solid rgba(0,171,54,.2); }
+.agent-planning-chev { transition:transform .2s;flex-shrink:0;color:#9ca3af; }
+.agent-planning-chev.rotated { transform:rotate(180deg); }
+.agent-planning-steps { padding:4px 10px 10px;display:flex;flex-direction:column;gap:5px;border-top:1px solid rgba(0,171,54,.12); }
+.agent-planning-step { display:flex;align-items:flex-start;gap:7px;font-size:11px;line-height:1.5; }
+
+/* 스텝 진입 fade-in 애니메이션 */
+@keyframes step-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: step-slide-in 0.28s ease forwards; }
+
+/* 응답 스트리밍 커서 */
+.agent-bubble.is-streaming::after {
+  content: '▍';
+  display: inline;
+  color: #a78bfa;
+  font-size: 0.88em;
+  line-height: 1;
+  animation: cursor-blink 0.65s step-end infinite;
+  vertical-align: baseline;
+}
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.agent-step-num { flex-shrink:0;width:16px;height:16px;background:rgba(0,0,0,.08);color:#6b7280;border-radius:50%;font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1.5px; }
+.agent-step-text { color:#4b5563;word-break:break-all; }
+/* 데이터 수신 단계 */
+.agent-step-data { background:rgba(0,171,54,.06);border:1px solid rgba(0,171,54,.2);border-radius:6px;padding:4px 8px; }
+.agent-step-data .agent-step-text { color:#15803d;font-weight:500; }
+.agent-step-icon-data { flex-shrink:0;color:#00ab36;margin-top:2px; }
+/* 라우팅 단계 */
+.agent-step-route .agent-step-text { color:#7c3aed;font-style:italic; }
+.agent-step-pending { padding-left:2px; }
+.agent-step-dots { display:flex;gap:3px;align-items:center; }
+.agent-step-dots span { width:4px;height:4px;background:#00ab36;border-radius:50%;animation:bounce .8s infinite; }
+.agent-step-dots span:nth-child(2) { animation-delay:.15s; }
+.agent-step-dots span:nth-child(3) { animation-delay:.3s; }
+@keyframes agent-spin { to { transform:rotate(360deg); } }
+.agent-planning-spinner { animation:agent-spin 1s linear infinite;flex-shrink:0; }
+/* dark mode */
+.dark .agent-planning-block { border-color:rgba(0,171,54,.35);background:rgba(0,171,54,.07); }
+.dark .agent-planning-block.done { border-color:rgba(0,171,54,.5);background:rgba(0,171,54,.1); }
+.dark .agent-planning-step { color:#cbd5e1; }
+.dark .agent-step-text { color:#94a3b8; }
+.dark .agent-step-data { background:rgba(0,171,54,.1);border-color:rgba(0,171,54,.3); }
+.dark .agent-step-data .agent-step-text { color:#4ade80; }
+
 .agent-file-chips { display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px; }
 .agent-file-chip { font-size:11px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;padding:2px 7px;color:#1d4ed8; }
-.agent-input-area { padding:7px 9px;border-top:1px solid var(--border);flex-shrink:0; }
+.agent-input-area { padding:7px 9px;border-top:1px solid var(--border);flex-shrink:0;position:relative; }
 .agent-input-row { display:flex;align-items:flex-end;gap:4px; }
+
+/* @ 컨텍스트 chips */
+.agent-ctx-chips { display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px; }
+.agent-ctx-chip { font-size:11px;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:2px 5px 2px 7px;color:#166534;display:flex;align-items:center;gap:3px; }
+.ctx-chip-remove { background:none;border:none;cursor:pointer;color:#166534;padding:0 0 0 2px;font-size:13px;line-height:1;opacity:.6; }
+.ctx-chip-remove:hover { opacity:1; }
+.dark .agent-ctx-chip { background:#052e16;border-color:#166534;color:#4ade80; }
+.dark .ctx-chip-remove { color:#4ade80; }
+
+/* 사용자 메시지 context chips */
+.user-ctx-chips { display:flex;flex-wrap:wrap;gap:3px;margin-top:5px; }
+.user-ctx-chip { font-size:10px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:3px;padding:1px 5px;color:rgba(255,255,255,.9); }
+
+/* @ 드롭다운 메뉴 */
+.at-menu { position:absolute;bottom:calc(100% + 4px);left:9px;right:9px;background:var(--bg);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:200;overflow:hidden;max-height:260px;overflow-y:auto; }
+.at-menu-item { display:flex;align-items:center;gap:7px;padding:7px 11px;cursor:pointer;transition:background .1s; }
+.at-menu-item.active, .at-menu-item:hover { background:var(--hover-bg, #f1f5f9); }
+.dark .at-menu-item.active, .dark .at-menu-item:hover { background:#1e293b; }
+.at-icon { font-size:14px;flex-shrink:0; }
+.at-type { font-size:10px;color:var(--text-muted);background:var(--surface-2,#f1f5f9);border-radius:3px;padding:1px 5px;flex-shrink:0; }
+.dark .at-type { background:#1e293b; }
+.at-label { font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1; }
+.at-menu-hint { font-size:10px;color:var(--text-muted);padding:4px 11px;border-top:1px solid var(--border);text-align:right; }
+.at-menu-enter-active, .at-menu-leave-active { transition:opacity .12s, transform .12s; }
+.at-menu-enter-from, .at-menu-leave-to { opacity:0;transform:translateY(4px); }
 .agent-attach-btn { width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:#f8fafc;color:var(--text-muted);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .agent-textarea { flex:1;resize:none;overflow:hidden;min-height:34px;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12px;outline:none;font-family:inherit;line-height:1.5;box-sizing:border-box; }
 .agent-textarea:focus { border-color:var(--primary); }
@@ -4141,6 +5517,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .sidebar-toggle-handle { background:rgba(241,245,249,0.96);border-color:#e2e8f0;color:#94a3b8; }
 .day-mode .sidebar-toggle-handle:hover { background:#e2e8f0;color:#475569; }
 .day-mode .detail-section-label { color:#94a3b8; }
+/* Day mode: relationship manager */
+.day-mode .rel-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.08); }
+.day-mode .rel-target-name { color:#374151; }
+.day-mode .rel-type-select { background:#f8fafc;border-color:#cbd5e1;color:#334155; }
+.day-mode .rel-add-panel { border-color:rgba(124,111,224,.2);background:rgba(124,111,224,.04); }
+.day-mode .rel-add-label { color:#64748b; }
+.day-mode .rel-btn-edit   { background:rgba(99,102,241,.1);color:#6366f1; }
+.day-mode .rel-btn-delete { background:rgba(239,68,68,.08);color:#ef4444; }
+.day-mode .rel-btn-save   { background:rgba(16,185,129,.1);color:#10b981; }
+.day-mode .rel-btn-cancel { background:rgba(107,114,128,.08);color:#6b7280; }
 .day-mode .ctx-upload-area { border-color:rgba(0,0,0,.12); }
 .day-mode .ctx-upload-area:hover { border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.04); }
 .day-mode .detail-tabs { border-bottom-color:rgba(0,0,0,.08); }
@@ -4217,7 +5603,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-name-cell { display:flex;align-items:center;gap:6px; }
 .lv-expand-icon { color:#475569;flex-shrink:0;transition:transform .2s; }
 .lv-group-name { font-size:13px;font-weight:600;color:#e2e8f0; }
-.lv-name-meta { display:flex;align-items:center;margin-top:2px; }
+.lv-name-meta { display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:3px; }
 .lv-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
 .day-mode .lv-group-name { color:#1e293b; }
 .lv-expanded-td { padding:0 !important;background:rgba(255,255,255,.02); }
@@ -4361,6 +5747,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .graph-legend-onto { position:absolute;bottom:12px;left:12px;z-index:15;display:flex;flex-direction:column;gap:5px;background:rgba(15,23,42,.82);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;pointer-events:none; }
 .legend-onto-item { display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8; }
 .legend-onto-dot { width:9px;height:9px;flex-shrink:0; }
+.legend-dot-pentagon { flex-shrink:0;display:block; }
 .legend-dot-circle { border-radius:50%; }
 .legend-dot-rect { border-radius:2px;width:14px;height:9px; }
 .legend-onto-dash { width:18px;height:2px;flex-shrink:0; }

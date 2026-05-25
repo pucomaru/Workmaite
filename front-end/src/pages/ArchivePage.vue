@@ -5,6 +5,7 @@ import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
 import ProcessStepBar from '../components/ProcessStepBar.vue'
 import FileUploadArea from '../components/FileUploadArea.vue'
+import SidebarInfoRow from '../components/SidebarInfoRow.vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { streamPost } from '../api'
@@ -36,7 +37,14 @@ const nightMode = computed(() => themeStore.nightMode)
 const minutes = ref([])
 const reports = ref([])
 const membersData = ref([])
+const tasksData = ref([])
 const loading = ref(true)
+const neo4jGroups = ref([])
+const useNeo4j = ref(false)
+const neo4jDepts = ref([])      // [{id, name}] — department name→id lookup
+const nodeRels = ref([])        // relationships for selected node
+const nodeRelsLoading = ref(false)
+const relAddState = ref(null)   // { type, dir, targetLabel, targetId, options, saving }
 const search = ref('')
 const expandedMeeting = ref(null)
 
@@ -71,6 +79,18 @@ watch(viewMode, (next, prev) => {
     })
   }
 })
+
+// ─── Search highlight (meeting_group nodes containing match) ──
+const searchHitMgIdxs = ref([])
+
+// ─── Map toast ────────────────────────────────────────────────
+const mapToastMsg = ref('')
+let _mapToastTimer = null
+function showMapToast(msg) {
+  mapToastMsg.value = msg
+  clearTimeout(_mapToastTimer)
+  _mapToastTimer = setTimeout(() => { mapToastMsg.value = '' }, 2200)
+}
 
 // ─── Plus snackbar (removed - replaced by direct button) ──────
 
@@ -121,7 +141,7 @@ function onFloatBtnMouseDown(type, e) {
   floatDragging.value = type
   floatDragPos.value = { x: e.clientX, y: e.clientY }
   floatDragStartX = e.clientX; floatDragStartY = e.clientY
-  floatDragMoved = false; floatDragTarget = null; floatDragPreviewLine.value = null
+  floatDragMoved = false; floatDragTarget = null; floatDragNearInvalidNode = false; floatDragPreviewLine.value = null
   document.body.style.cursor = 'grabbing'
   e.preventDefault(); e.stopPropagation()
 }
@@ -160,15 +180,6 @@ async function doCreateMeeting() {
         }
         if (!gEdges.find(e => e.from === deptIdx && e.to === mgIdx))
           gEdges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
-        const personId = `person-${mb.id || mb.name}`
-        let personIdx = gNodes.findIndex(n => n.id === personId)
-        if (personIdx < 0) {
-          const angle = (mi / Math.max(membersSnapshot.length, 1)) * Math.PI * 2 + 0.3
-          gNodes.push({ id: personId, label: mb.name || mb.email || '?', type: 'person', x: Math.cos(angle)*165, y: 20, z: Math.sin(angle)*165, userId: mb.id, role: mb.role })
-          personIdx = gNodes.length - 1
-        }
-        if (!gEdges.find(e => e.from === deptIdx && e.to === personIdx))
-          gEdges.push({ from: deptIdx, to: personIdx, rel: '소속' })
       })
     }
     // 사용자가 지정한 연결 엣지 추가
@@ -362,25 +373,55 @@ function onGlobalMouseMove(e) {
       const mx = e.clientX - rect.left, my = e.clientY - rect.top
       const w = canvas.offsetWidth, h = canvas.offsetHeight
       if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
-              let closest = null, minDist = Infinity
+        const docValidTypes = ['meeting_group', 'dept', 'task']
+        const zf = Math.max(.6, Math.min(2.5, worldZoom))
+        const snapR = 22 * zf + 70
+        // Find closest valid target
+        let closest = null, minDist = Infinity
         gNodes.forEach((n, i) => {
-          if (n.type !== 'meeting_group') return
-          const p = projectNode(n, w, h)
-          const zf = Math.max(.6, Math.min(2.5, worldZoom))
-          const d = Math.hypot(p.sx - mx, p.sy - my)
-          if (d < 22 * p.scale * zf + 70 && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: p } }
+          const isDoc = floatDragging.value === 'doc'
+          if (isDoc ? !docValidTypes.includes(n.type) : n.type !== 'meeting_group') return
+          let sx, sy
+          if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
+          else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
+          const d = Math.hypot(sx - mx, sy - my)
+          if (d < snapR && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: { sx, sy } } }
         })
-        floatDragTarget = closest
-        if (closest) {
+        // Find closest node of ANY type (to detect invalid hover)
+        let anyClosest = null, anyMinDist = Infinity
+        gNodes.forEach((n, i) => {
+          let sx, sy
+          if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
+          else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
+          const d = Math.hypot(sx - mx, sy - my)
+          if (d < snapR && d < anyMinDist) { anyMinDist = d; anyClosest = { idx: i, node: n } }
+        })
+        // If cursor is over an invalid node (closer than any valid target), block connection
+        const overInvalid = anyClosest && (!closest || anyMinDist < minDist - 5)
+        floatDragNearInvalidNode = !!overInvalid
+        floatDragTarget = overInvalid ? null : closest
+        if (!overInvalid && closest) {
           floatDragPreviewLine.value = { x1: closest.proj.sx, y1: closest.proj.sy, x2: mx, y2: my }
           if (floatDragging.value === 'doc' || floatDragging.value === 'session') {
-            expandedHubIdx = closest.idx; expandedDeptIdx = null
-            const n = closest.node
-            targetCamX = n.x * .55; targetCamY = n.y * .55; targetCamZ = n.z * .55
-            targetZoom = Math.min(3.0, Math.max(targetZoom, 1.6))
+            const hubNode = closest.node
+            let hubIdx = closest.idx
+            if (hubNode.type !== 'meeting_group') {
+              if (hubNode.meetingGroupId) {
+                const mgi = gNodes.findIndex(n => n.id === hubNode.meetingGroupId)
+                if (mgi >= 0) hubIdx = mgi
+              } else {
+                const mgEdge = gEdges.find(e => e.to === closest.idx && gNodes[e.from]?.type === 'meeting_group')
+                if (mgEdge) hubIdx = mgEdge.from
+              }
+            }
+            if (expandedHubIdx !== hubIdx) {
+              expandedHubIdx = hubIdx; expandedDeptIdx = null
+              targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
+              targetPan2DX=0; targetPan2DY=0; pan2DX=0; pan2DY=0
+            }
           }
         } else { floatDragPreviewLine.value = null }
-      } else { floatDragTarget = null; floatDragPreviewLine.value = null }
+      } else { floatDragTarget = null; floatDragNearInvalidNode = false; floatDragPreviewLine.value = null }
     }
   }
 }
@@ -389,22 +430,49 @@ function onGlobalMouseUp() {
   if (floatDragging.value) {
     const type = floatDragging.value
     const target = floatDragTarget
+    const nearInvalid = floatDragNearInvalidNode
     floatDragging.value = null; floatDragTarget = null; floatDragPreviewLine.value = null
+    floatDragNearInvalidNode = false
     document.body.style.cursor = ''
+    // Dropped onto an invalid node type → show toast
+    if (floatDragMoved && nearInvalid) {
+      const label = type === 'meeting' ? '회의체' : type === 'session' ? '회의' : '자료'
+      showMapToast(`${label}는 해당 노드에 연결할 수 없습니다.`)
+      return
+    }
     if (!floatDragMoved || !target) {
       // Click or missed drop → open normally
       if (type === 'meeting') openCreateModal()
       else if (type === 'doc') openUploadModal()
       else if (type === 'session') openSessionModal()
     } else {
-      // Dropped onto a meeting_group node
+      // Dropped onto a valid node
       if (type === 'meeting') {
+        const connectId = target.node.id
         selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
+        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
         openCreateModal()
+        createConnectNodeId.value = connectId
       } else if (type === 'doc') {
-        uploadForm.value.connectNodeId = target.node.id
-        openUploadModal()
-        activateReviewMode()
+        const tn = target.node
+        const ctx = {}
+        if (tn.type === 'meeting_group') {
+          ctx.meetingId = tn.id
+        } else if (tn.type === 'dept') {
+          ctx.connectNodeId = tn.id
+          ctx.meetingId = tn.meetingGroupId || ''
+          if (!ctx.meetingId) {
+            const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
+            if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
+          }
+        } else if (tn.type === 'task') {
+          ctx.relatedTodoId = String(tn.data?.id || '')
+          ctx.meetingId = tn.meetingGroupId || ''
+          const deptEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'dept')
+          if (deptEdge) ctx.connectNodeId = gNodes[deptEdge.from]?.id || ''
+        }
+        openUploadModal(ctx)
       } else if (type === 'session') {
         openSessionModal(target.node.data?.id || null)
       }
@@ -420,6 +488,19 @@ let hoverNodeIdx = -1
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
 const detailTodos = ref([])
+const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
+
+function openNodeDetail(n) {
+  detailNode.value = n
+  detailMeeting.value = null
+  detailOpen.value = true
+  nodeRels.value = []
+  relAddState.value = null
+  if (useNeo4j.value) {
+    const nid = getNodeNeo4jId(n)
+    if (nid) loadNodeRels(nid)
+  }
+}
 
 // 현재 회의체 참여 부서 목록
 const detailMemberDepts = computed(() => {
@@ -439,7 +520,44 @@ const groupedTodos = computed(() => {
   }
   return groups
 })
+// D-day: detailMeeting의 end_date 기준 남은 일수
+const detailDday = computed(() => {
+  const ed = detailMeeting.value?.end_date
+  if (!ed) return null
+  const now = new Date(); now.setHours(0,0,0,0)
+  const due = new Date(ed); due.setHours(0,0,0,0)
+  return Math.ceil((due - now) / 86400000)
+})
+const detailEndDateFormatted = computed(() => {
+  const ed = detailMeeting.value?.end_date
+  if (!ed) return null
+  const d = new Date(ed)
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
+})
+
+// 부서별 보고서 제출 현황
+const detailDeptStatus = computed(() => {
+  const depts = [...new Set((detailMeeting.value?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))]
+  return depts.map(dept => {
+    const tasks = detailTodos.value.filter(t => (t.assignee_dept||t.dept||'') === dept)
+    const submitted = tasks.length === 0 || tasks.every(t => t.status === 'done')
+    const pending = tasks.filter(t => t.status !== 'done')
+    let minDays = null
+    if (pending.length > 0) {
+      const now = new Date(); now.setHours(0,0,0,0)
+      const days = pending.filter(t => t.due_date).map(t => {
+        const due = new Date(t.due_date); due.setHours(0,0,0,0)
+        return Math.ceil((due - now) / 86400000)
+      })
+      if (days.length) minDays = Math.min(...days)
+    }
+    return { dept, submitted, pendingCount: pending.length, minDays }
+  })
+})
+
 const groupTodoRatio = ref(new Map())
+const assignDeptOptions = computed(() =>
+  [...new Set((detailMeeting.value?.members || []).map(m => m.department || m.dept || '').filter(Boolean))])
 const showExtractModal = ref(false)
 const detailTab = ref('basic') // 'basic' | 'task'
 const showAssignModal = ref(false)
@@ -576,6 +694,7 @@ async function openAssignModal() {
       _editing: false,
       _editContent: a.title,
       _editAssignee: '',
+      _editDept: a.department || '',
       _editStatus: 'pending',
       _editPriority: a.priority || 'normal',
       _state: null,
@@ -587,6 +706,7 @@ function saveAssignItem(i) {
   const t = assignResult.value[i]
   t.content = t._editContent
   t.assignee = t._editAssignee
+  t.dept = t._editDept
   t.status = t._editStatus
   t.priority = t._editPriority
   t._editing = false
@@ -596,16 +716,16 @@ function cancelAssignEdit(i) {
   const t = assignResult.value[i]
   t._editContent = t.content
   t._editAssignee = t.assignee
+  t._editDept = t.dept
   t._editStatus = t.status
   t._editPriority = t.priority
   t._editing = false
 }
 function rejectAssignItem(i) {
-  assignResult.value[i]._state = assignResult.value[i]._state === 'rejected' ? null : 'rejected'
-  assignResult.value[i]._editing = false
+  assignResult.value.splice(i, 1)
 }
 function addAssignItem() {
-  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editStatus: 'pending', _editPriority: 'normal', _state: null })
+  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editDept: '', _editStatus: 'pending', _editPriority: 'normal', _state: null })
 }
 async function saveApprovedTasks() {
   const approved = assignResult.value.filter(t => t._state === 'approved')
@@ -647,6 +767,7 @@ async function saveApprovedTasks() {
     extractPhase.value = 'context'
     showExtractFlow.value = false
     assignResult.value = []
+    detailTab.value = 'task'
 
     alert(`${saved.length}개 과제가 저장되었습니다.`)
   } catch (e) {
@@ -656,7 +777,7 @@ async function saveApprovedTasks() {
 }
 
 const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
-const STATUS_LABEL = { pending: '대기', in_progress: '진행중', done: '완료' }
+const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승인대기', done: '완료' }
 
 function goToProcessStep(step) {
   if (step === 'context' && (extractPhase.value === 'result' || extractPhase.value === 'assign')) {
@@ -754,20 +875,47 @@ async function saveSettings() {
 
 const ROLE_MAP = { admin: '간사', presenter: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
+
+// ─── Role-based helpers ───────────────────────────────────────
+const detailMyRole = computed(() =>
+  detailMeeting.value?.id ? (meetingsStore.meetingRoles[detailMeeting.value.id] ?? null) : null
+)
+const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
+const isAnyAdmin = computed(() =>
+  Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')
+)
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function initials(name) { return (name || '?')[0] }
+
+function goToList(meetingId) {
+  _listSnapshot.expandedMeeting = meetingId || null
+  viewMode.value = 'list'
+  detailOpen.value = false
+}
 
 async function openDetail(groupData) {
   if (!groupData) return
   const isSameMeeting = detailMeeting.value?.id === groupData.id
   detailMeeting.value = groupData; detailOpen.value = true; detailTab.value = 'basic'
+  detailNode.value = null // 회의체 오픈 시 노드 초기화
+  nodeRels.value = []; relAddState.value = null
   if (!isSameMeeting) {
     selectedMinutes.value = []; selectedFiles.value = []
     selectedSimilarDocs.value = []; uploadedCtxFiles.value = []
   }
   hoverNode.value = null
   detailTodos.value = []
+  if (useNeo4j.value && groupData.tasks) {
+    detailTodos.value = groupData.tasks
+    if (!groupTodoRatio.value.has(groupData.id)) {
+      const total = detailTodos.value.length
+      const done = detailTodos.value.filter(t => t.status === 'done').length
+      groupTodoRatio.value = new Map(groupTodoRatio.value).set(groupData.id, total ? done / total : null)
+    }
+    loadNodeRels(groupData.id)
+    return
+  }
   try {
     detailTodos.value = (await api.get(`/api/meetings/${groupData.id}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
@@ -797,12 +945,19 @@ let gNodes = [], gEdges = []
 let expandedHubIdx = null
 let expandedDeptIdx = null
 let rotationPaused = false
+// 2D tree mode pan state (used when expandedHubIdx !== null)
+let pan2DX = 0, pan2DY = 0, targetPan2DX = 0, targetPan2DY = 0
+let _treePositions = null // Map<idx, {sx, sy}> cached each frame in 2D mode
+let dragNode2D = null // idx of node being dragged in 2D tree mode
+let dragNode2DMoved = false
+const _node2DOffsets = new Map() // Map<idx, {dx,dy}> — accumulated screen-pixel offsets from dragging
 // Float button drag state
 const floatDragging = ref(null)       // null | 'meeting' | 'doc'
 const floatDragPos = ref({ x: 0, y: 0 })
 const floatDragPreviewLine = ref(null) // { x1,y1,x2,y2 } in canvas px
 let floatDragTarget = null
 let floatDragStartX = 0, floatDragStartY = 0, floatDragMoved = false
+let floatDragNearInvalidNode = false
 
 // ─── Upload modal ──────────────────────────────────────────────
 const FILE_TYPES = ['보고자료', '발제자료', '회의록']
@@ -819,8 +974,13 @@ const PRESENTATION_CRITERIA = [
 const showUploadModal = ref(false)
 const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', file: null })
 const uploadMeetingTodos = ref([]) // 선택된 회의체의 과제 목록
+// 드래그로 자동 입력된 필드 추적 (직접 선택 시에는 표시 안 함)
+const prefilledCtx = ref({ meetingId: false, connectNodeId: false, relatedTodoId: false })
 
+let _pendingRelatedTodoId = ''
 watch(() => uploadForm.value.meetingId, async (id) => {
+  const pendingTodo = _pendingRelatedTodoId
+  _pendingRelatedTodoId = ''
   uploadMeetingTodos.value = []
   uploadForm.value.relatedTodoId = ''
   if (!id) return
@@ -829,6 +989,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   if (!meetingId) return
   try {
     uploadMeetingTodos.value = (await api.get(`/api/meetings/${meetingId}/todos`)).data || []
+    if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
   } catch { uploadMeetingTodos.value = [] }
 })
 
@@ -903,7 +1064,7 @@ async function assignTasks() {
 }
 
 // ─── Ontology edge relation constants ─────────────────────────
-const REL_COLORS = { '소속':'#94a3b8','참여':'#3b82f6','소위원회':'#a78bfa','개최':'#10b981','생성':'#f59e0b','담당':'#f97316','관련':'#6b7280' }
+const REL_COLORS = { '소속':'#a89fd4','참여':'#8b7fc0','소위원회':'#a78bfa','개최':'#c9a870','생성':'#a8a5a2','담당':'#a8a5a2','관련':'#7a8090','과제':'#6abba5' }
 function hexToRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
   return `rgba(${r},${g},${b},${a})`
@@ -915,14 +1076,16 @@ const REL_MATRIX = {
   'meeting_group→meeting_group': '소위원회',
   'session→meeting_group': '관련',
   'person→meeting_group': '참여',
+  'meeting_group→task':  '과제',
   'meeting_group→file': '생성',
+  'task→file':           '생성',
   'session→file':        '생성',
   'dept→file':           '담당',
   'org→file':            '관련',
   'person→file':         '담당',
 }
 function autoRel(sourceNodeId, targetType) {
-  const srcNode = connectableNodes.value.find(n => n.id === sourceNodeId)
+  const srcNode = gNodes.find(n => n.id === sourceNodeId)
   const key = `${srcNode?.type}→${targetType}`
   return REL_MATRIX[key] || '관련'
 }
@@ -940,7 +1103,17 @@ const connectableNodes = computed(() => {
 
 // ─── Upload: dept-only connectable nodes ──────────────────────
 const deptConnectableNodes = computed(() => {
-  return connectableNodes.value.filter(n => n.type === 'dept' || n.type === 'org')
+  // 선택된 회의체가 있으면 해당 회의체에 속한 부서만, 없으면 전체 유니크 부서
+  if (uploadForm.value.meetingId) {
+    return gNodes
+      .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
+      .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+  }
+  const seen = new Set()
+  return gNodes
+    .filter(n => n.type === 'dept')
+    .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
+    .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
 })
 
 // ─── Upload: AI analysis state ────────────────────────────────
@@ -950,13 +1123,29 @@ const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
 const selectedAgendas = ref([])      // indices of agendas to apply
 const selectedRelDepts = ref([])     // dept names to auto-connect
 
-function openUploadModal() {
+function openUploadModal(ctx = {}) {
   showUploadModal.value = true
   uploadStep.value = 1
   aiResult.value = null
   selectedAgendas.value = []
   selectedRelDepts.value = []
-  uploadForm.value = { label:'', fileType:'보고자료', connectNodeId:'' }
+  // 드래그로 자동 입력된 필드 기록
+  prefilledCtx.value = {
+    meetingId: !!ctx.meetingId,
+    connectNodeId: !!ctx.connectNodeId,
+    relatedTodoId: !!ctx.relatedTodoId,
+  }
+  // store pending relatedTodoId so the meetingId watcher can restore it after fetching todos
+  _pendingRelatedTodoId = String(ctx.relatedTodoId || '')
+  uploadForm.value = {
+    label: '',
+    fileType: '보고자료',
+    connectNodeId: ctx.connectNodeId || '',
+    relType: '생성',
+    meetingId: ctx.meetingId || '',
+    relatedTodoId: ctx.relatedTodoId ? String(ctx.relatedTodoId) : '',
+    file: null
+  }
 }
 
 // Build graph context string for AI
@@ -1070,23 +1259,33 @@ function doAddFile() {
 
 
 const meetingGroups = computed(() => {
+  if (useNeo4j.value && neo4jGroups.value.length > 0) return neo4jGroups.value
   const map = new Map()
-  meetingsStore.meetings.forEach(m => {
-    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [] })
+  // 본인이 참여 중인 회의체만 포함
+  meetingsStore.meetings
+    .filter(m => meetingsStore.meetingRoles[m.id] != null)
+    .forEach(m => {
+    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [], tasks: [] })
   })
   // Add minutes & reports
   minutes.value.forEach(m => {
-    if (!map.has(m.meeting_id)) map.set(m.meeting_id, { id: m.meeting_id, title: m.meeting_title, minutes: [], reports: [], members: [] })
+    if (!map.has(m.meeting_id)) map.set(m.meeting_id, { id: m.meeting_id, title: m.meeting_title, minutes: [], reports: [], members: [], tasks: [] })
     map.get(m.meeting_id).minutes.push(m)
   })
   reports.value.forEach(r => {
-    if (!map.has(r.meeting_id)) map.set(r.meeting_id, { id: r.meeting_id, title: r.meeting_title, minutes: [], reports: [], members: [] })
+    if (!map.has(r.meeting_id)) map.set(r.meeting_id, { id: r.meeting_id, title: r.meeting_title, minutes: [], reports: [], members: [], tasks: [] })
     map.get(r.meeting_id).reports.push(r)
   })
   membersData.value.forEach(mb => {
     if (map.has(mb.meetingId)) {
       const g = map.get(mb.meetingId)
       if (!g.members.find(m => m.userId === mb.userId)) g.members.push(mb)
+    }
+  })
+  tasksData.value.forEach(t => {
+    if (map.has(t.meetingId)) {
+      const g = map.get(t.meetingId)
+      if (!g.tasks.find(x => x.id === t.id)) g.tasks.push(t)
     }
   })
   const result = [...map.values()]
@@ -1233,129 +1432,216 @@ const filteredGroupHistoryMap = computed(() => {
   return map
 })
 
+// ─── Neo4j 연결관계 편집 ──────────────────────────────────────
+const EDITABLE_RELS = {
+  dept: [
+    { type: 'PARTICIPATES_IN', dir: 'out', label: '참여 회의체', targetLabel: 'MeetingGroup' },
+    { type: 'SUBMITTED',       dir: 'out', label: '제출한 문서', targetLabel: 'Document' },
+  ],
+  task: [
+    { type: 'OWNED_BY',    dir: 'out', label: '소속 회의체', targetLabel: 'MeetingGroup' },
+    { type: 'ASSIGNED_TO', dir: 'in',  label: '담당자',      targetLabel: 'Person' },
+  ],
+  session: [
+    { type: 'HELD_BY', dir: 'out', label: '소속 회의체', targetLabel: 'MeetingGroup' },
+    { type: 'COVERS',  dir: 'out', label: '다루는 안건', targetLabel: 'Agenda' },
+  ],
+  file: [
+    { type: 'ATTACHED_TO', dir: 'out', label: '첨부 회의체', targetLabel: 'MeetingGroup' },
+    { type: 'SUBMITTED',   dir: 'in',  label: '제출 부서',   targetLabel: 'Department' },
+  ],
+  meeting_group: [
+    { type: 'MEMBER_OF',       dir: 'in', label: '참여자',   targetLabel: 'Person' },
+    { type: 'ADMIN_OF',        dir: 'in', label: '간사',     targetLabel: 'Person' },
+    { type: 'PARTICIPATES_IN', dir: 'in', label: '참여 부서', targetLabel: 'Department' },
+  ],
+}
+
+function getNodeNeo4jId(n) {
+  if (!n) return null
+  if (n.data?.id) return n.data.id
+  if (n.type === 'dept') {
+    const dept = neo4jDepts.value.find(d => d.name === n.label)
+    return dept?.id || null
+  }
+  return n.neo4jId || null
+}
+
+async function loadNodeRels(nodeId) {
+  if (!nodeId) return
+  nodeRelsLoading.value = true
+  try {
+    const res = await api.get(`/api/neo4j/node/${encodeURIComponent(nodeId)}/relations`)
+    nodeRels.value = res.data
+  } catch { nodeRels.value = [] }
+  finally { nodeRelsLoading.value = false }
+}
+
+async function openRelAdd(relConf) {
+  relAddState.value = { ...relConf, targetId: '', options: [], saving: false }
+  try {
+    const res = await api.get('/api/neo4j/nodes', { params: { label: relConf.targetLabel } })
+    relAddState.value.options = res.data
+  } catch { if (relAddState.value) relAddState.value.options = [] }
+}
+
+async function confirmRelAdd(nodeId) {
+  if (!relAddState.value?.targetId || !nodeId) return
+  const { type: relType, dir, targetId } = relAddState.value
+  const [fromId, toId] = dir === 'out' ? [nodeId, targetId] : [targetId, nodeId]
+  relAddState.value.saving = true
+  try {
+    await api.post('/api/neo4j/relationships', { from_id: fromId, rel_type: relType, to_id: toId })
+    relAddState.value = null
+    await loadNodeRels(nodeId)
+    await reloadNeo4j()
+  } catch(e) {
+    console.error('관계 추가 실패', e)
+    if (relAddState.value) relAddState.value.saving = false
+  }
+}
+
+async function removeRelation(nodeId, relType, dir, targetId) {
+  const [fromId, toId] = dir === 'out' ? [nodeId, targetId] : [targetId, nodeId]
+  try {
+    await api.delete('/api/neo4j/relationships', { data: { from_id: fromId, rel_type: relType, to_id: toId } })
+    await loadNodeRels(nodeId)
+    await reloadNeo4j()
+  } catch(e) { console.error('관계 삭제 실패', e) }
+}
+
+async function reloadNeo4j() {
+  try {
+    const res = await api.get('/api/neo4j/archive')
+    neo4jGroups.value = res.data.meetings || []
+    minutes.value = res.data.minutes || []
+    reports.value = res.data.reports || []
+    if (res.data.departments) neo4jDepts.value = res.data.departments
+    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+    initGraph()
+  } catch(e) { console.warn('Neo4j reload 실패', e) }
+}
+
 function buildGraphNodes() {
   const nodes = [], edges = []
   const data = meetingGroups.value
 
-  // ── 방사형(Radial) 레이아웃 ──────────────────────────────
-  // 중심: 조직 노드
-  // 1링: 부서 노드  (R=230)
-  // 2링: 회의체 노드 (R=460)
-  // 3링: 세션 노드  (R=660)
-  // 4링: 파일 노드  (R=840)
-  // XZ 평면에 배치, Y는 링별 약간의 높낮이
-  const R = { dept: 230, meeting_group: 460, session: 660, file: 840 }
-  const Y = { org: 0, dept: -20, meeting_group: 0, session: 20, file: 10 }
-
+  // ── 계층 구조: org → 회의체 → 부서 → 과제 → 회의 → 파일 ──
+  // 부서는 각 회의체에 종속 (공유 링 없음)
+  const R = { meeting_group: 260, dept: 440, person: 340, task: 620, session: 790, file: 950 }
+  const Y = { org: 0, meeting_group: 0, dept: -15, person: -40, task: 15, session: 25, file: 10 }
   const TWO_PI = Math.PI * 2
 
-  // ── 조직 root (중심) ──────────────────────────────────────
+  // org (중심)
   const orgIdx = nodes.length
-  const orgLabel = authStore.user?.organization || authStore.user?.department || '조직'
+  const orgLabel = authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
   nodes.push({ id:'org-root', label:orgLabel, type:'org', x:0, y:Y.org, z:0 })
 
-  // ── 부서 수집 ─────────────────────────────────────────────
-  const deptIdxMap = new Map()
-  const deptMembersMap = new Map()
-  data.forEach(g => {
-    ;(g.members||[]).forEach(mb => {
-      const d = mb.department || mb.dept || '미지정'
-      if (!deptMembersMap.has(d)) deptMembersMap.set(d, [])
-      const list = deptMembersMap.get(d)
-      if (!list.find(m => m.userId === mb.userId)) list.push(mb)
-    })
-  })
-  const uniqueDepts = [...deptMembersMap.keys()]
-
-  // ── 회의체별 각도 먼저 배정 (2링 기준으로 전체 구도 결정) ─
   const mgCount = data.length
   const mgAngles = data.map((_, gi) => (gi / Math.max(mgCount, 1)) * TWO_PI)
+  const sectorWidth = TWO_PI / Math.max(mgCount, 1)
 
-  // ── 부서 각도: 해당 부서가 참여하는 회의체 각도의 평균 ────
-  const deptAngleMap = new Map()
-  uniqueDepts.forEach(deptName => {
-    const relAngles = data
-      .map((g, gi) => (g.members||[]).some(mb => (mb.department||mb.dept||'미지정') === deptName) ? mgAngles[gi] : null)
-      .filter(a => a !== null)
-    // 원형 평균 (circular mean)
-    if (relAngles.length) {
-      const sx = relAngles.reduce((s,a) => s + Math.cos(a), 0)
-      const sz = relAngles.reduce((s,a) => s + Math.sin(a), 0)
-      deptAngleMap.set(deptName, Math.atan2(sz, sx))
-    } else {
-      deptAngleMap.set(deptName, 0)
-    }
-  })
-  // 부서 각도 충돌 방지: 정렬 후 최소 간격 보장
-  const sortedDepts = [...uniqueDepts].sort((a,b) => deptAngleMap.get(a) - deptAngleMap.get(b))
-  const MIN_DEPT_ANG = uniqueDepts.length > 1 ? TWO_PI / uniqueDepts.length * 0.7 : 0
-  sortedDepts.forEach((d, di) => {
-    if (di > 0) {
-      const prev = deptAngleMap.get(sortedDepts[di-1])
-      let cur = deptAngleMap.get(d)
-      if (cur - prev < MIN_DEPT_ANG) deptAngleMap.set(d, prev + MIN_DEPT_ANG)
-    }
-  })
-
-  // ── 부서 노드 배치 ────────────────────────────────────────
-  uniqueDepts.forEach((deptName, di) => {
-    const deptIdx = nodes.length
-    deptIdxMap.set(deptName, deptIdx)
-    const ang = deptAngleMap.get(deptName)
-    const dx = Math.cos(ang) * R.dept
-    const dz = Math.sin(ang) * R.dept
-    nodes.push({ id:`dept-${deptName}`, label:deptName, type:'dept', x:dx, y:Y.dept, z:dz, members:deptMembersMap.get(deptName) })
-    edges.push({ from:orgIdx, to:deptIdx, rel:'소속' })
-  })
-
-  // ── 사람 (부서 바깥쪽으로 팬아웃) ────────────────────────
-  const personIdxMap = new Map()
-  uniqueDepts.forEach(deptName => {
-    const deptIdx = deptIdxMap.get(deptName)
-    const members = deptMembersMap.get(deptName) || []
-    const dn = nodes[deptIdx]
-    const ang = deptAngleMap.get(deptName)
-    members.forEach((mb, mi) => {
-      const pKey = String(mb.userId)
-      if (!personIdxMap.has(pKey)) {
-        const personIdx = nodes.length
-        personIdxMap.set(pKey, personIdx)
-        const spread = (mi - (members.length-1)/2) * 0.18
-        const pAng = ang + spread
-        const pr = R.dept - 80
-        nodes.push({ id:`person-${mb.userId}`, label:mb.userName||mb.name||'?', type:'person', userId:mb.userId, role:mb.role,
-          x:Math.cos(pAng)*pr, y:Y.dept-40, z:Math.sin(pAng)*pr })
-        edges.push({ from:deptIdx, to:personIdx, rel:'소속' })
-      }
-    })
-  })
-
-  // ── 회의체 노드 배치 ──────────────────────────────────────
-  const mgIdxList = []
   data.forEach((g, gi) => {
     const mgIdx = nodes.length
-    mgIdxList.push(mgIdx)
     const ang = mgAngles[gi]
-    const mx = Math.cos(ang) * R.meeting_group
-    const mz = Math.sin(ang) * R.meeting_group
-    nodes.push({ id:`mg-${g.id||gi}`, label:g.title||`회의체${gi+1}`, type:'meeting_group', x:mx, y:Y.meeting_group, z:mz, data:g, groupIdx:gi })
+    const mgNodeId = `mg-${g.id||gi}`
+    nodes.push({ id:mgNodeId, label:g.title||`회의체${gi+1}`, type:'meeting_group',
+      x:Math.cos(ang)*R.meeting_group, y:Y.meeting_group, z:Math.sin(ang)*R.meeting_group,
+      data:g, groupIdx:gi })
+    edges.push({ from:orgIdx, to:mgIdx, rel:'소속' })
 
-    // 부서 →[참여]→ 회의체
-    const partDepts = new Set((g.members||[]).map(mb => mb.department||mb.dept||'미지정'))
-    partDepts.forEach(d => { const di = deptIdxMap.get(d); if (di !== undefined) edges.push({ from:di, to:mgIdx, rel:'참여' }) })
+    // ── 부서 노드 (이 회의체 전용) ─────────────────────────────
+    const membersByDept = new Map()
+    ;(g.members||[]).forEach(mb => {
+      const d = mb.department || mb.dept || '미지정'
+      if (!membersByDept.has(d)) membersByDept.set(d, [])
+      membersByDept.get(d).push(mb)
+    })
+    const depts = [...membersByDept.keys()]
+    const dCount = depts.length
+    const deptFan = dCount > 1 ? Math.min(sectorWidth * 0.42, 0.55) / (dCount - 1) : 0
+    const deptIdxMap = new Map()
 
-    // 세션/파일: 회의체 각도를 중심으로 방사상 fan-out
-    const sCount = (g.minutes||[]).length
-    const rCount = (g.reports||[]).length
-    const totalFiles = sCount + rCount
-    const fanSpread = Math.min(0.35, (totalFiles > 1 ? 0.18 : 0))
+    depts.forEach((deptName, di) => {
+      const dAng = ang + (di - (dCount-1)/2) * deptFan
+      const deptIdx = nodes.length
+      deptIdxMap.set(deptName, deptIdx)
+      nodes.push({ id:`dept-${g.id||gi}-${deptName}`, label:deptName, type:'dept',
+        x:Math.cos(dAng)*R.dept, y:Y.dept, z:Math.sin(dAng)*R.dept,
+        members:membersByDept.get(deptName), groupIdx:gi, meetingGroupId:mgNodeId })
+      edges.push({ from:mgIdx, to:deptIdx, rel:'참여' })
 
-    ;(g.minutes||[]).forEach((m, mi) => {
-      const sAng = ang + (mi - (sCount-1)/2) * fanSpread * (sCount > 1 ? 1 : 0)
+      // 구성원 노드 제거됨 (person 타입 노드 미사용)
+    })
+
+    // ── 과제 노드: 담당 부서에 연결, 없으면 순환 배분 ────────
+    const taskList = g.tasks || []
+    const tasksByDept = new Map()
+    depts.forEach(d => tasksByDept.set(d, []))
+    const unassigned = []
+    taskList.forEach(task => {
+      const d = task.assignee_dept || task.dept || ''
+      if (d && tasksByDept.has(d)) tasksByDept.get(d).push(task)
+      else unassigned.push(task)
+    })
+    unassigned.forEach((task, ti) => {
+      if (depts.length > 0) tasksByDept.get(depts[ti % depts.length]).push(task)
+    })
+
+    const taskIdxByTodoId = new Map()
+    const allTaskIdxList = []
+
+    depts.forEach(deptName => {
+      const deptIdx = deptIdxMap.get(deptName)
+      const deptNode = nodes[deptIdx]
+      const dAng = deptNode ? Math.atan2(deptNode.z, deptNode.x) : ang
+      const deptTasks = tasksByDept.get(deptName) || []
+      const tCount = deptTasks.length
+      const tFan = tCount > 1 ? Math.min(0.22, 0.14) : 0
+      deptTasks.forEach((task, ti) => {
+        const tAng = dAng + (ti - (tCount-1)/2) * tFan
+        const taskNodeIdx = nodes.length
+        allTaskIdxList.push(taskNodeIdx)
+        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
+        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
+          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
+          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
+        edges.push({ from:deptIdx, to:taskNodeIdx, rel:'담당' })
+        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+      })
+    })
+
+    // 부서가 없을 때 과제를 회의체에 직접 연결
+    if (depts.length === 0 && taskList.length > 0) {
+      taskList.forEach((task, ti) => {
+        const tAng = ang + (ti - (taskList.length-1)/2) * 0.2
+        const taskNodeIdx = nodes.length
+        allTaskIdxList.push(taskNodeIdx)
+        const taskLabel = (task.content || `과제 ${ti+1}`).slice(0, 12) + ((task.content||'').length > 12 ? '…' : '')
+        nodes.push({ id:`task-${g.id||gi}-${task.id||ti}`, label:taskLabel, type:'task',
+          x:Math.cos(tAng)*R.task, y:Y.task, z:Math.sin(tAng)*R.task,
+          groupIdx:gi, data:task, meetingGroupId:mgNodeId })
+        edges.push({ from:mgIdx, to:taskNodeIdx, rel:'과제' })
+        taskIdxByTodoId.set(String(task.id), taskNodeIdx)
+      })
+    }
+
+    // ── 회의(세션) 노드: 과제에 순환 배분 ─────────────────────
+    const sessions = g.minutes || []
+    const tTotal = allTaskIdxList.length
+    sessions.forEach((m, mi) => {
+      const parentTaskIdx = tTotal > 0 ? allTaskIdxList[mi % tTotal] : mgIdx
+      const parentNode = nodes[parentTaskIdx]
+      const pAng = parentNode ? Math.atan2(parentNode.z, parentNode.x) : ang
+      // 같은 부모를 공유하는 세션 수 & 순번 계산
+      const sibCount = sessions.filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
+      const sibIdx = sessions.slice(0, mi).filter((_, j) => (tTotal > 0 ? allTaskIdxList[j % tTotal] : mgIdx) === parentTaskIdx).length
+      const sFan = sibCount > 1 ? Math.min(0.22, 0.14) : 0
+      const sAng = pAng + (sibIdx - (sibCount-1)/2) * sFan
       const sIdx = nodes.length
       nodes.push({ id:`session-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의`, type:'session',
         x:Math.cos(sAng)*R.session, y:Y.session, z:Math.sin(sAng)*R.session, groupIdx:gi, data:m })
-      edges.push({ from:mgIdx, to:sIdx, rel:'개최' })
+      edges.push({ from:parentTaskIdx, to:sIdx, rel:'개최' })
 
       const fIdx = nodes.length
       nodes.push({ id:`file-min-${g.id||gi}-${mi}`, label:m.session_title||`${m.session_number||mi+1}차 회의록`, type:'file', fileType:'회의록',
@@ -1363,13 +1649,18 @@ function buildGraphNodes() {
       edges.push({ from:sIdx, to:fIdx, rel:'생성' })
     })
 
+    // ── 보고서 파일: 관련 과제 노드에 연결 ─────────────────────
     ;(g.reports||[]).forEach((rp, ri) => {
-      const baseAng = ang + (sCount > 0 ? fanSpread * sCount * 0.5 + 0.12 : 0)
-      const rAng = baseAng + ri * 0.14
+      const relTodoId = String(rp.related_todo_id || '')
+      let fromIdx = allTaskIdxList.length > 0 ? allTaskIdxList[0] : mgIdx
+      if (relTodoId && taskIdxByTodoId.has(relTodoId)) fromIdx = taskIdxByTodoId.get(relTodoId)
+      const fromNode = nodes[fromIdx]
+      const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
+      const rAng = bAng + (ri - ((g.reports||[]).length-1)/2) * 0.12
       const rIdx = nodes.length
       nodes.push({ id:`file-rep-${g.id||gi}-${ri}`, label:rp.file_name||'보고자료', type:'file', fileType:'보고자료',
         x:Math.cos(rAng)*R.file, y:Y.file-15, z:Math.sin(rAng)*R.file, groupIdx:gi })
-      edges.push({ from:mgIdx, to:rIdx, rel:'생성' })
+      edges.push({ from:fromIdx, to:rIdx, rel:'생성' })
     })
   })
 
@@ -1413,8 +1704,18 @@ const PALETTE=['#60a5fa','#34d399','#f472b6','#fbbf24','#a78bfa','#fb923c','#38b
 
 function computeUrgency(g) {
   if (g?.urgency) return g.urgency
-  if (!g?.minutes?.length && !g?.reports?.length) return 'critical'
-  if (!g?.reports?.length) return 'warning'
+  const tasks = g?.tasks || []
+  const now = new Date(); now.setHours(0,0,0,0)
+  let minDays = Infinity
+  tasks.forEach(t => {
+    if (t.status === 'done') return
+    if (!t.due_date) return
+    const due = new Date(t.due_date); due.setHours(0,0,0,0)
+    const days = Math.ceil((due - now) / 86400000)
+    if (days >= 0 && days < minDays) minDays = days
+  })
+  if (minDays <= 1) return 'critical'   // 하루 이하: 빨간색
+  if (minDays <= 3) return 'warning'    // 3일 이하: 노란색
   return 'normal'
 }
 function getHubFill(g) {
@@ -1426,28 +1727,46 @@ function getHubFill(g) {
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
-    // Default view: org + dept + meeting_group
-    gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
+    // 기본: org + 회의체만 표시
+    gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
   } else {
     const hubNode = gNodes[expandedHubIdx]
     if (hubNode?.type === 'meeting_group') {
       vis.add(expandedHubIdx)
+      // 회의체 → 부서
       gEdges.forEach(e => {
-        if (e.from === expandedHubIdx) {
+        if (e.from !== expandedHubIdx) return
+        const dNode = gNodes[e.to]
+        if (!dNode) return
+        // 직접 연결된 task (부서 없을 때)
+        if (dNode.type === 'task') {
           vis.add(e.to)
-          // session 하위 file도 표시
-          if (gNodes[e.to]?.type === 'session') gEdges.forEach(e2 => { if (e2.from === e.to) vis.add(e2.to) })
+          gEdges.forEach(e2 => {
+            if (e2.from !== e.to) return
+            vis.add(e2.to) // session 또는 file
+            if (gNodes[e2.to]?.type === 'session') gEdges.forEach(e3 => { if (e3.from === e2.to) vis.add(e3.to) })
+          })
+          return
         }
-        if (e.to === expandedHubIdx) vis.add(e.from)
+        if (dNode.type !== 'dept') return
+        vis.add(e.to) // 부서
+        const deptIdx = e.to
+        // 부서 → 과제
+        gEdges.forEach(e2 => {
+          if (e2.from !== deptIdx || gNodes[e2.to]?.type !== 'task') return
+          vis.add(e2.to)
+          const taskIdx = e2.to
+          // 과제 → 세션 + 보고서 파일
+          gEdges.forEach(e3 => {
+            if (e3.from !== taskIdx) return
+            vis.add(e3.to)
+            // 세션 → 회의록 파일
+            if (gNodes[e3.to]?.type === 'session') gEdges.forEach(e4 => { if (e4.from === e3.to) vis.add(e4.to) })
+          })
+        })
       })
-      if (expandedDeptIdx !== null) {
-        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
-      }
     } else {
-      gNodes.forEach((n, i) => { if (['org','dept','meeting_group'].includes(n.type)) vis.add(i) })
-      if (expandedDeptIdx !== null) {
-        gEdges.forEach(e => { if (e.from === expandedDeptIdx && gNodes[e.to]?.type === 'person') vis.add(e.to) })
-      }
+      gNodes.forEach((n, i) => { if (['org','meeting_group'].includes(n.type)) vis.add(i) })
     }
   }
   return vis
@@ -1464,6 +1783,48 @@ function getRelatedIndices(mgIdx) {
   return related
 }
 
+function computeTreeLayout(hubIdx, w, h) {
+  const naturalPos = new Map() // natural (unzoomed) positions
+  const visSet = getVisibleSet()
+  const TOP = 60, GAP = 130, PAD = 50
+
+  function kids(idx) {
+    return gEdges
+      .filter(e => e.from === idx && visSet.has(e.to))
+      .map(e => e.to)
+  }
+  const _lc = new Map()
+  function leafCount(idx) {
+    if (_lc.has(idx)) return _lc.get(idx)
+    const ch = kids(idx)
+    const c = ch.length ? ch.reduce((s, ci) => s + leafCount(ci), 0) : 1
+    _lc.set(idx, c); return c
+  }
+  function placeNatural(idx, cx, y) {
+    naturalPos.set(idx, { cx, y })
+    const ch = kids(idx)
+    if (!ch.length) return
+    const total = ch.reduce((s, ci) => s + leafCount(ci), 0)
+    const spread = Math.min(w - PAD * 2, Math.max(ch.length * 90, total * 100))
+    let x = cx - spread / 2
+    for (const ci of ch) {
+      const frac = leafCount(ci) / total
+      placeNatural(ci, x + frac * spread / 2, y + GAP)
+      x += frac * spread
+    }
+  }
+  placeNatural(hubIdx, w / 2, TOP)
+  // Apply zoom (anchored at hub top-center) and pan
+  const pos = new Map()
+  naturalPos.forEach(({ cx, y }, idx) => {
+    pos.set(idx, {
+      sx: w/2 + (cx - w/2) * worldZoom + pan2DX,
+      sy: TOP  + (y  - TOP) * worldZoom + pan2DY,
+    })
+  })
+  return pos
+}
+
 function drawArchiveGraph() {
   const canvas = canvasRef.value; if (!canvas||!ctx) return
   const w=canvas.offsetWidth,h=canvas.offsetHeight
@@ -1473,19 +1834,37 @@ function drawArchiveGraph() {
   if(!isDark){ctx.fillStyle='#eef2ff';ctx.fillRect(0,0,w,h)}
   if(!gNodes.length){ctx.fillStyle=isDark?'rgba(148,163,184,.5)':'rgba(100,116,139,.6)';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('데이터를 불러오는 중...',w/2,h/2);return}
   const visibleSet = getVisibleSet()
-  const projected=gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
+  const is2D = expandedHubIdx !== null
+  let projected
+  if (is2D) {
+    _treePositions = computeTreeLayout(expandedHubIdx, w, h)
+    if (_node2DOffsets.size > 0) {
+      _node2DOffsets.forEach((off, idx) => {
+        const tp = _treePositions.get(idx)
+        if (tp) _treePositions.set(idx, { sx: tp.sx + off.dx, sy: tp.sy + off.dy })
+      })
+    }
+    projected = gNodes.map((n, i) => {
+      const tp = _treePositions.get(i)
+      return { sx: tp ? tp.sx : -9999, sy: tp ? tp.sy : -9999, scale: 1.0, z: tp ? tp.sy : 0, node: n, idx: i }
+    })
+  } else {
+    _treePositions = null
+    projected = gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
+  }
   const order=projected.slice().sort((a,b)=>a.z-b.z)
   const zf=Math.max(0.6,Math.min(2.5,worldZoom))
   const now = Date.now() / 1000
   gEdges.forEach(e => {
     const { from, to, rel } = e
-    if (!visibleSet.has(from)||!visibleSet.has(to)) return
+    if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
+    else { if (!visibleSet.has(from)||!visibleSet.has(to)) return }
     if (from>=projected.length||to>=projected.length) return
     const pa=projected[from], pb=projected[to]
     const relColor = REL_COLORS[rel] || '#60a5fa'
     const isFocused = focusNode!==null&&(focusNode===from||focusNode===to)
-    const alpha = isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2))
-    const lw = isFocused ? 1.8 : 0.9
+    const alpha = is2D ? (isFocused ? 0.85 : 0.55) : (isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2)))
+    const lw = isFocused ? 1.8 : (is2D ? 1.2 : 0.9)
     const dx=pb.sx-pa.sx, dy=pb.sy-pa.sy
     const len=Math.sqrt(dx*dx+dy*dy)
     if (len < 8) return
@@ -1502,7 +1881,7 @@ function drawArchiveGraph() {
     const px2=-uy*as*0.44, py2=ux*as*0.44
     ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
     ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
-    // Relation label (hide implicit structural edges)
+    // Relation label
     if (rel && rel !== '개최' && rel !== '생성' && len > 42 && zf > 0.85) {
       const lx=(pa.sx+pb.sx)/2-uy*8, ly=(pa.sy+pb.sy)/2+ux*8
       ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
@@ -1513,6 +1892,7 @@ function drawArchiveGraph() {
   })
   order.forEach(p=>{
     if(!visibleSet.has(p.idx)) return
+    if(is2D && !_treePositions?.has(p.idx)) return
     const n=p.node,isFocused=focusNode===p.idx
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
@@ -1525,12 +1905,25 @@ function drawArchiveGraph() {
       ctx.beginPath()
       for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
       ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
-      ctx.strokeStyle=isDark?'rgba(148,163,184,0.6)':'rgba(71,85,105,0.8)'; ctx.lineWidth=1.5; ctx.stroke()
-      if(p.scale>.25){const fs=Math.max(10,Math.min(16,Math.round(12*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(255,255,255,0.95)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';const orgDisp=n.label||'조직';ctx.fillText(orgDisp.length>6?orgDisp.slice(0,5)+'…':orgDisp,p.sx,p.sy)}
+      if(p.scale>.22){
+        const iconColor=isDark?'rgba(226,232,240,0.85)':'rgba(255,255,255,0.9)'
+        const headR=r*0.26, bodyR=r*0.33, headY=p.sy-r*0.22, bodyY=p.sy+r*0.12
+        ctx.fillStyle=iconColor
+        ctx.beginPath(); ctx.arc(p.sx,headY,headR,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(p.sx,bodyY+bodyR*0.6,bodyR,Math.PI,Math.PI*2); ctx.fill()
+        if(p.scale>.3){const fs=Math.max(8,Math.min(13,Math.round(9*zf)));ctx.fillStyle=isDark?iconColor:'rgba(200,215,230,1.0)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';const nm=n.label||'나';ctx.fillText(nm.length>5?nm.slice(0,4)+'…':nm,p.sx,p.sy+r*0.55)}
+      }
     } else if(n.type==='meeting_group'){
       const hubColor=getHubFill(n.data)
       const urgency=computeUrgency(n.data)
       const r=Math.min(36,(isFocused?26:22)*p.scale*zf)
+      // Search highlight ring
+      if(searchHitMgIdxs.value.includes(p.idx)){
+        const now2=Date.now()/1000;const pulse=0.55+0.3*Math.sin(now2*2.5)
+        ctx.beginPath();ctx.arc(p.sx,p.sy,r+8*Math.min(1,zf),0,Math.PI*2)
+        ctx.strokeStyle=isDark?`rgba(251,191,36,${pulse})`:`rgba(234,179,8,${pulse})`
+        ctx.lineWidth=2.5;ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([])
+      }
       if(!isEnded&&urgency==='critical'){const pulse=0.3+0.25*Math.sin(now*3.5);const auraR=r*(1.8+0.4*Math.sin(now*2.2));const ag=ctx.createRadialGradient(p.sx,p.sy,r*.5,p.sx,p.sy,auraR);ag.addColorStop(0,`rgba(239,68,68,${pulse})`);ag.addColorStop(1,'rgba(239,68,68,0)');ctx.beginPath();ctx.arc(p.sx,p.sy,auraR,0,Math.PI*2);ctx.fillStyle=ag;ctx.fill()}
       const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
       if(isEnded){grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')}
@@ -1548,64 +1941,92 @@ function drawArchiveGraph() {
         ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
       }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
+    } else if(n.type==='task'){
+      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
+      const hw=r*1.6,hh=r*0.65
+      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(8*Math.min(1,zf),hh*0.6))
+      ctx.fillStyle='#7ac8b0'; ctx.fill()
+      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(20,60,50,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='session'){
-      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
-      roundRect(ctx,p.sx-r,p.sy-r*0.75,r*2,r*1.5,r*.3)
-      ctx.fillStyle=isDark?'rgba(5,150,105,0.7)':'rgba(209,250,229,0.9)'; ctx.fill()
-      ctx.strokeStyle=isDark?'#34d399':'#10b981'; ctx.lineWidth=isFocused?1.8:0.9; ctx.stroke()
-      if(p.scale>.35&&zf>.7){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(167,243,208,${Math.min(1,p.scale*1.6)})`:`rgba(6,78,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
+      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
+      const hw=r*1.6,hh=r*0.65
+      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(8*Math.min(1,zf),hh*0.6))
+      ctx.fillStyle='#d4b483'; ctx.fill()
+      if(p.scale>.22&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(60,40,10,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy)}
     } else if(n.type==='file'){
-      const ftColor = n.fileType==='회의록'?'#60a5fa':n.fileType==='발제자료'?'#a78bfa':'#34d399'
-      const ftBg = n.fileType==='회의록'?(isDark?'rgba(30,58,138,0.8)':'rgba(219,234,254,0.9)'):n.fileType==='발제자료'?(isDark?'rgba(76,29,149,0.8)':'rgba(237,233,254,0.9)'):(isDark?'rgba(5,78,22,0.8)':'rgba(220,252,231,0.9)')
-      const r=Math.min(15,(isFocused?11:8)*p.scale*zf)
-      roundRect(ctx,p.sx-r,p.sy-r,r*2,r*2,r*.4)
-      ctx.fillStyle=ftBg; ctx.fill(); ctx.strokeStyle=ftColor+'bb'; ctx.lineWidth=0.9; ctx.stroke()
-      // File type icon letter
-      if(r>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle=ftColor;ctx.font=`bold ${Math.max(7,Math.round(r*0.9))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
-      if(p.scale>.38&&zf>.75){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.6)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
+      const r=Math.min(22,(isFocused?17:14)*p.scale*zf)
+      const hw=r*1.4,hh=r*0.85
+      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(6*Math.min(1,zf),hh*0.5))
+      ctx.fillStyle='#c5c2be'; ctx.fill()
+      if(hh>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle='rgba(50,45,40,0.8)';ctx.font=`bold ${Math.max(8,Math.round(hh*0.95))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
+      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(50,45,40,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+hh+3)}
     } else if(n.type==='dept'){
       const isExpanded=expandedDeptIdx===p.idx
-      const r=Math.min(18,(isFocused||isExpanded?14:11)*p.scale*zf)
-      ctx.beginPath()
-      for(let a=0;a<6;a++){const ang=a*Math.PI/3-Math.PI/6;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
-      ctx.closePath()
-      ctx.fillStyle=isDark?'rgba(71,85,105,0.75)':'rgba(148,163,184,0.85)'; ctx.fill()
-      ctx.strokeStyle=isExpanded?'#f1f5f9':'rgba(148,163,184,0.5)'; ctx.lineWidth=isExpanded?1.5:0.8; ctx.stroke()
-      if(p.scale>.32){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?`rgba(226,232,240,${Math.min(1,p.scale*1.5)})`:`rgba(30,41,59,${Math.min(1,p.scale*1.8)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='person'){
-      const r=Math.min(18,(isFocused?14:11)*p.scale*zf)
-      const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
-      if(isDark){grad.addColorStop(0,'rgba(139,92,246,.9)');grad.addColorStop(1,'rgba(109,40,217,.5)')}
-      else{grad.addColorStop(0,'rgba(167,139,250,.95)');grad.addColorStop(1,'rgba(124,58,237,.6)')}
-      ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
-      ctx.strokeStyle=n.role==='admin'?'#fbbf24':'#a78bfa';ctx.lineWidth=n.role==='admin'?2:1;ctx.stroke()
-      if(p.scale>.3&&r>7){ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,Math.min(14,Math.round(10*zf*p.scale)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label[0]||'?',p.sx,p.sy)}
-      if(p.scale>.4&&zf>.8){ctx.fillStyle=isDark?`rgba(196,181,253,${Math.min(1,p.scale*1.5)})`:`rgba(76,29,149,${Math.min(1,p.scale*1.5)})`;ctx.font=`${Math.max(9,Math.min(14,Math.round(11*zf)))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>5?n.label.slice(0,4)+'…':n.label,p.sx,p.sy+r+3)}
+      const r=Math.min(28,(isFocused||isExpanded?22:18)*p.scale*zf)
+      const hw=r*1.6,hh=r*0.65
+      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(6*Math.min(1,zf),hh*0.6))
+      ctx.fillStyle=isDark?'#b8aee0':'#9b8ec4'; ctx.fill()
+      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
     }
     ctx.globalAlpha=1
   })
 }
 
 function animateGraph() {
-  if(autoRotate && !rotationPaused) rotY+=.002
+  if(expandedHubIdx === null && autoRotate && !rotationPaused) rotY+=.002
   camX+=(targetCamX-camX)*.05;camY+=(targetCamY-camY)*.05;camZ+=(targetCamZ-camZ)*.05
   worldZoom+=(targetZoom-worldZoom)*.1
+  pan2DX+=(targetPan2DX-pan2DX)*.12;pan2DY+=(targetPan2DY-pan2DY)*.12
   drawArchiveGraph()
   animId=requestAnimationFrame(animateGraph)
 }
 
 // ─── Mouse ────────────────────────────────────────────────────
-function onMouseDown(e) { isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY; if(isPanMode.value) e.preventDefault() }
+function onMouseDown(e) {
+  if (expandedHubIdx !== null && !isPanMode.value && _treePositions) {
+    const canvas = canvasRef.value
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect()
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top
+      const zf = Math.max(.6, Math.min(2.5, worldZoom))
+      let hitNode = null, minDist = Infinity
+      _treePositions.forEach((tp, idx) => {
+        const n = gNodes[idx]
+        if (!n || n.type === 'meeting_group') return
+        const d = Math.hypot(tp.sx - mx, tp.sy - my)
+        const baseR = n.type==='org'?22:n.type==='dept'?18:22
+        if (d < baseR * zf + 10 && d < minDist) { minDist = d; hitNode = idx }
+      })
+      if (hitNode !== null) {
+        dragNode2D = hitNode; dragNode2DMoved = false
+        lastMx = e.clientX; lastMy = e.clientY
+        e.preventDefault(); return
+      }
+    }
+  }
+  isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY
+  if(isPanMode.value) e.preventDefault()
+}
 
 function onMouseMove(e) {
   if (bottomResizing) return
+  if (dragNode2D !== null) {
+    const dx = e.clientX - lastMx, dy = e.clientY - lastMy
+    const cur = _node2DOffsets.get(dragNode2D) || { dx: 0, dy: 0 }
+    _node2DOffsets.set(dragNode2D, { dx: cur.dx + dx, dy: cur.dy + dy })
+    lastMx = e.clientX; lastMy = e.clientY
+    dragNode2DMoved = true
+    return
+  }
   if(isDragging){
     const dx=e.clientX-lastMx, dy=e.clientY-lastMy
-    if(isPanMode.value){
+    if(expandedHubIdx !== null) {
+      // 2D tree mode: always pan
+      targetPan2DX += dx; pan2DX += dx
+      targetPan2DY += dy; pan2DY += dy
+    } else if(isPanMode.value){
       const canvas=canvasRef.value
-      const w=canvas?canvas.offsetWidth:800, h=canvas?canvas.offsetHeight:600
-      // 화면 픽셀 → 3D 좌표 역변환: fov/(fov+z+400) ≈ 0.6, worldZoom 반영
-      const fovScale = 600 / (600 + 400)  // depth=0 기준 투영 배율
+      const fovScale = 600 / (600 + 400)
       const panScale = 1 / (fovScale * worldZoom)
       targetCamX -= dx * panScale
       targetCamY -= dy * panScale
@@ -1625,23 +2046,30 @@ function onMouseMove(e) {
   if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;return}
   const w=canvas.offsetWidth,h=canvas.offsetHeight
   let closest=null,minDist=Infinity
+  const hoverVis = getVisibleSet()
+  const zf=Math.max(.6,Math.min(2.5,worldZoom))
   gNodes.forEach((n,i)=>{
-    if(!['meeting_group','dept','org'].includes(n.type)) return
-    const p=projectNode(n,w,h)
-    const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<30*p.scale*zf+10&&d<minDist){minDist=d;closest=i}
+    if(!['meeting_group','dept','org','task','session','file'].includes(n.type)) return
+    if(!hoverVis.has(i)) return
+    let sx, sy
+    if(_treePositions?.has(i)) {
+      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
+    } else if(expandedHubIdx === null) {
+      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
+    } else return
+    const d=Math.hypot(sx-mx,sy-my)
+    if(d<30*zf+10&&d<minDist){minDist=d;closest=i}
   })
   hoverNodeIdx = closest !== null ? closest : -1
   hoverNode.value = closest !== null ? gNodes[closest] : null
 }
 
 function onMouseUp() {
-  isDragging=false
+  isDragging=false; dragNode2D=null
 }
 
 function onMouseLeave() {
-  isDragging=false
+  isDragging=false; dragNode2D=null
   hoverNode.value=null
   hoverNodeIdx=-1
 }
@@ -1654,48 +2082,64 @@ onWheel._t=null
 
 function onCanvasClick(e) {
   if(isDragging) return
+  if(dragNode2DMoved) { dragNode2DMoved=false; return }
   if(isPanMode.value) return  // 패닝 모드일 때 노드 클릭 무시
   const canvas=canvasRef.value;if(!canvas) return
   const rect=canvas.getBoundingClientRect()
   const mx=e.clientX-rect.left,my=e.clientY-rect.top
   const w=canvas.offsetWidth,h=canvas.offsetHeight
+  const visSet = getVisibleSet()
   let closest=null,minDist=Infinity
+  const zf=Math.max(.6,Math.min(2.5,worldZoom))
   gNodes.forEach((n,i)=>{
-    if(!getVisibleSet().has(i)) return
-    const p=projectNode(n,w,h)
-    const zf=Math.max(.6,Math.min(2.5,worldZoom))
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?13:n.type==='session'?11:n.type==='person'?11:9
-    const d=Math.hypot(p.sx-mx,p.sy-my)
-    if(d<baseR*p.scale*zf+6&&d<minDist){minDist=d;closest=i}
+    if(!visSet.has(i)) return
+    let sx, sy
+    if(_treePositions?.has(i)) {
+      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
+    } else {
+      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
+    }
+    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?14:n.type==='task'?13:n.type==='session'?12:10
+    const d=Math.hypot(sx-mx,sy-my)
+    if(d<baseR*zf+6&&d<minDist){minDist=d;closest=i}
   })
   if(closest!==null){
     const n=gNodes[closest]
     if(n.type==='meeting_group') {
       if(selectedNodeIdx.value===closest) {
-        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null
-        targetZoom=Math.max(1.0,targetZoom/1.6)
+        // 선택 해제: 전체 맵으로 복귀
+        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null; focusNode=null
+        _node2DOffsets.clear()
+        targetZoom=1.0
         targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
+        breadcrumb.value=[]
       } else {
         selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
-        targetZoom=Math.min(3.0,Math.max(targetZoom,1.0)*1.6)
-        targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55
+        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
+        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
         breadcrumb.value=[{ label: n.label, idx: closest, type: 'meeting_group' }]
+        focusNode=closest
         openDetail(n.data)
       }
     } else if(n.type==='dept') {
       expandedDeptIdx = expandedDeptIdx===closest ? null : closest
       if(expandedDeptIdx!==null) {
-        targetCamX=n.x*.6;targetCamY=n.y*.6;targetCamZ=n.z*.6
-        targetZoom=Math.min(3.5,targetZoom*1.2)
         const hubEntry = breadcrumb.value.find(b=>b.type==='meeting_group')
         breadcrumb.value = hubEntry ? [hubEntry,{label:n.label,idx:closest,type:'dept'}] : [{label:n.label,idx:closest,type:'dept'}]
       } else {
         breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
       }
+      openNodeDetail(n)
+      focusNode=closest
     } else if(n.type==='file') {
       openFileReview(n)
+      openNodeDetail(n)
+      focusNode=closest
+    } else {
+      openNodeDetail(n)
+      focusNode=closest
     }
-    focusNode=closest
   } else {
     // 배경 클릭: 아무것도 하지 않음
   }
@@ -1710,21 +2154,20 @@ function onTouchEnd(){isDragging=false}
 function onBreadcrumbReset() {
   breadcrumb.value = []; selectedNodeIdx.value = null
   expandedHubIdx = null; expandedDeptIdx = null
+  _node2DOffsets.clear()
   targetCamX = 0; targetCamY = 0; targetCamZ = 0
-  targetZoom = Math.max(1.0, targetZoom / 1.5)
+  targetZoom = 1.0
+  targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
 }
 
 function onBreadcrumbClick(item, index) {
   breadcrumb.value = breadcrumb.value.slice(0, index + 1)
   if(item.type === 'meeting_group') {
     selectedNodeIdx.value = item.idx; expandedHubIdx = item.idx; expandedDeptIdx = null
-    const n = gNodes[item.idx]
-    if(n) { targetCamX=n.x*.55; targetCamY=n.y*.55; targetCamZ=n.z*.55 }
-    targetZoom = Math.min(3.0, Math.max(targetZoom, 1.0) * 1.2)
+    targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
+    targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
   } else if(item.type === 'dept') {
     expandedDeptIdx = item.idx
-    const n = gNodes[item.idx]
-    if(n) { targetCamX=n.x*.6; targetCamY=n.y*.6; targetCamZ=n.z*.6 }
   }
 }
 
@@ -1736,22 +2179,37 @@ onMounted(async () => {
   window.addEventListener('mouseup', onGlobalMouseUp)
   await meetingsStore.fetchMeetings()
   try {
-    const [m, r, mtgs] = await Promise.all([
-      api.get('/api/all-minutes').catch(()=>({data:[]})),
-      api.get('/api/all-reports').catch(()=>({data:[]})),
-      api.get('/api/meetings').catch(()=>({data:[]})),
-    ])
-    minutes.value=m.data; reports.value=r.data
-    const memberResults = await Promise.all(
-      mtgs.data.map(mtg =>
-        api.get(`/api/meetings/${mtg.id}/members`)
-          .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role,department:mb.user?.department||'',organization:mb.user?.organization||'',position:mb.user?.position||''})))
-          .catch(()=>[])
-      )
-    )
-    membersData.value=memberResults.flat()
-  } catch(e) {
-    console.warn('archive data fetch error', e)
+    const neo4jRes = await api.get('/api/neo4j/archive')
+    neo4jGroups.value = neo4jRes.data.meetings || []
+    minutes.value = neo4jRes.data.minutes || []
+    reports.value = neo4jRes.data.reports || []
+    neo4jDepts.value = neo4jRes.data.departments || []
+    useNeo4j.value = true
+  } catch {
+    try {
+      const [m, r, mtgs] = await Promise.all([
+        api.get('/api/all-minutes').catch(()=>({data:[]})),
+        api.get('/api/all-reports').catch(()=>({data:[]})),
+        api.get('/api/meetings').catch(()=>({data:[]})),
+      ])
+      minutes.value=m.data; reports.value=r.data
+      const [memberResults, todoResults] = await Promise.all([
+        Promise.all(mtgs.data.map(mtg =>
+          api.get(`/api/meetings/${mtg.id}/members`)
+            .then(res=>res.data.map(mb=>({meetingId:mtg.id,meetingTitle:mtg.title,userId:mb.user?.id,userName:mb.user?.name||'?',role:mb.role,department:mb.user?.department||'',organization:mb.user?.organization||'',position:mb.user?.position||''})))
+            .catch(()=>[])
+        )),
+        Promise.all(mtgs.data.map(mtg =>
+          api.get(`/api/meetings/${mtg.id}/todos`)
+            .then(res=>res.data.map(t=>({...t, meetingId:mtg.id, meetingTitle:mtg.title})))
+            .catch(()=>[])
+        ))
+      ])
+      membersData.value=memberResults.flat()
+      tasksData.value=todoResults.flat()
+    } catch(e) {
+      console.warn('archive data fetch error', e)
+    }
   } finally {
     loading.value=false
     const g=buildGraphNodes();gNodes=g.nodes;gEdges=g.edges
@@ -1772,13 +2230,21 @@ watch(() => meetingsStore.meetings.length, () => {
 })
 
 watch(search, q=>{
-  if(!q){focusNode=null;targetCamX=0;targetCamY=0;targetCamZ=0;return}
+  if(!q){focusNode=null;searchHitMgIdxs.value=[];targetCamX=0;targetCamY=0;targetCamZ=0;return}
   const lower=q.toLowerCase()
   let bestIdx=null,bestScore=-1
+  // compute which meeting_group nodes contain matching sub-nodes
+  const hitMgs=new Set()
   gNodes.forEach((n,i)=>{
-    let score=n.label.toLowerCase().includes(lower)?(n.type==='hub'?10:n.type==='person'?6:5):0
+    let score=n.label.toLowerCase().includes(lower)?(n.type==='meeting_group'?10:5):0
     if(score>bestScore){bestScore=score;bestIdx=i}
+    if(n.type!=='meeting_group'&&n.label.toLowerCase().includes(lower)){
+      const mgEdge=gEdges.find(e=>e.to===i&&gNodes[e.from]?.type==='meeting_group')
+      if(mgEdge)hitMgs.add(mgEdge.from)
+      else if(n.meetingGroupId){const mi=gNodes.findIndex(nd=>nd.id===n.meetingGroupId);if(mi>=0)hitMgs.add(mi)}
+    }
   })
+  searchHitMgIdxs.value=[...hitMgs]
   if(bestIdx!==null&&bestScore>0){
     focusNode=bestIdx;const n=gNodes[bestIdx]
     targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55;autoRotate=false
@@ -1808,12 +2274,12 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </button>
       </div>
 
-      <div class="view-toggle">
-        <button :class="{ active: viewMode==='graph' }" @click="viewMode='graph'">
+      <div class="app-tabs">
+        <button class="app-tab" :class="{ active: viewMode==='graph' }" @click="viewMode='graph'">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 12h5l5-5M12 12l5 5"/></svg>
           관계도
         </button>
-        <button :class="{ active: viewMode==='list' }" @click="viewMode='list'">
+        <button class="app-tab" :class="{ active: viewMode==='list' }" @click="viewMode='list'">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
           목록
         </button>
@@ -1855,13 +2321,17 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
 
-          <!-- Header -->
+          <!-- ── Header: meeting_group ── -->
+          <template v-if="detailMeeting">
           <div class="detail-header">
             <div class="detail-header-icon">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
             </div>
             <div class="detail-header-left">
-              <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
+              <div class="detail-name-badge-row">
+                <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
+                <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-presenter'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
+              </div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ detailMeeting?.members?.length||0 }}명</span>
                 <span class="detail-meta-dot">·</span>
@@ -1873,11 +2343,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
             <div class="detail-header-actions">
-              <button class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정">
+              <button v-if="isDetailAdmin" class="detail-icon-btn" @click="openGroupSetting" title="회의체 설정 (간사만 가능)">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              </button>
-              <button class="detail-close" @click="detailOpen=false" title="닫기">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
             </div>
           </div>
@@ -1886,6 +2353,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="detail-tabs">
             <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
             <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
+            <button v-if="showExtractFlow" class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'">과제추출</button>
           </div>
 
           <div class="detail-body">
@@ -1900,66 +2368,57 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
 
             <!-- 간사 + 참여부서 -->
-            <div class="detail-section">
-              <div class="detail-info-grid">
-                <div class="detail-info-item">
-                  <span class="detail-info-key">간사</span>
-                  <span class="detail-info-val">
-                    {{ detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-' }}
-                  </span>
+            <div class="detail-section" style="gap:7px">
+              <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
+              <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
+              <SidebarInfoRow label="최종 보고일">
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
+                  <template v-if="detailDday !== null">
+                    <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
+                    <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
+                  </template>
+                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">미지정</span>
                 </div>
-                <div class="detail-info-item">
-                  <span class="detail-info-key">참여부서</span>
-                  <span class="detail-info-val">
-                    {{ [...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-' }}
-                  </span>
-                </div>
-              </div>
+              </SidebarInfoRow>
             </div>
 
-            <!-- 진행 현황 -->
+            <!-- 팀 제출 현황 -->
             <div class="detail-section">
-              <div class="detail-section-label">진행 현황</div>
-              <!-- 게이지바 -->
-              <div class="detail-gauge-wrap">
-                <div class="detail-gauge-track">
-                  <div class="detail-gauge-fill"
-                    :style="{ width: detailTodos.length ? (detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) + '%' : '0%' }"></div>
-                </div>
-                <span class="detail-gauge-label">
-                  <template v-if="detailTodos.length">{{ detailTodos.filter(t=>t.status==='done').length }}/{{ detailTodos.length }} 완료 ({{ Math.round(detailTodos.filter(t=>t.status==='done').length / detailTodos.length * 100) }}%)</template>
-                  <template v-else>과제 없음</template>
+              <div class="detail-section-label-row">
+                <span class="detail-section-label">팀 제출 현황</span>
+                <span class="dept-submit-summary">
+                  <span class="dss-done">{{ detailDeptStatus.filter(d=>d.submitted).length }}팀 완료</span>
+                  <template v-if="detailDeptStatus.filter(d=>!d.submitted).length">
+                    <span class="dss-sep">·</span>
+                    <span class="dss-pending">{{ detailDeptStatus.filter(d=>!d.submitted).length }}팀 미제출</span>
+                  </template>
                 </span>
               </div>
-              <!-- 인라인 지표 -->
-              <div class="detail-inline-stats">
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  보고자료 ({{ detailMeeting?.reports?.length||0 }}건)
-                  <span class="dis-recent">최근 {{ detailMeeting?.reports?.slice(-1)[0]?.submitted_at ? formatDate(detailMeeting.reports.slice(-1)[0].submitted_at) : '없음' }}</span>
+              <template v-if="detailDeptStatus.length">
+                <div class="dept-submit-list">
+                  <div v-for="ds in detailDeptStatus" :key="ds.dept" class="dept-submit-item" :class="{ 'dsi-done': ds.submitted, 'dsi-pending': !ds.submitted, 'dsi-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }">
+                    <div class="dsi-dot" :class="{ 'dsi-dot-done': ds.submitted, 'dsi-dot-pending': !ds.submitted, 'dsi-dot-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }"></div>
+                    <span class="dsi-name">{{ ds.dept }}</span>
+                    <template v-if="ds.submitted">
+                      <span class="dsi-status dsi-status-done">제출 완료</span>
+                    </template>
+                    <template v-else>
+                      <span class="dsi-status dsi-status-pending">미제출 {{ ds.pendingCount }}건</span>
+                      <span v-if="ds.minDays !== null" class="dsi-deadline" :class="{ 'dsi-deadline-urgent': ds.minDays <= 3, 'dsi-deadline-critical': ds.minDays <= 1 }">
+                        {{ ds.minDays <= 0 ? '마감초과' : `D-${ds.minDays}` }}
+                      </span>
+                    </template>
+                  </div>
                 </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                  발제자료 ({{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').length }}건)
-                  <span class="dis-recent">최근 {{ (detailMeeting?.files||[]).filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0]?.created_at ? formatDate((detailMeeting.files.filter(f=>f.file_type==='발제자료'||f.fileType==='발제자료').slice(-1)[0].created_at)) : '없음' }}</span>
-                </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  회의록 ({{ detailMeeting?.minutes?.length||0 }}건)
-                  <span class="dis-recent">최근 {{ detailMeeting?.minutes?.slice(-1)[0]?.ended_at ? formatDate(detailMeeting.minutes.slice(-1)[0].ended_at) : '없음' }}</span>
-                </div>
-                <div class="detail-inline-stat">
-                  <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7l2 2 4-4"/></svg>
-                  과제 대기 {{ detailTodos.filter(t=>t.status==='pending'||!t.status).length }}건 · 진행 {{ detailTodos.filter(t=>t.status==='in_progress').length }}건 · 완료 {{ detailTodos.filter(t=>t.status==='done').length }}건
-                </div>
-              </div>
+              </template>
+              <div v-else class="detail-log-empty">참여 부서 정보가 없습니다.</div>
             </div>
 
             <!-- 최근 로그 -->
             <div class="detail-section">
               <div class="detail-section-label-row">
                 <span class="detail-section-label">최근 로그</span>
-                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="viewMode='list'; detailOpen=false">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
+                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="goToList(detailMeeting?.id)">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
               </div>
               <div class="detail-log-list">
                 <template v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length">
@@ -1975,13 +2434,53 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </div>
 
+            <!-- ── 연결관계 편집 (Neo4j 모드 · meeting_group) ── -->
+            <template v-if="useNeo4j && EDITABLE_RELS.meeting_group?.length">
+              <div class="detail-section rel-editor">
+                <div class="detail-section-label-row">
+                  <span class="detail-section-label">연결관계</span>
+                  <span v-if="nodeRelsLoading" class="rel-loading-dot"></span>
+                </div>
+                <template v-for="relConf in EDITABLE_RELS.meeting_group" :key="relConf.type">
+                  <div class="rel-group">
+                    <div class="rel-group-label">{{ relConf.label }}</div>
+                    <div class="rel-chips">
+                      <div
+                        v-for="rel in nodeRels.filter(r => r.rel_type === relConf.type && r.is_outgoing === (relConf.dir === 'out'))"
+                        :key="rel.node_id"
+                        class="rel-chip"
+                      >
+                        <span class="rel-chip-name">{{ rel.node_name }}</span>
+                        <button
+                          class="rel-chip-remove"
+                          @click="removeRelation(detailMeeting.id, relConf.type, relConf.dir, rel.node_id)"
+                          title="연결 해제"
+                        >×</button>
+                      </div>
+                      <button
+                        v-if="!relAddState || relAddState.type !== relConf.type"
+                        class="rel-add-btn"
+                        @click="openRelAdd(relConf)"
+                        title="연결 추가"
+                      >+</button>
+                    </div>
+                    <div v-if="relAddState?.type === relConf.type" class="rel-add-form">
+                      <select v-model="relAddState.targetId" class="rel-select">
+                        <option value="">노드 선택...</option>
+                        <option v-for="opt in relAddState.options" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                      </select>
+                      <button class="rel-form-btn accent" :disabled="!relAddState.targetId || relAddState.saving" @click="confirmRelAdd(detailMeeting.id)">추가</button>
+                      <button class="rel-form-btn" @click="relAddState=null">취소</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
             </template><!-- /기본 탭 -->
 
             <!-- ── 과제 탭 ── -->
             <template v-if="detailTab==='task'">
-
-              <!-- ── 메인 뷰: 등록된 과제 + AI 추출 버튼 ── -->
-              <template v-if="!showExtractFlow">
 
                 <!-- 등록된 과제 목록 (맨 위) -->
                 <div class="detail-section">
@@ -2020,15 +2519,15 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 </div>
 
                 <!-- AI 과제 추출 실행 버튼 -->
-                <button class="ctx-run-btn" @click="showExtractFlow=true">
+                <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
                   AI 과제 추출 실행
                 </button>
 
-              </template><!-- /메인 뷰 -->
+            </template><!-- /과제 탭 -->
 
-              <!-- ── 추출 플로우 뷰 ── -->
-              <template v-else>
+            <!-- ── 과제추출 탭 ── -->
+            <template v-if="detailTab==='extract'">
 
                 <!-- 프로세스 인디케이터 -->
                 <div class="task-process-bar">
@@ -2042,22 +2541,22 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <!-- 자료선정 단계 -->
                 <template v-if="extractPhase==='context'">
                   <div class="ctx-section">
-                    <div class="ctx-section-title">
+                    <div class="detail-section-label ctx-section-title-flex">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
                       추가 자료 선택
                     </div>
-                    <!-- 기존 자료 목록 -->
+                    <!-- 기존 자료 목록: 실제 파일이 있는 항목만 표시 -->
                     <div class="ctx-file-list">
-                      <label v-for="r in (detailMeeting?.reports||[])" :key="'r'+r.id" class="ctx-file-item">
+                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>r.file_name||r.file_url)" :key="'r'+r.id" class="ctx-file-item">
                         <input type="checkbox" :value="r.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">{{ r.file_name || '보고서' }}</span>
+                        <span class="ctx-file-name">{{ r.file_name }}</span>
                         <span class="ctx-file-date">{{ r.submitted_at ? formatDate(r.submitted_at) : '' }}</span>
                       </label>
-                      <label v-for="f in (detailMeeting?.files||[])" :key="'f'+f.id" class="ctx-file-item">
+                      <label v-for="f in (detailMeeting?.files||[]).filter(f=>f.file_name||f.name||f.file_url)" :key="'f'+f.id" class="ctx-file-item">
                         <input type="checkbox" :value="f.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.585a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                        <span class="ctx-file-name">{{ f.file_name || f.name || '발제자료' }}</span>
+                        <span class="ctx-file-name">{{ f.file_name || f.name }}</span>
                       </label>
                       <!-- 새로 업로드된 파일 -->
                       <div v-for="(uf, i) in uploadedCtxFiles" :key="'uf'+i" class="ctx-file-item ctx-file-uploaded">
@@ -2073,7 +2572,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   </div>
 
                   <div class="ctx-section">
-                    <div class="ctx-section-title">
+                    <div class="detail-section-label ctx-section-title-flex">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                       유사 문서 추천
                     </div>
@@ -2152,16 +2651,20 @@ const TYPES=['Draft','In Progress','Done','Pending']
                               <div class="dei-title" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</div>
                               <div class="dei-meta-row">
                                 <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
-                                <span class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
+                                <span v-if="t.status && t.status !== 'pending'" class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
                                 <span class="dei-assignee">{{ t.assignee }} · {{ t.dept }}</span>
                               </div>
                             </template>
                             <template v-else>
-                              <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" />
+                              <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" style="margin-bottom:4px" />
                               <div class="dei-edit-row">
-                                <input class="dei-input" v-model="t._editAssignee" placeholder="담당자" style="flex:1" />
-                                <select class="dei-select" v-model="t._editPriority"><option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option></select>
-                                <select class="dei-select" v-model="t._editStatus"><option v-for="(label, val) in STATUS_LABEL" :key="val" :value="val">{{ label }}</option></select>
+                                <select class="app-select dei-app-select" v-model="t._editDept">
+                                  <option value="">담당부서 선택</option>
+                                  <option v-for="d in assignDeptOptions" :key="d" :value="d">{{ d }}</option>
+                                </select>
+                                <select class="app-select dei-app-select" v-model="t._editPriority">
+                                  <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
+                                </select>
                               </div>
                             </template>
                           </div>
@@ -2188,13 +2691,271 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
                 </template><!-- /추출·배정 단계 -->
 
-              </template><!-- /추출 플로우 뷰 -->
-
-            </template><!-- /과제 탭 -->
+            </template><!-- /과제추출 탭 -->
 
           </div>
+          </template><!-- /detailMeeting -->
+
+          <!-- ── Node detail (부서/과제/회의/파일/사람/아젠다) ── -->
+          <template v-else-if="detailNode">
+          <div class="detail-header">
+            <!-- 노드 유형별 아이콘 -->
+            <div class="detail-header-icon">
+              <!-- 부서 -->
+              <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              <!-- 과제 -->
+              <svg v-else-if="detailNode.type==='task'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              <!-- 회의(session) -->
+              <svg v-else-if="detailNode.type==='session'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <!-- 파일 -->
+              <svg v-else-if="detailNode.type==='file'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <!-- 사람 -->
+              <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div class="detail-header-left">
+              <div class="detail-meeting-name">{{ detailNode.label }}</div>
+              <div class="detail-meta-row">
+                <span class="detail-meta">{{ { dept:'부서', task:'과제', session: detailNode.subType==='agenda'?'아젠다':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
+              </div>
+            </div>
+            <div class="detail-header-actions">
+              <button class="detail-icon-btn" @click="detailOpen=false" title="닫기">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="detail-body">
+
+            <!-- 부서 -->
+            <template v-if="detailNode.type==='dept'">
+              <div class="detail-section">
+                <div class="detail-section-label">구성원</div>
+                <div v-if="detailNode.members?.length" class="node-member-list">
+                  <div v-for="mb in detailNode.members" :key="mb.userId" class="node-member-row">
+                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? '#3b82f6' : '#475569' }">{{ (mb.userName||'?')[0] }}</div>
+                    <div class="node-member-info">
+                      <span class="node-member-name">{{ mb.userName || mb.name || '-' }}</span>
+                      <span class="node-member-role">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="node-empty">구성원 정보 없음</div>
+              </div>
+            </template>
+
+            <!-- 과제 -->
+            <template v-else-if="detailNode.type==='task'">
+              <div class="detail-section">
+                <div class="detail-purpose">{{ detailNode.data?.content || detailNode.label }}</div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">상태</span>
+                    <span class="detail-info-val">{{ { todo:'미완료', in_progress:'진행중', done:'완료' }[detailNode.data?.status] || detailNode.data?.status || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">우선순위</span>
+                    <span class="detail-info-val">{{ { high:'상', normal:'중', low:'하' }[detailNode.data?.priority] || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">마감일</span>
+                    <span class="detail-info-val">{{ detailNode.data?.due_date ? formatDate(detailNode.data.due_date) : '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">담당부서</span>
+                    <span class="detail-info-val">{{ detailNode.data?.assignee_dept || detailNode.data?.dept || '-' }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- 회의(session) 또는 아젠다 -->
+            <template v-else-if="detailNode.type==='session'">
+              <div v-if="detailNode.subType==='agenda'" class="detail-section">
+                <div class="detail-section-label">아젠다 내용</div>
+                <div class="detail-purpose">{{ detailNode.fullContent || detailNode.label }}</div>
+                <div v-if="detailNode.department" class="detail-info-grid" style="margin-top:8px">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">담당부서</span>
+                    <span class="detail-info-val">{{ detailNode.department }}</span>
+                  </div>
+                </div>
+              </div>
+              <template v-else>
+                <div class="detail-section">
+                  <div class="detail-info-grid">
+                    <div class="detail-info-item">
+                      <span class="detail-info-key">회의 회차</span>
+                      <span class="detail-info-val">{{ detailNode.data?.session_number ? detailNode.data.session_number + '차' : '-' }}</span>
+                    </div>
+                    <div class="detail-info-item">
+                      <span class="detail-info-key">일시</span>
+                      <span class="detail-info-val">{{ detailNode.data?.ended_at ? formatDate(detailNode.data.ended_at) : '-' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="detailNode.data?.summary || detailNode.data?.content" class="detail-section">
+                  <div class="detail-section-label">요약</div>
+                  <div class="detail-purpose">{{ detailNode.data?.summary || detailNode.data?.content }}</div>
+                </div>
+              </template>
+            </template>
+
+            <!-- 파일(문서/회의록) -->
+            <template v-else-if="detailNode.type==='file'">
+              <template v-if="fileReviewPanel">
+                <!-- 액션 버튼 -->
+                <div class="detail-section">
+                  <div class="fr-actions">
+                    <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                      {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
+                    </button>
+                    <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                      {{ fileReviewPanel.extracting ? '추출 중...' : '아젠다 추출' }}
+                    </button>
+                    <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
+                      {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정' }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- AI 검토 없을 때 -->
+                <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="detail-section" style="text-align:center;padding:20px 0">
+                  <div style="font-size:12px;color:#64748b;margin-bottom:10px">AI 검토 결과가 없습니다.</div>
+                  <button class="app-btn-primary" style="font-size:12px;padding:6px 14px" @click="rerunFileReview">AI 검토 시작</button>
+                </div>
+
+                <!-- 로딩 -->
+                <div v-else-if="fileReviewAnalyzing" class="detail-section">
+                  <div class="ai-loading-wrap">
+                    <div class="ai-loading-spinner"></div>
+                    <div class="ai-loading-text">AI가 자료를 검토하고 있습니다…</div>
+                  </div>
+                </div>
+
+                <!-- 검토 결과 -->
+                <template v-else-if="fileReviewPanel.aiResult">
+                  <div class="detail-section">
+                    <div class="ai-score-section">
+                      <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
+                      <div class="ai-score-gauge-wrap">
+                        <svg width="110" height="60" viewBox="0 0 110 60">
+                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
+                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
+                            :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
+                            stroke-width="10" stroke-linecap="round"
+                            :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
+                          <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
+                            :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
+                        </svg>
+                        <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
+                          {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
+                        </div>
+                      </div>
+                      <div class="ai-feedback-list">
+                        <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
+                          <span class="fb-dot">•</span> {{ fb }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 발제자료 기준 체크 -->
+                  <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="detail-section">
+                    <div class="detail-section-label">발제자료 검토 기준 (Why/What/How)</div>
+                    <div class="criteria-list">
+                      <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
+                        <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
+                          <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                          <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                        </span>
+                        <div class="criteria-text">
+                          <div class="criteria-label">{{ c.label }}</div>
+                          <div class="criteria-desc">{{ c.desc }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 추출된 아젠다 -->
+                <div v-if="fileReviewPanel.extractedAgendas.length" class="detail-section">
+                  <div class="detail-section-label">추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)</div>
+                  <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
+                    <div class="ea-title">{{ ag.title }}</div>
+                    <ul class="ea-bullets">
+                      <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
+                    </ul>
+                  </div>
+                </div>
+              </template>
+            </template>
+
+            <!-- ── 연결관계 편집 (Neo4j 모드) ── -->
+            <template v-if="useNeo4j && EDITABLE_RELS[detailNode.type]?.length">
+              <div class="detail-section rel-editor">
+                <div class="detail-section-label-row">
+                  <span class="detail-section-label">연결관계</span>
+                  <span v-if="nodeRelsLoading" class="rel-loading-dot"></span>
+                </div>
+                <template v-for="relConf in EDITABLE_RELS[detailNode.type]" :key="relConf.type">
+                  <div class="rel-group">
+                    <div class="rel-group-label">{{ relConf.label }}</div>
+                    <div class="rel-chips">
+                      <div
+                        v-for="rel in nodeRels.filter(r => r.rel_type === relConf.type && r.is_outgoing === (relConf.dir === 'out'))"
+                        :key="rel.node_id"
+                        class="rel-chip"
+                      >
+                        <span class="rel-chip-name">{{ rel.node_name }}</span>
+                        <button
+                          class="rel-chip-remove"
+                          @click="removeRelation(getNodeNeo4jId(detailNode), relConf.type, relConf.dir, rel.node_id)"
+                          title="연결 해제"
+                        >×</button>
+                      </div>
+                      <button
+                        v-if="!relAddState || relAddState.type !== relConf.type"
+                        class="rel-add-btn"
+                        @click="openRelAdd(relConf)"
+                        title="연결 추가"
+                      >+</button>
+                    </div>
+                    <div v-if="relAddState?.type === relConf.type" class="rel-add-form">
+                      <select v-model="relAddState.targetId" class="rel-select">
+                        <option value="">노드 선택...</option>
+                        <option v-for="opt in relAddState.options" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                      </select>
+                      <button class="rel-form-btn accent" :disabled="!relAddState.targetId || relAddState.saving" @click="confirmRelAdd(getNodeNeo4jId(detailNode))">추가</button>
+                      <button class="rel-form-btn" @click="relAddState=null">취소</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+          </div>
+          </template><!-- /detailNode -->
+
           </div>
         </Transition>
+
+        <!-- Sidebar toggle handle — visible whenever a meeting or node is selected -->
+        <button v-if="(detailMeeting || detailNode) && viewMode==='graph'"
+          class="sidebar-toggle-handle"
+          :style="{ left: (detailOpen ? sidebarW : 0) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }"
+          @click="detailOpen = !detailOpen"
+          :title="detailOpen ? '사이드바 접기' : '사이드바 펼치기'">
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path v-if="detailOpen" d="M6 1L1 7L6 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path v-else d="M2 1L7 7L2 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
 
         <!-- Graph view -->
         <div v-if="loading && viewMode==='graph'" class="graph-loading">
@@ -2228,15 +2989,20 @@ const TYPES=['Draft','In Progress','Done','Pending']
           @touchend="onTouchEnd"
         ></canvas>
 
-        <!-- 온톨로지 범례 -->
-        <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto">
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;border-radius:0;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%)"></div>조직</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#3b82f6"></div>회의체</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#10b981;border-radius:2px"></div>회의</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#f59e0b;border-radius:2px"></div>파일</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#94a3b8;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)"></div>부서</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot" style="background:#a78bfa"></div>사람</div>
+        <!-- Map drag invalid toast -->
+        <Transition name="map-toast-fade">
+          <div v-if="mapToastMsg" class="map-toast">{{ mapToastMsg }}</div>
+        </Transition>
 
+        <!-- 온톨로지 범례 -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
+          :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-circle" style="background:rgba(71,85,105,0.85)"></div>나</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-circle" style="background:#3b82f6"></div>회의체</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#b8aee0"></div>부서</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#7ac8b0"></div>과제</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#d4b483"></div>회의</div>
+          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#c5c2be"></div>파일</div>
         </div>
 
         <!-- Graph floating action buttons (top-right of canvas) -->
@@ -2247,13 +3013,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -2319,6 +3085,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
                           <div class="lv-group-name">{{ g.title }}</div>
                           <div class="lv-name-meta">
                             <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
+                            <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                              {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -2331,7 +3100,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   <!-- Expanded history rows -->
                   <tr v-if="expandedMeeting===g.id" class="lv-expanded-row">
                     <td colspan="3" class="lv-expanded-td">
-                      <table class="lv-hist-table">
+                      <table class="app-table lv-hist-table">
                         <thead>
                           <tr>
                             <th>설명</th>
@@ -2508,54 +3277,54 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
     <!-- ── Create Meeting Modal ── -->
     <Teleport to="body">
-      <div v-if="showCreateModal" class="archive-modal-backdrop" @click.self="showCreateModal=false">
-        <div class="archive-modal-box create-modal-box" :class="{ 'day-mode': !nightMode }">
-          <div class="modal-header">
-            <span class="modal-title">회의체 생성</span>
-            <button class="modal-close" @click="showCreateModal=false">
+      <div v-if="showCreateModal" class="app-modal-backdrop" @click.self="showCreateModal=false">
+        <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
+          <div class="app-modal-header">
+            <span class="app-modal-title">회의체 생성</span>
+            <button class="app-modal-close" @click="showCreateModal=false">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
-          <div class="modal-body">
-            <div class="modal-field">
+          <div class="app-modal-body">
+            <div class="app-modal-field">
               <label>회의체 이름 <span class="req">*</span></label>
-              <input v-model="createForm.title" class="modal-input" placeholder="예: 전략기획위원회" />
+              <input v-model="createForm.title" class="app-modal-input" placeholder="예: 전략기획위원회" />
             </div>
-            <div class="modal-field">
+            <div class="app-modal-field">
               <label>소개</label>
-              <textarea v-model="createForm.purpose" class="modal-input modal-textarea" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
+              <textarea v-model="createForm.purpose" class="app-modal-input" placeholder="이 회의체의 목적이나 소개..." rows="2"></textarea>
             </div>
-            <div class="modal-field">
+            <div class="app-modal-field">
               <label>유형</label>
-              <select v-model="createForm.meetㅇing_type" class="modal-input modal-select">
+              <select v-model="createForm.meetㅇing_type" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
               </select>
             </div>
-            <div class="modal-field-row">
-              <div class="modal-field">
+            <div class="app-modal-field-row">
+              <div class="app-modal-field">
                 <label>시작일</label>
-                <input type="date" v-model="createForm.start_date" class="modal-input" />
+                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
-              <div class="modal-field">
+              <div class="app-modal-field">
                 <label>종료일</label>
-                <input type="date" v-model="createForm.end_date" class="modal-input" />
+                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
-            <div class="modal-field">
+            <div class="app-modal-field">
               <label>운영 지침</label>
-              <textarea v-model="createForm.guidelines" class="modal-input modal-textarea" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
+              <textarea v-model="createForm.guidelines" class="app-modal-input" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
-            <div class="modal-field">
+            <div class="app-modal-field">
               <label>멤버 초대</label>
               <MemberInvite v-model="createMembers" />
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="showCreateModal=false">취소</button>
-            <button class="btn-primary" :disabled="creating||!createForm.title.trim()" @click="doCreateMeeting">{{ creating ? '생성 중...' : '생성' }}</button>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="showCreateModal=false">취소</button>
+            <button class="app-btn-primary" :disabled="creating||!createForm.title.trim()" @click="doCreateMeeting">{{ creating ? '생성 중...' : '생성' }}</button>
           </div>
         </div>
       </div>
@@ -2563,41 +3332,41 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
-    <div v-if="showSessionModal" class="archive-modal-backdrop" @click.self="showSessionModal=false">
-      <div class="archive-modal-box create-modal-box" :class="{ 'day-mode': !nightMode }">
-        <div class="modal-header">
-          <span class="modal-title">회의 생성</span>
-          <button class="modal-close" @click="showSessionModal=false">
+    <div v-if="showSessionModal" class="app-modal-backdrop" @click.self="showSessionModal=false">
+      <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
+        <div class="app-modal-header">
+          <span class="app-modal-title">회의 생성</span>
+          <button class="app-modal-close" @click="showSessionModal=false">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
-        <div class="modal-body">
-          <div class="modal-field">
+        <div class="app-modal-body">
+          <div class="app-modal-field">
             <label>회의명 <span class="req">*</span></label>
-            <input v-model="sessionForm.title" class="modal-input" placeholder="예: 2025 전략 수립 1차" />
+            <input v-model="sessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
           </div>
-          <div class="modal-field">
+          <div class="app-modal-field">
             <label>회의 소개</label>
-            <textarea v-model="sessionForm.purpose" class="modal-input modal-textarea" placeholder="이번 회의의 목적이나 주요 내용..." rows="2"></textarea>
+            <textarea v-model="sessionForm.purpose" class="app-modal-input" placeholder="이번 회의의 목적이나 주요 내용..." rows="2"></textarea>
           </div>
-          <div class="modal-field">
+          <div class="app-modal-field">
             <label>회의 날짜</label>
-            <input type="datetime-local" v-model="sessionForm.date" class="modal-input" />
+            <input type="datetime-local" v-model="sessionForm.date" class="app-modal-input" />
           </div>
-          <div v-if="sessionForm.meeting_id" class="modal-field">
+          <div v-if="sessionForm.meeting_id" class="app-modal-field">
             <label>연결된 회의체</label>
-            <div class="modal-input" style="background:var(--bg2);color:var(--text2);cursor:default">
+            <div class="app-modal-input" style="background:var(--bg2);color:var(--text2);cursor:default">
               {{ sessionForm.meeting_id }}
             </div>
           </div>
-          <div class="modal-field">
+          <div class="app-modal-field">
             <label>구성원</label>
             <MemberInvite v-model="sessionMembers" />
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="showSessionModal=false">취소</button>
-          <button class="btn-primary" :disabled="creatingSession||!sessionForm.title.trim()" @click="doCreateSession">{{ creatingSession ? '생성 중...' : '생성' }}</button>
+        <div class="app-modal-footer">
+          <button class="app-btn-cancel" @click="showSessionModal=false">취소</button>
+          <button class="app-btn-primary" :disabled="creatingSession||!sessionForm.title.trim()" @click="doCreateSession">{{ creatingSession ? '생성 중...' : '생성' }}</button>
         </div>
       </div>
     </div>
@@ -2606,8 +3375,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
   </div><!-- /archive-page -->
   <!-- 자료 업로드 모달 -->
   <Teleport to="body">
-    <div v-if="showUploadModal" class="archive-modal-backdrop" @click.self="showUploadModal=false">
-      <div class="archive-modal-box upload-modal-box" :class="{ 'day-mode': !nightMode }">
+    <div v-if="showUploadModal" class="app-modal-backdrop" @click.self="showUploadModal=false">
+      <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
 
         <!-- Step indicator -->
         <div class="upload-step-bar">
@@ -2620,50 +3389,62 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- ── Step 1: 수동 입력 ── -->
         <template v-if="uploadStep===1">
-          <div class="modal-header">
-            <span class="modal-title">자료 업로드 <span style="font-size:11px;opacity:.6;font-weight:400">— 부서 연결 후 AI가 자동 검토합니다</span></span>
-            <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+          <div class="app-modal-header">
+            <span class="app-modal-title">자료 업로드</span>
+            <button class="app-modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
-          <div class="modal-body">
+          <div class="app-modal-body">
             <!-- 파일 첨부 -->
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>파일 첨부 <span class="req">*</span></label>
               <FileUploadArea
                 :file="uploadForm.file"
                 @change="files => { uploadForm.file = files[0]; uploadForm.label = uploadForm.label || files[0]?.name }"
               />
             </div>
-            <div class="form-field">
-              <label>파일 이름 <span class="req">*</span></label>
-              <input v-model="uploadForm.label" class="form-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+            <div class="app-modal-field-row">
+              <div class="app-modal-field" style="flex:2">
+                <label>자료명 <span class="req">*</span></label>
+                <input v-model="uploadForm.label" class="app-modal-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
+              </div>
+              <div class="app-modal-field" style="flex:1">
+                <label>자료 유형</label>
+                <select v-model="uploadForm.fileType" class="app-modal-input">
+                  <option v-for="ft in FILE_TYPES" :key="ft" :value="ft">{{ ft }}</option>
+                </select>
+              </div>
             </div>
-            <!-- 관련 회의체 선택 -->
-            <div class="form-field">
-              <label>관련 회의체 <span class="req">*</span></label>
-              <select v-model="uploadForm.meetingId" class="form-input">
+
+            <!-- 관련 회의체 -->
+            <div class="app-modal-field">
+              <label>관련 회의체 <span class="req">*</span><span v-if="prefilledCtx.meetingId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.meetingId" class="app-modal-input" :class="{ 'prefilled': uploadForm.meetingId }"
+                @change="prefilledCtx.meetingId = false; prefilledCtx.connectNodeId = false">
                 <option value="">회의체 선택...</option>
                 <option v-for="n in gNodes.filter(n=>n.type==='meeting_group')" :key="n.id" :value="n.id">{{ n.label }}</option>
               </select>
             </div>
-            <!-- 연관 과제 선택 -->
-            <div class="form-field">
-              <label>연관 과제</label>
-              <select v-model="uploadForm.relatedTodoId" class="form-input" :disabled="!uploadForm.meetingId">
-                <option value="">{{ uploadForm.meetingId ? '과제 선택 안 함' : '회의체를 먼저 선택하세요' }}</option>
+
+            <!-- 업로드 부서 -->
+            <div class="app-modal-field">
+              <label>업로드 부서 <span class="req">*</span><span v-if="prefilledCtx.connectNodeId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.connectNodeId" class="app-modal-input" :class="{ 'prefilled': uploadForm.connectNodeId }"
+                @change="prefilledCtx.connectNodeId = false">
+                <option value="">부서 선택...</option>
+                <option v-for="n in deptConnectableNodes" :key="n.id" :value="n.id">{{ n.label }}</option>
+              </select>
+            </div>
+
+            <!-- 연관 과제 -->
+            <div class="app-modal-field">
+              <label>연관 과제 <span class="req">*</span><span v-if="prefilledCtx.relatedTodoId" class="prefill-label">자동 입력됨</span></label>
+              <select v-model="uploadForm.relatedTodoId" class="app-modal-input" :class="{ 'prefilled': uploadForm.relatedTodoId }"
+                :disabled="!uploadForm.meetingId" @change="prefilledCtx.relatedTodoId = false">
+                <option value="">{{ uploadForm.meetingId ? '과제 선택...' : '회의체를 먼저 선택하세요' }}</option>
                 <option v-for="t in uploadMeetingTodos" :key="t.id" :value="t.id">{{ t.content }}</option>
               </select>
             </div>
-<div class="form-field">
-              <label>업로드 부서 <span class="req">*</span><span style="font-size:11px;opacity:.55;margin-left:6px">수동 연결 필수</span></label>
-              <select v-model="uploadForm.connectNodeId" class="form-input">
-                <option value="">부서/조직 선택...</option>
-                <option v-for="n in deptConnectableNodes" :key="n.id" :value="n.id">[{{ n.typeLabel }}] {{ n.label }}</option>
-              </select>
-              <div v-if="!uploadForm.connectNodeId" class="upload-dept-hint">
-                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                업로드 담당 부서를 먼저 선택해야 AI 분석이 시작됩니다.
-              </div>
-            </div>
+
             <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
               <span class="conn-node">{{ deptConnectableNodes.find(n=>n.id===uploadForm.connectNodeId)?.label }}</span>
               <span class="conn-arrow">→</span>
@@ -2672,10 +3453,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <span class="conn-node file">{{ uploadForm.label }}</span>
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="showUploadModal=false">취소</button>
-            <button class="btn-primary"
-              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId"
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="showUploadModal=false">취소</button>
+            <button class="app-btn-primary"
+              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId || !uploadForm.relatedTodoId"
               @click="runAiAnalysis">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:5px"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
               AI 검토 시작
@@ -2685,11 +3466,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- ── Step 2: AI 분석 결과 ── -->
         <template v-else-if="uploadStep===2">
-          <div class="modal-header">
-            <span class="modal-title">AI 검토 결과 <span style="font-size:11px;opacity:.6;font-weight:400">— {{ uploadForm.label }}</span></span>
-            <button class="modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+          <div class="app-modal-header">
+            <span class="app-modal-title">AI 검토 결과 <span style="font-size:11px;opacity:.6;font-weight:400">— {{ uploadForm.label }}</span></span>
+            <button class="app-modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
-          <div class="modal-body ai-result-body">
+          <div class="app-modal-body ai-result-body">
 
             <!-- 로딩 -->
             <div v-if="aiAnalyzing" class="ai-loading-wrap">
@@ -2781,9 +3562,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </template>
           </div>
-          <div class="modal-footer" style="justify-content:space-between">
-            <button class="btn-cancel" @click="uploadStep=1; aiResult=null">← 다시 입력</button>
-            <button class="btn-primary" :disabled="aiAnalyzing || !aiResult" @click="doAddFile">
+          <div class="app-modal-footer" style="justify-content:space-between">
+            <button class="app-btn-cancel" @click="uploadStep=1; aiResult=null">← 다시 입력</button>
+            <button class="app-btn-primary" :disabled="aiAnalyzing || !aiResult" @click="doAddFile">
               <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="margin-right:4px"><path d="M5 13l4 4L19 7"/></svg>
               아카이브 등록 확정
             </button>
@@ -2794,136 +3575,30 @@ const TYPES=['Draft','In Progress','Done','Pending']
     </div>
   </Teleport>
 
-  <!-- ── 파일 AI 검토 패널 ── -->
-  <Teleport to="body">
-    <div v-if="fileReviewPanel" class="archive-modal-backdrop" @click.self="fileReviewPanel=null">
-      <div class="archive-modal-box file-review-box" :class="{ 'day-mode': !nightMode }">
-        <div class="modal-header">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0">
-            <span class="file-type-tag" :style="{color: FILE_TYPE_COLORS[fileReviewPanel.node.fileType]||'#94a3b8', background: 'rgba(0,0,0,.12)', padding:'2px 8px', borderRadius:'99px', fontSize:'11px', fontWeight:700, flexShrink:0}">{{ fileReviewPanel.node.fileType }}</span>
-            <span class="modal-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fileReviewPanel.node.label }}</span>
-          </div>
-          <button class="modal-close" @click="fileReviewPanel=null"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-        </div>
-
-        <div class="modal-body ai-result-body">
-          <!-- 액션 버튼 행 -->
-          <div class="fr-actions">
-            <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-              {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
-            </button>
-            <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              {{ fileReviewPanel.extracting ? '추출 중...' : '과제(아젠다) 추출' }}
-            </button>
-            <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
-              {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정 (GraphRAG)' }}
-            </button>
-          </div>
-
-          <!-- AI 검토 없을 때 -->
-          <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="ai-empty" style="text-align:center;padding:32px 0">
-            <div style="font-size:13px;color:#64748b;margin-bottom:12px">AI 검토 결과가 없습니다.</div>
-            <button class="btn-primary" style="font-size:12px;padding:7px 16px" @click="rerunFileReview">AI 검토 시작</button>
-          </div>
-
-          <!-- 로딩 -->
-          <div v-else-if="fileReviewAnalyzing" class="ai-loading-wrap">
-            <div class="ai-loading-spinner"></div>
-            <div class="ai-loading-text">AI가 자료를 재검토하고 있습니다…</div>
-          </div>
-
-          <!-- 검토 결과 -->
-          <template v-else-if="fileReviewPanel.aiResult">
-            <!-- 점수 -->
-            <div class="ai-score-section">
-              <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
-              <div class="ai-score-gauge-wrap">
-                <svg width="110" height="60" viewBox="0 0 110 60">
-                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
-                  <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
-                    :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
-                    stroke-width="10" stroke-linecap="round"
-                    :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
-                  <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
-                    :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
-                </svg>
-                <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
-                  {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
-                </div>
-              </div>
-              <div class="ai-feedback-list">
-                <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
-                  <span class="fb-dot">•</span> {{ fb }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 발제자료 기준 체크 -->
-            <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="ai-section">
-              <div class="ai-section-title">
-                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                발제자료 검토 기준 (Why/What/How)
-              </div>
-              <div class="criteria-list">
-                <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
-                  <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
-                    <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-                    <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-                  </span>
-                  <div class="criteria-text">
-                    <div class="criteria-label">{{ c.label }}</div>
-                    <div class="criteria-desc">{{ c.desc }}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- 추출된 아젠다 -->
-          <div v-if="fileReviewPanel.extractedAgendas.length" class="ai-section">
-            <div class="ai-section-title">
-              <svg width="13" height="13" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)
-            </div>
-            <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
-              <div class="ea-title">{{ ag.title }}</div>
-              <ul class="ea-bullets">
-                <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </Teleport>
-
   <!-- 회의체 설정 모달 -->
   <Teleport to="body">
-    <div v-if="settingsModal" class="archive-modal-backdrop" @click.self="closeSettings">
-      <div class="archive-modal-box" :class="{ 'day-mode': !nightMode }">
-        <div class="modal-header">
-          <span class="modal-title">회의체 설정</span>
-          <button class="modal-close" @click="closeSettings">
+    <div v-if="settingsModal" class="app-modal-backdrop" @click.self="closeSettings">
+      <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
+        <div class="app-modal-header">
+          <span class="app-modal-title">회의체 설정</span>
+          <button class="app-modal-close" @click="closeSettings">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
-        <div class="modal-body settings-body">
+        <div class="app-modal-body settings-body">
           <div class="settings-section">
             <div class="settings-section-title">기본 정보</div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>회의체 이름 <span class="req">*</span></label>
-              <input v-model="settingsModal.form.title" class="form-input" />
+              <input v-model="settingsModal.form.title" class="app-modal-input" />
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>소개</label>
-              <textarea v-model="settingsModal.form.purpose" class="form-input form-textarea" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
+              <textarea v-model="settingsModal.form.purpose" class="app-modal-input" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
             </div>
-            <div class="form-field">
+            <div class="app-modal-field">
               <label>회의체 지침</label>
-              <textarea v-model="settingsModal.form.guidelines" class="form-input form-textarea" rows="4" placeholder="이 회의체의 운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
+              <textarea v-model="settingsModal.form.guidelines" class="app-modal-input" rows="4" placeholder="이 회의체의 운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
           </div>
           <div class="settings-section">
@@ -2953,7 +3628,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                   <span class="sm-name">{{ mb.name }}</span>
                   <span class="sm-email">{{ mb.position || mb.department || mb.email }}</span>
                 </div>
-                <select v-model="mb.role" class="sm-role-select">
+                <select v-model="mb.role" class="app-select">
                   <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
                 </select>
                 <button class="sm-remove" @click="removeMemberFromSettings(idx)" title="제거">
@@ -2963,9 +3638,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn-cancel" @click="closeSettings">취소</button>
-          <button class="btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
+        <div class="app-modal-footer">
+          <button class="app-btn-cancel" @click="closeSettings">취소</button>
+          <button class="app-btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
         </div>
       </div>
     </div>
@@ -2987,9 +3662,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .search-input::placeholder { color:#334155; }
 .search-input:focus { border-color:rgba(96,165,250,.5); }
 .search-clear { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#475569;display:flex;align-items:center; }
-.view-toggle { display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:2px;gap:2px;flex-shrink:0; }
-.view-toggle button { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s; }
-.view-toggle button.active { background:rgba(96,165,250,.2);color:#93c5fd; }
 .plus-wrap { position:relative;flex-shrink:0; }
 .create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
 .create-meeting-btn:hover { opacity:.85; }
@@ -3043,7 +3715,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* Header */
 .detail-header { display:flex;align-items:center;padding:14px 14px 13px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0;gap:10px; }
 .detail-header-icon { width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:#888;flex-shrink:0; }
-.detail-header-left { flex:1;min-width:0; }
+.detail-header-left { flex:1;min-width:0;overflow:hidden; }
+.detail-name-badge-row { display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden; }
+.detail-name-badge-row .detail-meeting-name { flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-name-badge-row .detail-role-badge { flex-shrink:0;margin-top:0; }
 .detail-header-actions { display:flex;align-items:center;gap:4px;flex-shrink:0; }
 .detail-meeting-name { font-size:13px;font-weight:700;color:#e8e8e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .detail-meta-row { display:flex;align-items:center;gap:4px;margin-top:2px;flex-wrap:wrap; }
@@ -3053,11 +3728,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-icon-btn:hover { background:rgba(255,255,255,.07);color:#aaa;border-color:rgba(255,255,255,.15); }
 .detail-close { background:none;border:1px solid rgba(255,255,255,.08);cursor:pointer;color:#555;padding:0;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .15s; }
 .detail-close:hover { color:#ccc;background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.15); }
+.sidebar-toggle-handle { position:absolute;top:50%;transform:translateY(-50%);width:16px;height:48px;background:rgba(30,30,40,0.92);border:1px solid rgba(255,255,255,.1);border-left:none;border-radius:0 8px 8px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#64748b;z-index:25;padding:0;transition:background .15s,color .15s; }
+.sidebar-toggle-handle:hover { background:rgba(50,50,70,0.98);color:#94a3b8; }
 /* Body */
 .dei-meta-row { display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap; }
 .dei-assignee { font-size:10px;color:#64748b; }
 .dei-edit-row { display:flex;gap:4px;margin-top:4px; }
 .dei-select { background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:3px 5px;font-size:11px;color:#e2e8f0;outline:none; }
+.dei-app-select { flex:1;font-size:11px;padding:4px 22px 4px 7px; }
 .ctx-upload-area { margin-top:8px;border:1.5px dashed rgba(255,255,255,.12);border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:border-color .18s,background .18s;color:#475569; }
 .ctx-upload-area:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:#64748b; }
 .ctx-upload-area svg { color:#475569; }
@@ -3090,7 +3768,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .ctx-phase-label { font-size:11px;color:#475569;font-weight:600; }
 .ctx-phase-label.active { color:#3b82f6; }
 .ctx-phase-arrow { font-size:11px;color:#334155; }
-.task-process-bar { padding:12px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:4px; }
+.task-process-bar { padding:8px 0 14px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:4px; }
+.task-back-header { display:flex;justify-content:flex-end;margin-bottom:8px; }
+.task-back-btn { background:none;border:1px solid rgba(255,255,255,.1);cursor:pointer;color:#555;width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;padding:0; }
+.task-back-btn:hover { background:rgba(255,255,255,.07);color:#aaa;border-color:rgba(255,255,255,.18); }
+.day-mode .task-back-btn { border-color:#e2e8f0;color:#94a3b8; }
+.day-mode .task-back-btn:hover { background:#f1f5f9;color:#475569; }
+.ctx-section-title-flex { display:flex;align-items:center;gap:5px;margin-bottom:8px; }
 .detail-extract-footer--col { flex-direction:column;align-items:stretch;gap:8px; }
 .detail-extract-footer--col .detail-action-btn { width:100%; }
 .detail-extract-header { display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px; }
@@ -3115,6 +3799,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-tab { background:none;border:none;padding:8px 14px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;transition:all .18s; }
 .detail-tab.active { color:#fff;border-bottom-color:#3b82f6; }
 .detail-tab:hover:not(.active) { color:#94a3b8; }
+.detail-tab-extract { color:#7ac8b0; }
+.detail-tab-extract.active { color:#7ac8b0;border-bottom-color:#7ac8b0; }
+.detail-tab-extract:hover:not(.active) { color:#a0d8c8; }
 .detail-todo-list { display:flex;flex-direction:column;gap:6px;margin-top:4px; }
 .todo-dept-group { margin-bottom:10px; }
 .todo-dept-header { display:flex;align-items:center;justify-content:space-between;padding:4px 6px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:5px; }
@@ -3142,6 +3829,52 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-section-label-row { display:flex;align-items:center;justify-content:space-between; }
 .detail-section-label-row .detail-section-label { margin-bottom:0; }
 /* gauge bar */
+/* ── D-day ──────────────────────────────────────────────────── */
+.dday-row { display:flex;align-items:center;gap:7px;margin-bottom:10px; }
+.dday-badge { font-size:11px;font-weight:800;padding:3px 9px;border-radius:99px;letter-spacing:.02em;flex-shrink:0; }
+.dday-normal { background:rgba(59,130,246,.18);color:#93c5fd; }
+.dday-warning { background:rgba(245,158,11,.2);color:#fbbf24; }
+.dday-critical { background:rgba(239,68,68,.22);color:#f87171; }
+.dday-over { background:rgba(100,116,139,.18);color:#94a3b8; }
+.dday-label { font-size:11px;color:#64748b;flex:1; }
+.dday-date { font-size:10px;color:#3b4152;flex-shrink:0; }
+/* ── 팀 제출 현황 ───────────────────────────────────────────── */
+.dept-submit-section { display:flex;flex-direction:column;gap:5px; }
+.dept-submit-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:2px; }
+.dept-submit-title { font-size:11px;font-weight:600;color:#64748b; }
+.dept-submit-summary { font-size:10.5px;display:flex;align-items:center;gap:4px; }
+.dss-done { color:#4ade80; }
+.dss-sep { color:#374151; }
+.dss-pending { color:#f87171; }
+.dept-submit-list { display:flex;flex-direction:column;gap:3px; }
+.dept-submit-item { display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05); }
+.dept-submit-item.dsi-done { border-color:rgba(74,222,128,.1); }
+.dept-submit-item.dsi-urgent { border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04); }
+.dsi-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
+.dsi-dot-done { background:#4ade80; }
+.dsi-dot-pending { background:#64748b; }
+.dsi-dot-urgent { background:#f59e0b; }
+.dsi-name { flex:1;font-size:11.5px;color:#94a3b8; }
+.dsi-status { font-size:10.5px;font-weight:600;flex-shrink:0; }
+.dsi-status-done { color:#4ade80; }
+.dsi-status-pending { color:#64748b; }
+.dsi-deadline { font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;flex-shrink:0; }
+.dsi-deadline-urgent { background:rgba(245,158,11,.18);color:#fbbf24; }
+.dsi-deadline-critical { background:rgba(239,68,68,.2);color:#f87171; }
+/* day-mode overrides */
+.day-mode .dday-normal { background:rgba(59,130,246,.1);color:#1d4ed8; }
+.day-mode .dday-warning { background:rgba(245,158,11,.12);color:#d97706; }
+.day-mode .dday-critical { background:rgba(239,68,68,.12);color:#dc2626; }
+.day-mode .dday-over { background:#f1f5f9;color:#64748b; }
+.day-mode .dday-label { color:#94a3b8; }
+.day-mode .dday-date { color:#cbd5e1; }
+.day-mode .dept-submit-item { background:#f8fafc;border-color:#f1f5f9; }
+.day-mode .dept-submit-item.dsi-done { border-color:rgba(22,163,74,.15); }
+.day-mode .dept-submit-item.dsi-urgent { border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04); }
+.day-mode .dsi-name { color:#475569; }
+.day-mode .dss-done { color:#16a34a; }
+.day-mode .dss-pending { color:#dc2626; }
+/* legacy gauge (kept for other uses) */
 .detail-gauge-wrap { display:flex;align-items:center;gap:8px; }
 .detail-gauge-track { flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden; }
 .detail-gauge-fill { height:100%;border-radius:99px;background:rgba(134,239,172,.7);transition:width .4s ease; }
@@ -3162,7 +3895,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .detail-more-btn:hover { color:#999; }
 /* 소개 */
 .detail-purpose { font-size:11.5px;color:#777;line-height:1.65;padding:0 1px; }
-/* 간사·참여부서 */
+/* 간사·참여부서 key-value 행 */
+.detail-kv-row { display:flex;align-items:baseline;gap:10px;margin-bottom:4px; }
+.detail-kv-val { flex:1;font-size:11px;color:#999;line-height:1.5; }
+/* 기존 호환용 (session/task 노드 등) */
 .detail-info-grid { display:flex;flex-direction:column;gap:7px; }
 .detail-info-item { display:flex;align-items:baseline;gap:10px;font-size:11.5px; }
 .detail-info-key { width:48px;flex-shrink:0;color:#444;font-weight:600;font-size:11px; }
@@ -3266,6 +4002,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .cp-urgent_important { color:var(--text);border-color:var(--border); }
 .cp-important,.cp-urgent { color:var(--text-muted); }
 .cs-done { color:var(--text); }
+.cs-submitted { color:#fb923c;font-weight:600; }
 .cs-in_progress { color:var(--text-muted); }
 .cs-pending,.cs-at_risk,.cs-delayed { color:var(--text-muted);opacity:.8; }
 /* 액션 버튼 */
@@ -3299,29 +4036,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .gm-btn-primary:hover:not(:disabled) { background:var(--surface-hover,rgba(0,0,0,.1));border-color:var(--text-muted); }
 .gm-btn-primary:disabled { opacity:.35;cursor:not-allowed; }
 
-/* 회의체 설정 모달 */
-.gsm-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center; }
-.gsm-modal { background:#1e293b;border:1px solid #334155;border-radius:14px;width:420px;max-width:calc(100vw - 32px);display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5); }
-.gsm-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #334155; }
-.gsm-title { font-size:15px;font-weight:700;color:#f1f5f9; }
-.gsm-close { background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px;border-radius:4px; }
-.gsm-close:hover { color:#e2e8f0;background:#334155; }
-.gsm-body { padding:20px;display:flex;flex-direction:column;gap:16px; }
-.gsm-field { display:flex;flex-direction:column;gap:6px; }
-.gsm-label { font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em; }
-.gsm-input { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none; }
-.gsm-input:focus { border-color:#3b82f6; }
-.gsm-textarea { padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:13px;outline:none;resize:vertical;font-family:inherit; }
-.gsm-textarea:focus { border-color:#3b82f6; }
-.gsm-members { display:flex;flex-wrap:wrap;gap:6px; }
-.gsm-member-chip { display:flex;align-items:center;gap:5px;background:#334155;border-radius:99px;padding:3px 10px 3px 5px;font-size:12px;color:#cbd5e1; }
-.gsm-avatar { width:20px;height:20px;border-radius:50%;background:#1d4ed8;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700; }
-.gsm-empty { font-size:12px;color:#475569; }
-.gsm-footer { display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid #334155; }
-.gsm-cancel { padding:7px 18px;border-radius:7px;border:1px solid #334155;background:none;color:#94a3b8;font-size:13px;cursor:pointer; }
-.gsm-cancel:hover { background:#334155;color:#e2e8f0; }
-.gsm-save { padding:7px 18px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
-.gsm-save:hover { background:#2563eb; }
 .detail-section { display:flex;flex-direction:column;gap:4px; }
 .detail-section-label { font-size:10px;font-weight:700;color:#3a3a3a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px; }
 .detail-doc-item { display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04); }
@@ -3340,6 +4054,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
 /* ── Main area ── */
 .main-area { flex:1;position:relative;overflow:hidden;min-width:0; }
+/* ── Map drag invalid toast ── */
+.map-toast { position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.88);color:#e2e8f0;padding:8px 20px;border-radius:10px;font-size:12px;font-weight:600;z-index:30;pointer-events:none;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.3); }
+.map-toast-fade-enter-active,.map-toast-fade-leave-active { transition:opacity .2s,transform .2s; }
+.map-toast-fade-enter-from,.map-toast-fade-leave-to { opacity:0;transform:translateX(-50%) translateY(-6px); }
 .archive-canvas { width:100%;height:100%;cursor:grab;display:block; }
 .archive-canvas:active { cursor:grabbing; }
 .graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#475569;font-size:13px; }
@@ -3523,38 +4241,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .agent-send-btn { padding:6px 12px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0; }
 .agent-send-btn:disabled { opacity:.4;cursor:not-allowed; }
 
-/* ── Modal ── */
-.modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
-.modal-box { background:#fff;border-radius:16px;width:480px;max-width:92vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25); }
-.modal-header { display:flex;align-items:center;justify-content:space-between;padding:18px 20px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff;z-index:1; }
-.modal-title { font-size:15px;font-weight:700;color:#1e293b; }
-.modal-close-btn { width:28px;height:28px;border-radius:6px;border:none;background:#f1f5f9;color:#64748b;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center; }
-.modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px; }
-.modal-field { display:flex;flex-direction:column;gap:5px; }
-.modal-field label { font-size:12px;font-weight:700;color:#475569; }
 .req { color:#ef4444; }
-.modal-input { padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#f8fafc;outline:none;width:100%;box-sizing:border-box;font-family:inherit; }
-.modal-input:focus { border-color:var(--primary); }
-.modal-textarea { resize:none; }
-.modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
-.modal-dropdown { border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px; }
-.modal-dropdown-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s; }
-.modal-dropdown-item:hover { background:#f1f5f9; }
-.modal-user-avatar { width:26px;height:26px;border-radius:50%;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.selected-members { display:flex;flex-direction:column;gap:4px;margin-top:6px; }
-.selected-member { display:flex;align-items:center;gap:7px;padding:5px 8px;background:#f8fafc;border:1px solid var(--border);border-radius:7px; }
-.selected-member span { flex:1;font-size:13px; }
-.role-select-sm { padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;background:#fff;outline:none; }
-.remove-btn-sm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;padding:0 2px; }
-.related-meetings { display:flex;flex-wrap:wrap;gap:6px; }
-.related-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#64748b;font-size:12px;cursor:pointer;transition:all .15s;background:#f8fafc;border-color:var(--border); }
-.related-chip:hover { border-color:#60a5fa;color:#3b82f6; }
-.related-chip.selected { background:#eff6ff;border-color:#93c5fd;color:#1d4ed8; }
-.related-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
-.modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid var(--border);position:sticky;bottom:0;background:#fff; }
-.btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:#64748b; }
-.btn-confirm { padding:8px 20px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
-.btn-confirm:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Graph floating action buttons ── */
 .graph-float-btns {
@@ -3648,9 +4335,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .search-input::placeholder { color:#94a3b8; }
 .day-mode .search-input:focus { border-color:#3b82f6; }
 .day-mode .search-clear { color:#94a3b8; }
-.day-mode .view-toggle { background:#fff;border-color:#e2e8f0; }
-.day-mode .view-toggle button { color:#94a3b8; }
-.day-mode .view-toggle button.active { background:#eff6ff;color:#2563eb; }
 .day-mode .plus-snackbar { background:#fff;border-color:#e2e8f0;box-shadow:0 8px 24px rgba(0,0,0,.1); }
 .day-mode .snack-btn { color:#475569; }
 .day-mode .snack-btn:hover { background:#f1f5f9;color:#1e293b; }
@@ -3662,6 +4346,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-icon-btn:hover { background:#f1f5f9; }
 .day-mode .detail-close { color:#94a3b8;border-color:#e2e8f0; }
 .day-mode .detail-close:hover { background:#f1f5f9; }
+.day-mode .sidebar-toggle-handle { background:rgba(241,245,249,0.96);border-color:#e2e8f0;color:#94a3b8; }
+.day-mode .sidebar-toggle-handle:hover { background:#e2e8f0;color:#475569; }
 .day-mode .detail-section-label { color:#94a3b8; }
 .day-mode .ctx-upload-area { border-color:rgba(0,0,0,.12); }
 .day-mode .ctx-upload-area:hover { border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.04); }
@@ -3676,6 +4362,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .detail-purpose { background:#fff;border-color:#e2e8f0;color:#475569; }
 .day-mode .detail-info-key { color:#94a3b8; }
 .day-mode .detail-info-val { color:#1e293b; }
+.day-mode .detail-kv-val { color:#475569; }
 .day-mode .detail-stat-card { background:#fff;border-color:#e2e8f0; }
 .day-mode .detail-stat-label { color:#94a3b8; }
 .day-mode .detail-progress-track { background:#e2e8f0; }
@@ -3742,8 +4429,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-type-text { font-size:11px;font-weight:600;color:#3b82f6; }
 .day-mode .lv-group-name { color:#1e293b; }
 .lv-expanded-td { padding:0 !important;background:rgba(255,255,255,.02); }
-.lv-hist-table { width:100%;border-collapse:collapse;font-size:12px; }
-.lv-hist-table th { padding:7px 12px;font-size:11px;font-weight:600;color:#64748b;text-align:left;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.lv-hist-table { font-size:12px; }
+.lv-hist-table th { padding:7px 12px;font-size:11px;font-weight:600;color:#64748b;text-align:left;text-transform:none;letter-spacing:0;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.lv-hist-table td { padding:8px 12px; }
 .lv-hist-row { border-bottom:1px solid rgba(255,255,255,.05); }
 .lv-hist-row td { padding:8px 12px;vertical-align:middle;color:#cbd5e1;font-size:12px; }
 .lv-hist-desc-inner { display:flex;align-items:center;gap:6px; }
@@ -3758,7 +4446,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .lv-no-file { color:#475569; }
 .lv-hist-empty { padding:14px 12px;color:#64748b;font-size:12px; }
 .day-mode .lv-expanded-td { background:#f8fafc; }
-.day-mode .lv-hist-table th { border-bottom-color:#e2e8f0;background:#f1f5f9;color:#64748b; }
+.day-mode .lv-hist-table th { border-bottom-color:#e2e8f0;background:#f1f5f9;color:#64748b;text-transform:none;letter-spacing:0; }
 .day-mode .lv-hist-row { border-bottom-color:#f1f5f9; }
 .day-mode .lv-hist-row td { color:#334155; }
 .day-mode .lv-hist-manager { color:#64748b; }
@@ -3767,144 +4455,122 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .lv-dl-btn:hover { background:#eff6ff;color:#2563eb;border-color:#bfdbfe; }
 .day-mode .lv-title { color:#64748b; }
 .day-mode .lv-count { color:#94a3b8; }
+/* ── Role badges ── */
+.detail-role-badge { display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-top:3px;width:fit-content; }
+.detail-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3); }
+.detail-role-badge.role-presenter { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
+.lv-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-left:5px; }
+.lv-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
+.lv-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.day-mode .detail-role-badge.role-admin { background:rgba(59,130,246,.1);color:#2563eb;border-color:rgba(59,130,246,.25); }
+.day-mode .detail-role-badge.role-presenter { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
+.day-mode .lv-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
+.day-mode .lv-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
+/* ── Node detail styles ── */
+.node-member-list { display:flex;flex-direction:column;gap:5px; }
+.node-member-row { display:flex;align-items:center;gap:9px;padding:4px 0; }
+.node-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.node-member-info { display:flex;flex-direction:column;gap:1px; }
+.node-member-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.node-member-role { font-size:10px;color:#64748b; }
+.node-empty { font-size:12px;color:#475569;padding:8px 0; }
+.node-feedback-list { margin:4px 0 0 12px;padding:0;list-style:disc;display:flex;flex-direction:column;gap:4px; }
+.node-feedback-list li { font-size:12px;color:#94a3b8;line-height:1.45; }
+.day-mode .node-member-name { color:#1e293b; }
+.day-mode .node-feedback-list li { color:#64748b; }
 </style>
 
 <!-- Teleport(body) 대상 모달은 scoped CSS가 적용되지 않으므로 별도 전역 스타일 블록 사용 -->
 <style>
-.archive-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:2000; }
-.archive-modal-box { background:#1e293b;border-radius:14px;width:520px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1); }
-.create-modal-box { width:480px;max-height:88vh;overflow-y:auto; }
-/* create modal inner styles */
-.archive-modal-box .modal-field { display:flex;flex-direction:column;gap:5px;margin-bottom:4px; }
-.archive-modal-box .modal-field label { font-size:12px;font-weight:700;color:#64748b; }
-.archive-modal-box .modal-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;width:100%;box-sizing:border-box;font-family:inherit; }
-.archive-modal-box .modal-input:focus { border-color:rgba(96,165,250,.5); }
-.archive-modal-box .modal-textarea { resize:none; }
-.archive-modal-box .modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
-.archive-modal-box .modal-dropdown { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;margin-top:4px; }
-.archive-modal-box .modal-dropdown-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s;color:#e2e8f0; }
-.archive-modal-box .modal-dropdown-item:hover { background:rgba(255,255,255,.06); }
-.archive-modal-box .modal-user-avatar { width:26px;height:26px;border-radius:50%;background:#3b82f6;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.archive-modal-box .selected-member { display:flex;align-items:center;gap:7px;padding:5px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:7px; }
-.archive-modal-box .selected-member span { flex:1;font-size:13px;color:#e2e8f0; }
-.archive-modal-box .role-select-sm { padding:3px 6px;border:1px solid rgba(255,255,255,.12);border-radius:5px;font-size:12px;background:rgba(255,255,255,.08);color:#e2e8f0;outline:none; }
-.archive-modal-box .remove-btn-sm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;padding:0 2px; }
-.archive-modal-box .related-meetings { display:flex;flex-wrap:wrap;gap:6px; }
-.archive-modal-box .related-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
-.archive-modal-box .related-chip:hover { border-color:#60a5fa;color:#3b82f6; }
-.archive-modal-box .related-chip.selected { background:rgba(59,130,246,.15);border-color:#93c5fd;color:#60a5fa; }
-.archive-modal-box .related-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
-.archive-modal-box .modal-close-btn { background:rgba(255,255,255,.07);border:none;border-radius:7px;width:28px;height:28px;color:#64748b;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center; }
-.archive-modal-box .modal-close-btn:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
-.archive-modal-box .btn-confirm { padding:8px 20px;border-radius:8px;border:none;background:#1e3a5f;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
-.archive-modal-box .btn-confirm:disabled { opacity:.5;cursor:not-allowed; }
-/* day-mode create-modal */
-.archive-modal-box.day-mode .modal-input { background:#f8fafc;border-color:#e2e8f0;color:#1e293b; }
-.archive-modal-box.day-mode .modal-dropdown-item { color:#1e293b; }
-.archive-modal-box.day-mode .modal-dropdown-item:hover { background:#f8fafc; }
-.archive-modal-box.day-mode .selected-member { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .selected-member span { color:#1e293b; }
-.archive-modal-box.day-mode .role-select-sm { background:#fff;border-color:#e2e8f0;color:#475569; }
-.archive-modal-box.day-mode .related-chip { border-color:#e2e8f0;background:#fff;color:#64748b; }
-.archive-modal-box.day-mode .related-chip.selected { background:#eff6ff;border-color:#93c5fd;color:#1d4ed8; }
-.archive-modal-box.day-mode .modal-close-btn { background:#f1f5f9;color:#64748b; }
-.archive-modal-box.day-mode .btn-confirm { background:#1e3a5f; }
-.archive-modal-box .modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid rgba(255,255,255,.08); }
-.archive-modal-box .modal-title { font-size:15px;font-weight:700;color:#f1f5f9; }
-.archive-modal-box .modal-close { width:28px;height:28px;border-radius:7px;border:none;background:rgba(255,255,255,.07);color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
-.archive-modal-box .modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
-.archive-modal-box .modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto; }
-.archive-modal-box .modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid rgba(255,255,255,.08);background:inherit; }
-.archive-modal-box .form-field { display:flex;flex-direction:column;gap:5px; }
-.archive-modal-box .form-field label { font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em; }
-.archive-modal-box .req { color:#ef4444; }
-.archive-modal-box .form-input { padding:8px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:13px;background:rgba(255,255,255,.06);color:#f1f5f9;outline:none;font-family:inherit;width:100%;box-sizing:border-box; }
-.archive-modal-box .form-input:focus { border-color:rgba(96,165,250,.5); }
-.archive-modal-box select.form-input { appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 10px center;background-size:10px 6px;padding-right:28px;cursor:pointer; }
-.archive-modal-box.day-mode select.form-input { background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 10px center #f8fafc;background-size:10px 6px; }
-.archive-modal-box .form-textarea { resize:vertical;min-height:64px; }
-.archive-modal-box .btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);font-size:13px;font-weight:600;cursor:pointer;color:#94a3b8;transition:all .15s; }
-.archive-modal-box .btn-cancel:hover { background:rgba(255,255,255,.1); }
-.archive-modal-box .btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
-.archive-modal-box .btn-primary:hover { opacity:.85; }
-.archive-modal-box .btn-primary:disabled { opacity:.4;cursor:not-allowed; }
-.archive-modal-box .settings-section { padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;gap:10px; }
-.archive-modal-box .settings-section:last-child { border-bottom:none;padding-bottom:0; }
-.archive-modal-box .settings-section-title { font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
-.archive-modal-box .member-cnt-badge { font-size:11px;font-weight:600;background:rgba(255,255,255,.08);border-radius:99px;padding:1px 7px;color:#64748b; }
-.archive-modal-box .modal-select { cursor:pointer; }
-.archive-modal-box .ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
-.archive-modal-box .ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
-.archive-modal-box .ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
-.archive-modal-box .ms-role-btn.admin:hover { background:#2563eb; }
-.archive-modal-box .member-search-wrap { display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.04); }
-.archive-modal-box .member-search-input { flex:1;border:none;background:none;color:#e2e8f0;font-size:13px;outline:none; }
-.archive-modal-box .member-search-input::placeholder { color:#475569; }
-.archive-modal-box .search-spinner { color:#64748b;font-size:14px;animation:archive-spin .8s linear infinite;display:inline-block; }
+/* ── Archive modal page-specific inner elements (light default) ── */
+.modal-dropdown { border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-top:4px; }
+.modal-dropdown-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s;color:#1e293b; }
+.modal-dropdown-item:hover { background:#f1f5f9; }
+.modal-user-avatar { width:26px;height:26px;border-radius:50%;background:#3b82f6;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.selected-members { display:flex;flex-direction:column;gap:4px;margin-top:6px; }
+.selected-member { display:flex;align-items:center;gap:7px;padding:5px 8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px; }
+.selected-member span { flex:1;font-size:13px;color:#1e293b; }
+.role-select-sm { padding:3px 6px;border:1px solid #e2e8f0;border-radius:5px;font-size:12px;background:#fff;color:#475569;outline:none; }
+.remove-btn-sm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;padding:0 2px; }
+.related-meetings { display:flex;flex-wrap:wrap;gap:6px; }
+.related-chip { display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
+.related-chip:hover { border-color:#60a5fa;color:#3b82f6; }
+.related-chip.selected { background:#eff6ff;border-color:#93c5fd;color:#1d4ed8; }
+.related-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0; }
+.settings-body { gap:0; }
+.settings-section { padding:14px 0;border-bottom:1px solid #f1f5f9;display:flex;flex-direction:column;gap:10px; }
+.settings-section:last-child { border-bottom:none;padding-bottom:0; }
+.settings-section-title { font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
+.member-cnt-badge { font-size:11px;font-weight:600;background:rgba(96,165,250,.15);border-radius:99px;padding:1px 7px;color:#93c5fd; }
+.ms-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
+.ms-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+.ms-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
+.ms-role-btn.admin:hover { background:#2563eb; }
+.member-search-wrap { display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc; }
+.member-search-input { flex:1;border:none;background:none;color:#1e293b;font-size:13px;outline:none; }
+.member-search-input::placeholder { color:#94a3b8; }
+.search-spinner { color:#64748b;font-size:14px;animation:archive-spin .8s linear infinite;display:inline-block; }
 @keyframes archive-spin { to { transform:rotate(360deg); } }
-.archive-modal-box .settings-body { gap:0; }
-.archive-modal-box .member-search-results { border:1px solid rgba(255,255,255,.1);border-radius:8px;overflow:hidden;max-height:140px;overflow-y:auto; }
-.archive-modal-box .member-search-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s; }
-.archive-modal-box .member-search-item:hover { background:rgba(255,255,255,.06); }
-.archive-modal-box .ms-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.archive-modal-box .ms-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
-.archive-modal-box .ms-name { font-size:12px;font-weight:600;color:#e2e8f0; }
-.archive-modal-box .ms-email { font-size:11px;color:#475569; }
-.archive-modal-box .ms-add-hint { font-size:11px;color:#3b82f6;font-weight:600;flex-shrink:0; }
-.archive-modal-box .settings-member-list { display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto; }
-.archive-modal-box .settings-empty-members { font-size:12px;color:#475569;padding:6px 2px; }
-.archive-modal-box .settings-member-row { display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:7px;transition:background .1s; }
-.archive-modal-box .settings-member-row:hover { background:rgba(255,255,255,.04); }
-.archive-modal-box .sm-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.archive-modal-box .sm-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
-.archive-modal-box .sm-name { font-size:12px;font-weight:600;color:#e2e8f0; }
-.archive-modal-box .sm-email { font-size:11px;color:#475569; }
-.archive-modal-box .sm-role-select { font-size:11px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;color:#94a3b8;padding:2px 5px;cursor:pointer;flex-shrink:0; }
-.archive-modal-box .sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.1);color:#f87171;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
-.archive-modal-box .sm-remove:hover { background:rgba(239,68,68,.2); }
-/* 주간 모드 */
-.archive-modal-box.day-mode { background:#fff !important;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .modal-header { border-bottom-color:#e2e8f0; }
-.archive-modal-box.day-mode .modal-title { color:#1e293b; }
-.archive-modal-box.day-mode .modal-close { background:#f1f5f9;color:#64748b; }
-.archive-modal-box.day-mode .modal-footer { border-top-color:#e2e8f0; }
-.archive-modal-box.day-mode .form-field label { color:#64748b; }
-.archive-modal-box.day-mode .form-input { background:#f8fafc;border-color:#e2e8f0;color:#1e293b; }
-.archive-modal-box.day-mode .form-input:focus { border-color:#3b82f6;background:#fff; }
-.archive-modal-box.day-mode .settings-section { border-bottom-color:#f1f5f9; }
-.archive-modal-box.day-mode .settings-section-title { color:#94a3b8; }
-.archive-modal-box.day-mode .member-search-wrap { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .member-search-input { color:#1e293b; }
-.archive-modal-box.day-mode .member-search-results { border-color:#e2e8f0; }
-.archive-modal-box.day-mode .member-search-item:hover { background:#f8fafc; }
-.archive-modal-box.day-mode .ms-name { color:#1e293b; }
-.archive-modal-box.day-mode .settings-member-row:hover { background:#f8fafc; }
-.archive-modal-box.day-mode .sm-name { color:#1e293b; }
-.archive-modal-box.day-mode .sm-role-select { background:#f1f5f9;border-color:#e2e8f0;color:#475569; }
-.archive-modal-box.day-mode .btn-cancel { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
-.archive-modal-box.day-mode .btn-cancel:hover { background:#f1f5f9; }
+.member-search-results { border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;max-height:140px;overflow-y:auto; }
+.member-search-item { display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;transition:background .1s; }
+.member-search-item:hover { background:#f8fafc; }
+.ms-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.ms-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
+.ms-name { font-size:12px;font-weight:600;color:#1e293b; }
+.ms-email { font-size:11px;color:#94a3b8; }
+.ms-add-hint { font-size:11px;color:#3b82f6;font-weight:600;flex-shrink:0; }
+.settings-member-list { display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto; }
+.settings-empty-members { font-size:12px;color:#64748b;padding:6px 2px; }
+.settings-member-row { display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:7px;transition:background .1s; }
+.settings-member-row:hover { background:#f8fafc; }
+.sm-avatar { width:26px;height:26px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+.sm-info { flex:1;display:flex;flex-direction:column;gap:1px;min-width:0; }
+.sm-name { font-size:12px;font-weight:600;color:#1e293b; }
+.sm-email { font-size:11px;color:#94a3b8; }
+.sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.1);color:#f87171;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
+.sm-remove:hover { background:rgba(239,68,68,.2); }
+/* Dark overrides */
+.app-modal.dark .modal-dropdown { border-color:rgba(255,255,255,.1); }
+.app-modal.dark .modal-dropdown-item { color:#e2e8f0; }
+.app-modal.dark .modal-dropdown-item:hover { background:rgba(255,255,255,.06); }
+.app-modal.dark .selected-member { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.1); }
+.app-modal.dark .selected-member span { color:#e2e8f0; }
+.app-modal.dark .role-select-sm { background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:#e2e8f0; }
+.app-modal.dark .related-chip { border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#64748b; }
+.app-modal.dark .related-chip.selected { background:rgba(59,130,246,.15);border-color:#93c5fd;color:#60a5fa; }
+.app-modal.dark .settings-section { border-bottom-color:rgba(255,255,255,.07); }
+.app-modal.dark .settings-section-title { color:#475569; }
+.app-modal.dark .member-search-wrap { border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04); }
+.app-modal.dark .member-search-input { color:#e2e8f0; }
+.app-modal.dark .member-search-input::placeholder { color:#475569; }
+.app-modal.dark .member-search-results { border-color:rgba(255,255,255,.1); }
+.app-modal.dark .member-search-item:hover { background:rgba(255,255,255,.06); }
+.app-modal.dark .ms-name { color:#e2e8f0; }
+.app-modal.dark .settings-member-row:hover { background:rgba(255,255,255,.04); }
+.app-modal.dark .sm-name { color:#e2e8f0; }
 /* 업로드 모달 */
-.upload-modal-box { width:480px; }
 .file-type-row,.rel-type-row { display:flex;flex-wrap:wrap;gap:6px; }
-.file-type-btn,.rel-type-btn { padding:5px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
+.file-type-btn,.rel-type-btn { padding:5px 14px;border-radius:20px;border:1px solid #e2e8f0;background:#f8fafc;color:#64748b;font-size:12px;cursor:pointer;transition:all .15s; }
 .file-type-btn:hover,.rel-type-btn:hover { border-color:#60a5fa;color:#60a5fa;background:rgba(96,165,250,.08); }
 .file-type-btn.active,.rel-type-btn.active { font-weight:600; }
 /* 연결 프리뷰 */
-.conn-preview { display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);flex-wrap:wrap; }
-.conn-preview-box { display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);flex-wrap:wrap;margin-top:4px; }
-.conn-node { font-size:12px;font-weight:600;color:#e2e8f0;padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.07); }
-.conn-node.file { color:#f1f5f9; }
+.conn-preview { display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;border-radius:8px;background:#f0f4f8;border:1px solid #e2e8f0;flex-wrap:wrap; }
+.conn-preview-box { display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:8px;background:#f0f4f8;border:1px solid #e2e8f0;flex-wrap:wrap;margin-top:4px; }
+.conn-node { font-size:12px;font-weight:600;color:#1e293b;padding:2px 8px;border-radius:5px;background:#f1f5f9; }
+.conn-node.file { color:#1e293b; }
 .conn-arrow { font-size:14px;color:#475569; }
-.conn-rel { font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06); }
+.conn-rel { font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:#f1f5f9; }
 .file-type-tag { font-size:10px;font-weight:700;color:#94a3b8;margin-left:2px; }
-/* day-mode upload */
-.archive-modal-box.day-mode .file-type-btn,.archive-modal-box.day-mode .rel-type-btn { border-color:#e2e8f0;color:#64748b;background:#f8fafc; }
-.archive-modal-box.day-mode .conn-preview,.archive-modal-box.day-mode .conn-preview-box { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .conn-node { color:#1e293b;background:#f1f5f9; }
+.app-modal.dark .file-type-btn,.app-modal.dark .rel-type-btn { border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05); }
+.app-modal.dark .conn-preview,.app-modal.dark .conn-preview-box { background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.07); }
+.app-modal.dark .conn-node { color:#e2e8f0;background:rgba(255,255,255,.07); }
+.app-modal.dark .conn-rel { background:rgba(255,255,255,.06); }
 /* 온톨로지 범례 */
 .graph-legend-onto { position:absolute;bottom:12px;left:12px;z-index:15;display:flex;flex-direction:column;gap:5px;background:rgba(15,23,42,.82);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;pointer-events:none; }
 .legend-onto-item { display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8; }
-.legend-onto-dot { width:9px;height:9px;border-radius:50%;flex-shrink:0; }
+.legend-onto-dot { width:9px;height:9px;flex-shrink:0; }
+.legend-dot-circle { border-radius:50%; }
+.legend-dot-rect { border-radius:2px;width:14px;height:9px; }
 .legend-onto-dash { width:18px;height:2px;flex-shrink:0; }
 .day-mode .graph-legend-onto { background:rgba(238,242,255,.88);border-color:#e2e8f0;color:#64748b; }
 .day-mode .conn-preview,.day-mode .conn-preview-box { background:#f0f4f8;border-color:#e2e8f0; }
@@ -3915,19 +4581,30 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* ── Upload 2-step styles ──────────────────────────────────── */
 .upload-step-bar { padding:14px 20px 10px; }
 .upload-dept-hint { display:flex;align-items:center;gap:5px;font-size:11px;color:#f59e0b;margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2); }
+/* 자동입력됨 텍스트 */
+.prefill-label { font-size:11px;font-weight:500;color:#16a34a;margin-left:6px; }
+.app-modal.dark .prefill-label { color:#4ade80; }
+/* 자동입력된 필드 시각적 강조 */
+.app-modal-input.prefilled { border-color:rgba(22,163,74,.4);background:rgba(22,163,74,.06); }
+.app-modal.dark .app-modal-input.prefilled { border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.06); }
 /* AI result body */
 .ai-result-body { max-height:420px;overflow-y:auto; }
 
 /* ── 파일 AI 검토 패널 ── */
 .file-review-box { width:500px; }
-.fr-actions { display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.06); }
-.fr-action-btn { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s; }
-.fr-action-btn:hover:not(:disabled) { background:rgba(255,255,255,.1);color:#e2e8f0; }
+.fr-actions { display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid #e2e8f0; }
+.fr-action-btn { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s; }
+.fr-action-btn:hover:not(:disabled) { background:#f1f5f9;color:#1e293b; }
 .fr-action-btn:disabled { opacity:.4;cursor:not-allowed; }
-.fr-action-btn.accent { border-color:rgba(99,102,241,.4);color:#818cf8; }
-.fr-action-btn.accent:hover:not(:disabled) { background:rgba(99,102,241,.12); }
-.fr-action-btn.green { border-color:rgba(16,185,129,.4);color:#34d399; }
-.fr-action-btn.green:hover:not(:disabled) { background:rgba(16,185,129,.1); }
+.fr-action-btn.accent { border-color:rgba(99,102,241,.3);color:#6366f1; }
+.fr-action-btn.accent:hover:not(:disabled) { background:rgba(99,102,241,.08); }
+.fr-action-btn.green { border-color:rgba(16,185,129,.3);color:#059669; }
+.fr-action-btn.green:hover:not(:disabled) { background:rgba(16,185,129,.08); }
+.app-modal.dark .fr-actions { border-bottom-color:rgba(255,255,255,.06); }
+.app-modal.dark .fr-action-btn { border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#94a3b8; }
+.app-modal.dark .fr-action-btn:hover:not(:disabled) { background:rgba(255,255,255,.1);color:#e2e8f0; }
+.app-modal.dark .fr-action-btn.accent { border-color:rgba(99,102,241,.4);color:#818cf8; }
+.app-modal.dark .fr-action-btn.green { border-color:rgba(16,185,129,.4);color:#34d399; }
 
 /* 발제자료 기준 체크리스트 */
 .criteria-list { display:flex;flex-direction:column;gap:8px;margin-top:4px; }
@@ -3936,63 +4613,56 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .criteria-dot.pass { background:rgba(16,185,129,.2);color:#10b981; }
 .criteria-dot.fail { background:rgba(239,68,68,.15);color:#ef4444; }
 .criteria-text { display:flex;flex-direction:column;gap:2px; }
-.criteria-label { font-size:12px;font-weight:600;color:#e2e8f0; }
+.criteria-label { font-size:12px;font-weight:600;color:#1e293b; }
 .criteria-desc { font-size:11px;color:#64748b;line-height:1.4; }
+.app-modal.dark .criteria-label { color:#e2e8f0; }
 
 /* 추출된 아젠다 카드 */
-.extracted-agenda-card { background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;margin-bottom:8px; }
-.ea-title { font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:6px; }
+.extracted-agenda-card { background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:8px; }
+.ea-title { font-size:13px;font-weight:600;color:#1e293b;margin-bottom:6px; }
 .ea-bullets { padding-left:16px;margin:0;display:flex;flex-direction:column;gap:3px; }
-.ea-bullets li { font-size:12px;color:#94a3b8;line-height:1.5; }
-
-/* day-mode 오버라이드 */
-.archive-modal-box.day-mode .fr-action-btn { border-color:#e2e8f0;background:#f8fafc;color:#475569; }
-.archive-modal-box.day-mode .fr-action-btn:hover:not(:disabled) { background:#f1f5f9;color:#1e293b; }
-.archive-modal-box.day-mode .fr-action-btn.accent { border-color:rgba(99,102,241,.3);color:#6366f1; }
-.archive-modal-box.day-mode .fr-action-btn.green { border-color:rgba(16,185,129,.3);color:#059669; }
-.archive-modal-box.day-mode .criteria-label { color:#1e293b; }
-.archive-modal-box.day-mode .criteria-desc { color:#64748b; }
-.archive-modal-box.day-mode .extracted-agenda-card { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .ea-title { color:#1e293b; }
-.archive-modal-box.day-mode .ea-bullets li { color:#475569; }
+.ea-bullets li { font-size:12px;color:#475569;line-height:1.5; }
+.app-modal.dark .extracted-agenda-card { background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08); }
+.app-modal.dark .ea-title { color:#e2e8f0; }
+.app-modal.dark .ea-bullets li { color:#94a3b8; }
 .ai-loading-wrap { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:40px 20px;text-align:center; }
 .ai-loading-spinner { width:36px;height:36px;border:3px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg) } }
-.ai-loading-text { font-size:13px;color:#94a3b8;line-height:1.6; }
+.ai-loading-text { font-size:13px;color:#64748b;line-height:1.6; }
 .ai-score-section { margin-bottom:16px; }
 .ai-score-label { font-size:11px;color:#94a3b8;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em; }
 .ai-score-gauge-wrap { display:flex;align-items:center;gap:10px;margin-bottom:8px; }
 .ai-score-desc { font-size:13px;font-weight:700; }
 .ai-feedback-list { display:flex;flex-direction:column;gap:4px; }
-.ai-feedback-item { font-size:12px;color:#94a3b8;line-height:1.5;display:flex;gap:4px; }
+.ai-feedback-item { font-size:12px;color:#475569;line-height:1.5;display:flex;gap:4px; }
 .fb-dot { color:#6366f1;flex-shrink:0;font-size:14px;line-height:1.3; }
 .ai-section { margin-bottom:14px; }
-.ai-section-title { display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px; }
-.ai-badge { font-size:10px;font-weight:500;padding:1px 6px;border-radius:99px;background:rgba(255,255,255,.08);color:#94a3b8;margin-left:auto; }
+.ai-section-title { display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#1e293b;margin-bottom:8px; }
+.ai-badge { font-size:10px;font-weight:500;padding:1px 6px;border-radius:99px;background:#f1f5f9;color:#64748b;margin-left:auto; }
 .ai-empty { font-size:12px;color:#475569;padding:4px 0; }
-.ai-check-row { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03);margin-bottom:6px;cursor:pointer;transition:all .15s; }
+.ai-check-row { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;margin-bottom:6px;cursor:pointer;transition:all .15s; }
 .ai-check-row:hover { border-color:rgba(99,102,241,.3); }
-.ai-check-row.selected { border-color:rgba(99,102,241,.4);background:rgba(99,102,241,.07); }
-.ai-checkbox { width:16px;height:16px;border-radius:4px;border:1.5px solid rgba(255,255,255,.2);background:rgba(255,255,255,.05);flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s; }
+.ai-check-row.selected { border-color:#6366f1;background:#eef2ff; }
+.ai-checkbox { width:16px;height:16px;border-radius:4px;border:1.5px solid #cbd5e1;background:#fff;flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s; }
 .ai-checkbox.checked { background:#6366f1;border-color:#6366f1; }
 .ai-check-content { flex:1;min-width:0; }
-.ag-content { font-size:12px;color:#e2e8f0;font-weight:500;line-height:1.4; }
+.ag-content { font-size:12px;color:#1e293b;font-weight:500;line-height:1.4; }
 .ag-dept { font-size:10px;color:#64748b;margin-top:2px; }
 .ai-dept-chips { display:flex;flex-wrap:wrap;gap:6px; }
-.ai-dept-chip { padding:5px 12px;border-radius:99px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s; }
+.ai-dept-chip { padding:5px 12px;border-radius:99px;border:1px solid #e2e8f0;background:#f8fafc;color:#64748b;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s; }
 .ai-dept-chip:hover { border-color:rgba(16,185,129,.4);color:#6ee7b7; }
-.ai-dept-chip.selected { border-color:#10b981;background:rgba(16,185,129,.1);color:#6ee7b7; }
-/* day-mode overrides */
-.archive-modal-box.day-mode .ai-section-title { color:#1e293b; }
-.archive-modal-box.day-mode .ag-content { color:#1e293b; }
-.archive-modal-box.day-mode .ai-check-row { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .ai-check-row.selected { border-color:#6366f1;background:#eef2ff; }
-.archive-modal-box.day-mode .ai-checkbox { border-color:#cbd5e1;background:#fff; }
-.archive-modal-box.day-mode .ai-dept-chip { background:#f8fafc;border-color:#e2e8f0;color:#64748b; }
-.archive-modal-box.day-mode .ai-dept-chip.selected { background:#ecfdf5;border-color:#10b981;color:#065f46; }
-.archive-modal-box.day-mode .ai-badge { background:#f1f5f9;color:#64748b; }
-.archive-modal-box.day-mode .ai-feedback-item { color:#475569; }
-.archive-modal-box.day-mode .ai-loading-text { color:#64748b; }
+.ai-dept-chip.selected { border-color:#10b981;background:#ecfdf5;color:#065f46; }
+/* dark overrides */
+.app-modal.dark .ai-section-title { color:#e2e8f0; }
+.app-modal.dark .ai-badge { background:rgba(255,255,255,.08);color:#94a3b8; }
+.app-modal.dark .ai-check-row { border-color:rgba(255,255,255,.07);background:rgba(255,255,255,.03); }
+.app-modal.dark .ai-check-row.selected { border-color:rgba(99,102,241,.4);background:rgba(99,102,241,.07); }
+.app-modal.dark .ai-checkbox { border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.05); }
+.app-modal.dark .ag-content { color:#e2e8f0; }
+.app-modal.dark .ai-dept-chip { border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#94a3b8; }
+.app-modal.dark .ai-dept-chip.selected { background:rgba(16,185,129,.1);border-color:#10b981;color:#6ee7b7; }
+.app-modal.dark .ai-feedback-item { color:#94a3b8; }
+.app-modal.dark .ai-loading-text { color:#94a3b8; }
 /* Node edit modal */
 .node-edit-modal-box { width:480px; }
 .member-list-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:6px; }
@@ -4040,36 +4710,66 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .stats-line-labels { display: flex; justify-content: space-between; margin-top: 4px; }
 .stats-line-label { font-size: 10px; color: #64748b; }
 .nmf-field-full { grid-column:1/-1; }
-.nmf-label { font-size:11px;color:#94a3b8;font-weight:500; }
-.nmf-input { background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;width:100%;box-sizing:border-box; }
+.nmf-label { font-size:11px;color:#64748b;font-weight:500; }
+.nmf-input { background:#fff;border:1px solid #e2e8f0;border-radius:7px;padding:6px 10px;font-size:12px;color:#1e293b;outline:none;width:100%;box-sizing:border-box; }
 .nmf-input:focus { border-color:rgba(96,165,250,.5); }
-.nmf-input::placeholder { color:#334155; }
+.nmf-input::placeholder { color:#94a3b8; }
 .nmf-role-row { display:flex;gap:14px; }
-.nmf-radio { display:flex;align-items:center;gap:5px;font-size:12px;color:#94a3b8;cursor:pointer; }
+.nmf-radio { display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b;cursor:pointer; }
 .nmf-radio input { accent-color:#3b82f6; }
 .nmf-actions { display:flex;justify-content:flex-end;gap:6px; }
 /* member list rows - richer */
 .node-edit-member-list { display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;padding:2px 0; }
-.node-edit-empty { font-size:12px;color:#64748b;padding:6px 0; }
-.node-edit-member-row { display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.04); }
+.node-edit-empty { font-size:12px;color:#94a3b8;padding:6px 0; }
+.node-edit-member-row { display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;background:#f1f5f9; }
 .node-edit-avatar { width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0; }
 .node-edit-member-info { flex:1;min-width:0; }
 .node-edit-member-top { display:flex;align-items:center;gap:6px; }
-.node-edit-name { font-size:12px;font-weight:600;color:#e2e8f0; }
+.node-edit-name { font-size:12px;font-weight:600;color:#1e293b; }
 .node-edit-position { font-size:10px;color:#64748b;background:rgba(255,255,255,.06);border-radius:4px;padding:1px 6px; }
 .node-edit-member-sub { display:flex;gap:8px;margin-top:1px; }
 .node-edit-sub-text { font-size:10px;color:#475569; }
 .node-edit-add-member { display:flex;align-items:center;gap:6px;margin-top:6px; }
 .btn-add-member { padding:6px 14px;border-radius:7px;border:none;background:#3b82f6;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap; }
 .btn-add-member:hover { background:#2563eb; }
-/* day-mode */
-.archive-modal-box.day-mode .new-member-form { background:#f8fafc;border-color:#e2e8f0; }
-.archive-modal-box.day-mode .nmf-input { background:#fff;border-color:#e2e8f0;color:#1e293b; }
-.archive-modal-box.day-mode .nmf-input::placeholder { color:#94a3b8; }
-.archive-modal-box.day-mode .nmf-label { color:#64748b; }
-.archive-modal-box.day-mode .nmf-radio { color:#64748b; }
-.archive-modal-box.day-mode .node-edit-member-row { background:#f1f5f9; }
-.archive-modal-box.day-mode .node-edit-name { color:#1e293b; }
-.archive-modal-box.day-mode .node-edit-empty { color:#94a3b8; }
-.archive-modal-box.day-mode .btn-add-member-open { border-color:#93c5fd;color:#3b82f6;background:rgba(59,130,246,.06); }
+/* dark overrides */
+.app-modal.dark .new-member-form { background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.1); }
+.app-modal.dark .nmf-input { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#e2e8f0; }
+.app-modal.dark .nmf-input::placeholder { color:#334155; }
+.app-modal.dark .nmf-label { color:#94a3b8; }
+.app-modal.dark .nmf-radio { color:#94a3b8; }
+.app-modal.dark .node-edit-member-row { background:rgba(255,255,255,.04); }
+.app-modal.dark .node-edit-name { color:#e2e8f0; }
+.app-modal.dark .node-edit-empty { color:#64748b; }
+.app-modal.dark .btn-add-member-open { border-color:rgba(96,165,250,.4);color:#60a5fa;background:rgba(96,165,250,.08); }
+
+/* ── 연결관계 편집 UI ───────────────────────────────────────── */
+.rel-editor { display:flex;flex-direction:column;gap:10px; }
+.rel-loading-dot { width:7px;height:7px;border-radius:50%;background:#3b82f6;animation:rel-pulse 1s infinite; }
+@keyframes rel-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.rel-group { display:flex;flex-direction:column;gap:5px; }
+.rel-group-label { font-size:10px;font-weight:600;color:#64748b;letter-spacing:.04em;text-transform:uppercase; }
+.day-mode .rel-group-label { color:#94a3b8; }
+.rel-chips { display:flex;flex-wrap:wrap;gap:5px;align-items:center; }
+.rel-chip { display:inline-flex;align-items:center;gap:4px;padding:3px 8px 3px 10px;border-radius:99px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);font-size:11px; }
+.day-mode .rel-chip { background:rgba(99,102,241,.08);border-color:rgba(99,102,241,.2); }
+.rel-chip-name { color:#a5b4fc;font-weight:500; }
+.day-mode .rel-chip-name { color:#6366f1; }
+.rel-chip-remove { background:none;border:none;padding:0;cursor:pointer;font-size:13px;color:#94a3b8;line-height:1;display:flex;align-items:center;transition:color .15s; }
+.rel-chip-remove:hover { color:#ef4444; }
+.rel-add-btn { width:22px;height:22px;border-radius:50%;border:1.5px dashed rgba(99,102,241,.4);background:transparent;color:#6366f1;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.rel-add-btn:hover { border-color:#6366f1;background:rgba(99,102,241,.1); }
+.day-mode .rel-add-btn { border-color:rgba(99,102,241,.3);color:#4f46e5; }
+.rel-add-form { display:flex;align-items:center;gap:5px;margin-top:4px; }
+.rel-select { flex:1;min-width:0;font-size:11px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e2e8f0;outline:none;cursor:pointer; }
+.day-mode .rel-select { border-color:#e2e8f0;background:#fff;color:#1e293b; }
+.rel-select:focus { border-color:rgba(99,102,241,.5); }
+.rel-form-btn { padding:4px 10px;border-radius:6px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.rel-form-btn { background:rgba(255,255,255,.08);color:#94a3b8; }
+.rel-form-btn:hover { background:rgba(255,255,255,.14); }
+.rel-form-btn.accent { background:#6366f1;color:#fff; }
+.rel-form-btn.accent:hover { background:#4f46e5; }
+.rel-form-btn.accent:disabled { opacity:.45;cursor:not-allowed; }
+.day-mode .rel-form-btn { background:#f1f5f9;color:#64748b; }
+.day-mode .rel-form-btn.accent { background:#6366f1;color:#fff; }
 </style>

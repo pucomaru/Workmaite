@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/auth'
 import api from '../api'
 
 import BaseModal from '../components/BaseModal.vue'
+import AppTable from '../components/AppTable.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -284,6 +285,21 @@ const displayActiveMeetings = computed(() =>
 )
 
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
+const sessionColumns = [
+  { label: '회의명' },
+  { label: '회의체' },
+  { label: '날짜', width: '110px' },
+  { label: 'D-day', width: '80px' },
+]
+
+const meetingColumns = [
+  { label: '회의체명' },
+  { label: '우선순위', width: '80px' },
+  { label: '담당자', width: '90px' },
+  { label: '마감일', width: '110px' },
+  { label: '유형', width: '90px' },
+]
+
 const upcomingSessions = computed(() => {
   const todayStr = fmtISO(new Date())
   return calendarEvents.value
@@ -299,33 +315,19 @@ const upcomingSessions = computed(() => {
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
     </div>
-    <div class="card">
-      <div class="table-responsive">
-        <table class="table table-hover mb-0" style="font-size:13px">
-          <thead>
-            <tr>
-              <th>회의명</th>
-              <th>회의체</th>
-              <th>날짜</th>
-              <th>D-day</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in upcomingSessions" :key="s.id" style="cursor:pointer">
-              <td><div class="fw-semibold">{{ s.title }}</div></td>
-              <td class="text-muted">{{ s.meeting_title || '-' }}</td>
-              <td>{{ formatDate(s.date) }}</td>
-              <td>
-                <span class="upcoming-dday"
-                  :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'">
-                  {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <AppTable :columns="sessionColumns">
+      <tr v-for="s in upcomingSessions" :key="s.id" style="cursor:pointer">
+        <td><div class="fw-semibold">{{ s.title }}</div></td>
+        <td class="text-muted">{{ s.meeting_title || '-' }}</td>
+        <td>{{ formatDate(s.date) }}</td>
+        <td>
+          <span class="upcoming-dday"
+            :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'">
+            {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
+          </span>
+        </td>
+      </tr>
+    </AppTable>
 
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
     <div class="main-grid">
@@ -337,52 +339,32 @@ const upcomingSessions = computed(() => {
       </div>
 
       <!-- 회의체 테이블 -->
-      <div class="card">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0" style="font-size:13px">
-            <thead>
-              <tr>
-                <th>회의체명</th>
-                <th>우선순위</th>
-                <th>담당자</th>
-                <th>마감일</th>
-                <th>유형</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="m in displayActiveMeetings" :key="m.id"
-                style="cursor:pointer" @click="router.push('/meeting-groups')">
-                <td>
-                  <div class="fw-semibold">{{ m.title }}</div>
-                  <!-- <div v-if="m.purpose" class="text-muted" style="font-size:11px"> -->
-                    <!-- {{ m.purpose.slice(0,50) }}{{ m.purpose.length > 50 ? '...' : '' }} -->
-                  <!-- </div> -->
-                </td>
-                <td>
-                  <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
-                  <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
-                  <span v-else class="priority-indicator mid">— 중</span>
-                </td>
-                <td class="text-muted">{{ m.owner_name || '-' }}</td>
-                <td>
-                  <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
-                    {{ formatDate(m.due_date || m.end_date) }}
-                    <span v-if="getDday(m.due_date || m.end_date) !== null && getDday(m.due_date || m.end_date) <= 7" class="ms-1" style="font-size:11px;color:#1e293b">
-                      (D-{{ getDday(m.due_date || m.end_date) }})
-                    </span>
-                  </span>
-                  <span v-else class="text-muted">-</span>
-                </td>
-                <td>
-                  <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
-                </td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AppTable :columns="meetingColumns">
+        <tr v-for="m in displayActiveMeetings" :key="m.id"
+          style="cursor:pointer" @click="router.push('/meeting-groups')">
+          <td>
+            <div class="fw-semibold">{{ m.title }}</div>
+          </td>
+          <td>
+            <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
+            <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
+            <span v-else class="priority-indicator mid">— 중</span>
+          </td>
+          <td class="text-muted">{{ m.owner_name || '-' }}</td>
+          <td>
+            <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
+              {{ formatDate(m.due_date || m.end_date) }}
+              <span v-if="getDday(m.due_date || m.end_date) !== null && getDday(m.due_date || m.end_date) <= 7" class="ms-1" style="font-size:11px;color:#1e293b">
+                (D-{{ getDday(m.due_date || m.end_date) }})
+              </span>
+            </span>
+            <span v-else class="text-muted">-</span>
+          </td>
+          <td>
+            <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
+          </td>
+        </tr>
+      </AppTable>
     </div>
 
     <!-- ③ 달력 -->

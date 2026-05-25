@@ -6,14 +6,13 @@ import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 
 const orgColumns = [
-  { label: '이름', width: '200px' },
-  { label: '역할', width: '60px' },
-  { label: '조직', width: '120px' },
-  { label: '부서', width: '120px' },
-  { label: '직책', width: '130px' },
-  { label: '이메일', width: '200px' },
+  { label: '이름', width: '100px' },
+  { label: '조직', width: '110px' },
+  { label: '부서', width: '110px' },
+  { label: '직책', width: '80px' },
+  { label: '이메일', width: '180px' },
   { label: '회의체' },
-  { label: '', width: '72px' }
+  { label: '', width: '72px', noResize: true }
 ]
 
 const meetingsStore = useMeetingsStore()
@@ -253,16 +252,12 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
-            <td class="cell-role">
-              <select class="app-select" :value="member.role" @change="updateMemberRole(member, $event.target.value)">
-                <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
-              </select>
-            </td>
             <td class="cell-muted">{{ member.organization || '-' }}</td>
             <td class="cell-muted">{{ member.department || '-' }}</td>
             <td class="cell-muted">{{ member.position || '-' }}</td>
             <td class="cell-muted">{{ member.email || '-' }}</td>
-            <td class="cell-meetings">
+            <td>
+              <div class="cell-meetings">
               <template v-if="selectedMeetingId !== 'all'">
                 <span class="meeting-tag">{{ member.meetings.find(g => String(g.id) === String(selectedMeetingId))?.title || '-' }}</span>
               </template>
@@ -278,6 +273,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                   </button>
                 </template>
               </template>
+              </div>
             </td>
             <td>
               <div class="action-btns">
@@ -291,7 +287,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </td>
           </tr>
           <tr v-if="!groupedFilteredMembers.length">
-            <td colspan="8" class="empty-row">
+            <td colspan="7" class="empty-row">
               <div class="empty-state">
                 <div class="empty-icon-lg">👤</div>
                 <p>표시할 구성원이 없습니다</p>
@@ -486,7 +482,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .day-mode .cell-role { color: #475569; }
 .cell-muted { color: #64748b; }
 .day-mode .cell-muted { color: #475569; }
-.cell-meetings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.cell-meetings { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; overflow: hidden; width: 100%; }
 .meeting-tag {
   display: inline-block;
   padding: 2px 8px;
@@ -506,10 +502,13 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
   padding: 2px 4px;
   border-radius: 4px;
   transition: color .15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .meeting-more-btn:hover { color: #3b82f6; }
 
-.action-btns { display: flex; gap: 4px; justify-content: flex-end; }
+.action-btns { display: flex; gap: 4px; width: fit-content; margin-left: auto; }
+:deep(td:last-child) { padding-left: 6px; padding-right: 6px; }
 .act-btn {
   width: 28px;
   height: 28px;

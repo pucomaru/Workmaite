@@ -22,6 +22,7 @@ class HyeanState(TypedDict):
     user_role: str
     user_name: str
     knowledge: List[dict]
+    meeting_context: str
 
 
 class KnowledgeProposalState(TypedDict):
@@ -69,33 +70,24 @@ def _status_system_prompt() -> str:
     return """당신은 회의체 운영을 전담하는 AI 비서 혜안(Hyean)입니다.
 항상 공손하고 정중한 비서 말투를 사용하세요. ("~드립니다", "~습니다", "말씀드리겠습니다" 등)
 
-[현황 브리핑 규칙 — 반드시 준수]
-- 구조: ① 요약(2~3문장, 핵심 수치 포함) ② 이번 주 하이라이트(bullet 3개) ③ 주의 필요 항목(지연·에스컬레이션) ④ 다음 주 예정 회의 및 주요 안건
+[응답 원칙]
+- 사용자의 질문에 맞게 자연스럽게 응답합니다. 매번 동일한 형식을 강요하지 않습니다.
+- 브리핑 요청이면 핵심 현황을 구조적으로, 특정 질문이면 그 질문에 집중해 답합니다.
+- 데이터에 없는 내용은 절대 언급하지 않습니다.
 - 추측성 표현 금지: "~일 것 같습니다", "~인 것 같아요", "~으로 보입니다" 사용 불가
-- 데이터에 없는 내용은 절대 언급하지 말 것
-- 수치는 반드시 입력 데이터 기반으로만 산출
-- 부정적 내용은 사실 기반으로 중립적 톤 유지
-- 전체 길이는 300자 이내
-- 브리핑 마지막에 반드시 한 줄 추가: "자세한 사항은 우측 하단의 혜안 버튼을 눌러 말씀해 주세요."
+- 수치와 이름은 반드시 입력 데이터 기반으로만 사용합니다.
+- 부정적 내용은 사실 기반으로 중립적 톤 유지합니다.
+- "우측 하단" 또는 "혜안 버튼"을 언급하는 문구는 절대 사용하지 않습니다.
+- 데이터에 "persons" 필드가 있으면 구성원별 소속 회의체 정보로 활용합니다.
+- 데이터에 "meetings" 배열이 있으면 전체 회의체 현황으로 활용합니다.
 
-[출력 형식 예시]
-📊 W{주차} 회의체 현황 브리핑
+[브리핑 요청 시 권장 구조 — 상황에 맞게 취사선택]
+- 회의체 현황 요약 (핵심 수치 및 상태)
+- 주목할 아젠다 또는 과제 (있는 경우)
+- 주의 필요 사항 (지연·미완료·에스컬레이션, 있는 경우만)
 
-{2~3문장 요약, 핵심 수치 포함}
-
-• {하이라이트 1}
-• {하이라이트 2}
-• {하이라이트 3}
-
-⚠️ {지연·에스컬레이션 항목} (없으면 이 섹션 생략)
-
-📅 다음 주: {예정 회의 및 주요 안건} (없으면 이 섹션 생략)
-
-자세한 사항은 우측 하단의 혜안 버튼을 눌러 말씀해 주세요.
-
-[기타 역할]
-사용자가 액션을 요청하면 (슬랙/이메일 발송, 회의 예약 등):
-- 구체적인 내용을 작성해 보여드린 뒤 확인 후 처리해 드립니다.
+[사용자 액션 요청 시]
+구체적인 내용을 작성해 보여드린 뒤 확인 후 처리해 드립니다.
 
 한국어로, 공손하고 정중한 비서 말투로 응답합니다."""
 
@@ -117,6 +109,11 @@ async def _chat_node(state: HyeanState) -> dict:
     user_role = state.get("user_role", "presenter")
     user_name = state.get("user_name") or "담당자"
     role_label = {"admin": "운영자", "presenter": "발제자"}.get(user_role, user_role)
+    extra_ctx = state.get("meeting_context", "")
+
+    context_block = f"[회의체 현황 데이터]\n{status_text}"
+    if extra_ctx and extra_ctx.strip():
+        context_block += f"\n\n[Neo4j 그래프 컨텍스트]\n{extra_ctx}"
 
     system_msgs: List[BaseMessage] = [
         SystemMessage(content=_status_system_prompt()),
@@ -124,11 +121,10 @@ async def _chat_node(state: HyeanState) -> dict:
             f"[사용자 정보]\n"
             f"- 이름: {user_name}님\n"
             f"- 역할: {role_label}\n\n"
-            f"[회의체 현황 데이터]\n{status_text}\n\n"
-            f"위 데이터만을 기반으로, {user_name}님을 개인 비서로서 응대하세요.\n"
-            f"첫 응답은 반드시 \"안녕하세요, {user_name}님.\"으로 시작하세요."
+            f"{context_block}\n\n"
+            f"위 데이터만을 기반으로, {user_name}님의 질문에 자연스럽게 응대하세요."
         )),
-        AIMessage(content=f"안녕하세요, {user_name}님. 현황을 확인했습니다. 무엇이든 말씀해 주세요."),
+        AIMessage(content=f"안녕하세요, {user_name}님. 무엇이든 말씀해 주세요."),
     ]
     llm = _make_llm()
     response = await llm.ainvoke(system_msgs + state["messages"])
@@ -231,6 +227,7 @@ async def status_stream(
     message: str = "현재 회의체 현황을 알려주세요.",
     meeting_id: int = 0,
     user_name: str = "",
+    meeting_context: str = "",
 ) -> AsyncGenerator[str, None]:
     history = _to_base_messages((chat_history or [])[-8:])
     input_msgs = history + [HumanMessage(content=message)]
@@ -243,6 +240,7 @@ async def status_stream(
             "user_role": user_role,
             "user_name": user_name,
             "knowledge": active_knowledge or [],
+            "meeting_context": meeting_context,
         },
         config,
         version="v2",
