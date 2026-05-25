@@ -47,11 +47,14 @@ public class User {
         createdAt = LocalDateTime.now();
     }
 
-    // 회원정보 수정 (이메일, 비밀번호는 별도 기능으로 분리)
     public void update(String name, String company, String department, String position) {
         this.name = name;
         this.company = company;
         this.department = department;
         this.position = position;
+    }
+
+    public void updatePassword(String encodedPassword) {
+        this.passwordHash = encodedPassword;
     }
 }

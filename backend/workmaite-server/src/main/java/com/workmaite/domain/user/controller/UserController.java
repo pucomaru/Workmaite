@@ -29,7 +29,7 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getMe(userId)));
     }
 
-    // 회원정보 수정 - 이름, 회사, 부서, 직책 변경 가능
+    // 회원정보 수정 - 조직, 부서, 직위, 비밀번호 변경 가능
     @PatchMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> updateMe(
             Authentication authentication,
