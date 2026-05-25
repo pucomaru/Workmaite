@@ -21,7 +21,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: workmaite-ai-agent
+                name: workmaite-ai
                 port:
                   number: 8000
           - path: /

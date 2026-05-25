@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: workmaite-ai-agent
+  name: workmaite-ai
   namespace: skala3-finalproj-class2-team9
   labels:
-    app: workmaite-ai-agent
+    app: workmaite-ai
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: workmaite-ai-agent
+      app: workmaite-ai
   template:
     metadata:
       labels:
-        app: workmaite-ai-agent
+        app: workmaite-ai
     spec:
       imagePullSecrets:
         - name: harbor-secret
       containers:
-        - name: workmaite-ai-agent
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai-agent:cicd-pipeline
+        - name: workmaite-ai
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:cicd-pipeline
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -39,14 +39,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: workmaite-ai-agent
+  name: workmaite-ai
   namespace: skala3-finalproj-class2-team9
   labels:
-    app: workmaite-ai-agent
+    app: workmaite-ai
 spec:
   type: ClusterIP
   selector:
-    app: workmaite-ai-agent
+    app: workmaite-ai
   ports:
     - name: http
       port: 8000
