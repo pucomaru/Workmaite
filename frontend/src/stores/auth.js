@@ -11,28 +11,24 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(safeParseUser())
   const token = ref(localStorage.getItem('token') || '')
 
-  async function login(employee_id, password) {
-    const { data } = await api.post('/api/auth/login', { employee_id, password })
-    token.value = data.access_token
+  async function login(email, password) {
+    const { data } = await api.post('/api/v1/auth/login', { email, password })
+    token.value = data.accessToken
     user.value = data.user
-    localStorage.setItem('token', data.access_token)
+    localStorage.setItem('token', data.accessToken)
     localStorage.setItem('user', JSON.stringify(data.user))
   }
 
   async function loginWithEmail(email, password) {
-    const { data } = await api.post('/api/auth/login', { employee_id: email, password })
-    token.value = data.access_token
-    user.value = data.user
-    localStorage.setItem('token', data.access_token)
-    localStorage.setItem('user', JSON.stringify(data.user))
+    return login(email, password)
   }
 
   async function register(form) {
-    await api.post('/api/auth/register', form)
+    await api.post('/api/v1/auth/signup', form)
   }
 
   async function updateProfile(data) {
-    const { data: updated } = await api.patch('/api/auth/me', data)
+    const { data: updated } = await api.patch('/api/v1/users/me', data)
     user.value = updated
     localStorage.setItem('user', JSON.stringify(updated))
   }

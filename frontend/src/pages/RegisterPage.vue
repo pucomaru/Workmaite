@@ -84,7 +84,6 @@ async function submit() {
       name: form.value.name,
       email: form.value.email,
       password: form.value.password,
-      employee_id: form.value.email,
     })
     await auth.loginWithEmail(form.value.email, form.value.password)
     step.value = 4
