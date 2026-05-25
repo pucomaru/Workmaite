@@ -3,6 +3,7 @@ package com.workmaite.domain.auth.service;
 import com.workmaite.domain.auth.dto.LoginRequest;
 import com.workmaite.domain.auth.dto.LoginResponse;
 import com.workmaite.domain.auth.dto.SignupRequest;
+import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.auth.JwtTokenProvider;
@@ -56,7 +57,7 @@ public class AuthService {
         }
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
-        return LoginResponse.of(accessToken);
+        return LoginResponse.of(accessToken, UserResponse.from(user));
     }
 
     // Redis 도입 후 Access Token 블랙리스트 처리 예정
