@@ -41,6 +41,7 @@ const reports = ref([])
 const membersData = ref([])
 const tasksData = ref([])
 const neo4jMeetings = ref([])   // Neo4j에서 직접 가져온 회의체 그래프 데이터
+const currentOrg = ref(null)    // 현재 조직 (Organization 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
 const neo4jError = ref('')
@@ -216,6 +217,7 @@ async function doCreateSession() {
     showSessionModal.value = false
     sessionForm.value = { title: '', purpose: '', date: '', meeting_id: null }
     sessionMembers.value = []
+    setTimeout(refreshArchive, 600)
   } catch(e) { console.error(e) }
   finally { creatingSession.value = false }
 }
@@ -245,36 +247,9 @@ async function doCreateMeeting() {
     showCreateModal.value = false
     createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
     createMembers.value = []; createMemberSearch.value = ''; createMemberResults.value = []
-    // rebuild graph with new meeting
-    await nextTick()
-    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
-    // 구성원의 조직(부서) 노드를 회의체에 자동 연결
-    const mgNode = gNodes.find(n => n.id === `mg-${meeting.id}`)
-    const mgIdx = mgNode ? gNodes.indexOf(mgNode) : -1
-    if (mgIdx >= 0) {
-      membersSnapshot.forEach((mb, mi) => {
-        const dept = mb.department || mb.dept || '미지정'
-        const deptId = `dept-${dept}`
-        let deptIdx = gNodes.findIndex(n => n.id === deptId)
-        if (deptIdx < 0) {
-          const angle = (mi / Math.max(membersSnapshot.length, 1)) * Math.PI * 2
-          gNodes.push({ id: deptId, label: dept, type: 'dept', x: Math.cos(angle)*130, y: 0, z: Math.sin(angle)*130 })
-          deptIdx = gNodes.length - 1
-        }
-        if (!gEdges.find(e => e.from === deptIdx && e.to === mgIdx))
-          gEdges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
-      })
-    }
-    // 사용자가 지정한 연결 엣지 추가
-    if (createConnectNodeId.value) {
-      const mgNode = gNodes.find(n => n.id === `mg-${meeting.id}`)
-      const fromNode = gNodes.find(n => n.id === createConnectNodeId.value)
-      if (mgNode && fromNode) {
-        const rel = autoRel(createConnectNodeId.value, 'meeting_group')
-        gEdges.push({ from:gNodes.indexOf(fromNode), to:gNodes.indexOf(mgNode), rel })
-      }
-      createConnectNodeId.value = ''
-    }
+    createConnectNodeId.value = ''
+    // 아카이브 재로드 (Neo4j background task 완료 대기 후)
+    setTimeout(refreshArchive, 600)
   } finally { creating.value = false }
 }
 
@@ -1079,6 +1054,7 @@ async function saveApprovedTasks() {
     detailTab.value = 'task'
 
     alert(`${saved.length}개 과제가 저장되었습니다.`)
+    setTimeout(refreshArchive, 600)
   } catch (e) {
     console.error('저장 오류:', e)
     alert('저장 중 오류가 발생했습니다.')
@@ -1178,6 +1154,8 @@ async function saveSettings() {
     }
     await meetingsStore.fetchMeetings()
     settingsModal.value = null
+    // Neo4j 동기화 반영 후 그래프 재로드
+    setTimeout(refreshArchive, 600)
   } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
   finally { savingSettings.value = false }
 }
@@ -1299,6 +1277,18 @@ watch(() => uploadForm.value.meetingId, async (id) => {
     uploadMeetingTodos.value = (await api.get(`/api/meetings/${meetingId}/todos`)).data || []
     if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
   } catch { uploadMeetingTodos.value = [] }
+})
+
+// connectNodeId가 meeting_group이면 meetingId 자동 동기화
+watch(() => uploadForm.value.connectNodeId, (nodeId) => {
+  if (!nodeId) return
+  const node = gNodes.find(n => n.id === nodeId)
+  if (node?.type === 'meeting_group') {
+    const mgData = node.data
+    // SQLite id: 숫자이면 'mg-{id}', 아니면 Neo4j id
+    const rawId = mgData?.id ?? nodeId
+    uploadForm.value.meetingId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
+  }
 })
 
 // ─── 파일 노드 AI 검토 패널 ────────────────────────────────────
@@ -1542,15 +1532,35 @@ function startRelEdit(edgeIdx) {
   relEditIdx.value = edgeIdx
   relEditRel.value = gEdges[edgeIdx]?.rel || ''
 }
-function saveRelEdit() {
+async function saveRelEdit() {
   if (relEditIdx.value !== null && gEdges[relEditIdx.value]) {
-    gEdges[relEditIdx.value].rel = relEditRel.value
+    const e = gEdges[relEditIdx.value]
+    const fromNode = gNodes[e.from], toNode = gNodes[e.to]
+    const oldRel = e.rel
+    e.rel = relEditRel.value
+    // Neo4j 동기화
+    api.put('/api/neo4j/relationships', {
+      from_id: fromNode?.neo4jId || fromNode?.id,
+      old_rel: oldRel,
+      new_rel: relEditRel.value,
+      to_id: toNode?.neo4jId || toNode?.id,
+    }).catch(() => {})
   }
   relEditIdx.value = null
   graphVersion.value++
 }
 function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
-function doDeleteEdge(edgeIdx) {
+async function doDeleteEdge(edgeIdx) {
+  const e = gEdges[edgeIdx]
+  const fromNode = gNodes[e?.from], toNode = gNodes[e?.to]
+  // Neo4j 동기화
+  if (fromNode && toNode) {
+    api.delete('/api/neo4j/relationships', { data: {
+      from_id: fromNode.neo4jId || fromNode.id,
+      rel_type: e.rel,
+      to_id: toNode.neo4jId || toNode.id,
+    }}).catch(() => {})
+  }
   gEdges.splice(edgeIdx, 1)
   relEditIdx.value = null
   graphVersion.value++
@@ -1559,7 +1569,7 @@ function openAddRel() {
   relAddForm.value = { fromId: currentNodeId.value || '', toId: '', rel: 'REFERENCES' }
   relAddActive.value = true
 }
-function doAddRel() {
+async function doAddRel() {
   const { fromId, toId, rel } = relAddForm.value
   if (!fromId || !toId || !rel || fromId === toId) return
   const fromIdx = gNodes.findIndex(n => n.id === fromId)
@@ -1571,6 +1581,13 @@ function doAddRel() {
   gEdges.push({ from: fromIdx, to: toIdx, rel })
   relAddActive.value = false
   graphVersion.value++
+  // Neo4j 동기화
+  const fromNode = gNodes[fromIdx], toNode = gNodes[toIdx]
+  api.post('/api/neo4j/relationships', {
+    from_id: fromNode.neo4jId || fromNode.id,
+    rel_type: rel,
+    to_id: toNode.neo4jId || toNode.id,
+  }).catch(() => {})
 }
 
 const connectableNodes = computed(() => {
@@ -1579,7 +1596,11 @@ const connectableNodes = computed(() => {
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
   depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
-  groups.forEach(g => result.push({ id:`mg-${g.id}`, label:g.title, typeLabel:'회의체', type:'meeting_group' }))
+  groups.forEach(g => {
+    const rawId = g.id
+    const mgId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
+    result.push({ id: mgId, label:g.title, typeLabel:'회의체', type:'meeting_group' })
+  })
   groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
   return result
 })
@@ -1598,6 +1619,38 @@ const deptConnectableNodes = computed(() => {
     .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
     .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
 })
+
+// 선택된 회의체 노드에 연결된 과제들만 드롭다운에 표시
+const 업로드회의체과제 = computed(() => {
+  if (!uploadForm.value.meetingId) return []
+  // connectNodeId가 meeting_group 노드인 경우 해당 회의체의 과제
+  const mgNodeId = uploadForm.value.connectNodeId
+  const mgNode = gNodes.find(n => n.id === mgNodeId && n.type === 'meeting_group')
+  if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
+  // fallback: uploadMeetingTodos (API 로드)
+  return uploadMeetingTodos.value
+})
+
+// person 노드 → 참여 회의체 목록
+function personMeetingGroups(node) {
+  if (!node) return []
+  const name = node.label
+  return meetingGroups.value
+    .filter(mg => (mg.members || []).some(mb => mb.userName === name || mb.name === name))
+    .map(mg => {
+      const mb = (mg.members || []).find(mb => mb.userName === name || mb.name === name)
+      return { id: mg.id, title: mg.title, role: mb?.role }
+    })
+}
+
+// person 노드 → 할당된 과제 목록
+function personTasks(node) {
+  if (!node) return []
+  const name = node.label
+  return meetingGroups.value.flatMap(mg =>
+    (mg.tasks || []).filter(t => t.assignee_name === name)
+  )
+}
 
 // ─── Upload: AI analysis state ────────────────────────────────
 const uploadStep = ref(1)  // 1=manual input, 2=AI analysis result
@@ -1979,24 +2032,32 @@ function buildGraphNodes() {
   // ── Person 노드 (현재 로그인 사용자, 중심) ────────────────────
   const orgIdx = nodes.length
   const orgLabel = currentPerson.value?.name || authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
-  nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0 })
+  nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0, data: currentOrg.value })
 
   // 소속 회의체 없으면 본인 노드만 표시
   if (!data.length) return { nodes, edges }
+
+  // ── Organization 노드 (회의체 클릭 시 하단에 표시) ───────────
+  const orgNodeIdx = nodes.length
+  nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'org', x: 0, y: Y.meeting_group + 40, z: 0, data: currentOrg.value })
 
   const mgCount = data.length
   const sectorWidth = TWO_PI / Math.max(mgCount, 1)
 
   data.forEach((g, gi) => {
     const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
-    const mgNodeId = `mg-${g.id || gi}`
+    // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, SQLite 정수이면 prefix 추가
+    const rawId = g.id || gi
+    const mgNodeId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
+    // Neo4j에 전달할 실제 ID (새 SQLite 회의체는 "mg-sqlite-{id}" 형식)
+    const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-sqlite-${rawId}`
 
     // ── MeetingGroup 노드 ─────────────────────────────────────
     const mgIdx = nodes.length
     nodes.push({
       id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'meeting_group',
       x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
-      data: g, groupIdx: gi
+      data: g, groupIdx: gi, neo4jId,
     })
     // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
     // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
@@ -2009,6 +2070,7 @@ function buildGraphNodes() {
     const selfRole = selfMember?.role ?? meetingsStore.meetingRoles?.[g.id]
     const selfRel = selfRole === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
     edges.push({ from: orgIdx, to: mgIdx, rel: selfRel })
+    edges.push({ from: mgIdx, to: orgNodeIdx, rel: 'PART_OF' })
 
     // ── Department 노드: 회의에 PARTICIPATES_IN ───────────────
     const membersByDept = new Map()
@@ -2136,7 +2198,7 @@ function buildGraphNodes() {
         id: `session-${g.id || gi}-${mi}`,
         label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
         x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
-        groupIdx: gi, data: m
+        groupIdx: gi, data: { ...m, participants: g.members || [] }
       })
       // session -[HELD_BY]→ meetingGroup
       edges.push({ from: sIdx, to: mgIdx, rel: 'HELD_BY' })
@@ -2148,7 +2210,14 @@ function buildGraphNodes() {
       nodes.push({
         id: `file-min-${g.id || gi}-${mi}`,
         label: m.session_title || `${m.session_number || mi + 1}차 회의록`, type: 'file', fileType: '회의록',
-        x: Math.cos(sAng) * R.file, y: Y.file, z: Math.sin(sAng) * R.file, groupIdx: gi
+        x: Math.cos(sAng) * R.file, y: Y.file, z: Math.sin(sAng) * R.file, groupIdx: gi,
+        data: {
+          title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
+          doc_type: m.doc_type || '회의록',
+          author: m.doc_author,
+          created_at: m.doc_created_at || m.ended_at || m.date,
+          file_name: m.file_name,
+        }
       })
       edges.push({ from: sIdx, to: dIdx, rel: 'PRODUCED' })
     })
@@ -2164,7 +2233,8 @@ function buildGraphNodes() {
       const rIdx = nodes.length
       nodes.push({
         id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
-        x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi
+        x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi,
+        data: { ...rp, created_at: rp.submitted_at }
       })
       // document -[ATTACHED_TO]→ meetingGroup
       edges.push({ from: rIdx, to: mgIdx, rel: 'ATTACHED_TO' })
@@ -2174,8 +2244,11 @@ function buildGraphNodes() {
   // ── 소위원회 (MeetingGroup -[PARTICIPATES_IN]→ MeetingGroup) ─
   data.forEach(g => {
     if (!g.parent_id) return
-    const subIdx = nodes.findIndex(n => n.id === `mg-${g.id}`)
-    const parentIdx = nodes.findIndex(n => n.id === `mg-${g.parent_id}`)
+    const rawId = g.id, rawPid = g.parent_id
+    const subId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
+    const parId = (typeof rawPid === 'string' && rawPid.includes('-')) ? rawPid : `mg-${rawPid}`
+    const subIdx = nodes.findIndex(n => n.id === subId)
+    const parentIdx = nodes.findIndex(n => n.id === parId)
     if (subIdx >= 0 && parentIdx >= 0)
       edges.push({ from: subIdx, to: parentIdx, rel: 'PARTICIPATES_IN' })
   })
@@ -2248,6 +2321,8 @@ function getVisibleSet() {
     const hubNode = gNodes[expandedHubIdx]
     if (hubNode?.type === 'meeting_group') {
       vis.add(expandedHubIdx)
+      // org 노드 (PART_OF 관계) 표시
+      gEdges.forEach(e => { if (e.from === expandedHubIdx && e.rel === 'PART_OF') vis.add(e.to) })
       // ── Neo4j 온톨로지에서 관계 방향에 따른 가시성 ─────────────
       // dept/person -[PARTICIPATES_IN/BELONGS_TO]→ meetingGroup
       // agenda -[OWNED_BY]→ meetingGroup
@@ -2258,14 +2333,9 @@ function getVisibleSet() {
         if (!fromNode || !toNode) return
         // 회의체에 연결된 노드들을 모두 표시
         if (e.to === expandedHubIdx) {
+          if (fromNode.type === 'person') return  // person 노드는 맵에 표시 안 함
           vis.add(e.from)
           const fromIdx = e.from
-          // dept → 그 부서에 BELONGS_TO한 person들
-          if (fromNode.type === 'dept') {
-            gEdges.forEach(e2 => {
-              if (e2.to === fromIdx && gNodes[e2.from]?.type === 'person') vis.add(e2.from)
-            })
-          }
           // agenda → session (COVERS), document (PRODUCED → session → file)
           if (fromNode.type === 'agenda') {
             gEdges.forEach(e2 => {
@@ -2538,31 +2608,20 @@ function drawArchiveGraph() {
     const n=p.node,isFocused=focusNode===p.idx
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
-    if(n.id === 'org-root'){  // 중심 노드: 본인 (Person)
+    if(n.id === 'org-root'){  // 중심 노드: 사용자 (Person) — 검정 원 + 사람 아이콘
       const r=Math.min(30,(isFocused?22:18)*p.scale*zf)
-      const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
-      grad.addColorStop(0,isDark?'rgba(100,116,139,0.95)':'rgba(71,85,105,0.9)')
-      grad.addColorStop(1,isDark?'rgba(51,65,85,0.6)':'rgba(100,116,139,0.5)')
-      // Pentagon shape
-      ctx.beginPath()
-      for(let a=0;a<5;a++){const ang=a*Math.PI*2/5-Math.PI/2;const px2=p.sx+r*Math.cos(ang),py2=p.sy+r*Math.sin(ang);a===0?ctx.moveTo(px2,py2):ctx.lineTo(px2,py2)}
-      ctx.closePath(); ctx.fillStyle=grad; ctx.fill()
-      // Pentagon stroke — makes the 5-sided shape clearly visible
-      ctx.strokeStyle=isDark?'rgba(148,163,184,0.75)':'rgba(255,255,255,0.85)'
-      ctx.lineWidth=Math.max(1.5,2*Math.min(1,zf))
-      ctx.stroke()
-      if(selectedNodeIdx.value===p.idx||isFocused){
-        ctx.strokeStyle=isDark?'rgba(255,255,255,0.95)':'rgba(30,41,59,0.9)'
-        ctx.lineWidth=2.5; ctx.stroke()
-      }
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2)
+      ctx.fillStyle='#1f2937'; ctx.fill()
+      ctx.strokeStyle=selectedNodeIdx.value===p.idx||isFocused?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.35)'
+      ctx.lineWidth=selectedNodeIdx.value===p.idx||isFocused?2.5:1.5; ctx.stroke()
       if(p.scale>.22){
-        const iconColor=isDark?'rgba(226,232,240,0.85)':'rgba(255,255,255,0.9)'
-        const headR=r*0.26, bodyR=r*0.33, headY=p.sy-r*0.22, bodyY=p.sy+r*0.12
-        ctx.fillStyle=iconColor
+        const ic='rgba(255,255,255,0.9)'
+        const headR=r*0.22,bodyR=r*0.29,headY=p.sy-r*0.2,bodyY=p.sy+r*0.08
+        ctx.fillStyle=ic
         ctx.beginPath(); ctx.arc(p.sx,headY,headR,0,Math.PI*2); ctx.fill()
-        ctx.beginPath(); ctx.arc(p.sx,bodyY+bodyR*0.6,bodyR,Math.PI,Math.PI*2); ctx.fill()
-        if(p.scale>.3){const fs=Math.max(8,Math.min(13,Math.round(9*zf)));ctx.fillStyle=isDark?iconColor:'rgba(200,215,230,1.0)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';const nm=n.label||'나';ctx.fillText(nm.length>5?nm.slice(0,4)+'…':nm,p.sx,p.sy+r*0.55)}
+        ctx.beginPath(); ctx.arc(p.sx,bodyY+bodyR*0.7,bodyR,Math.PI,Math.PI*2); ctx.fill()
       }
+      if(p.scale>.3){const fs=Math.max(8,Math.min(13,Math.round(9*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';const nm=n.label||'나';ctx.fillText(nm.length>7?nm.slice(0,6)+'…':nm,p.sx,p.sy+r+3)}
     } else if(n.type==='meeting_group'){
       const hubColor=getHubFill(n.data)
       const urgency=computeUrgency(n.data)
@@ -2591,37 +2650,78 @@ function drawArchiveGraph() {
         ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
       }
       if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='agenda'){
+    } else if(n.type==='agenda'){  // amber 원 + 체크마크 아이콘
       const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
-      const hw=r*1.6,hh=r*0.65
-      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(8*Math.min(1,zf),hh*0.6))
-      ctx.fillStyle='#7ac8b0'; ctx.fill()
-      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(20,60,50,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy)}
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#f59e0b'; ctx.fill()
+      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
+      if(p.scale>.2){
+        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.92)'; ctx.lineWidth=Math.max(1.5,r*0.14)
+        ctx.lineCap='round'; ctx.lineJoin='round'
+        const cs=r*0.52
+        ctx.beginPath(); ctx.moveTo(p.sx-cs,p.sy+cs*0.1); ctx.lineTo(p.sx-cs*0.18,p.sy+cs*0.78); ctx.lineTo(p.sx+cs,p.sy-cs*0.62)
+        ctx.stroke(); ctx.restore()
+      }
+      if(p.scale>.25){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
     } else if(n.type==='person'){
       const r=Math.min(22,(isFocused?18:14)*p.scale*zf)
       ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2)
       ctx.fillStyle='#f472b6'; ctx.fill()
-      if(p.scale>.25){const fs=Math.max(8,Math.min(12,Math.round(10*zf)));ctx.fillStyle=`rgba(80,10,40,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>6?n.label.slice(0,5)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='session'){
+      if(p.scale>.25){const fs=Math.max(8,Math.min(12,Math.round(10*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>6?n.label.slice(0,5)+'…':n.label,p.sx,p.sy+r+3)}
+    } else if(n.type==='session'){  // coral 원 + 캘린더 아이콘
       const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
-      const hw=r*1.6,hh=r*0.65
-      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(8*Math.min(1,zf),hh*0.6))
-      ctx.fillStyle='#d4b483'; ctx.fill()
-      if(p.scale>.22&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(60,40,10,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='file'){
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#f97316'; ctx.fill()
+      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
+      if(p.scale>.2){
+        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.92)'; ctx.fillStyle='rgba(255,255,255,0.92)'
+        const cw=r*0.68,ch=r*0.6,cx=p.sx-cw/2,cy=p.sy-ch/2+r*0.06
+        ctx.lineWidth=Math.max(1,r*0.09); ctx.strokeRect(cx,cy,cw,ch)
+        ctx.beginPath(); ctx.moveTo(cx,cy+ch*0.33); ctx.lineTo(cx+cw,cy+ch*0.33); ctx.stroke()
+        const clipR=r*0.09
+        ctx.beginPath(); ctx.arc(cx+cw*0.28,cy-clipR*0.3,clipR,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(cx+cw*0.72,cy-clipR*0.3,clipR,0,Math.PI*2); ctx.fill()
+        ctx.fillRect(cx+cw*0.52,cy+ch*0.5,cw*0.33,ch*0.33)
+        ctx.restore()
+      }
+      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
+    } else if(n.type==='file'){  // gray 원 + 접힌 문서 아이콘
       const r=Math.min(22,(isFocused?17:14)*p.scale*zf)
-      const hw=r*1.4,hh=r*0.85
-      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(6*Math.min(1,zf),hh*0.5))
-      ctx.fillStyle='#c5c2be'; ctx.fill()
-      if(hh>6){const letter=n.fileType==='회의록'?'문':n.fileType==='발제자료'?'제':'보';ctx.fillStyle='rgba(50,45,40,0.8)';ctx.font=`bold ${Math.max(8,Math.round(hh*0.95))}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(letter,p.sx,p.sy)}
-      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(50,45,40,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+hh+3)}
-    } else if(n.type==='dept'){
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#64748b'; ctx.fill()
+      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
+      if(p.scale>.2){
+        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.fillStyle='rgba(255,255,255,0.9)'
+        const fw=r*0.5,fh=r*0.62,fx=p.sx-fw/2,fy=p.sy-fh/2,fold=fw*0.3
+        ctx.lineWidth=Math.max(1,r*0.08)
+        ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx+fw-fold,fy); ctx.lineTo(fx+fw,fy+fold); ctx.lineTo(fx+fw,fy+fh); ctx.lineTo(fx,fy+fh); ctx.closePath(); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(fx+fw-fold,fy); ctx.lineTo(fx+fw-fold,fy+fold); ctx.lineTo(fx+fw,fy+fold); ctx.stroke()
+        ctx.lineWidth=Math.max(0.8,r*0.07)
+        ctx.beginPath(); ctx.moveTo(fx+fw*0.2,fy+fh*0.54); ctx.lineTo(fx+fw*0.82,fy+fh*0.54); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(fx+fw*0.2,fy+fh*0.74); ctx.lineTo(fx+fw*0.68,fy+fh*0.74); ctx.stroke()
+        ctx.restore()
+      }
+      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
+    } else if(n.type==='dept'){  // purple 원 + 두 명 그룹 아이콘
       const isExpanded=expandedDeptIdx===p.idx
       const r=Math.min(28,(isFocused||isExpanded?22:18)*p.scale*zf)
-      const hw=r*1.6,hh=r*0.65
-      roundRect(ctx,p.sx-hw,p.sy-hh,hw*2,hh*2,Math.min(6*Math.min(1,zf),hh*0.6))
-      ctx.fillStyle=isDark?'#b8aee0':'#9b8ec4'; ctx.fill()
-      if(p.scale>.2){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`;ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy)}
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#8b5cf6'; ctx.fill()
+      if(isFocused||selectedNodeIdx.value===p.idx||isExpanded){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
+      if(p.scale>.2){
+        ctx.save(); ctx.fillStyle='rgba(255,255,255,0.92)'
+        // 왼쪽 작은 사람
+        const shr=r*0.13,sbr=r*0.16,shx=p.sx-r*0.24,shy=p.sy-r*0.14
+        ctx.beginPath(); ctx.arc(shx,shy,shr,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(shx,shy+shr+sbr*1.1,sbr,Math.PI,Math.PI*2); ctx.fill()
+        // 오른쪽 큰 사람
+        const bhr=r*0.18,bbr=r*0.22,bhx=p.sx+r*0.2,bhy=p.sy-r*0.17
+        ctx.beginPath(); ctx.arc(bhx,bhy,bhr,0,Math.PI*2); ctx.fill()
+        ctx.beginPath(); ctx.arc(bhx,bhy+bhr+bbr*1.1,bbr,Math.PI,Math.PI*2); ctx.fill()
+        ctx.restore()
+      }
+      if(p.scale>.25){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy+r+3)}
+    } else if(n.type==='org'&&n.id!=='org-root'){  // teal 원 + 건물 아이콘
+      const r=Math.min(26,(isFocused?20:17)*p.scale*zf)
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#0d9488'; ctx.fill()
+      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
+      if(p.scale>.25){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
     }
     ctx.globalAlpha=1
   })
@@ -3047,6 +3147,7 @@ onMounted(async () => {
     // ── Neo4j 그래프 데이터 (단일 소스) ──────────────────────────
     const neo4jResult = await api.get('/api/neo4j/archive')
     currentPerson.value = neo4jResult?.data?.current_person || null
+    currentOrg.value = neo4jResult?.data?.org || null
     if (!neo4jResult?.data?.meetings?.length) {
       // 회의체 없음 — 본인 노드만 그래프에 표시 (에러 아님)
       return
@@ -3071,6 +3172,22 @@ onBeforeUnmount(()=>{
   window.removeEventListener('mousemove', onGlobalMouseMove)
   window.removeEventListener('mouseup', onGlobalMouseUp)
 })
+
+// ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
+async function refreshArchive() {
+  try {
+    const res = await api.get('/api/neo4j/archive')
+    currentPerson.value = res?.data?.current_person || null
+    currentOrg.value    = res?.data?.org || null
+    neo4jMeetings.value = res?.data?.meetings || []
+    minutes.value       = res?.data?.minutes  || []
+    reports.value       = res?.data?.reports  || []
+    membersData.value   = (res?.data?.meetings || []).flatMap(m => m.members || [])
+    tasksData.value     = (res?.data?.meetings || []).flatMap(m => m.tasks   || [])
+    await nextTick()
+    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+  } catch(e) { console.error('archive refresh error', e) }
+}
 
 // Rebuild graph when new meetings are created
 watch(() => meetingsStore.meetings.length, () => {
@@ -3603,6 +3720,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-header-icon">
               <!-- 부서 -->
               <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              <!-- 조직 -->
+              <svg v-else-if="detailNode.type==='org'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               <!-- 아젠다 -->
               <svg v-else-if="detailNode.type==='agenda'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
               <!-- 회의(session) -->
@@ -3639,10 +3758,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <!-- 부서 -->
             <template v-if="detailNode.type==='dept'">
               <div class="detail-section">
-                <div class="detail-section-label">구성원</div>
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">부서명</span>
+                    <span class="detail-info-val">{{ detailNode.label }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-section-label">부서 구성원</div>
                 <div v-if="detailNode.members?.length" class="node-member-list">
-                  <div v-for="mb in detailNode.members" :key="mb.userId" class="node-member-row">
-                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? '#3b82f6' : '#475569' }">{{ (mb.userName||'?')[0] }}</div>
+                  <div v-for="mb in detailNode.members" :key="mb.userId||mb.userName" class="node-member-row">
+                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? '#3b82f6' : '#475569' }">{{ (mb.userName||mb.name||'?')[0] }}</div>
                     <div class="node-member-info">
                       <span class="node-member-name">{{ mb.userName || mb.name || '-' }}</span>
                       <span class="node-member-role">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
@@ -3653,156 +3780,171 @@ const TYPES=['Draft','In Progress','Done','Pending']
               </div>
             </template>
 
-            <!-- 과제 -->
-            <template v-else-if="detailNode.type==='task'">
-              <div class="detail-section">
-                <div class="detail-purpose">{{ detailNode.data?.content || detailNode.label }}</div>
-              </div>
+            <!-- 조직 -->
+            <template v-else-if="detailNode.type==='org'">
               <div class="detail-section">
                 <div class="detail-info-grid">
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">조직명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.name || detailNode.label }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">타입</span>
+                    <span class="detail-info-val">{{ detailNode.data?.org_type || '-' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="meetingGroups.length" class="detail-section">
+                <div class="detail-section-label">회의체 목록 ({{ meetingGroups.length }}개)</div>
+                <div class="detail-info-grid">
+                  <div v-for="mg in meetingGroups" :key="mg.id" class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-val">{{ mg.title }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- 아젠다 -->
+            <template v-else-if="detailNode.type==='agenda'">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">아젠다명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.content || detailNode.label }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">카테고리</span>
+                    <span class="detail-info-val">{{ detailNode.data?.category || '-' }}</span>
+                  </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">상태</span>
-                    <span class="detail-info-val">{{ { todo:'미완료', in_progress:'진행중', done:'완료' }[detailNode.data?.status] || detailNode.data?.status || '-' }}</span>
+                    <span class="detail-info-val">
+                      <span class="status-badge" :class="{
+                        'sb-done': detailNode.data?.status==='완료' || detailNode.data?.status==='done',
+                        'sb-progress': detailNode.data?.status==='진행' || detailNode.data?.status==='진행중' || detailNode.data?.status==='in_progress',
+                        'sb-pending': detailNode.data?.status==='대기' || detailNode.data?.status==='pending' || !detailNode.data?.status
+                      }">{{ detailNode.data?.status || '-' }}</span>
+                    </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">우선순위</span>
-                    <span class="detail-info-val">{{ { high:'상', normal:'중', low:'하' }[detailNode.data?.priority] || '-' }}</span>
+                    <span class="detail-info-val">{{ { high:'상', medium:'중', low:'하', 상:'상', 중:'중', 하:'하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">발생일</span>
+                    <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : '-' }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">마감일</span>
                     <span class="detail-info-val">{{ detailNode.data?.due_date ? formatDate(detailNode.data.due_date) : '-' }}</span>
                   </div>
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">담당부서</span>
-                    <span class="detail-info-val">{{ detailNode.data?.assignee_dept || detailNode.data?.dept || '-' }}</span>
-                  </div>
                 </div>
               </div>
             </template>
 
-            <!-- 회의(session) 또는 아젠다 -->
+            <!-- 회의(session) -->
             <template v-else-if="detailNode.type==='session'">
-              <div v-if="detailNode.subType==='agenda'" class="detail-section">
-                <div class="detail-section-label">아젠다 내용</div>
-                <div class="detail-purpose">{{ detailNode.fullContent || detailNode.label }}</div>
-                <div v-if="detailNode.department" class="detail-info-grid" style="margin-top:8px">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">회의명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.session_title || detailNode.label }}</span>
+                  </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">담당부서</span>
-                    <span class="detail-info-val">{{ detailNode.department }}</span>
+                    <span class="detail-info-key">회의일자</span>
+                    <span class="detail-info-val">{{ detailNode.data?.date ? formatDate(detailNode.data.date) : (detailNode.data?.ended_at ? formatDate(detailNode.data.ended_at) : '-') }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">타입</span>
+                    <span class="detail-info-val">{{ detailNode.data?.session_type || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">회의소개</span>
+                    <span class="detail-info-val">{{ detailNode.data?.description || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
+                    <span class="detail-info-key">회의록</span>
+                    <button class="dl-icon-btn" :title="detailNode.data?.doc_title || detailNode.data?.file_name || '회의록 다운로드'" @click="downloadDummy(detailNode.data?.doc_title || detailNode.data?.file_name || detailNode.data?.session_title || detailNode.label)">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
                   </div>
                 </div>
               </div>
-              <template v-else>
-                <div class="detail-section">
-                  <div class="detail-info-grid">
-                    <div class="detail-info-item">
-                      <span class="detail-info-key">회의 회차</span>
-                      <span class="detail-info-val">{{ detailNode.data?.session_number ? detailNode.data.session_number + '차' : '-' }}</span>
-                    </div>
-                    <div class="detail-info-item">
-                      <span class="detail-info-key">일시</span>
-                      <span class="detail-info-val">{{ detailNode.data?.ended_at ? formatDate(detailNode.data.ended_at) : '-' }}</span>
+              <div v-if="detailNode.data?.participants?.length" class="detail-section">
+                <div class="detail-section-label">참여자</div>
+                <div class="node-member-list">
+                  <div v-for="p in detailNode.data.participants" :key="p.userId||p.userName" class="node-member-row">
+                    <div class="node-avatar" style="background:#475569">{{ (p.userName||p.name||'?')[0] }}</div>
+                    <div class="node-member-info">
+                      <span class="node-member-name">{{ p.userName || p.name }}</span>
+                      <span v-if="p.department" class="node-member-role">{{ p.department }}</span>
                     </div>
                   </div>
                 </div>
-                <div v-if="detailNode.data?.summary || detailNode.data?.content" class="detail-section">
-                  <div class="detail-section-label">요약</div>
-                  <div class="detail-purpose">{{ detailNode.data?.summary || detailNode.data?.content }}</div>
-                </div>
-              </template>
+              </div>
             </template>
 
             <!-- 파일(문서/회의록) -->
             <template v-else-if="detailNode.type==='file'">
-              <template v-if="fileReviewPanel">
-                <!-- 액션 버튼 -->
-                <div class="detail-section">
-                  <div class="fr-actions">
-                    <button class="fr-action-btn" :disabled="fileReviewAnalyzing" @click="rerunFileReview">
-                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-                      {{ fileReviewAnalyzing ? 'AI 검토 중...' : '재검사' }}
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">파일명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.title || detailNode.data?.file_name || detailNode.label }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">종류</span>
+                    <span class="detail-info-val">{{ detailNode.data?.doc_type || detailNode.fileType || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">작성일</span>
+                    <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : (detailNode.data?.submitted_at ? formatDate(detailNode.data.submitted_at) : '-') }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">작성자</span>
+                    <span class="detail-info-val">{{ detailNode.data?.author || detailNode.data?.department || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
+                    <span class="detail-info-key">파일</span>
+                    <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode.data?.title || detailNode.data?.file_name || detailNode.label)">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
-                    <button class="fr-action-btn accent" :disabled="fileReviewPanel.extracting" @click="extractAgendas">
-                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                      {{ fileReviewPanel.extracting ? '추출 중...' : '아젠다 추출' }}
-                    </button>
-                    <button class="fr-action-btn green" :disabled="fileReviewPanel.assigning || !fileReviewPanel.extractedAgendas.length" @click="assignTasks">
-                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12h3M19 12h3M12 2v3M12 19v3"/></svg>
-                      {{ fileReviewPanel.assigning ? '배정 중...' : '과제 배정' }}
-                    </button>
                   </div>
                 </div>
+              </div>
+            </template>
 
-                <!-- AI 검토 없을 때 -->
-                <div v-if="!fileReviewPanel.aiResult && !fileReviewAnalyzing" class="detail-section" style="text-align:center;padding:20px 0">
-                  <div style="font-size:12px;color:#64748b;margin-bottom:10px">AI 검토 결과가 없습니다.</div>
-                  <button class="app-btn-primary" style="font-size:12px;padding:6px 14px" @click="rerunFileReview">AI 검토 시작</button>
+            <!-- 구성원 (person) -->
+            <template v-else-if="detailNode.type==='person'">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <SidebarInfoRow label="조직" :value="detailNode.data?.organization || currentOrg?.name || '-'" />
+                  <SidebarInfoRow label="부서" :value="detailNode.data?.department || '-'" />
+                  <SidebarInfoRow label="직첸" :value="detailNode.data?.position || '-'" />
                 </div>
-
-                <!-- 로딩 -->
-                <div v-else-if="fileReviewAnalyzing" class="detail-section">
-                  <div class="ai-loading-wrap">
-                    <div class="ai-loading-spinner"></div>
-                    <div class="ai-loading-text">AI가 자료를 검토하고 있습니다…</div>
-                  </div>
-                </div>
-
-                <!-- 검토 결과 -->
-                <template v-else-if="fileReviewPanel.aiResult">
-                  <div class="detail-section">
-                    <div class="ai-score-section">
-                      <div class="ai-score-label">자료 적합성 점수 <span style="font-size:10px;opacity:.5;margin-left:4px">영구 메타데이터</span></div>
-                      <div class="ai-score-gauge-wrap">
-                        <svg width="110" height="60" viewBox="0 0 110 60">
-                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none" stroke="#e2e8f0" stroke-width="10" stroke-linecap="round"/>
-                          <path d="M10 55 A45 45 0 0 1 100 55" fill="none"
-                            :stroke="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'"
-                            stroke-width="10" stroke-linecap="round"
-                            :stroke-dasharray="`${(fileReviewPanel.aiResult.score/100)*141.3} 141.3`"/>
-                          <text x="55" y="53" text-anchor="middle" font-size="18" font-weight="700"
-                            :fill="fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#f59e0b':'#ef4444'">{{ fileReviewPanel.aiResult.score }}</text>
-                        </svg>
-                        <div class="ai-score-desc" :style="{color:fileReviewPanel.aiResult.score>=80?'#10b981':fileReviewPanel.aiResult.score>=60?'#d97706':'#dc2626'}">
-                          {{ fileReviewPanel.aiResult.score>=80?'우수':fileReviewPanel.aiResult.score>=60?'적합':'미흡' }} / 100
-                        </div>
-                      </div>
-                      <div class="ai-feedback-list">
-                        <div v-for="(fb,i) in fileReviewPanel.aiResult.feedback" :key="i" class="ai-feedback-item">
-                          <span class="fb-dot">•</span> {{ fb }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- 발제자료 기준 체크 -->
-                  <div v-if="fileReviewPanel.node.fileType==='발제자료' && fileReviewPanel.aiResult.criteria" class="detail-section">
-                    <div class="detail-section-label">발제자료 검토 기준 (Why/What/How)</div>
-                    <div class="criteria-list">
-                      <div v-for="c in PRESENTATION_CRITERIA" :key="c.key" class="criteria-row">
-                        <span class="criteria-dot" :class="fileReviewPanel.aiResult.criteria[c.key] ? 'pass' : 'fail'">
-                          <svg v-if="fileReviewPanel.aiResult.criteria[c.key]" width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-                          <svg v-else width="9" height="9" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-                        </span>
-                        <div class="criteria-text">
-                          <div class="criteria-label">{{ c.label }}</div>
-                          <div class="criteria-desc">{{ c.desc }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-
-                <!-- 추출된 아젠다 -->
-                <div v-if="fileReviewPanel.extractedAgendas.length" class="detail-section">
-                  <div class="detail-section-label">추출된 아젠다 ({{ fileReviewPanel.extractedAgendas.length }}건)</div>
-                  <div v-for="(ag, i) in fileReviewPanel.extractedAgendas" :key="i" class="extracted-agenda-card">
-                    <div class="ea-title">{{ ag.title }}</div>
-                    <ul class="ea-bullets">
-                      <li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li>
-                    </ul>
+              </div>
+              <div class="detail-section">
+                <div class="detail-section-label">참여 회의체</div>
+                <div v-if="personMeetingGroups(detailNode).length" class="detail-info-grid">
+                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
+                    <span class="detail-info-val">{{ mg.title }}</span>
                   </div>
                 </div>
-              </template>
+                <div v-else class="node-empty">회의체 정보 없음</div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-section-label">할당된 과제</div>
+                <div v-if="personTasks(detailNode).length" class="detail-info-grid">
+                  <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">
+                      <span class="status-badge" :class="{'sb-done':t.status==='done','sb-progress':t.status==='in_progress','sb-pending':!t.status||t.status==='pending'}">{{ {done:'완료',in_progress:'진행',pending:'대기'}[t.status]||t.status }}</span>
+                    </span>
+                    <span class="detail-info-val" style="white-space:normal;line-height:1.4">{{ t.content }}</span>
+                  </div>
+                </div>
+                <div v-else class="node-empty">할당된 과제 없음</div>
+              </div>
             </template>
 
             </template><!-- /기본 탭 -->
@@ -4475,8 +4617,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <label>연관 과제 <span class="req">*</span><span v-if="prefilledCtx.relatedTodoId" class="prefill-label">자동 입력됨</span></label>
               <select v-model="uploadForm.relatedTodoId" class="app-modal-input" :class="{ 'prefilled': uploadForm.relatedTodoId }"
                 :disabled="!uploadForm.meetingId" @change="prefilledCtx.relatedTodoId = false">
-                <option value="">{{ uploadForm.meetingId ? '과제 선택...' : '회의체를 먼저 선택하세요' }}</option>
-                <option v-for="t in uploadMeetingTodos" :key="t.id" :value="t.id">{{ t.content }}</option>
+                <option value="">{{ uploadForm.meetingId ? (업로드회의쬬과제.length ? '과제 선택...' : '연결된 과제가 없습니다') : '회의체를 먼저 선택하세요' }}</option>
+                <option v-for="t in 업로드회의쬬과제" :key="t.id" :value="t.id">{{ t.content }}</option>
               </select>
             </div>
 
@@ -5683,6 +5825,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .node-member-name { font-size:12px;font-weight:600;color:#e2e8f0; }
 .node-member-role { font-size:10px;color:#64748b; }
 .node-empty { font-size:12px;color:#475569;padding:8px 0; }
+.status-badge { display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;letter-spacing:.3px; }
+.sb-done { background:rgba(16,185,129,.18);color:#10b981; }
+.sb-progress { background:rgba(59,130,246,.18);color:#3b82f6; }
+.sb-pending { background:rgba(100,116,139,.18);color:#94a3b8; }
 .node-feedback-list { margin:4px 0 0 12px;padding:0;list-style:disc;display:flex;flex-direction:column;gap:4px; }
 .node-feedback-list li { font-size:12px;color:#94a3b8;line-height:1.45; }
 .day-mode .node-member-name { color:#1e293b; }
@@ -5810,6 +5956,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .fr-action-btn.accent:hover:not(:disabled) { background:rgba(99,102,241,.08); }
 .fr-action-btn.green { border-color:rgba(16,185,129,.3);color:#059669; }
 .fr-action-btn.green:hover:not(:disabled) { background:rgba(16,185,129,.08); }
+.dl-icon-btn { display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;cursor:pointer;transition:all .15s;flex-shrink:0; }
+.dl-icon-btn:hover { background:#f1f5f9;color:#6366f1;border-color:rgba(99,102,241,.3); }
+.archive-graph.dark .dl-icon-btn { border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#94a3b8; }
+.archive-graph.dark .dl-icon-btn:hover { background:rgba(255,255,255,.1);color:#818cf8; }
 .app-modal.dark .fr-actions { border-bottom-color:rgba(255,255,255,.06); }
 .app-modal.dark .fr-action-btn { border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#94a3b8; }
 .app-modal.dark .fr-action-btn:hover:not(:disabled) { background:rgba(255,255,255,.1);color:#e2e8f0; }
