@@ -12,52 +12,97 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * POST   /api/v1/meetings/{meetingId}/reports              - 자료 제출
- * GET    /api/v1/meetings/{meetingId}/reports              - 자료 목록 조회
- * GET    /api/v1/reports/{reportId}                        - 자료 단건 조회
- * PATCH  /api/v1/reports/{reportId}/status                 - 상태 변경
- * POST   /api/v1/reports/{reportId}/resubmit               - 재제출
+ * 자료 관련 API
+ * POST   /api/v1/meetings/{meetingId}/reports        - 회의체 기준 자료 제출
+ * GET    /api/v1/meetings/{meetingId}/reports        - 회의체별 자료 목록 조회
+ * POST   /api/v1/sessions/{sessionId}/reports        - 세션 기준 자료 업로드
+ * GET    /api/v1/sessions/{sessionId}/reports        - 세션별 자료 목록 조회
+ * GET    /api/v1/reports/{reportId}                  - 자료 단건 조회
+ * PATCH  /api/v1/reports/{reportId}/status           - 상태 변경
+ * POST   /api/v1/reports/{reportId}/resubmit         - 재제출
+ * POST   /api/v1/reports/{reportId}/review           - 검토 요청
+ * GET    /api/v1/reports/{reportId}/review-result    - 검토 결과 조회
+ * DELETE /api/v1/reports/{reportId}                  - 자료 삭제
  */
 @RestController
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class ReportController {
 
     private final ReportService reportService;
 
-    @PostMapping("/api/v1/meetings/{meetingId}/reports")
+    // 자료 제출 - SUBMITTED 상태로 저장
+    @PostMapping("/meetings/{meetingId}/reports")
     public ResponseEntity<ApiResponse<ReportResponse>> submitReport(
             @PathVariable Long meetingId,
             @Valid @RequestBody ReportSubmitRequest request) {
-        ReportResponse response = reportService.submitReport(meetingId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(reportService.submitReport(meetingId, request)));
     }
 
-    @GetMapping("/api/v1/meetings/{meetingId}/reports")
+    // 회의체에 제출된 자료 목록 조회
+    @GetMapping("/meetings/{meetingId}/reports")
     public ResponseEntity<ApiResponse<List<ReportResponse>>> getReportsByMeeting(
             @PathVariable Long meetingId) {
-        List<ReportResponse> response = reportService.getReportsByMeeting(meetingId);
-        return ResponseEntity.ok(ApiResponse.ok(response));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsByMeeting(meetingId)));
     }
 
-    @GetMapping("/api/v1/reports/{reportId}")
+    // 세션 기준 자료 업로드 - SUBMITTED 상태로 저장
+    @PostMapping("/sessions/{sessionId}/reports")
+    public ResponseEntity<ApiResponse<ReportResponse>> submitReportForSession(
+            @PathVariable Long sessionId,
+            @Valid @RequestBody ReportSessionSubmitRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(reportService.submitReportForSession(sessionId, request)));
+    }
+
+    // 세션에 제출된 자료 목록 조회
+    @GetMapping("/sessions/{sessionId}/reports")
+    public ResponseEntity<ApiResponse<List<ReportResponse>>> getReportsBySession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsBySession(sessionId)));
+    }
+
+    // 자료 단건 조회
+    @GetMapping("/reports/{reportId}")
     public ResponseEntity<ApiResponse<ReportResponse>> getReport(@PathVariable Long reportId) {
-        ReportResponse response = reportService.getReport(reportId);
-        return ResponseEntity.ok(ApiResponse.ok(response));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReport(reportId)));
     }
 
-    @PatchMapping("/api/v1/reports/{reportId}/status")
+    // 자료 상태 변경 (운영자 또는 AI 분석 완료 후 호출)
+    @PatchMapping("/reports/{reportId}/status")
     public ResponseEntity<ApiResponse<ReportResponse>> updateStatus(
             @PathVariable Long reportId,
             @Valid @RequestBody ReportStatusUpdateRequest request) {
-        ReportResponse response = reportService.updateStatus(reportId, request);
-        return ResponseEntity.ok(ApiResponse.ok(response));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.updateStatus(reportId, request)));
     }
 
-    @PostMapping("/api/v1/reports/{reportId}/resubmit")
+    // 자료 재제출 - 기존 자료를 parent로 삼아 version +1
+    @PostMapping("/reports/{reportId}/resubmit")
     public ResponseEntity<ApiResponse<ReportResponse>> resubmitReport(
             @PathVariable Long reportId,
             @Valid @RequestBody ReportResubmitRequest request) {
-        ReportResponse response = reportService.resubmitReport(reportId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(reportService.resubmitReport(reportId, request)));
+    }
+
+    // 자료 검토 요청 - REVIEWING 상태로 변경
+    @PostMapping("/reports/{reportId}/review")
+    public ResponseEntity<ApiResponse<ReportResponse>> requestReview(@PathVariable Long reportId) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.requestReview(reportId)));
+    }
+
+    // 자료 검토 결과 조회
+    @GetMapping("/reports/{reportId}/review-result")
+    public ResponseEntity<ApiResponse<ReportReviewResultResponse>> getReviewResult(
+            @PathVariable Long reportId) {
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReviewResult(reportId)));
+    }
+
+    // 자료 삭제
+    @DeleteMapping("/reports/{reportId}")
+    public ResponseEntity<ApiResponse<Void>> deleteReport(@PathVariable Long reportId) {
+        reportService.deleteReport(reportId);
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

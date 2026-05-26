@@ -7,6 +7,6 @@ import lombok.Getter;
 @Getter
 public class ReportStatusUpdateRequest {
 
-    @NotNull
+    @NotNull(message = "상태를 선택해주세요.")
     private ReportStatus status;
 }

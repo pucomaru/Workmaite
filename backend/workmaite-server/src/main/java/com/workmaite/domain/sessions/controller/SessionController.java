@@ -29,8 +29,8 @@ import java.util.List;
  * POST   /api/v1/sessions/{sessionId}/end              - 회의 종료 (secretary 권한)
  */
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/v1")
+@RequiredArgsConstructor
 public class SessionController {
 
     private final SessionService sessionService;

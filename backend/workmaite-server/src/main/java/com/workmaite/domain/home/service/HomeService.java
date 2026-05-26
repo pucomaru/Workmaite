@@ -17,6 +17,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 홈 화면 비즈니스 로직
+ * - 일정 조회: 로그인 유저가 속한 회의체의 예정 세션을 월/주/일 뷰로 반환
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)

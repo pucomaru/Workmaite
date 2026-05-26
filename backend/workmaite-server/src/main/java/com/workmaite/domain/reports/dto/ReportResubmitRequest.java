@@ -6,7 +6,7 @@ import lombok.Getter;
 @Getter
 public class ReportResubmitRequest {
 
-    @NotNull
+    @NotNull(message = "업로더 ID를 입력해주세요.")
     private Long uploaderId;
 
     private String fileName;

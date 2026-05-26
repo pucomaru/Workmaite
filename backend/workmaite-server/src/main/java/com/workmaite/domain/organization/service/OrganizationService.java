@@ -15,6 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * 조직 구성원 비즈니스 로직
+ * - 목록 조회: keyword(이름·이메일) 또는 role 필터 지원, 페이징 처리
+ * - 회의체별 조회: 특정 회의체에 배정된 구성원 반환
+ * - 수정·삭제: userId 기준으로 처리
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
