@@ -1023,7 +1023,7 @@ async function saveApprovedTasks() {
     const saved = []
     for (const t of approved) {
       try {
-        const { data } = await api.post(`/api/meetings/${detailMeeting.value.id}/todos`, {
+        const { data } = await api.post(`/api/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
           content: t.content,
           assignee_name: t.assignee || null,
           assignee_dept: t.dept || null,
@@ -1039,7 +1039,7 @@ async function saveApprovedTasks() {
     }
 
     // DB 저장 후 목록 새로고침
-    detailTodos.value = (await api.get(`/api/meetings/${detailMeeting.value.id}/todos`)).data || []
+    detailTodos.value = (await api.get(`/api/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
 
     const total = detailTodos.value.length
     const done = detailTodos.value.filter(t => t.status === 'done').length
@@ -1168,9 +1168,18 @@ const detailMyRole = computed(() =>
   detailMeeting.value?.id ? (meetingsStore.meetingRoles[detailMeeting.value.id] ?? null) : null
 )
 const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
-const isAnyAdmin = computed(() =>
-  Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')
-)
+const isAnyAdmin = computed(() => {
+  // SQLite 기반 role 확인
+  if (Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')) return true
+  // Neo4j 기반: meetings의 members 배열에서 현재 유저 role 확인
+  const myEmail = currentPerson.value?.email || authStore.user?.employee_id
+  const myName  = currentPerson.value?.name  || authStore.user?.name
+  return neo4jMeetings.value.some(mg =>
+    (mg.members || []).some(mb =>
+      (mb.email === myEmail || mb.userName === myName) && mb.role === 'admin'
+    )
+  )
+})
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function initials(name) { return (name || '?')[0] }
@@ -1193,7 +1202,7 @@ async function openDetail(groupData) {
   hoverNode.value = null
   detailTodos.value = []
   try {
-    detailTodos.value = (await api.get(`/api/meetings/${groupData.id}/todos`)).data || []
+    detailTodos.value = (await api.get(`/api/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
     // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
     if (!groupTodoRatio.value.has(groupData.id)) {
@@ -1218,6 +1227,26 @@ let targetCamX = 0, targetCamY = 0, targetCamZ = 0
 let camX = 0, camY = 0, camZ = 0
 let worldZoom = 1.0, targetZoom = 1.0, dpr = 1
 let gNodes = [], gEdges = []
+// ─── 로컬 관계 오버라이드: refreshArchive 후에도 유지 ────────
+// key 형식: "fromNodeId|toNodeId" (양방향 모두 등록)
+const localDeletedEdges = new Set()
+const localAddedEdges   = [] // [{fromId, toId, rel}]
+function _applyLocalEdgeOverrides(nodes, edges) {
+  // 1) 삭제된 관계 제거
+  let result = edges.filter(e => {
+    const fId = nodes[e.from]?.id, tId = nodes[e.to]?.id
+    return !localDeletedEdges.has(`${fId}|${tId}`) && !localDeletedEdges.has(`${tId}|${fId}`)
+  })
+  // 2) 추가된 관계 삽입
+  localAddedEdges.forEach(({fromId, toId, rel}) => {
+    const fi = nodes.findIndex(n => n.id === fromId)
+    const ti = nodes.findIndex(n => n.id === toId)
+    if (fi >= 0 && ti >= 0 && !result.find(e => e.from === fi && e.to === ti && e.rel === rel)) {
+      result.push({ from: fi, to: ti, rel })
+    }
+  })
+  return result
+}
 let expandedHubIdx = null
 let expandedDeptIdx = null
 let rotationPaused = false
@@ -1550,6 +1579,15 @@ async function saveRelEdit() {
   graphVersion.value++
 }
 function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
+// Neo4j mg-003 / mg-sqlite-3 → SQLite 정수 ID 추출
+function _toSqliteId(id) {
+  if (!id) return id
+  // 숫자만으로 이루어진 경우 그대로 반환
+  if (/^\d+$/.test(String(id))) return id
+  // 끝에서 숫자만 추출: "mg-003" → "3", "mg-sqlite-3" → "3"
+  const m = String(id).match(/\d+$/)
+  return m ? Number(m[0]) : id
+}
 function _normalizeNeo4jId(raw) {
   if (!raw) return raw
   const prefixes = ['mg-', 'session-', 'agenda-', 'doc-', 'dept-', 'p-', 'org-']
@@ -1561,8 +1599,14 @@ function _normalizeNeo4jId(raw) {
 async function doDeleteEdge(edgeIdx) {
   const e = gEdges[edgeIdx]
   const fromNode = gNodes[e?.from], toNode = gNodes[e?.to]
-  // Neo4j 동기화
+  // 로컬 오버라이드에 기록 (rebuild 후에도 삭제 유지)
   if (fromNode && toNode) {
+    localDeletedEdges.add(`${fromNode.id}|${toNode.id}`)
+    localDeletedEdges.add(`${toNode.id}|${fromNode.id}`)
+    // localAddedEdges에서도 제거
+    const ai = localAddedEdges.findIndex(x => x.fromId === fromNode.id && x.toId === toNode.id)
+    if (ai >= 0) localAddedEdges.splice(ai, 1)
+    // Neo4j 동기화
     api.delete('/api/neo4j/relationships', { data: {
       from_id: _normalizeNeo4jId(fromNode.neo4jId || fromNode.id),
       rel_type: e.rel || '',
@@ -1586,11 +1630,15 @@ async function doAddRel() {
   if (gEdges.find(e => e.from === fromIdx && e.to === toIdx)) {
     showMapToast('이미 연결된 노드입니다.'); return
   }
+  const fromNode = gNodes[fromIdx], toNode = gNodes[toIdx]
+  // 로컬 오버라이드에 기록
+  localAddedEdges.push({ fromId: fromNode.id, toId: toNode.id, rel })
+  localDeletedEdges.delete(`${fromNode.id}|${toNode.id}`)
+  localDeletedEdges.delete(`${toNode.id}|${fromNode.id}`)
   gEdges.push({ from: fromIdx, to: toIdx, rel })
   relAddActive.value = false
   graphVersion.value++
   // Neo4j 동기화
-  const fromNode = gNodes[fromIdx], toNode = gNodes[toIdx]
   api.post('/api/neo4j/relationships', {
     from_id: fromNode.neo4jId || fromNode.id,
     rel_type: rel,
@@ -3170,7 +3218,7 @@ onMounted(async () => {
     // 연결 실패 시에도 본인 노드는 표시 (currentPerson은 auth store에서 fallback)
   } finally {
     loading.value = false
-    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
     initGraph()
   }
 })
@@ -3193,20 +3241,27 @@ async function refreshArchive() {
     membersData.value   = (res?.data?.meetings || []).flatMap(m => m.members || [])
     tasksData.value     = (res?.data?.meetings || []).flatMap(m => m.tasks   || [])
     await nextTick()
-    const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+    const g = buildGraphNodes()
+    if (g.nodes.length > 0) {
+      gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+    }
   } catch(e) { console.error('archive refresh error', e) }
 }
 
 // Rebuild graph when new meetings are created
 watch(() => meetingsStore.meetings.length, () => {
   if (loading.value) return  // 초기 로딩 중에는 무시 — finally에서 한 번만 빌드
-  const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+  const g = buildGraphNodes()
+  if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
+  gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
 })
 
 // Neo4j 데이터 로드 완료 시 그래프 재빌드
 watch(() => neo4jMeetings.value.length, () => {
   if (loading.value) return
-  const g = buildGraphNodes(); gNodes = g.nodes; gEdges = g.edges
+  const g = buildGraphNodes()
+  if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
+  gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
 })
 
 watch(search, q=>{
