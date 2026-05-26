@@ -13,6 +13,7 @@ import java.time.temporal.ChronoUnit;
 public class UpcomingSessionResponse {
 
     private Long sessionId;
+    private Long meetingId;
     private String title;
     private String meetingTitle;
     private LocalDateTime scheduledAt;
@@ -23,6 +24,7 @@ public class UpcomingSessionResponse {
         long dDay = ChronoUnit.DAYS.between(today, session.getScheduledAt().toLocalDate());
         return UpcomingSessionResponse.builder()
                 .sessionId(session.getId())
+                .meetingId(session.getMeetingId())
                 .title(session.getTitle())
                 .meetingTitle(meetingTitle)
                 .scheduledAt(session.getScheduledAt())

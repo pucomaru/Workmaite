@@ -4,6 +4,7 @@ import com.workmaite.domain.auth.dto.LoginRequest;
 import com.workmaite.domain.auth.dto.LoginResponse;
 import com.workmaite.domain.auth.dto.RefreshRequest;
 import com.workmaite.domain.auth.dto.SignupRequest;
+import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.auth.JwtTokenProvider;
@@ -58,7 +59,7 @@ public class AuthService {
         }
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
-        return LoginResponse.of(accessToken);
+        return LoginResponse.of(accessToken, UserResponse.from(user));
     }
 
     // Refresh Token 검증 후 새 Access Token 발급

@@ -7,6 +7,7 @@ import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public UserResponse getMe(Long userId) {
         User user = userRepository.findById(userId)
@@ -33,6 +35,9 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         user.update(request.getName(), request.getCompany(), request.getDepartment(), request.getPosition());
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.updatePassword(passwordEncoder.encode(request.getPassword()));
+        }
         return UserResponse.from(user);
     }
 }

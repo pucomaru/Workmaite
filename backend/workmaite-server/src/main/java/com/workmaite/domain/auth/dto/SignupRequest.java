@@ -24,12 +24,9 @@ public class SignupRequest {
     )
     private String password;
 
-    @NotBlank(message = "직책을 입력해주세요.")
     private String position;
 
-    @NotBlank(message = "부서명을 입력해주세요.")
     private String department;
 
-    @NotBlank(message = "회사명을 입력해주세요.")
     private String company;
 }
