@@ -41,6 +41,7 @@ const reports = ref([])
 const membersData = ref([])
 const tasksData = ref([])
 const neo4jMeetings = ref([])   // Neo4j에서 직접 가져온 회의체 그래프 데이터
+const neo4jDepts   = ref([])    // Neo4j Department 노드 id/name 매핑
 const currentOrg = ref(null)    // 현재 조직 (Organization 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
@@ -836,12 +837,19 @@ const showAssignView = ref(false) // 인라인 배정 뷰
 const _extractCache = ref({})
 function _getCache(id) {
   if (!id) return { phase: 'context', result: [], showFlow: false }
-  if (!_extractCache.value[id]) _extractCache.value[id] = { phase: 'context', result: [], showFlow: false }
+  if (!_extractCache.value[id]) {
+    // Vue reactive 추적을 위해 $set 동등 패턴
+    _extractCache.value = { ..._extractCache.value, [id]: { phase: 'context', result: [], showFlow: false } }
+  }
   return _extractCache.value[id]
 }
 const extractPhase = computed({
   get: () => _getCache(detailMeeting.value?.id).phase,
-  set: (val) => { const c = _getCache(detailMeeting.value?.id); c.phase = val }
+  set: (val) => {
+    const id = detailMeeting.value?.id
+    if (!id) return
+    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), phase: val } }
+  }
 })
 const selectedMinutes = ref([]) // 선택된 회의록 ID
 const selectedFiles = ref([]) // 선택된 파일 ID
@@ -854,14 +862,23 @@ function onCtxFilesAdded(files) {
 }
 const extractResult = computed({
   get: () => _getCache(detailMeeting.value?.id).result,
-  set: (val) => { const c = _getCache(detailMeeting.value?.id); c.result = val }
+  set: (val) => {
+    const id = detailMeeting.value?.id
+    if (!id) return
+    // 신규 데이터는 새 객체로 교체 → Vue가 변경 감지
+    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), result: val } }
+  }
 })
 const showExtractFlow = computed({
   get: () => {
     const c = _getCache(detailMeeting.value?.id)
     return c.showFlow || c.phase !== 'context'
   },
-  set: (val) => { _getCache(detailMeeting.value?.id).showFlow = val }
+  set: (val) => {
+    const id = detailMeeting.value?.id
+    if (!id) return
+    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), showFlow: val } }
+  }
 })
 const assignResult = ref([])
 const extractLoading = ref(false)
@@ -1640,9 +1657,9 @@ async function doAddRel() {
   graphVersion.value++
   // Neo4j 동기화
   api.post('/api/neo4j/relationships', {
-    from_id: fromNode.neo4jId || fromNode.id,
+    from_id: _normalizeNeo4jId(fromNode.neo4jId || fromNode.id),
     rel_type: rel,
-    to_id: toNode.neo4jId || toNode.id,
+    to_id: _normalizeNeo4jId(toNode.neo4jId || toNode.id),
   }).catch(() => {})
 }
 
@@ -2100,6 +2117,9 @@ function buildGraphNodes() {
   const mgCount = data.length
   const sectorWidth = TWO_PI / Math.max(mgCount, 1)
 
+  // dept name → neo4j id 룩업 맵
+  const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
+
   data.forEach((g, gi) => {
     const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
     // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, SQLite 정수이면 prefix 추가
@@ -2147,7 +2167,8 @@ function buildGraphNodes() {
       nodes.push({
         id: `dept-${g.id || gi}-${deptName}`, label: deptName, type: 'dept',
         x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
-        members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId
+        members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
+        neo4jId: deptIdByName.get(deptName) || null,
       })
       // dept -[PARTICIPATES_IN]→ meetingGroup
       edges.push({ from: deptIdx, to: mgIdx, rel: 'PARTICIPATES_IN' })
@@ -2163,7 +2184,8 @@ function buildGraphNodes() {
         nodes.push({
           id: `person-${g.id || gi}-${mb.userId || pi}`, label: pName, type: 'person',
           x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
-          groupIdx: gi, meetingGroupId: mgNodeId, data: mb
+          groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
+          neo4jId: mb.userId || null,
         })
         // person -[BELONGS_TO]→ dept
         edges.push({ from: pIdx, to: deptIdx, rel: 'BELONGS_TO' })
@@ -2205,7 +2227,8 @@ function buildGraphNodes() {
         nodes.push({
           id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
-          groupIdx: gi, data: task, meetingGroupId: mgNodeId
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId,
+          neo4jId: task.id || null,
         })
         // agenda -[OWNED_BY]→ meetingGroup
         edges.push({ from: agIdx, to: mgIdx, rel: 'OWNED_BY' })
@@ -2254,7 +2277,8 @@ function buildGraphNodes() {
         id: `session-${g.id || gi}-${mi}`,
         label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
         x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
-        groupIdx: gi, data: { ...m, participants: g.members || [] }
+        groupIdx: gi, data: { ...m, participants: g.members || [] },
+        neo4jId: m.id || null,
       })
       // session -[HELD_BY]→ meetingGroup
       edges.push({ from: sIdx, to: mgIdx, rel: 'HELD_BY' })
@@ -2290,7 +2314,8 @@ function buildGraphNodes() {
       nodes.push({
         id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
         x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi,
-        data: { ...rp, created_at: rp.submitted_at }
+        data: { ...rp, created_at: rp.submitted_at },
+        neo4jId: rp.id || null,
       })
       // document -[ATTACHED_TO]→ meetingGroup
       edges.push({ from: rIdx, to: mgIdx, rel: 'ATTACHED_TO' })
@@ -2376,47 +2401,26 @@ function getVisibleSet() {
   } else {
     const hubNode = gNodes[expandedHubIdx]
     if (hubNode?.type === 'meeting_group') {
+      // ── 기본: 같은 groupIdx를 가진 노드는 엣지 여부와 무관하게 항상 표시 ──
+      // (엣지 삭제 시 노드가 사라지는 문제 방지)
+      const hubGroupIdx = hubNode.groupIdx
+      gNodes.forEach((n, i) => {
+        if (n.groupIdx === hubGroupIdx) {
+          if (n.type === 'person') return  // person 노드는 맵에 표시 안 함
+          vis.add(i)
+        }
+      })
       vis.add(expandedHubIdx)
       // org 노드 (PART_OF 관계) 표시
       gEdges.forEach(e => { if (e.from === expandedHubIdx && e.rel === 'PART_OF') vis.add(e.to) })
-      // ── Neo4j 온톨로지에서 관계 방향에 따른 가시성 ─────────────
-      // dept/person -[PARTICIPATES_IN/BELONGS_TO]→ meetingGroup
-      // agenda -[OWNED_BY]→ meetingGroup
-      // session -[HELD_BY]→ meetingGroup
-      // document -[ATTACHED_TO]→ meetingGroup
+      // 엣지로만 연결된 추가 노드도 표시 (localAddedEdges로 추가된 크로스-그룹 연결 등)
       gEdges.forEach(e => {
         const fromNode = gNodes[e.from], toNode = gNodes[e.to]
         if (!fromNode || !toNode) return
-        // 회의체에 연결된 노드들을 모두 표시
-        if (e.to === expandedHubIdx) {
-          if (fromNode.type === 'person') return  // person 노드는 맵에 표시 안 함
-          vis.add(e.from)
-          const fromIdx = e.from
-          // agenda → session (COVERS), document (PRODUCED → session → file)
-          if (fromNode.type === 'agenda') {
-            gEdges.forEach(e2 => {
-              if (e2.to === fromIdx && gNodes[e2.from]?.type === 'session') {
-                vis.add(e2.from)
-                const sIdx = e2.from
-                // session → document (PRODUCED)
-                gEdges.forEach(e3 => { if (e3.from === sIdx && gNodes[e3.to]?.type === 'file') vis.add(e3.to) })
-              }
-            })
-          }
-        }
-        // 회의체에서 나가는 엣지 (PART_OF org → 하위 회의체 PARTICIPATES_IN은 제외)
-        if (e.from === expandedHubIdx) {
-          if (toNode.type === 'agenda') {
-            vis.add(e.to) // 직접 연결된 agenda (부서 없을 때)
-            const agIdx = e.to
-            gEdges.forEach(e2 => {
-              if (e2.to === agIdx && gNodes[e2.from]?.type === 'session') {
-                vis.add(e2.from)
-                const sIdx = e2.from
-                gEdges.forEach(e3 => { if (e3.from === sIdx && gNodes[e3.to]?.type === 'file') vis.add(e3.to) })
-              }
-            })
-          }
+        if (e.to === expandedHubIdx || e.from === expandedHubIdx) {
+          const otherIdx = e.to === expandedHubIdx ? e.from : e.to
+          const other = gNodes[otherIdx]
+          if (other && other.type !== 'person') vis.add(otherIdx)
         }
       })
     } else {
@@ -2902,6 +2906,8 @@ function animateGraph() {
 
 // ─── Mouse ────────────────────────────────────────────────────
 function onMouseDown(e) {
+  // float 드래그 중에는 canvas mousedown 무시 — onGlobalMouseUp에서만 처리
+  if (floatDragging.value) return
   // ── Connection dot drag: start drawing a new edge ───────────────
   if (connDotNodeIdx >= 0 && !floatDragging.value) {
     connDragging.value = true
@@ -3209,10 +3215,11 @@ onMounted(async () => {
       return
     }
     neo4jMeetings.value = neo4jResult.data.meetings
+    neo4jDepts.value    = neo4jResult.data.departments || []
     minutes.value = neo4jResult.data.minutes || []
     reports.value = neo4jResult.data.reports || []
     membersData.value = neo4jResult.data.meetings.flatMap(m => m.members || [])
-    tasksData.value = neo4jResult.data.meetings.flatMap(m => m.tasks || [])
+    tasksData.value = neo4jResult.data.meetings.flatMap(m => m.tasks   || [])
   } catch(e) {
     console.error('archive fetch error', e)
     // 연결 실패 시에도 본인 노드는 표시 (currentPerson은 auth store에서 fallback)
@@ -3236,6 +3243,7 @@ async function refreshArchive() {
     currentPerson.value = res?.data?.current_person || null
     currentOrg.value    = res?.data?.org || null
     neo4jMeetings.value = res?.data?.meetings || []
+    neo4jDepts.value    = res?.data?.departments || []
     minutes.value       = res?.data?.minutes  || []
     reports.value       = res?.data?.reports  || []
     membersData.value   = (res?.data?.meetings || []).flatMap(m => m.members || [])

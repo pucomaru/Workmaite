@@ -356,11 +356,19 @@ async def create_relationship(data: dict):
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
     to_id = data.get("to_id", "")
-    if rel_type not in ALLOWED_REL_TYPES:
-        raise HTTPException(status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}")
+    if not rel_type:
+        raise HTTPException(status_code=400, detail="rel_type 필수")
+    # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸기)
+    import re
+    safe_rel = rel_type if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', rel_type) else None
+    if not safe_rel:
+        # 한국어 등 특수문자 관계명은 ALLOWED_REL_TYPES 내에 있어야 함
+        if rel_type not in ALLOWED_REL_TYPES:
+            raise HTTPException(status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}")
+        safe_rel = rel_type
     try:
         await _run_cypher(
-            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:{rel_type}]->(b)",
+            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:{safe_rel}]->(b)",
             {"from_id": from_id, "to_id": to_id},
         )
     except HTTPException:
