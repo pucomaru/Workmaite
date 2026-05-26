@@ -8,12 +8,12 @@ import AppTable from '../components/AppTable.vue'
 
 const mgColumns = [
   { label: '', width: '28px' },
-  { label: '회의체명' },
-  { label: '역할', width: '80px' },
-  { label: '유형', width: '100px' },
-  { label: '간사', width: '160px' },
-  { label: '참여조직', width: '180px' },
-  { label: '참여자', width: '150px' },
+  { label: '회의체명', sortKey: 'title' },
+  { label: '역할', width: '80px', sortKey: '_role' },
+  { label: '유형', width: '100px', sortKey: 'meeting_type' },
+  { label: '간사', width: '160px', sortKey: '_adminName' },
+  { label: '참여조직', width: '180px', sortKey: '_orgCount' },
+  { label: '참여자', width: '150px', sortKey: '_memberCount' },
   { label: '', width: '72px', noResize: true }
 ]
 
@@ -36,6 +36,32 @@ const filteredGroups = computed(() => {
       : m.status === 'ended'
     const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
     return matchRole && matchStatus && matchSearch
+  })
+})
+
+const mgSortKey = ref(null)
+const mgSortDir = ref(null)
+function handleMgSort({ key, dir }) { mgSortKey.value = key; mgSortDir.value = dir }
+const sortedGroups = computed(() => {
+  const enriched = filteredGroups.value.map(g => {
+    const members = membersCache.value[g.id] || []
+    const admins = members.filter(mb => mb.role === 'admin')
+    const orgs = [...new Set(members.map(mb => mb.user?.organization || mb.organization).filter(Boolean))]
+    return {
+      ...g,
+      _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자',
+      _adminName: admins.map(mb => mb.user?.name || mb.name).join(', ') || '',
+      _orgCount: orgs.length,
+      _memberCount: members.length,
+    }
+  })
+  if (!mgSortKey.value || !mgSortDir.value) return enriched
+  const d = mgSortDir.value === 'asc' ? 1 : -1
+  return [...enriched].sort((a, b) => {
+    const av = (a[mgSortKey.value] ?? '').toString().toLowerCase()
+    const bv = (b[mgSortKey.value] ?? '').toString().toLowerCase()
+    if (!isNaN(Number(av)) && !isNaN(Number(bv))) return (Number(av) - Number(bv)) * d
+    return av < bv ? -d : av > bv ? d : 0
   })
 })
 
@@ -257,8 +283,8 @@ onMounted(async () => {
         <div class="empty-icon">🔍</div>
         <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '완료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
       </div>
-      <AppTable v-else :columns="mgColumns" :dark="nightMode">
-            <tr v-for="g in filteredGroups" :key="g.id" class="mg-row">
+      <AppTable v-else :columns="mgColumns" :dark="nightMode" :sortKey="mgSortKey" :sortDir="mgSortDir" @sort="handleMgSort">
+            <tr v-for="g in sortedGroups" :key="g.id" class="mg-row">
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
                 <div class="mg-row-title">{{ g.title }}</div>

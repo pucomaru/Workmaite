@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-neo4j
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-neo4j
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workmaite-neo4j
+  template:
+    metadata:
+      labels:
+        app: workmaite-neo4j
+    spec:
+      # K8s 서비스 디스커버리 환경변수(NEO4J_PORT_* 등)가
+      # Neo4j 설정으로 오인되는 것을 방지
+      enableServiceLinks: false
+
+      # init.cypher를 /var/lib/neo4j/import 에 복사
+      initContainers:
+        - name: copy-scripts
+          image: busybox
+          command: ["sh", "-c", "cp /scripts/init.cypher /import/init.cypher"]
+          volumeMounts:
+            - name: neo4j-scripts
+              mountPath: /scripts
+            - name: neo4j-import
+              mountPath: /import
+
+      containers:
+        - name: workmaite-neo4j
+          image: neo4j:5.19-community
+          ports:
+            - containerPort: 7474   # HTTP (Browser)
+            - containerPort: 7687   # Bolt
+          env:
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: neo4j-secret
+                  key: NEO4J_AUTH
+            # 메모리 설정
+            # server.memory.heap.initial_size  → heap_initial__size (underscore in "initial_size" → __)
+            - name: NEO4J_server_memory_heap_initial__size
+              value: "512m"
+            # server.memory.heap.max_size → heap_max__size
+            - name: NEO4J_server_memory_heap_max__size
+              value: "1g"
+            # server.memory.pagecache.size → pagecache_size (no underscore in "size")
+            - name: NEO4J_server_memory_pagecache_size
+              value: "256m"
+            # Browser에서 외부 접속 허용
+            - name: NEO4J_server_default__listen__address
+              value: "0.0.0.0"
+          volumeMounts:
+            - name: neo4j-data
+              mountPath: /data
+            - name: neo4j-import
+              mountPath: /var/lib/neo4j/import
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 7474
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+
+      volumes:
+        - name: neo4j-data
+          persistentVolumeClaim:
+            claimName: neo4j-pvc
+        - name: neo4j-import
+          emptyDir: {}
+        - name: neo4j-scripts
+          configMap:
+            name: neo4j-scripts
+            items:
+              - key: init.cypher
+                path: init.cypher

@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-scripts
+  namespace: skala3-finalproj-class2-team9
+data:
+  init.cypher: |
+    // =============================================================
+    // init.cypher — Schema Constraints & Indexes
+    // Knowledge Graph (정적) + Context Graph (동적)
+    // =============================================================
+
+    // Knowledge Graph
+    CREATE CONSTRAINT organization_id IF NOT EXISTS FOR (n:Organization) REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT department_id   IF NOT EXISTS FOR (n:Department)   REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT person_id       IF NOT EXISTS FOR (n:Person)       REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT person_email    IF NOT EXISTS FOR (n:Person)       REQUIRE n.email IS UNIQUE;
+    CREATE CONSTRAINT meetinggroup_id IF NOT EXISTS FOR (n:MeetingGroup) REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT role_id         IF NOT EXISTS FOR (n:Role)         REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT document_id     IF NOT EXISTS FOR (n:Document)     REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT agenda_id       IF NOT EXISTS FOR (n:Agenda)       REQUIRE n.id IS UNIQUE;
+
+    // Context Graph
+    CREATE CONSTRAINT session_id    IF NOT EXISTS FOR (n:Session)    REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT decision_id   IF NOT EXISTS FOR (n:Decision)   REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT aijudgment_id IF NOT EXISTS FOR (n:AIJudgment) REQUIRE n.id IS UNIQUE;
+    CREATE CONSTRAINT evidence_id   IF NOT EXISTS FOR (n:Evidence)   REQUIRE n.id IS UNIQUE;
+
+    // Indexes
+    CREATE INDEX person_name        IF NOT EXISTS FOR (n:Person)       ON (n.name);
+    CREATE INDEX department_name    IF NOT EXISTS FOR (n:Department)   ON (n.name);
+    CREATE INDEX session_date       IF NOT EXISTS FOR (n:Session)      ON (n.date);
+    CREATE INDEX session_status     IF NOT EXISTS FOR (n:Session)      ON (n.status);
+    CREATE INDEX agenda_status      IF NOT EXISTS FOR (n:Agenda)       ON (n.status);
+    CREATE INDEX decision_made_at   IF NOT EXISTS FOR (n:Decision)     ON (n.made_at);
+    CREATE INDEX aijudgment_created IF NOT EXISTS FOR (n:AIJudgment)   ON (n.created_at);
+
+  entrypoint.sh: |
+    #!/bin/bash
+    # NEO4J_AUTH 환경변수(neo4j/password 형식)에서 비밀번호 추출
+    NEO4J_PASSWORD="${NEO4J_AUTH#*/}"
+
+    /startup/docker-entrypoint.sh neo4j &
+    NEO4J_PID=$!
+
+    echo "Waiting for Neo4j to be ready..."
+    until cypher-shell -u neo4j -p "${NEO4J_PASSWORD}" \
+          "RETURN 1" > /dev/null 2>&1; do
+      sleep 3
+    done
+
+    INIT_FLAG="/data/import/.init_done"
+    if [ ! -f "$INIT_FLAG" ]; then
+      echo "Running init.cypher..."
+      cypher-shell -u neo4j -p "${NEO4J_PASSWORD}" \
+        --file /var/lib/neo4j/import/init.cypher
+      touch "$INIT_FLAG"
+      echo "init.cypher done."
+    else
+      echo "init.cypher already applied, skipping."
+    fi
+
+    wait $NEO4J_PID

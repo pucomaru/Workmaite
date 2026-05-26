@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH}
+      - NEO4J_dbms_memory_heap_initial_size=${NEO4J_HEAP_SIZE}
+      - NEO4J_dbms_memory_heap_max_size=${NEO4J_HEAP_SIZE}
+      - NEO4J_dbms_memory_pagecache_size=${NEO4J_PAGECACHE_SIZE}
+    volumes:
+      - neo4j_data:/data
+      - ./docker/neo4j.conf:/var/lib/neo4j/conf/neo4j.conf
+      - ./scripts/init.cypher:/var/lib/neo4j/import/init.cypher
+      - ./scripts/seed.cypher:/var/lib/neo4j/import/seed.cypher
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    networks:
+      - neo4j_network
+
+volumes:
+  neo4j_data:
+
+networks:
+  neo4j_network:

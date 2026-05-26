@@ -16,11 +16,11 @@ import { useThemeStore } from '../stores/theme'
 import hyeanAvatar from '../assets/agents/hyean.png'
 
 const lvColumns = [
-  { label: '회의체명', width: '100px' },
-  { label: '유형', width: '10px' },
-  { label: '역할', width: '10px' },
-  { label: '간사', width: '10px' },
-  { label: '이력', width: '10px' }
+  { label: '회의체명', width: '100px', sortKey: 'title' },
+  { label: '유형', width: '10px', sortKey: 'meeting_type' },
+  { label: '역할', width: '10px', sortKey: '_role' },
+  { label: '간사', width: '10px', sortKey: '_adminName' },
+  { label: '이력', width: '10px', sortKey: '_histCount' }
 ]
 // 서브에이전트 아바타는 내부 라우팅용으로 보존 (사용자에게는 비노출)
 // import gaonAvatar from '../assets/agents/gaon.png'
@@ -1873,6 +1873,30 @@ const filteredGroups = computed(() => {
   return list
 })
 
+const lvSortKey = ref(null)
+const lvSortDir = ref(null)
+function handleLvSort({ key, dir }) { lvSortKey.value = key; lvSortDir.value = dir }
+const sortedGroups = computed(() => {
+  const enriched = filteredGroups.value.map(g => {
+    const adminMember = g.members.find(m => m.role === 'admin')
+    const histCount = (g.minutes?.length || 0) + (g.reports?.length || 0)
+    return {
+      ...g,
+      _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자',
+      _adminName: adminMember?.userName || adminMember?.name || '',
+      _histCount: histCount,
+    }
+  })
+  if (!lvSortKey.value || !lvSortDir.value) return enriched
+  const d = lvSortDir.value === 'asc' ? 1 : -1
+  return [...enriched].sort((a, b) => {
+    const av = (a[lvSortKey.value] ?? '').toString().toLowerCase()
+    const bv = (b[lvSortKey.value] ?? '').toString().toLowerCase()
+    if (!isNaN(Number(av)) && !isNaN(Number(bv))) return (Number(av) - Number(bv)) * d
+    return av < bv ? -d : av > bv ? d : 0
+  })
+})
+
 // ─── 회의체별 전체 이력 (목록 탭) ────────────────────────────
 const groupHistoryMap = computed(() => {
   const map = new Map()
@@ -1975,7 +1999,14 @@ function buildGraphNodes() {
       data: g, groupIdx: gi
     })
     // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
-    const selfRole = meetingsStore.meetingRoles?.[g.id]
+    // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
+    // (meetingRoles는 SQLite 기반이라 Neo4j와 불일치할 수 있음)
+    const myName = currentPerson.value?.name || authStore.user?.name
+    const myEmail = currentPerson.value?.email || authStore.user?.employee_id
+    const selfMember = g.members?.find(mb =>
+      mb.email === myEmail || mb.userName === myName
+    )
+    const selfRole = selfMember?.role ?? meetingsStore.meetingRoles?.[g.id]
     const selfRel = selfRole === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
     edges.push({ from: orgIdx, to: mgIdx, rel: selfRel })
 
@@ -4002,11 +4033,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
           <div v-if="loading" class="lv-empty">불러오는 중...</div>
           <div v-else-if="!meetingGroups.length" class="lv-empty">소속된 회의체가 없습니다.</div>
-          <AppTable v-else :columns="lvColumns" :dark="nightMode">
+          <AppTable v-else :columns="lvColumns" :dark="nightMode" :sortKey="lvSortKey" :sortDir="lvSortDir" @sort="handleLvSort">
                 <tr v-if="!filteredGroups.length">
                   <td colspan="5" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
                 </tr>
-                <template v-for="g in filteredGroups" :key="g.id">
+                <template v-for="g in sortedGroups" :key="g.id">
                   <!-- Group row -->
                   <tr class="lv-group-row" @click="expandedMeeting = expandedMeeting===g.id ? null : g.id">
                     <td class="lv-td-name">

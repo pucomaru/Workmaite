@@ -190,7 +190,7 @@ async def get_archive(
                     "userName": row.get("person_name", "?"),
                     "email": row.get("email", ""),
                     "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "ADMIN_OF" else "member",
+                    "role": "admin" if row.get("role") == "ADMIN_OF" else "presenter",
                     "department": row.get("department") or "",
                 })
 

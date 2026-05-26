@@ -6,12 +6,12 @@ import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 
 const orgColumns = [
-  { label: '이름', width: '100px' },
-  { label: '조직', width: '110px' },
-  { label: '부서', width: '110px' },
-  { label: '직책', width: '80px' },
-  { label: '이메일', width: '180px' },
-  { label: '회의체' },
+  { label: '이름', width: '100px', sortKey: 'name' },
+  { label: '조직', width: '110px', sortKey: 'organization' },
+  { label: '부서', width: '110px', sortKey: 'department' },
+  { label: '직책', width: '80px', sortKey: 'position' },
+  { label: '이메일', width: '180px', sortKey: 'email' },
+  { label: '참여 회의체' },
   { label: '', width: '72px', noResize: true }
 ]
 
@@ -21,20 +21,13 @@ const nightMode = computed(() => themeStore.nightMode)
 
 const selectedMeetingId = ref('all')
 const searchQuery = ref('')
-const activeRoleFilter = ref('all')
 const allMembers = ref([])
 const loadingMembers = ref(false)
 
 const showAddModal = ref(false)
-const addForm = ref({ name: '', email: '', organization: '', department: '', position: '', role: 'presenter' })
+const addForm = ref({ name: '', email: '', organization: '', department: '', position: '' })
 
 const editModal = ref(null)  // { ...member }
-
-const ROLES = [
-  { value: 'admin',     label: '간사',   color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  { value: 'presenter', label: '참여자', color: '#64748b', bg: '#f1f5f9', border: '#cbd5e1' },
-]
-function roleInfo(r) { return ROLES.find(x => x.value === r) || ROLES[1] }
 
 // Demo data fallback (shown when API has no data)
 async function fetchAllMembers() {
@@ -50,10 +43,6 @@ async function fetchAllMembers() {
       department: u.department,
       organization: u.organization,
       position: u.position,
-      role: u.meetings[0]?.role || 'presenter',
-      meetingId: u.meetings[0]?.id || null,
-      memberId: u.meetings[0]?.member_id || null,
-      meetingTitle: u.meetings[0]?.title || '',
       meetings: u.meetings,
     }))
   } catch {
@@ -65,20 +54,8 @@ async function fetchAllMembers() {
 
 const filteredMembers = computed(() => {
   const sid = selectedMeetingId.value
-  let list = allMembers.value.map(m => {
-    // 선택된 회의체가 있으면 해당 meeting 정보로 override
-    const mg = sid !== 'all'
-      ? m.meetings.find(g => String(g.id) === String(sid))
-      : m.meetings[0]
-    return {
-      ...m,
-      role: mg?.role || 'presenter',
-      meetingId: mg?.id || m.meetingId,
-      memberId: mg?.member_id || m.memberId,
-    }
-  })
+  let list = allMembers.value
   if (sid !== 'all') list = list.filter(m => m.meetings.some(mg => String(mg.id) === String(sid)))
-  if (activeRoleFilter.value !== 'all') list = list.filter(m => m.role === activeRoleFilter.value)
   const q = searchQuery.value.trim().toLowerCase()
   if (q) list = list.filter(m =>
     (m.name || '').toLowerCase().includes(q) ||
@@ -89,17 +66,10 @@ const filteredMembers = computed(() => {
   return list
 })
 
-const baseCounts = computed(() => {
+const memberCount = computed(() => {
   const sid = selectedMeetingId.value
-  const base = allMembers.value
-    .map(m => {
-      const mg = sid !== 'all' ? m.meetings.find(g => String(g.id) === String(sid)) : m.meetings[0]
-      return { ...m, role: mg?.role || 'presenter' }
-    })
-    .filter(m => sid === 'all' || m.meetings.some(g => String(g.id) === String(sid)))
-  const c = { all: base.length }
-  ROLES.forEach(r => { c[r.value] = base.filter(m => m.role === r.value).length })
-  return c
+  if (sid === 'all') return allMembers.value.length
+  return allMembers.value.filter(m => m.meetings.some(g => String(g.id) === String(sid))).length
 })
 
 onMounted(async () => {
@@ -107,7 +77,7 @@ onMounted(async () => {
 })
 
 function openAddModal() {
-  addForm.value = { name: '', email: '', organization: '', department: '', position: '', role: 'presenter' }
+  addForm.value = { name: '', email: '', organization: '', department: '', position: '' }
   showAddModal.value = true
 }
 
@@ -121,9 +91,6 @@ async function submitAdd() {
     organization: addForm.value.organization,
     department: addForm.value.department,
     position: addForm.value.position,
-    role: addForm.value.role,
-    meetingId: null,
-    meetingTitle: '',
     meetings: [],
     isCustom: true,
   }
@@ -133,9 +100,11 @@ async function submitAdd() {
 
 async function removeMember(member) {
   if (!confirm(`${member.name || member.email}을(를) 제거하시겠습니까?`)) return
-  if (!member.meetingId || !member.memberId) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
+  if (member.isCustom) { allMembers.value = allMembers.value.filter(m => m.id !== member.id); return }
+  const meeting = member.meetings[0]
+  if (!meeting?.id || !meeting?.member_id) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
   try {
-    await api.delete(`/api/meetings/${member.meetingId}/members/${member.memberId}`)
+    await api.delete(`/api/meetings/${meeting.id}/members/${meeting.member_id}`)
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
@@ -145,37 +114,15 @@ function openEdit(member) { editModal.value = { ...member } }
 async function saveEdit() {
   const m = editModal.value
   try {
-    // Update user profile fields
     await api.patch(`/api/users/${m.id}`, {
       name: m.name,
       organization: m.organization || null,
       department: m.department || null,
       position: m.position || null,
     })
-    // Update meeting role if applicable
-    if (m.meetingId && m.memberId) {
-      await api.patch(`/api/meetings/${m.meetingId}/members/${m.memberId}`, { role: m.role })
-    }
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '변경 실패') }
   editModal.value = null
-}
-
-async function updateMemberRole(member, newRole) {
-  // filteredMembers에서 이미 선택된 회의체 기준 meetingId/memberId가 주입된 상태
-  const meetingId = member.meetingId
-  const memberId = member.memberId
-  if (!meetingId || !memberId) { alert('회의체 정보가 없어 역할을 변경할 수 없습니다.'); return }
-  try {
-    await api.patch(`/api/meetings/${meetingId}/members/${memberId}`, { role: newRole })
-    // allMembers의 해당 meeting 항목 role 갱신
-    const target = allMembers.value.find(m => m.id === member.id)
-    if (target) {
-      const mg = target.meetings.find(g => String(g.id) === String(meetingId))
-      if (mg) mg.role = newRole
-      if (String(target.meetingId) === String(meetingId)) target.role = newRole
-    }
-  } catch (e) { alert(e.response?.data?.detail || '역할 변경 실패') }
 }
 
 const expandedRows = ref(new Set())
@@ -185,8 +132,138 @@ function toggleExpand(key) {
   expandedRows.value = s
 }
 
+// ── CSV 내보내기 ──────────────────────────────────────────
+function exportCSV() {
+  const headers = ['이름', '이메일', '조직', '부서', '직책']
+  const rows = filteredMembers.value.map(m => [
+    m.name || '',
+    m.email || '',
+    m.organization || '',
+    m.department || '',
+    m.position || '',
+  ])
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `구성원_${new Date().toISOString().slice(0,10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── CSV 가져오기 ──────────────────────────────────────────
+const csvImportInput = ref(null)
+
+function triggerCSVImport() {
+  csvImportInput.value?.click()
+}
+
+function handleCSVFile(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    parseAndImportCSV(ev.target.result)
+  }
+  reader.readAsText(file, 'utf-8')
+  e.target.value = ''
+}
+
+function parseCSVLine(line) {
+  const result = []
+  let cur = '', inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuote && line[i+1] === '"') { cur += '"'; i++ }
+      else inQuote = !inQuote
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur.trim()); cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  result.push(cur.trim())
+  return result
+}
+
+const CSV_HEADER_MAP = {
+  '이름': 'name', 'name': 'name',
+  '이메일': 'email', 'email': 'email',
+  '조직': 'organization', '조직명': 'organization', 'organization': 'organization',
+  '부서': 'department', '부서명': 'department', 'department': 'department',
+  '직책': 'position', 'position': 'position',
+}
+
+function parseAndImportCSV(text) {
+  // BOM 제거
+  const content = text.replace(/^\uFEFF/, '')
+  const lines = content.split(/\r?\n/).filter(l => l.trim())
+  if (lines.length < 2) { alert('CSV 파일에 데이터가 없습니다.'); return }
+
+  const headerLine = parseCSVLine(lines[0])
+  const fieldKeys = headerLine.map(h => CSV_HEADER_MAP[h.toLowerCase()] || CSV_HEADER_MAP[h] || null)
+
+  if (!fieldKeys.includes('name')) {
+    alert('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책')
+    return
+  }
+
+  const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))
+  const newMembers = []
+  const skipped = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i])
+    const obj = {}
+    fieldKeys.forEach((key, idx) => { if (key) obj[key] = cols[idx] || '' })
+    if (!obj.name) continue
+    const email = (obj.email || '').toLowerCase()
+    if (email && existingEmails.has(email)) { skipped.push(obj.name); continue }
+    if (email) existingEmails.add(email)
+    newMembers.push({
+      id: 'csv_' + Date.now() + '_' + i,
+      name: obj.name,
+      email: obj.email || '',
+      organization: obj.organization || '',
+      department: obj.department || '',
+      position: obj.position || '',
+      meetings: [],
+      isCustom: true,
+    })
+  }
+
+  allMembers.value = [...newMembers, ...allMembers.value]
+}
+
 // Each user from /api/users/all is already unique – no grouping needed
 const groupedFilteredMembers = computed(() => filteredMembers.value)
+
+// ── 정렬 ────────────────────────────────────────────
+const sortKey = ref(null)
+const sortDir = ref(null)
+
+function handleSort({ key, dir }) {
+  sortKey.value = key
+  sortDir.value = dir
+}
+
+const sortedMembers = computed(() => {
+  const list = [...groupedFilteredMembers.value]
+  if (!sortKey.value || !sortDir.value) return list
+  const k = sortKey.value
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  return list.sort((a, b) => {
+    const av = (a[k] || '').toLowerCase()
+    const bv = (b[k] || '').toLowerCase()
+    if (av < bv) return -1 * dir
+    if (av > bv) return 1 * dir
+    return 0
+  })
+})
 
 function formatDate(s) {
   if (!s) return '-'
@@ -221,17 +298,21 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
       </select>
 
       <div class="app-tabs">
-        <button class="app-tab" :class="{ active: activeRoleFilter === 'all' }" @click="activeRoleFilter = 'all'">
-          <span class="app-tab-badge">{{ baseCounts.all }}</span> 전체
-        </button>
-        <button v-for="r in ROLES" :key="r.value"
-          class="app-tab" :class="{ active: activeRoleFilter === r.value }"
-          @click="activeRoleFilter = r.value">
-          <span class="app-tab-badge">{{ baseCounts[r.value] || 0 }}</span> {{ r.label }}
+        <button class="app-tab active">
+          <span class="app-tab-badge">{{ memberCount }}</span> 전체
         </button>
       </div>
 
       <div class="plus-wrap">
+        <input ref="csvImportInput" type="file" accept=".csv" style="display:none" @change="handleCSVFile" />
+        <button class="create-meeting-btn secondary" @click="exportCSV" title="현재 목록을 CSV로 내보내기">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          CSV 내보내기
+        </button>
+        <button class="create-meeting-btn secondary" @click="triggerCSVImport" title="CSV 파일로 구성원 일괄 등록">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV 가져오기
+        </button>
         <button class="create-meeting-btn" @click="openAddModal">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
           구성원 추가
@@ -245,8 +326,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <span class="spinner-border spinner-border-sm text-primary"></span>
         <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
       </div>
-      <AppTable v-else :columns="orgColumns" :dark="nightMode">
-          <tr v-for="member in groupedFilteredMembers" :key="member.email||member.name" class="member-row">
+      <AppTable v-else :columns="orgColumns" :dark="nightMode" :sortKey="sortKey" :sortDir="sortDir" @sort="handleSort">
+          <tr v-for="member in sortedMembers" :key="member.email||member.name" class="member-row">
             <td>
               <div class="name-cell">
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
@@ -330,17 +411,11 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <input v-model="addForm.department" class="app-modal-input" placeholder="예: 전략기획팀" />
               </div>
             </div>
-            <!-- Position & Role -->
+            <!-- Position -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>직책</label>
                 <input v-model="addForm.position" class="app-modal-input" placeholder="예: 팀장" />
-              </div>
-              <div class="app-modal-field">
-                <label>역할</label>
-                <select v-model="addForm.role" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
-                  <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
-                </select>
               </div>
             </div>
           </div>
@@ -387,12 +462,6 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <label>직책</label>
                 <input v-model="editModal.position" class="app-modal-input" placeholder="예: 팀장" />
               </div>
-              <div class="app-modal-field">
-                <label>역할</label>
-                <select v-model="editModal.role" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
-                  <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
-                </select>
-              </div>
             </div>
           </div>
           <div class="app-modal-footer">
@@ -422,9 +491,13 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .search-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:7px 28px;font-size:12px;color:#e2e8f0;outline:none; }
 .search-input::placeholder { color:#334155; }
 .search-input:focus { border-color:rgba(96,165,250,.5); }
-.plus-wrap { position:relative;flex-shrink:0;margin-left:auto; }
+.plus-wrap { position:relative;flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:8px; }
 .create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:#3b82f6;border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
 .create-meeting-btn:hover { opacity:.85; }
+.create-meeting-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
+.create-meeting-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
+.day-mode .create-meeting-btn.secondary { border-color:#cbd5e1;color:#475569; }
+.day-mode .create-meeting-btn.secondary:hover { background:#f1f5f9; }
 
 /* Meeting select — layout-only overrides; visual style from global .app-select */
 .org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
