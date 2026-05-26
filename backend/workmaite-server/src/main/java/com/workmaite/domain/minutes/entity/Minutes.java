@@ -7,10 +7,13 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
+/**
+ * 회의록 엔티티 - minutes 테이블 매핑
+ */
 @Entity
 @Table(name = "minutes")
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
 public class Minutes {

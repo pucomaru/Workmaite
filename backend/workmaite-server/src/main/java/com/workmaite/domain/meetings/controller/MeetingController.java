@@ -5,6 +5,7 @@ import com.workmaite.domain.meetings.service.MeetingService;
 import com.workmaite.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -12,8 +13,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
+ * 회의체 관련 API
  * GET    /api/v1/me/meetings                            - 내 진행중인 회의체 목록 조회
  * GET    /api/v1/meetings                               - 전체 회의체 목록 조회 / 키워드 검색
+ * POST   /api/v1/meetings                               - 회의체 생성 (생성자 간사 자동 등록)
  * GET    /api/v1/meetings/{meetingId}                   - 회의체 상세 조회 (참여자 목록 포함)
  * PATCH  /api/v1/meetings/{meetingId}                   - 회의체 수정 (secretary 권한)
  * POST   /api/v1/meetings/{meetingId}/members           - 회의체 참여자 추가 (secretary 권한)
@@ -21,8 +24,8 @@ import java.util.List;
  * PATCH  /api/v1/meetings/{meetingId}/members/{userId}  - 회의체 참여자 역할 수정 (secretary 권한)
  */
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/v1")
+@RequiredArgsConstructor
 public class MeetingController {
 
     private final MeetingService meetingService;
@@ -38,6 +41,16 @@ public class MeetingController {
     public ResponseEntity<ApiResponse<List<MeetingResponse>>> getMeetings(
             @RequestParam(required = false) String keyword) {
         return ResponseEntity.ok(ApiResponse.ok(meetingService.getMeetings(keyword)));
+    }
+
+    // 회의체 생성 - 생성자를 간사로 자동 등록
+    @PostMapping("/meetings")
+    public ResponseEntity<ApiResponse<MeetingResponse>> createMeeting(
+            Authentication authentication,
+            @RequestBody @Valid MeetingCreateRequest request) {
+        Long requesterId = Long.parseLong(authentication.getName());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(meetingService.createMeeting(requesterId, request)));
     }
 
     @GetMapping("/meetings/{meetingId}")

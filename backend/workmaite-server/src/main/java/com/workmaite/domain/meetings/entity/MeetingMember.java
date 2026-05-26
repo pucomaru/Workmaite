@@ -9,6 +9,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
+/**
+ * 회의 참여자 엔티티 - meeting_members 테이블 매핑
+ */
 @Entity
 @Table(
     name = "meeting_members",
