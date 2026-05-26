@@ -1270,8 +1270,8 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   uploadMeetingTodos.value = []
   uploadForm.value.relatedTodoId = ''
   if (!id) return
-  // node id가 'mg-13' 형식이므로 숫자만 추출
-  const meetingId = id.replace('mg-', '')
+  // node id가 'mg-13' 또는 'mg-sqlite-3' 형식이므로 숫자만 추출
+  const meetingId = id.match(/\d+$/)?.[0]
   if (!meetingId) return
   try {
     uploadMeetingTodos.value = (await api.get(`/api/meetings/${meetingId}/todos`)).data || []
@@ -1550,15 +1550,23 @@ async function saveRelEdit() {
   graphVersion.value++
 }
 function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
+function _normalizeNeo4jId(raw) {
+  if (!raw) return raw
+  const prefixes = ['mg-', 'session-', 'agenda-', 'doc-', 'dept-', 'p-', 'org-']
+  for (const p of prefixes) {
+    if (raw.startsWith(p + p)) return raw.slice(p.length)
+  }
+  return raw
+}
 async function doDeleteEdge(edgeIdx) {
   const e = gEdges[edgeIdx]
   const fromNode = gNodes[e?.from], toNode = gNodes[e?.to]
   // Neo4j 동기화
   if (fromNode && toNode) {
     api.delete('/api/neo4j/relationships', { data: {
-      from_id: fromNode.neo4jId || fromNode.id,
-      rel_type: e.rel,
-      to_id: toNode.neo4jId || toNode.id,
+      from_id: _normalizeNeo4jId(fromNode.neo4jId || fromNode.id),
+      rel_type: e.rel || '',
+      to_id: _normalizeNeo4jId(toNode.neo4jId || toNode.id),
     }}).catch(() => {})
   }
   gEdges.splice(edgeIdx, 1)

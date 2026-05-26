@@ -376,13 +376,29 @@ async def delete_relationship(data: dict):
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
     to_id = data.get("to_id", "")
-    if rel_type not in ALLOWED_REL_TYPES:
-        raise HTTPException(status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}")
+
+    # ID 이중 prefix 정규화: "mg-mg-001" → "mg-001"
+    def normalize_id(raw: str) -> str:
+        for p in ["mg-", "session-", "agenda-", "doc-", "dept-", "p-", "org-"]:
+            if raw.startswith(p + p):
+                return raw[len(p):]
+        return raw
+
+    from_id = normalize_id(from_id)
+    to_id = normalize_id(to_id)
+
+    # rel_type이 없거나 허용되지 않으면 타입 무관 전체 삭제
+    use_rel_type = rel_type if rel_type and rel_type in ALLOWED_REL_TYPES else None
+
     try:
-        await _run_cypher(
-            f"MATCH (a {{id: $from_id}})-[r:{rel_type}]->(b {{id: $to_id}}) DELETE r",
-            {"from_id": from_id, "to_id": to_id},
-        )
+        if use_rel_type:
+            cypher_fwd = f"MATCH (a {{id: $from_id}})-[r:{use_rel_type}]->(b {{id: $to_id}}) DELETE r"
+            cypher_rev = f"MATCH (a {{id: $to_id}})-[r:{use_rel_type}]->(b {{id: $from_id}}) DELETE r"
+        else:
+            cypher_fwd = "MATCH (a {id: $from_id})-[r]->(b {id: $to_id}) DELETE r"
+            cypher_rev = "MATCH (a {id: $to_id})-[r]->(b {id: $from_id}) DELETE r"
+        await _run_cypher(cypher_fwd, {"from_id": from_id, "to_id": to_id})
+        await _run_cypher(cypher_rev, {"from_id": from_id, "to_id": to_id})
     except HTTPException:
         raise
     except Exception as e:
