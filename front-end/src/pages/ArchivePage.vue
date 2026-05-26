@@ -229,7 +229,13 @@ function onFloatBtnMouseDown(type, e) {
   floatDragStartX = e.clientX; floatDragStartY = e.clientY
   floatDragMoved = false; floatDragTarget = null; floatDragNearInvalidNode = false; floatDragPreviewLine.value = null
   document.body.style.cursor = 'grabbing'
-  e.preventDefault(); e.stopPropagation()
+  // document capture 단계 리스너: window.mouseup 이 누락될 경우에도 항상 처리
+  function _floatDragCapture() {
+    document.removeEventListener('mouseup', _floatDragCapture, true)
+    if (floatDragging.value) onGlobalMouseUp()
+  }
+  document.addEventListener('mouseup', _floatDragCapture, true)
+  e.preventDefault()
 }
 
 async function doCreateMeeting() {
@@ -653,9 +659,11 @@ function onGlobalMouseMove(e) {
           const d = Math.hypot(sx - mx, sy - my)
           if (d < snapR && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: { sx, sy } } }
         })
-        // Find closest node of ANY type (to detect invalid hover)
+        // Find closest node of ANY type (to detect invalid hover) — only check visible nodes
+        // In tree mode (expandedHubIdx set), only nodes in _treePositions are visible
         let anyClosest = null, anyMinDist = Infinity
         gNodes.forEach((n, i) => {
+          if (expandedHubIdx !== null && !_treePositions?.has(i)) return
           let sx, sy
           if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
           else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
@@ -699,14 +707,16 @@ function onGlobalMouseUp() {
     const nearInvalid = floatDragNearInvalidNode
     floatDragging.value = null; floatDragTarget = null; floatDragPreviewLine.value = null
     floatDragNearInvalidNode = false
+    const moved = floatDragMoved
+    floatDragMoved = false
     document.body.style.cursor = ''
-    // Dropped onto an invalid node type → show toast
-    if (floatDragMoved && nearInvalid) {
+    // Dropped onto an invalid node type → show toast (only if no valid target was found)
+    if (moved && nearInvalid && !target) {
       const label = type === 'meeting' ? '회의체' : type === 'session' ? '회의' : '자료'
       showMapToast(`${label}는 해당 노드에 연결할 수 없습니다.`)
       return
     }
-    if (!floatDragMoved || !target) {
+    if (!moved || !target) {
       // Click or missed drop → open normally
       if (type === 'meeting') openCreateModal()
       else if (type === 'doc') openUploadModal()
@@ -725,6 +735,7 @@ function onGlobalMouseUp() {
         const ctx = {}
         if (tn.type === 'meeting_group') {
           ctx.meetingId = tn.id
+          ctx.connectNodeId = tn.id  // meeting_group 자체도 connectNode로 설정
         } else if (tn.type === 'dept') {
           ctx.connectNodeId = tn.id
           ctx.meetingId = tn.meetingGroupId || ''
@@ -734,9 +745,20 @@ function onGlobalMouseUp() {
           }
         } else if (tn.type === 'agenda') {
           ctx.relatedTodoId = String(tn.data?.id || '')
+          // meetingGroupId: node 속성 또는 edge로 찾기
           ctx.meetingId = tn.meetingGroupId || ''
+          if (!ctx.meetingId) {
+            const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
+            if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
+          }
+          // dept: agenda 부모 edge로 찾기
           const deptEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'dept')
-          if (deptEdge) ctx.connectNodeId = gNodes[deptEdge.from]?.id || ''
+          if (deptEdge) {
+            ctx.connectNodeId = gNodes[deptEdge.from]?.id || ''
+          } else {
+            // dept가 없는 경우 회의체 직접을 connectNode로
+            ctx.connectNodeId = ctx.meetingId
+          }
         }
         openUploadModal(ctx)
       } else if (type === 'session') {
@@ -833,24 +855,8 @@ const showExtractModal = ref(false)
 const detailTab = ref('basic') // 'basic' | 'task'
 const showAssignModal = ref(false)
 const showAssignView = ref(false) // 인라인 배정 뷰
-// meeting_id별 추출 상태 캐시
-const _extractCache = ref({})
-function _getCache(id) {
-  if (!id) return { phase: 'context', result: [], showFlow: false }
-  if (!_extractCache.value[id]) {
-    // Vue reactive 추적을 위해 $set 동등 패턴
-    _extractCache.value = { ..._extractCache.value, [id]: { phase: 'context', result: [], showFlow: false } }
-  }
-  return _extractCache.value[id]
-}
-const extractPhase = computed({
-  get: () => _getCache(detailMeeting.value?.id).phase,
-  set: (val) => {
-    const id = detailMeeting.value?.id
-    if (!id) return
-    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), phase: val } }
-  }
-})
+// 추출 상태 단순 ref (meeting 전환 시 openDetail에서 리셋)
+const extractPhase = ref('context')
 const selectedMinutes = ref([]) // 선택된 회의록 ID
 const selectedFiles = ref([]) // 선택된 파일 ID
 const selectedSimilarDocs = ref([]) // 선택된 유사 문서 ID
@@ -860,38 +866,25 @@ function onCtxFilesAdded(files) {
   uploadedCtxFiles.value.push(...files)
   selectedFiles.value.push(...files.map((_, i) => 'upload_' + (uploadedCtxFiles.value.length - files.length + i)))
 }
-const extractResult = computed({
-  get: () => _getCache(detailMeeting.value?.id).result,
-  set: (val) => {
-    const id = detailMeeting.value?.id
-    if (!id) return
-    // 신규 데이터는 새 객체로 교체 → Vue가 변경 감지
-    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), result: val } }
-  }
-})
-const showExtractFlow = computed({
-  get: () => {
-    const c = _getCache(detailMeeting.value?.id)
-    return c.showFlow || c.phase !== 'context'
-  },
-  set: (val) => {
-    const id = detailMeeting.value?.id
-    if (!id) return
-    _extractCache.value = { ..._extractCache.value, [id]: { ..._getCache(id), showFlow: val } }
-  }
-})
+const extractResult = ref([])
+const showExtractFlow = ref(false)
 const assignResult = ref([])
 const extractLoading = ref(false)
 const assignLoading = ref(false)
 
 // 과제 탭에서 인라인으로 추출 실행
 async function runExtract() {
+  if (!detailMeeting.value) return
   // 추출 전용 인사말로 에이전트 채팅 초기화
   allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
   agentSidebarOpen.value = true
+  showExtractFlow.value = true
   extractPhase.value = 'result'
+  detailTab.value = 'extract'
+  extractLoading.value = true
+  extractResult.value = []
 
-  // ── 사고 과정 주입 ──────────────────────────────────────
+  // ── 사고 과정 주입 (비동기, 백엔드 API와 병렬) ──────────────────
   const mgTitle = detailMeeting.value?.title || '회의체'
   injectActionToAgent(
     `"${mgTitle}" 회의록·자료에서 과제를 추출해줘`,
@@ -904,9 +897,6 @@ async function runExtract() {
     ],
     `과제 추출이 완료되었습니다.\n추출된 과제를 검토하고, 수정이 필요하면 말씀해 주세요.`
   )
-  if (!detailMeeting.value) return
-  extractLoading.value = true
-  extractResult.value = []
   try {
     // multipart form 구성 (파일 직접 전송)
     const formData = new FormData()
@@ -1067,6 +1057,7 @@ async function saveApprovedTasks() {
     // 추출 단계 초기화
     extractPhase.value = 'context'
     showExtractFlow.value = false
+    extractResult.value = []
     assignResult.value = []
     detailTab.value = 'task'
 
@@ -1215,6 +1206,7 @@ async function openDetail(groupData) {
   if (!isSameMeeting) {
     selectedMinutes.value = []; selectedFiles.value = []
     selectedSimilarDocs.value = []; uploadedCtxFiles.value = []
+    extractPhase.value = 'context'; showExtractFlow.value = false; extractResult.value = []; assignResult.value = []
   }
   hoverNode.value = null
   detailTodos.value = []
@@ -1680,11 +1672,16 @@ const connectableNodes = computed(() => {
 
 // ─── Upload: dept-only connectable nodes ──────────────────────
 const deptConnectableNodes = computed(() => {
-  // 선택된 회의체가 있으면 해당 회의체에 속한 부서만, 없으면 전체 유니크 부서
+  // 선택된 회의체가 있으면 해당 회의체에 속한 부서 + 회의체 자체도 포함, 없으면 전체 유니크 부서
   if (uploadForm.value.meetingId) {
-    return gNodes
+    const nodes = []
+    // meeting_group 자체도 연결 대상으로 포함
+    const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
+    if (mgNode) nodes.push({ id: mgNode.id, label: mgNode.label, typeLabel: '회의체', type: 'meeting_group' })
+    gNodes
       .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
-      .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+      .forEach(n => nodes.push({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+    return nodes
   }
   const seen = new Set()
   return gNodes
@@ -3638,6 +3635,15 @@ const TYPES=['Draft','In Progress','Done','Pending']
                         <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state==='approved').length" @click="extractPhase='assign'; openAssignModal()">배정으로 이동 →</button>
                       </div>
                     </template>
+                    <div v-else class="detail-log-empty" style="margin-top:18px">
+                      <svg width="28" height="28" fill="none" stroke="#64748b" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:8px"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+                      <div>추출된 과제가 없습니다.</div>
+                      <div style="font-size:11px;opacity:.6;margin-top:4px">자료를 선택하거나 파일을 추가한 후 다시 시도해보세요.</div>
+                      <button class="ctx-run-btn" style="margin-top:10px" @click="extractPhase='context'">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                        자료 선정으로 돌아가기
+                      </button>
+                    </div>
                   </template>
 
                   <template v-if="extractPhase==='assign'">
@@ -3688,7 +3694,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                         <button class="detail-action-btn btn-extract" :disabled="!assignResult.filter(t=>t._state==='approved').length" @click="saveApprovedTasks">승인 {{ assignResult.filter(t=>t._state==='approved').length }}건 저장</button>
                       </div>
                     </template>
-                  </template>
+                  </template><!-- /assign -->
 
                 </template><!-- /추출·배정 단계 -->
 
@@ -4181,19 +4187,19 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- Graph floating action buttons (top-right of canvas) -->
         <div v-if="!loading && viewMode==='graph'" class="graph-float-btns">
-          <div class="float-btn-item" @click="openCreateModal" @mousedown.prevent.stop="onFloatBtnMouseDown('meeting', $event)" title="클릭해서 회의체 생성">
+          <div class="float-btn-item" @click="openCreateModal" @mousedown.prevent="onFloatBtnMouseDown('meeting', $event)" title="클릭해서 회의체 생성">
             <div class="float-node-preview meeting-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent.stop="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
+          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -4704,7 +4710,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showUploadModal=false">취소</button>
             <button class="app-btn-primary"
-              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId || !uploadForm.relatedTodoId"
+              :disabled="!uploadForm.label.trim() || !uploadForm.connectNodeId"
               @click="runAiAnalysis">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:5px"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 8v4l3 3"/></svg>
               AI 검토 시작
