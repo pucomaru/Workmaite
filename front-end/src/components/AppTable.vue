@@ -13,13 +13,26 @@
           <th
             v-for="(col, i) in columns"
             :key="col.key ?? col.label ?? i"
-            :class="col.class"
+            :class="[col.class, col.sortKey ? 'sortable-th' : '']"
+            @click="col.sortKey ? handleSort(col.sortKey) : undefined"
           >
-            {{ col.label ?? '' }}
+            <span class="th-content">
+              {{ col.label ?? '' }}
+              <span v-if="col.sortKey" class="sort-icons">
+                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'asc' }"
+                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M4 1 L7 6 L1 6 Z"/>
+                </svg>
+                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'desc' }"
+                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M4 7 L1 2 L7 2 Z"/>
+                </svg>
+              </span>
+            </span>
             <div
               v-if="i < columns.length - 1 && !col.noResize && !columns[i + 1]?.noResize"
               class="col-resize-handle"
-              @mousedown.prevent="startResize($event, i)"
+              @mousedown.prevent.stop="startResize($event, i)"
             ></div>
           </th>
         </tr>
@@ -34,10 +47,24 @@
 <script setup>
 import { ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   columns: { type: Array, default: () => [] },
-  dark: { type: Boolean, default: false }
+  dark: { type: Boolean, default: false },
+  sortKey: { type: String, default: null },
+  sortDir: { type: String, default: null },  // 'asc' | 'desc' | null
 })
+
+const emit = defineEmits(['sort'])
+
+function handleSort(key) {
+  if (props.sortKey === key) {
+    if (props.sortDir === 'asc') emit('sort', { key, dir: 'desc' })
+    else if (props.sortDir === 'desc') emit('sort', { key: null, dir: null })
+    else emit('sort', { key, dir: 'asc' })
+  } else {
+    emit('sort', { key, dir: 'asc' })
+  }
+}
 
 const colWidths = ref([])
 let resizing = null
@@ -116,6 +143,41 @@ function startResize(e, colIndex) {
   background: #f8fafc;
   user-select: none;
 }
+.th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sortable-th {
+  cursor: pointer;
+}
+.sortable-th:hover {
+  color: #334155;
+  background: #f1f5f9;
+}
+.sort-icons {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+.sortable-th:hover .sort-icons {
+  opacity: 0.6;
+}
+.sort-icon {
+  display: block;
+  color: #94a3b8;
+  transition: color 0.15s;
+}
+.sort-icon.active {
+  color: #3b82f6;
+  opacity: 1 !important;
+}
+.sortable-th:hover .sort-icons,
+.sort-icon.active {
+  opacity: 1;
+}
 .app-table th:last-child {
   position: sticky;
   right: 0;
@@ -168,6 +230,13 @@ function startResize(e, colIndex) {
 .app-table-dark .app-table th {
   background: transparent;
   color: #64748b;
+}
+.app-table-dark .sortable-th:hover {
+  color: #94a3b8;
+  background: rgba(255,255,255,.05);
+}
+.app-table-dark .sort-icon {
+  color: #475569;
 }
 .app-table-dark .app-table th:last-child {
   background: #1e2d3e;

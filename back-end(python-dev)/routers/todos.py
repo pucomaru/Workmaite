@@ -1,11 +1,27 @@
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
+import os, base64, httpx
 import models, schemas
 from database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["todos"])
+
+NEO4J_URL      = os.getenv("NEO4J_URL", "http://localhost:7474")
+NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
+NEO4J_DB       = os.getenv("NEO4J_DATABASE", "neo4j")
+
+async def _neo4j(stmt: str, params: dict | None = None):
+    try:
+        creds = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
+        headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Accept": "application/json"}
+        body = {"statements": [{"statement": stmt, **(({"parameters": params}) if params else {})}]}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            await client.post(f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit", json=body, headers=headers)
+    except Exception as e:
+        print(f"[Neo4j sync warn] {e}")
 
 @router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
 def all_todos(
@@ -19,9 +35,10 @@ def all_todos(
 
 
 @router.post("/meetings/{meeting_id}/todos", response_model=schemas.TodoOut)
-def create_todo(
+async def create_todo(
     meeting_id: int,
     data: schemas.TodoCreate,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -42,6 +59,23 @@ def create_todo(
     db.add(todo)
     db.commit()
     db.refresh(todo)
+
+    # Neo4j 동기화 (백그라운드)
+    ag_id = f"agenda-{todo.id}"
+    mg_id = f"mg-sqlite-{meeting_id}"
+    async def _sync():
+        await _neo4j(
+            "MERGE (a:Agenda {id:$id}) SET a.title=$title, a.priority=$priority, a.status='pending', a.due_date=$due "
+            "WITH a MATCH (mg:MeetingGroup {id:$mgid}) MERGE (a)-[:OWNED_BY]->(mg)",
+            {"id": ag_id, "title": todo.content or "", "priority": todo.priority or "normal",
+             "due": str(todo.due_date or ""), "mgid": mg_id},
+        )
+        if todo.assignee_name:
+            await _neo4j(
+                "MATCH (a:Agenda {id:$aid}) MATCH (p:Person) WHERE p.name=$name MERGE (a)-[:ASSIGNED_TO]->(p)",
+                {"aid": ag_id, "name": todo.assignee_name},
+            )
+    background_tasks.add_task(_sync)
     return todo
 
 

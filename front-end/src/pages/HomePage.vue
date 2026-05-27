@@ -286,18 +286,18 @@ const displayActiveMeetings = computed(() =>
 
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const sessionColumns = [
-  { label: '회의명' },
-  { label: '회의체' },
-  { label: '날짜', width: '110px' },
-  { label: 'D-day', width: '80px' },
+  { label: '회의명', sortKey: 'title' },
+  { label: '회의체', sortKey: 'meeting_title' },
+  { label: '날짜', width: '110px', sortKey: 'date' },
+  { label: 'D-day', width: '80px', sortKey: 'date' },
 ]
 
 const meetingColumns = [
-  { label: '회의체명' },
-  { label: '유형', width: '90px' },
-  { label: '담당자', width: '90px' },
-  { label: '마감일', width: '110px' },
-  { label: '우선순위', width: '80px' },
+  { label: '회의체명', sortKey: 'title' },
+  { label: '유형', width: '90px', sortKey: 'meeting_type' },
+  { label: '담당자', width: '90px', sortKey: 'owner_name' },
+  { label: '마감일', width: '110px', sortKey: 'due_date' },
+  { label: '우선순위', width: '80px', sortKey: 'priority' },
 ]
 
 const upcomingSessions = computed(() => {
@@ -306,6 +306,28 @@ const upcomingSessions = computed(() => {
     .filter(e => e.type === 'session' && e.date >= todayStr)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
 })
+
+// ── 정렬 ──────────────────────────────────────────
+const sessionSortKey = ref(null)
+const sessionSortDir = ref(null)
+const meetingSortKey = ref(null)
+const meetingSortDir = ref(null)
+
+function applySortStr(list, key, dir) {
+  if (!key || !dir) return list
+  const d = dir === 'asc' ? 1 : -1
+  return [...list].sort((a, b) => {
+    const av = (a[key] ?? '').toString().toLowerCase()
+    const bv = (b[key] ?? '').toString().toLowerCase()
+    return av < bv ? -d : av > bv ? d : 0
+  })
+}
+
+const sortedSessions = computed(() => applySortStr(upcomingSessions.value, sessionSortKey.value, sessionSortDir.value))
+const sortedMeetings = computed(() => applySortStr(displayActiveMeetings.value, meetingSortKey.value, meetingSortDir.value))
+
+function handleSessionSort({ key, dir }) { sessionSortKey.value = key; sessionSortDir.value = dir }
+function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSortDir.value = dir }
 </script>
 
 <template>
@@ -315,8 +337,8 @@ const upcomingSessions = computed(() => {
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
     </div>
-    <AppTable :columns="sessionColumns">
-      <tr v-for="s in upcomingSessions" :key="s.id" style="cursor:pointer">
+    <AppTable :columns="sessionColumns" :sortKey="sessionSortKey" :sortDir="sessionSortDir" @sort="handleSessionSort">
+      <tr v-for="s in sortedSessions" :key="s.id" style="cursor:pointer">
         <td><div class="fw-semibold">{{ s.title }}</div></td>
         <td class="text-muted">{{ s.meeting_title || '-' }}</td>
         <td>{{ formatDate(s.date) }}</td>
@@ -339,8 +361,8 @@ const upcomingSessions = computed(() => {
       </div>
 
       <!-- 회의체 테이블 -->
-      <AppTable :columns="meetingColumns">
-        <tr v-for="m in displayActiveMeetings" :key="m.id"
+      <AppTable :columns="meetingColumns" :sortKey="meetingSortKey" :sortDir="meetingSortDir" @sort="handleMeetingSort">
+        <tr v-for="m in sortedMeetings" :key="m.id"
           style="cursor:pointer" @click="router.push('/meeting-groups')">
           <td>
             <div class="fw-semibold">{{ m.title }}</div>
