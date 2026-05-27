@@ -2,6 +2,7 @@ package com.workmaite.domain.auth.service;
 
 import com.workmaite.domain.auth.dto.LoginRequest;
 import com.workmaite.domain.auth.dto.LoginResponse;
+import com.workmaite.domain.auth.dto.RefreshRequest;
 import com.workmaite.domain.auth.dto.SignupRequest;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 인증 비즈니스 로직
  * - 회원가입: 이메일 중복 확인 후 비밀번호 암호화하여 저장
  * - 로그인: 이메일/비밀번호 검증 후 Access Token 발급
+ * - 토큰 갱신: Refresh Token 검증 후 새 Access Token 발급
  * - 로그아웃: Redis 도입 전까지 클라이언트 토큰 삭제 방식으로 처리
  */
 @Service
@@ -57,6 +59,17 @@ public class AuthService {
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
         return LoginResponse.of(accessToken);
+    }
+
+    // Refresh Token 검증 후 새 Access Token 발급
+    @Transactional(readOnly = true)
+    public LoginResponse refresh(RefreshRequest request) {
+        jwtTokenProvider.validateToken(request.getRefreshToken());
+        Long userId = jwtTokenProvider.getUserId(request.getRefreshToken());
+        if (!userRepository.existsById(userId)) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        return LoginResponse.of(jwtTokenProvider.createAccessToken(userId));
     }
 
     // Redis 도입 후 Access Token 블랙리스트 처리 예정

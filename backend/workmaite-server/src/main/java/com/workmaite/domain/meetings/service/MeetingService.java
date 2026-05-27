@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 
 /**
  * 회의체 비즈니스 로직
+ * - 생성: 생성자를 간사로 자동 등록
  * - 내 진행중인 회의체: 로그인 유저가 속한 active 회의체 + 담당 간사명 조합
  * - 목록/검색: keyword가 있으면 제목·목적 필드에서 검색, 없으면 전체 반환
  * - 상세 조회: 참여자 목록을 함께 반환
@@ -31,6 +32,20 @@ public class MeetingService {
     private final MeetingRepository meetingRepository;
     private final MeetingMemberRepository meetingMemberRepository;
     private final UserRepository userRepository;
+
+    @Transactional
+    public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
+        Meeting meeting = Meeting.create(
+                request.getTitle(), request.getPurpose(), request.getGuidelines(),
+                request.getPriority(), request.getType(),
+                request.getStartDate(), request.getEndDate(),
+                requesterId
+        );
+        Meeting saved = meetingRepository.save(meeting);
+        // 생성자를 간사로 자동 등록
+        meetingMemberRepository.save(MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.SECRETARY));
+        return MeetingResponse.from(saved);
+    }
 
     public List<MeetingResponse> getMeetings(String keyword) {
         List<Meeting> meetings = (keyword != null && !keyword.isBlank())

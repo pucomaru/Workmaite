@@ -11,6 +11,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * 안건 비즈니스 로직
+ * - 목록 조회: 회의체의 안건을 orderIndex 오름차순으로 반환
+ * - 생성·수정·삭제: 별도 권한 확인 없이 처리
+ * - 담당자 배정: assigneeId 업데이트
+ * - AI 추출: 추후 AI 연동 후 구현 예정
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)

@@ -16,12 +16,13 @@ import org.springframework.web.bind.annotation.RestController;
  * GET /api/v1/home/calendar - 일정 조회 (월/주/일)
  */
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/v1/home")
+@RequiredArgsConstructor
 public class HomeController {
 
     private final HomeService homeService;
 
+    // 월/주/일 뷰로 로그인 유저의 예정 세션 일정 반환
     @GetMapping("/calendar")
     public ResponseEntity<ApiResponse<CalendarResponse>> getCalendar(
             @RequestParam String view,
