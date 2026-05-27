@@ -18,7 +18,7 @@ async function submit() {
     await auth.loginWithEmail(form.value.email, form.value.password)
     router.push('/')
   } catch (e) {
-    error.value = e.response?.data?.detail || '이메일 또는 비밀번호가 올바르지 않습니다.'
+    error.value = e.response?.data?.message || e.message || '이메일 또는 비밀번호가 올바르지 않습니다.'
   } finally {
     loading.value = false
   }

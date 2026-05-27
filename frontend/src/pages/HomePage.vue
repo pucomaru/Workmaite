@@ -3,16 +3,16 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
-import api from '../api'
-import HyeanAgent from '../components/HyeanAgent.vue'
+import api, { apiAI } from '../api'
+
 import BaseModal from '../components/BaseModal.vue'
+import AppTable from '../components/AppTable.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 const calendarEvents = ref([])
-const upcomingSessionsRaw = ref([])
 const showCreateModal = ref(false)
 const form = ref({ title: '', purpose: '', start_date: '', end_date: '' })
 const memberSearch = ref('')
@@ -23,6 +23,7 @@ const creating = ref(false)
 const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'presenter' | null }
 const endingMeeting = ref(null)
 const deletingMeeting = ref(null)
+const meetingMeta = ref({}) // { [meetingId]: { owner_name, due_date, priority } }
 
 // ── Calendar state ──────────────────────────────────────────
 const calView = ref('month')
@@ -135,21 +136,64 @@ function clickMiniDay(d) {
 
 // ── Data loading ─────────────────────────────────────────────
 onMounted(async () => {
-  await meetingsStore.fetchMyMeetings()
+  await meetingsStore.fetchMeetings()
   try {
-    const calRes = await api.get('/api/v1/home/calendar', {
-      params: { view: calView.value, date: fmtISO(cursor.value) }
+    const calRes = await api.get('/api/v1/home/calendar', { params: { view: 'month', date: new Date().toISOString().slice(0, 10) } })
+    calendarEvents.value = calRes.data
+  } catch {}
+
+  await hydrateMeetingMeta()
+
+  // 각 회의체에 대한 내 권한 병렬 조회
+  await Promise.all(
+    meetingsStore.meetings.map(async (m) => {
+      try {
+        const { data } = await api.get(`/api/v1/meetings/${m.id}/my-role`)
+        meetingRoles.value[m.id] = data.role
+      } catch {
+        meetingRoles.value[m.id] = null
+      }
     })
-    calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
-      ...s,
-      date: s.scheduledAt,
-    }))
-  } catch {}
-  try {
-    const sessRes = await api.get('/api/v1/me/sessions')
-    upcomingSessionsRaw.value = sessRes.data ?? []
-  } catch {}
+  )
 })
+
+async function hydrateMeetingMeta() {
+  const active = meetingsStore.meetings.filter(m => m.status === 'active')
+  const entries = await Promise.all(
+    active.map(async (m) => {
+      try {
+        const [membersRes, todosRes] = await Promise.all([
+          api.get(`/api/v1/meetings/${m.id}/members`),
+          apiAI.get(`/api/meetings/${m.id}/todos`),
+        ])
+
+        const members = membersRes.data || []
+        const todos = todosRes.data || []
+
+        const admin = members.find(mm => mm.role === 'admin')
+        const owner_name = admin?.user?.name || admin?.user_name || '-'
+
+        const openTodos = todos
+          .filter(t => t.status !== 'done')
+          .sort((a, b) => {
+            const da = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            const db = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            return da - db
+          })
+
+        const topTodo = openTodos[0]
+        return [m.id, {
+          owner_name,
+          due_date: topTodo?.due_date || null,
+          priority: topTodo?.priority || 'normal',
+        }]
+      } catch {
+        return [m.id, { owner_name: '-', due_date: null, priority: 'normal' }]
+      }
+    })
+  )
+  meetingMeta.value = Object.fromEntries(entries)
+}
 
 // ── 회의체 종료 / 삭제 ─────────────────────────────────────────
 async function endMeeting(m, e) {
@@ -177,7 +221,7 @@ async function deleteMeeting(m, e) {
 // ── Modal ────────────────────────────────────────────────────
 async function searchMembers() {
   if (!memberSearch.value.trim()) { searchResults.value = []; return }
-  const { data } = await api.get(`/api/users/search?q=${memberSearch.value}`)
+  const { data } = await api.get(`/api/v1/users/search?q=${memberSearch.value}`)
   searchResults.value = data.filter(u => u.id !== auth.user?.id && !selectedMembers.value.find(m => m.id === u.id))
 }
 function addMember(u, role = 'presenter') {
@@ -199,12 +243,12 @@ async function createMeeting() {
       end_date: form.value.end_date || null,
     })
     for (const m of selectedMembers.value) {
-      await api.post(`/api/meetings/${meeting.id}/members`, { user_id: m.id, role: m.role })
+      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.id, role: m.role })
     }
     showCreateModal.value = false
     form.value = { title: '', purpose: '', start_date: '', end_date: '' }
     selectedMembers.value = []
-    router.push(`/meetings/${meeting.id}/agenda`)
+    router.push('/meeting-groups')
   } finally {
     creating.value = false
   }
@@ -231,39 +275,81 @@ const endedMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'ended')
 )
 
-const upcomingSessions = computed(() => upcomingSessionsRaw.value)
+const displayActiveMeetings = computed(() =>
+  activeMeetings.value.map(m => ({
+    ...m,
+    owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '-',
+    due_date: meetingMeta.value[m.id]?.due_date ?? null,
+    priority: meetingMeta.value[m.id]?.priority ?? m.priority ?? 'normal',
+  }))
+)
+
+// 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
+const sessionColumns = [
+  { label: '회의명', sortKey: 'title' },
+  { label: '회의체', sortKey: 'meeting_title' },
+  { label: '날짜', width: '110px', sortKey: 'date' },
+  { label: 'D-day', width: '80px', sortKey: 'date' },
+]
+
+const meetingColumns = [
+  { label: '회의체명', sortKey: 'title' },
+  { label: '유형', width: '90px', sortKey: 'meeting_type' },
+  { label: '담당자', width: '90px', sortKey: 'owner_name' },
+  { label: '마감일', width: '110px', sortKey: 'due_date' },
+  { label: '우선순위', width: '80px', sortKey: 'priority' },
+]
+
+const upcomingSessions = computed(() => {
+  const todayStr = fmtISO(new Date())
+  return calendarEvents.value
+    .filter(e => e.type === 'session' && e.date >= todayStr)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+})
+
+// ── 정렬 ──────────────────────────────────────────
+const sessionSortKey = ref(null)
+const sessionSortDir = ref(null)
+const meetingSortKey = ref(null)
+const meetingSortDir = ref(null)
+
+function applySortStr(list, key, dir) {
+  if (!key || !dir) return list
+  const d = dir === 'asc' ? 1 : -1
+  return [...list].sort((a, b) => {
+    const av = (a[key] ?? '').toString().toLowerCase()
+    const bv = (b[key] ?? '').toString().toLowerCase()
+    return av < bv ? -d : av > bv ? d : 0
+  })
+}
+
+const sortedSessions = computed(() => applySortStr(upcomingSessions.value, sessionSortKey.value, sessionSortDir.value))
+const sortedMeetings = computed(() => applySortStr(displayActiveMeetings.value, meetingSortKey.value, meetingSortDir.value))
+
+function handleSessionSort({ key, dir }) { sessionSortKey.value = key; sessionSortDir.value = dir }
+function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSortDir.value = dir }
 </script>
 
 <template>
-  <div class="home">
+  <div class="home page-wrap">
 
     <!-- ① 예정된 회의 -->
-    <div class="card">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의</h6>
-          <span class="badge badge-app-muted">{{ upcomingSessions.length }}건</span>
-        </div>
-        <div v-if="!upcomingSessions.length" class="text-muted small py-2">예정된 회의가 없습니다.</div>
-        <div v-else class="d-flex flex-column gap-2">
-          <div v-for="s in upcomingSessions" :key="s.id"
-            class="d-flex align-items-center gap-2 p-2 rounded border"
-            style="background:#f8fafc;font-size:13px">
-            <span style="font-size:15px;flex-shrink:0">🎙</span>
-            <div class="flex-grow-1 min-w-0">
-              <div class="fw-medium text-truncate">{{ s.title }}</div>
-              <div v-if="s.meetingTitle" class="text-muted" style="font-size:11px">{{ s.meetingTitle }}</div>
-            </div>
-            <span class="badge rounded-pill"
-              :style="{ background: s.dDay <= 3 ? '#fef3c7' : '#f1f5f9', color: s.dDay <= 3 ? '#92400e' : '#64748b' }">
-              {{ s.dDay === 0 ? 'D-day' : `D-${s.dDay}` }}
-            </span>
-            <span class="badge badge-app-primary">{{ formatDate(s.scheduledAt) }}</span>
-            <button v-if="s.meetingId" class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px" @click="router.push(`/meetings/${s.meetingId}/agenda`)">이동 ›</button>
-          </div>
-        </div>
-      </div>
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
     </div>
+    <AppTable :columns="sessionColumns" :sortKey="sessionSortKey" :sortDir="sessionSortDir" @sort="handleSessionSort">
+      <tr v-for="s in sortedSessions" :key="s.id" style="cursor:pointer">
+        <td><div class="fw-semibold">{{ s.title }}</div></td>
+        <td class="text-muted">{{ s.meeting_title || '-' }}</td>
+        <td>{{ formatDate(s.date) }}</td>
+        <td>
+          <span class="upcoming-dday"
+            :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'">
+            {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
+          </span>
+        </td>
+      </tr>
+    </AppTable>
 
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
     <div class="main-grid">
@@ -271,75 +357,33 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
     <!-- ② 회의체 섹션 -->
     <div class="meetings-section">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-people me-2"></i>진행중인 회의체</h6>
-        <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
-          <i class="bi bi-plus-lg me-1"></i>회의체 만들기
-        </button>
+        <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-people me-2"></i>진행중인 회의체 <span class="section-count">({{ displayActiveMeetings.length }}건)</span></h6>
       </div>
 
       <!-- 회의체 테이블 -->
-      <div class="card">
-        <div v-if="!activeMeetings.length" class="empty-state">
-          <i class="bi bi-people" style="font-size:32px;opacity:.3"></i>
-          <p class="mb-2">진행중인 회의체가 없습니다.</p>
-          <button class="btn btn-primary btn-sm" @click="showCreateModal = true">회의체 만들기</button>
-        </div>
-        <div v-else class="table-responsive">
-          <table class="table table-hover mb-0" style="font-size:13px">
-            <thead>
-              <tr>
-                <th>회의체명</th>
-                <th>우선순위</th>
-                <th>담당자</th>
-                <th>마감일</th>
-                <th>유형</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="m in activeMeetings" :key="m.id"
-                style="cursor:pointer" @click="router.push(`/meetings/${m.id}/home`)">
-                <td>
-                  <div class="fw-semibold">{{ m.title }}</div>
-                  <div v-if="m.purpose" class="text-muted" style="font-size:11px">
-                    {{ m.purpose.slice(0,50) }}{{ m.purpose.length > 50 ? '...' : '' }}
-                  </div>
-                </td>
-                <td>
-                  <span v-if="m.priority === 'high'" class="priority-badge high">
-                    <i class="bi bi-fire"></i> 상
-                  </span>
-                  <span v-else-if="m.priority === 'low'" class="priority-badge low">
-                    <i class="bi bi-arrow-down-circle"></i> 하
-                  </span>
-                  <span v-else class="priority-badge mid">
-                    <i class="bi bi-dash-circle"></i> 중
-                  </span>
-                </td>
-                <td class="text-muted">{{ m.owner_name || '-' }}</td>
-                <td>
-                  <span v-if="m.end_date" :class="getDday(m.end_date) !== null && getDday(m.end_date) <= 7 ? 'text-danger fw-semibold' : ''">
-                    {{ formatDate(m.end_date) }}
-                    <span v-if="getDday(m.end_date) !== null && getDday(m.end_date) <= 7" class="ms-1" style="font-size:11px">
-                      (D-{{ getDday(m.end_date) }})
-                    </span>
-                  </span>
-                  <span v-else class="text-muted">-</span>
-                </td>
-                <td>
-                  <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
-                </td>
-                <td>
-                  <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:11px"
-                    @click.stop="router.push(`/meetings/${m.id}/agenda`)">
-                    의제 ›
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AppTable :columns="meetingColumns" :sortKey="meetingSortKey" :sortDir="meetingSortDir" @sort="handleMeetingSort">
+        <tr v-for="m in sortedMeetings" :key="m.id"
+          style="cursor:pointer" @click="router.push('/meeting-groups')">
+          <td>
+            <div class="fw-semibold">{{ m.title }}</div>
+          </td>
+          <td>
+            <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
+          </td>
+          <td class="text-muted">{{ m.owner_name || '-' }}</td>
+          <td>
+            <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
+              {{ formatDate(m.due_date || m.end_date) }}
+            </span>
+            <span v-else class="text-muted">-</span>
+          </td>
+          <td>
+            <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
+            <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
+            <span v-else class="priority-indicator mid">— 중</span>
+          </td>
+        </tr>
+      </AppTable>
     </div>
 
     <!-- ③ 달력 -->
@@ -439,9 +483,6 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
       </div>
     </div><!-- /main-grid -->
 
-    <!-- ④ 혜안 floating -->
-    <HyeanAgent />
-
     <!-- 회의체 생성 모달 -->
     <BaseModal v-model="showCreateModal">
       <template #title>새 회의체 만들기</template>
@@ -464,26 +505,7 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
             <input type="date" v-model="form.end_date" class="form-input" />
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">멤버 초대</label>
-          <input v-model="memberSearch" class="form-input" placeholder="사번 또는 이름 검색" @input="searchMembers" />
-          <div v-if="searchResults.length" class="search-dropdown">
-            <div v-for="u in searchResults" :key="u.id" class="search-item">
-              <span>{{ u.name }} ({{ u.employee_id }})</span>
-              <div style="display:flex;gap:4px">
-                <button class="btn btn-sm btn-primary" @click="addMember(u, 'admin')">Admin</button>
-                <button class="btn btn-sm btn-outline" @click="addMember(u, 'presenter')">Presenter</button>
-              </div>
-            </div>
-          </div>
-          <div v-if="selectedMembers.length" class="selected-members">
-            <div v-for="m in selectedMembers" :key="m.id" class="member-chip">
-              {{ m.name }}
-              <span class="badge badge-primary" style="font-size:10px">{{ m.role }}</span>
-              <button @click="removeMember(m)" style="background:none;color:var(--text-muted)">✕</button>
-            </div>
-          </div>
-        </div>
+
       </div>
       <template #footer>
         <button class="btn btn-outline-secondary" @click="showCreateModal = false">취소</button>
@@ -497,7 +519,7 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
 
 <style scoped>
 /* ── 전체 레이아웃 ──────────────────────────────────────────── */
-.home { display: flex; flex-direction: column; gap: 20px; padding-bottom: 80px; }
+.home { display: flex; flex-direction: column; gap: 20px; padding-bottom: 40px; }
 
 .section-title-row { display: flex; align-items: center; justify-content: space-between; }
 .section-title { font-size: 15px; font-weight: 700; }
@@ -581,14 +603,14 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
 .cal-weekrow { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 4px; }
 .wd-cell { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
 .month-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
-.month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .1s; }
+.month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .1s; min-width: 0; overflow: hidden; }
 .month-cell:not(.empty):hover { background: #f1f5f9; }
 .month-cell.empty { cursor: default; }
 .month-cell.today .day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
 .day-num { font-size: 12px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
-.month-evts { display: flex; flex-direction: column; gap: 1px; }
+.month-evts { display: flex; flex-direction: column; gap: 1px; min-width: 0; width: 100%; }
 .week-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; min-height: 160px; }
-.week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; transition: background .1s; overflow: hidden; }
+.week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; transition: background .1s; overflow: hidden; min-width: 0; }
 .week-col:hover { background: #f8fafc; }
 .week-col.today { border-color: var(--primary); }
 .week-col-header { padding: 6px 6px 4px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 2px; background: #f8fafc; flex-shrink: 0; }
@@ -619,12 +641,16 @@ const upcomingSessions = computed(() => upcomingSessionsRaw.value)
 .evt-pill.evt-session { background: #dbeafe; color: #1d4ed8; }
 
 /* 우선순위 배지 */
-.priority-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
-.priority-badge.high { background: #fef2f2; color: #dc2626; }
-.priority-badge.mid  { background: #fffbeb; color: #d97706; }
-.priority-badge.low  { background: #f0fdf4; color: #16a34a; }
-/* 유형 배지 */
-.type-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: #f1f5f9; color: #475569; }
+.section-count { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.upcoming-dday { font-size: 12px; font-weight: 700; }
+.upcoming-dday.dday-urgent { color: #d97706; }
+.upcoming-dday.dday-normal { color: #64748b; }
+.priority-indicator { font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; }
+.priority-indicator.high { color: #dc2626; }
+.priority-indicator.mid  { color: #d97706; }
+.priority-indicator.low  { color: #2563eb; }
+/* 유형 텍스트 (배지 없음) */
+.type-badge { font-size: 12px; font-weight: 600; color: #64748b; }
 .evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }

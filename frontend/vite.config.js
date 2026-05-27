@@ -6,10 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
+      // LiveKit 신호 서버 프록시 (CORS 우회)
       '/livekit-signal': {
         target: 'http://localhost:7880',
         changeOrigin: true,

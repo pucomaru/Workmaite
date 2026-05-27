@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: workmaite-server
+
+  profiles:
+    active: local
+
+  datasource:
+    # k8s 클러스터 내부: postgres-1-postgresql.postgres.svc.cluster.local:5432
+    # 로컬 개발 시: kubectl port-forward svc/postgres-1-postgresql 5432:5432 -n postgres 후 localhost:5432
+    url: jdbc:postgresql://localhost:5432/sk-team-9
+    username: team9
+    password: team9postgres1234
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_schema: public
+    show-sql: true
+    open-in-view: false
+
+jwt:
+  # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증)
+  secret: workmaite-shared-secret-key-2024-very-secure-at-least-32chars
+  access-token-expiration: 1800000    # 30분 (ms)
+  refresh-token-expiration: 1209600000 # 14일 (ms)
+
+ai:
+  # FastAPI AI 서버 URL (Neo4j 동기화 webhook 호출)
+  url: http://localhost:8000

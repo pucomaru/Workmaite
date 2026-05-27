@@ -6,7 +6,9 @@ const auth = useAuthStore()
 
 const form = ref({
   name: auth.user?.name || '',
+  organization: auth.user?.organization || '',
   department: auth.user?.department || '',
+  position: auth.user?.position || '',
   password: '',
   passwordConfirm: '',
 })
@@ -24,7 +26,9 @@ async function save() {
   try {
     const payload = {
       name: form.value.name,
+      organization: form.value.organization || null,
       department: form.value.department || null,
+      position: form.value.position || null,
     }
     if (form.value.password) payload.password = form.value.password
     await auth.updateProfile(payload)
@@ -41,7 +45,7 @@ async function save() {
 </script>
 
 <template>
-  <div style="max-width:480px;margin:0 auto;padding-top:16px">
+  <div class="page-wrap">
     <div class="card">
       <div class="card-header">
         <span style="font-weight:600">개인설정</span>
@@ -55,12 +59,19 @@ async function save() {
           <label class="form-label">사번</label>
           <input :value="auth.user?.employee_id" class="form-input" disabled style="background:#f8fafc;color:var(--text-muted)" />
         </div>
-        <div class="form-group">
-          <label class="form-label">담당 부서</label>
-          <input v-model="form.department" class="form-input" placeholder="예: 전략기획팀" />
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
-            아젠다 담당 부서 자동 배정에 사용됩니다
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label class="form-label">조직명</label>
+            <input v-model="form.organization" class="form-input" placeholder="예: 워크메이트" />
           </div>
+          <div class="form-group">
+            <label class="form-label">부서명</label>
+            <input v-model="form.department" class="form-input" placeholder="예: 전략기획팀" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">직책</label>
+          <input v-model="form.position" class="form-input" placeholder="예: 팀장, 과장, 대리" />
         </div>
         <div class="form-group">
           <label class="form-label">새 비밀번호 (변경 시만 입력)</label>
@@ -90,3 +101,7 @@ async function save() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.page-wrap { max-width: 480px; }
+</style>

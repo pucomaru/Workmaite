@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import api from '../api'
+import { apiAI } from '../api'
 
 /**
  * AI 에이전트 대화 기록을 DB에 영속 저장/복원합니다.
@@ -16,7 +16,7 @@ export function useChatHistory(contextType, contextId) {
     if (!contextId) return
     historyLoading.value = true
     try {
-      const res = await api.get(`/api/chats/${contextType}/${contextId}`)
+      const res = await apiAI.get(`/api/chats/${contextType}/${contextId}`)
       messages.value = res.data.map(m => ({ role: m.role, content: m.content }))
     } catch (e) {
       console.error('[useChatHistory] 로드 실패', e)
@@ -32,7 +32,7 @@ export function useChatHistory(contextType, contextId) {
   async function saveMessage(role, content) {
     if (!contextId) return
     try {
-      await api.post(`/api/chats/${contextType}/${contextId}`, { role, content })
+      await apiAI.post(`/api/chats/${contextType}/${contextId}`, { role, content })
     } catch (e) {
       console.error('[useChatHistory] 저장 실패', e)
     }
@@ -43,7 +43,7 @@ export function useChatHistory(contextType, contextId) {
     messages.value = []
     if (!contextId) return
     try {
-      await api.delete(`/api/chats/${contextType}/${contextId}`)
+      await apiAI.delete(`/api/chats/${contextType}/${contextId}`)
     } catch (e) {
       console.error('[useChatHistory] 삭제 실패', e)
     }

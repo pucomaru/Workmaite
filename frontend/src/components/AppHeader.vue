@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
+import { useThemeStore } from '../stores/theme'
 import api from '../api'
 
 function formatTime(ts) {
@@ -17,14 +18,13 @@ function formatTime(ts) {
   return d.toLocaleDateString('ko-KR')
 }
 
-const props = defineProps({ sidebarOpen: Boolean })
-const emit = defineEmits(['toggle-sidebar'])
-
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const notifStore = useNotificationsStore()
 const meetingsStore = useMeetingsStore()
+
+const themeStore = useThemeStore()
 
 const showNotif = ref(false)
 const showProfile = ref(false)
@@ -81,7 +81,7 @@ async function searchUsers() {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(async () => {
     try {
-      const { data } = await api.get(`/api/users/search?q=${encodeURIComponent(memberSearch.value)}`)
+      const { data } = await api.get(`/api/v1/users/search?q=${encodeURIComponent(memberSearch.value)}`)
       // 이미 구성원인 사람 제외
       const memberUserIds = new Set(members.value.map(m => m.user_id))
       searchResults.value = data.filter(u => !memberUserIds.has(u.id))
@@ -121,13 +121,13 @@ watch(
 function handleNotifClick(n) {
   notifStore.markRead(n.id)
   showNotif.value = false
-  if (n.ref_type === 'meeting' && n.ref_id) router.push(`/meetings/${n.ref_id}/agenda`)
-  if (n.ref_type === 'session' && n.ref_id) router.push(`/meetings/${n.meeting_id}/sessions`)
+  if (n.ref_type === 'meeting' && n.ref_id) router.push('/meeting-groups')
+  if (n.ref_type === 'session' && n.ref_id) router.push('/meeting-groups')
 }
 
 function logout() {
   auth.logout()
-  router.push('/login')
+  router.push('/landing')
 }
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
@@ -139,12 +139,11 @@ const showNewPw = ref(false)
 const showConfirmPw = ref(false)
 
 function openProfileSettings() {
-  const extra = JSON.parse(localStorage.getItem('profileExtra') || '{}')
   profileForm.value = {
     name: auth.user?.name || '',
-    organization: extra.organization || '',
+    organization: auth.user?.organization || '',
     department: auth.user?.department || '',
-    position: extra.position || '',
+    position: auth.user?.position || '',
     password: '',
     passwordConfirm: '',
   }
@@ -161,13 +160,14 @@ async function saveProfileSettings() {
   profileSaving.value = true
   profileMsg.value = ''
   try {
-    const payload = { name: profileForm.value.name, department: profileForm.value.department }
+    const payload = {
+      name: profileForm.value.name,
+      department: profileForm.value.department || null,
+      organization: profileForm.value.organization || null,
+      position: profileForm.value.position || null,
+    }
     if (profileForm.value.password) payload.password = profileForm.value.password
     await auth.updateProfile(payload)
-    localStorage.setItem('profileExtra', JSON.stringify({
-      organization: profileForm.value.organization,
-      position: profileForm.value.position,
-    }))
     profileMsg.value = 'ok:저장되었습니다.'
     profileForm.value.password = ''
     profileForm.value.passwordConfirm = ''
@@ -182,11 +182,6 @@ async function saveProfileSettings() {
 <template>
   <header class="header">
     <div class="header-left">
-      <button class="btn-ghost btn-icon" @click="emit('toggle-sidebar')">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M3 12h18M3 6h18M3 18h18"/>
-        </svg>
-      </button>
       <router-link to="/" class="logo">
         <span class="logo-icon">W</span>
         <span class="logo-text">workma!te</span>
@@ -238,7 +233,37 @@ async function saveProfileSettings() {
       </template>
     </div>
 
+    <!-- 중앙 네비게이션 -->
+    <nav class="header-center-nav">
+      <router-link to="/" class="center-nav-item" :class="{ active: route.path === '/' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        홈
+      </router-link>
+      <router-link to="/archive" class="center-nav-item" :class="{ active: route.path === '/archive' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+        아카이브
+      </router-link>
+      <router-link to="/organization" class="center-nav-item" :class="{ active: route.path === '/organization' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        조직
+      </router-link>
+      <router-link to="/meeting-groups" class="center-nav-item" :class="{ active: route.path === '/meeting-groups' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+        회의체
+      </router-link>
+      <router-link to="/session-record" class="center-nav-item" :class="{ active: route.path === '/session-record' }">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+        회의
+      </router-link>
+    </nav>
+
     <div class="header-right">
+      <!-- 주야간 모드 토글 -->
+      <button class="btn-ghost btn-icon theme-toggle-btn" @click="themeStore.toggle()" :title="themeStore.nightMode ? '주간 모드로 전환' : '야간 모드로 전환'">
+        <svg v-if="themeStore.nightMode" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <svg v-else width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+
       <!-- 알림 -->
       <div class="notif-wrap">
         <button class="btn-ghost btn-icon" @click="showNotif = !showNotif">
@@ -368,7 +393,7 @@ async function saveProfileSettings() {
               <!-- 조직 -->
               <div class="ps-field">
                 <label class="ps-label">조직</label>
-                <input v-model="profileForm.organization" class="form-control" placeholder="예: SK텔레콤" />
+                <input v-model="profileForm.organization" class="form-control" placeholder="-" />
               </div>
               <!-- 부서 -->
               <div class="ps-field">
@@ -377,8 +402,8 @@ async function saveProfileSettings() {
               </div>
               <!-- 직위 -->
               <div class="ps-field">
-                <label class="ps-label">직위</label>
-                <input v-model="profileForm.position" class="form-control" placeholder="예: 과장" />
+                <label class="ps-label">직급</label>
+                <input v-model="profileForm.position" class="form-control" placeholder="Manager" />
               </div>
               <!-- 이메일 (readonly) -->
               <div class="ps-field">
@@ -445,6 +470,31 @@ async function saveProfileSettings() {
 .btn-icon { padding: 6px; border-radius: 6px; color: rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center; }
 .btn-icon:hover { background: rgba(255,255,255,.1); color: #fff; }
 .header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; }
+
+/* ── 중앙 네비게이션 ── */
+.header-center-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.center-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 7px;
+  color: rgba(255,255,255,.65);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .15s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
+.center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
 .logo { display: flex; align-items: center; gap: 8px; color: #fff; margin-left: 6px; flex-shrink: 0; }
 .logo-icon { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; }
 .logo-text { font-weight: 700; font-size: 16px; }
@@ -490,12 +540,14 @@ async function saveProfileSettings() {
 
 
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.theme-toggle-btn { color: rgba(255,255,255,.7) !important; }
+.theme-toggle-btn:hover { background: rgba(255,255,255,.12) !important; color: #fff !important; }
 
 /* 구성원 관리 팝업 */
 .member-mgmt-popup {
   position: absolute;
   top: calc(var(--header-h) + 4px);
-  left: 240px;
+  left: 160px;
   width: 340px;
   background: #fff;
   border: 1px solid var(--border);

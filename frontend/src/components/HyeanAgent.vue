@@ -1,9 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { streamPost } from '../api'
+import { streamPost, apiAI } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useRoute } from 'vue-router'
-import api from '../api'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { useChatHistory } from '../composables/useChatHistory'
 import { renderMd } from '../composables/useMarkdown'
@@ -30,7 +29,7 @@ async function reloadHistory(meetingId) {
   if (!meetingId) return
   messages.value = []
   try {
-    const res = await api.get(`/api/chats/hyean/${meetingId}`)
+    const res = await apiAI.get(`/api/chats/hyean/${meetingId}`)
     messages.value = res.data.map(m => ({ role: m.role, content: m.content }))
   } catch { /* silent */ }
 }

@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import api from '../api'
+import { apiAI as api } from '../api'
 
 const emit = defineEmits(['close', 'go-login'])
 const router = useRouter()

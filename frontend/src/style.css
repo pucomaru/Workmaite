@@ -80,6 +80,15 @@ input, textarea, select { font-family: inherit; }
 .selected-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .member-chip { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 99px; padding: 4px 10px; font-size: 12px; }
 
+/* ── 페이지 레이아웃 표준 ── */
+.page-wrap { padding: 0; max-width: 1100px; margin: 0 auto; width: 100%; }
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.page-title { font-size: 20px; font-weight: 700; margin: 0 0 3px; color: var(--text); }
+.page-desc { font-size: 13px; color: var(--text-muted); margin: 0; }
+.page-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 풀높이 페이지: layout-main 패딩 상쇄 후 뷰포트 채우기 */
+.page-full-height { margin: -24px -28px; height: calc(100% + 48px); display: flex; flex-direction: column; overflow: hidden; }
+
 /* Chat */
 .chat-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -146,3 +155,726 @@ input, textarea, select { font-family: inherit; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+
+/* ═══════════════════════════════════════════════════════════
+   야간 모드 (Night Mode) - 전역 적용
+   ═══════════════════════════════════════════════════════════ */
+html.night-mode {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --bg-card: #1e293b;
+  --bg-subtle: #162032;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --bs-body-color: #e2e8f0;
+  --bs-body-bg: #0f172a;
+  --bs-border-color: #334155;
+}
+
+/* ── 최상위 레이아웃 ── */
+html.night-mode body,
+html.night-mode #app,
+html.night-mode .layout,
+html.night-mode .layout-body,
+html.night-mode .layout-main {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+/* ── 페이지 래퍼 (각 페이지 최상위 div) ── */
+html.night-mode .home,
+html.night-mode .home-page,
+html.night-mode .page-wrap,
+html.night-mode .agenda-layout,
+html.night-mode .agent-body,
+html.night-mode .mg-page,
+html.night-mode .org-page,
+html.night-mode .prepare-page,
+html.night-mode .sp-layout,
+html.night-mode .sessions-layout,
+html.night-mode .am-page,
+html.night-mode .room-layout,
+html.night-mode .popup-page {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+/* ── 카드 / 섹션 / 패널 ── */
+html.night-mode .card,
+html.night-mode .card-header,
+html.night-mode .card-body,
+html.night-mode .card-footer {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Bootstrap card text */
+html.night-mode .card-title,
+html.night-mode .card-subtitle,
+html.night-mode .card-text { color: #e2e8f0 !important; }
+
+/* ── 섹션 헤더 / 페이지 헤더 ── */
+html.night-mode .page-header,
+html.night-mode .section-header,
+html.night-mode .panel-header,
+html.night-mode .block-header {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* ── 컨테이너 클래스 (밝은 배경) ── */
+html.night-mode .table-wrap,
+html.night-mode .list-wrap,
+html.night-mode .content-wrap,
+html.night-mode .inner-wrap {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+/* ── 모든 input / textarea / select ── */
+html.night-mode input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+html.night-mode textarea,
+html.night-mode select {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.night-mode input::placeholder,
+html.night-mode textarea::placeholder { color: #64748b !important; }
+html.night-mode input:focus,
+html.night-mode textarea:focus,
+html.night-mode select:focus { border-color: #3b82f6 !important; }
+html.night-mode input:disabled,
+html.night-mode textarea:disabled,
+html.night-mode select:disabled { background: #0f172a !important; color: #64748b !important; }
+
+/* ── 폼 클래스 ── */
+html.night-mode .form-control,
+html.night-mode .form-select,
+html.night-mode .form-input,
+html.night-mode .mgmt-input,
+html.night-mode .modal-input,
+html.night-mode .tf-input,
+html.night-mode .search-input {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.night-mode .form-control::placeholder,
+html.night-mode .form-input::placeholder,
+html.night-mode .search-input::placeholder { color: #64748b !important; }
+html.night-mode .form-control:focus,
+html.night-mode .form-select:focus,
+html.night-mode .form-input:focus { border-color: #3b82f6 !important; }
+html.night-mode .form-label,
+html.night-mode .ps-label { color: #94a3b8 !important; }
+html.night-mode .input-group-text { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ── 버튼 ── */
+html.night-mode .btn-ghost { color: #94a3b8 !important; }
+html.night-mode .btn-ghost:hover { background: #1e293b !important; color: #e2e8f0 !important; }
+html.night-mode .btn-outline,
+html.night-mode .btn-outline-secondary { border-color: #334155 !important; color: #cbd5e1 !important; background: transparent !important; }
+html.night-mode .btn-outline:hover,
+html.night-mode .btn-outline-secondary:hover { background: #1e293b !important; }
+html.night-mode .btn-secondary { background: #334155 !important; border-color: #475569 !important; color: #e2e8f0 !important; }
+html.night-mode .btn-light { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── 아이콘 버튼 / 컨트롤 버튼 (밝은 배경 쓰는 것들) ── */
+html.night-mode .ctrl-btn,
+html.night-mode .minutes-tool-btn,
+html.night-mode .section-toggle-btn,
+html.night-mode .icon-micro,
+html.night-mode .view-toggle button,
+html.night-mode .agent-sidebar-close,
+html.night-mode .modal-close-btn,
+html.night-mode .tf-btn-cancel,
+html.night-mode .btn-reject {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+html.night-mode .ctrl-btn:hover,
+html.night-mode .minutes-tool-btn:hover,
+html.night-mode .section-toggle-btn:hover,
+html.night-mode .icon-micro:hover,
+html.night-mode .agent-sidebar-close:hover,
+html.night-mode .modal-close-btn:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+
+/* ── 드롭다운 / 팝업 ── */
+html.night-mode .notif-dropdown,
+html.night-mode .profile-dropdown,
+html.night-mode .member-mgmt-popup,
+html.night-mode .search-dropdown,
+html.night-mode .search-results,
+html.night-mode .modal-dropdown-item,
+html.night-mode .member-drop-item {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.night-mode .notif-item:hover,
+html.night-mode .search-result-item:hover,
+html.night-mode .mgmt-member:hover,
+html.night-mode .modal-dropdown-item:hover,
+html.night-mode .member-drop-item:hover { background: #0f172a !important; }
+html.night-mode .notif-item.unread { background: #1e3a5f !important; }
+html.night-mode .notif-header,
+html.night-mode .mgmt-header { background: #1e293b !important; border-bottom-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .notif-msg,
+html.night-mode .mgmt-name { color: #e2e8f0 !important; }
+html.night-mode .notif-time,
+html.night-mode .mgmt-emp { color: #94a3b8 !important; }
+
+/* ── 모달 ── */
+html.night-mode .ps-modal,
+html.night-mode .modal-box,
+html.night-mode .modal-header {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.night-mode .ps-header,
+html.night-mode .ps-footer { border-color: #334155 !important; background: #1e293b !important; }
+html.night-mode .ps-divider { color: #64748b !important; border-top-color: #334155 !important; }
+html.night-mode .ps-close,
+html.night-mode .modal-close-btn { color: #64748b !important; background: #0f172a !important; }
+html.night-mode .ps-close:hover,
+html.night-mode .modal-close-btn:hover { background: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .modal-overlay { background: rgba(0,0,0,.65) !important; }
+
+/* ── 사이드바 ── */
+html.night-mode .sidebar { background: #1e293b !important; border-right-color: #334155 !important; }
+html.night-mode .sidebar-item { color: #94a3b8 !important; }
+html.night-mode .sidebar-item:hover,
+html.night-mode .sidebar-item.active { background: rgba(59,130,246,.12) !important; color: #60a5fa !important; }
+html.night-mode .sidebar-section-label { color: #64748b !important; }
+html.night-mode .nav-link { color: #94a3b8 !important; }
+
+/* ── MeetingNav ── */
+html.night-mode .meeting-nav,
+html.night-mode .mnav-inner { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .mnav-tab { color: #94a3b8 !important; }
+html.night-mode .mnav-tab.active { color: #60a5fa !important; border-bottom-color: #60a5fa !important; }
+
+/* ── 테이블 ── */
+html.night-mode .table { color: #e2e8f0 !important; }
+html.night-mode .table th { background: #0f172a !important; color: #94a3b8 !important; border-color: #334155 !important; }
+html.night-mode .table td { border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .table tr:hover td,
+html.night-mode .table-row:hover td { background: #1e293b !important; }
+html.night-mode .table-wrap { background: #1e293b !important; border-color: #334155 !important; }
+
+/* ── 리스트 아이템 / 행 ── */
+html.night-mode .todo-row,
+html.night-mode .todo-item { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .todo-row:hover { background: #162032 !important; }
+html.night-mode .todo-row.pinned { background: #1c1a0a !important; border-color: #854d0e !important; }
+html.night-mode .todo-dday { background: #0f172a !important; color: #94a3b8 !important; }
+html.night-mode .todo-meta-chip { background: #0f172a !important; color: #94a3b8 !important; }
+html.night-mode .todo-item.at_risk { background: #1c100a !important; border-color: #fb923c !important; }
+html.night-mode .day-evt-row { background: #1e293b !important; border-color: #334155 !important; }
+
+/* ── 캘린더 ── */
+html.night-mode .week-col-header { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .week-col:hover { background: #1e293b !important; }
+html.night-mode .month-cell:not(.empty):hover { background: #1e293b !important; }
+
+/* ── 배지 / 태그 ── */
+html.night-mode .type-badge { background: #0f172a !important; color: #94a3b8 !important; }
+html.night-mode .badge-muted { background: #0f172a !important; color: #94a3b8 !important; }
+html.night-mode .priority-badge.mid { background: #1c1a0a !important; color: #fbbf24 !important; }
+html.night-mode .priority-badge.low { background: #0a1c10 !important; color: #34d399 !important; }
+html.night-mode .ms-att-role,
+html.night-mode .tag { background: #0f172a !important; color: #94a3b8 !important; border-color: #334155 !important; }
+html.night-mode .role-select-sm { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .selected-member { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .tag-input-wrap { background: #1e293b !important; border-color: #334155 !important; }
+
+/* ── 회의 카드 ── */
+html.night-mode .meeting-card-ended { background: #1e293b !important; }
+html.night-mode .meeting-card { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .meeting-card:hover { background: #162032 !important; }
+
+/* ── 에이전트 사이드바 ── */
+html.night-mode .agent-right-sidebar { background: #1e293b !important; border-left-color: #334155 !important; }
+html.night-mode .agent-tabs-bar { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .agent-tab { color: #94a3b8 !important; }
+html.night-mode .agent-tab.active { background: #1e293b !important; color: #60a5fa !important; border-color: #334155 !important; }
+html.night-mode .suggested-btn { background: #0f172a !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .suggested-btn:hover:not(:disabled) { background: #1e293b !important; color: #e2e8f0 !important; }
+html.night-mode .agent-attach-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ── 바텀 패널 ── */
+html.night-mode .bottom-panel { background: #1e293b !important; border-top-color: #334155 !important; }
+html.night-mode .bottom-drag-handle { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .tf-btn-cancel { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .btn-reject { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ── 채팅 ── */
+html.night-mode .chat-bubble.agent { background: #1e293b !important; color: #e2e8f0 !important; }
+html.night-mode .chat-input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .chat-input-area { background: #1e293b !important; border-top-color: #334155 !important; }
+html.night-mode .chat-bubble.agent code { background: #0f172a !important; }
+
+/* ── 코드 ── */
+html.night-mode code { background: #0f172a !important; color: #60a5fa !important; }
+html.night-mode pre { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .summary-content :deep(code) { background: #0f172a !important; }
+html.night-mode .summary-content :deep(th) { background: #0f172a !important; color: #94a3b8 !important; }
+
+/* ── 세션 스케줄러 (SessionsPage) ── */
+html.night-mode .ss-target-btn,
+html.night-mode .ss-count-btn,
+html.night-mode .ss-radio-btn,
+html.night-mode .ss-session-btn { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .ss-target-btn:hover,
+html.night-mode .ss-count-btn:hover,
+html.night-mode .ss-radio-btn:hover,
+html.night-mode .ss-session-btn:hover { background: #162032 !important; border-color: #f97316 !important; }
+html.night-mode .ss-custom-input { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── 아젠다 ── */
+html.night-mode .agenda-check-item:hover { background: #1e293b !important; }
+html.night-mode .agenda-section-head { background: #162032 !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .cpop-opt:hover { background: #1e293b !important; }
+
+/* ── 팝업 카드 (로그인/회원가입) ── */
+html.night-mode .popup-card { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── 개인설정 모달 ── */
+html.night-mode .ps-modal { background: #1e293b !important; color: #e2e8f0 !important; }
+html.night-mode .ps-readonly-tag { background: #0f172a !important; color: #64748b !important; }
+
+/* ── 일반 텍스트 색상 (하드코딩 색상 오버라이드) ── */
+html.night-mode h1, html.night-mode h2, html.night-mode h3,
+html.night-mode h4, html.night-mode h5, html.night-mode h6 { color: #e2e8f0 !important; }
+html.night-mode p { color: #cbd5e1; }
+html.night-mode label { color: #cbd5e1 !important; }
+html.night-mode .text-muted { color: #94a3b8 !important; }
+html.night-mode small { color: #94a3b8 !important; }
+
+/* ── 테두리 (공통) ── */
+html.night-mode hr { border-color: #334155 !important; }
+html.night-mode .border,
+html.night-mode .border-bottom,
+html.night-mode .border-top { border-color: #334155 !important; }
+
+/* ── 검색 드롭다운 (전역 유틸리티) ── */
+html.night-mode .search-dropdown { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .search-item { border-bottom-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .search-item:hover { background: #0f172a !important; }
+
+/* ── 스크롤바 ── */
+html.night-mode ::-webkit-scrollbar-thumb { background: #334155 !important; }
+
+/* ── Bootstrap alert (dark override) ── */
+html.night-mode .alert-success { background: #0a2416 !important; border-color: #166534 !important; color: #86efac !important; }
+html.night-mode .alert-danger { background: #2d0a0a !important; border-color: #991b1b !important; color: #fca5a5 !important; }
+html.night-mode .alert-warning { background: #1c1a0a !important; border-color: #854d0e !important; color: #fde68a !important; }
+
+/* ── is-valid / is-invalid ── */
+html.night-mode .form-control.is-valid { border-color: #10b981 !important; }
+html.night-mode .form-control.is-invalid { border-color: #ef4444 !important; }
+
+/* ── AI disclaimer bar ── */
+html.night-mode .ai-disclaimer { background: #0f172a !important; color: #64748b !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   야간 모드 - 페이지별 추가 오버라이드
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── AgendaPage / SessionsPage 공통 ── */
+html.night-mode .agenda-item { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .agenda-item.drag-over { background: #1e3a5f !important; border-color: #3b82f6 !important; }
+html.night-mode .ended-badge { background: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .dept-tag-chip { background: #0f172a !important; color: #94a3b8 !important; border-color: #334155 !important; }
+html.night-mode .date-with-wd { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .todo-status-wrap { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .todo-status-dropdown { background: #1e293b !important; border-color: #334155 !important; box-shadow: 0 4px 12px rgba(0,0,0,.4) !important; }
+html.night-mode .todo-status-opt:hover { background: #0f172a !important; }
+html.night-mode .dept-select { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .hitl-banner { background: #1e3a5f !important; border-color: #1d4ed8 !important; }
+html.night-mode .hitl-text { color: #93c5fd !important; }
+html.night-mode .warn-dialog { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .warn-title { color: #fbbf24 !important; }
+html.night-mode .drag-hint { background: #1e293b !important; border-color: #6366f1 !important; color: #a5b4fc !important; }
+html.night-mode .ms-section { border-color: #334155 !important; }
+html.night-mode .ms-section-title { background: #162032 !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .agenda-section-head,
+html.night-mode .ms-section-title { background: #162032 !important; color: #e2e8f0 !important; }
+
+/* ── MeetingHomePage ── */
+html.night-mode .mem-trigger-btn { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .member-dropdown { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .mem-edit-btn,
+html.night-mode .mem-export-btn { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .mem-edit-btn:hover,
+html.night-mode .mem-export-btn:hover { background: #0f172a !important; }
+html.night-mode .summary-card { background: #1e293b !important; }
+html.night-mode .summary-content :deep(h4) { color: #e2e8f0 !important; }
+html.night-mode .list-card { background: #1e293b !important; }
+
+/* ── SessionsPage (회의 진행) ── */
+html.night-mode .session-card { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .meeting-ctrl-bar { background: #1e293b !important; border-top-color: #334155 !important; }
+html.night-mode .ctrl-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .ctrl-btn:hover { background: #0f172a !important; border-color: #475569 !important; color: #e2e8f0 !important; }
+html.night-mode .ctrl-end { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .ctrl-end:hover { background: #2d0a0a !important; border-color: #fca5a5 !important; color: #ef4444 !important; }
+html.night-mode .ctrl-popover { background: #1e293b !important; border-color: #334155 !important; box-shadow: 0 8px 24px rgba(0,0,0,.5) !important; }
+html.night-mode .cpop-title { border-bottom-color: #334155 !important; color: #64748b !important; }
+html.night-mode .cpop-opt { color: #94a3b8 !important; }
+html.night-mode .cpop-opt:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .cpop-opt.selected { background: #1e3a5f !important; color: #60a5fa !important; }
+html.night-mode .cpop-label { color: #94a3b8 !important; }
+html.night-mode .minutes-tool-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .minutes-tool-btn:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .minutes-edit-area { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .minutes-edit-area:focus { border-color: #3b82f6 !important; }
+html.night-mode .ts-summary-box { background: #1e3a5f !important; border-color: #1d4ed8 !important; }
+html.night-mode .ts-summary-header { background: #1d4ed8 !important; color: #bfdbfe !important; }
+html.night-mode .ts-summary-body { color: #93c5fd !important; }
+html.night-mode .ms-att-role { background: #0f172a !important; color: #94a3b8 !important; }
+
+/* ── MeetingGroupsPage ── */
+html.night-mode .mg-page { background: #0f172a !important; }
+html.night-mode .mg-header { background: #0f172a !important; border-bottom-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .mg-card,
+html.night-mode .mg-item { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── OrganizationPage ── */
+html.night-mode .org-page { background: #0f172a !important; }
+html.night-mode .org-card,
+html.night-mode .org-item { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── PreparePage ── */
+html.night-mode .prepare-page { background: #0f172a !important; }
+html.night-mode .prepare-card,
+html.night-mode .upload-area { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── AllMinutesPage / AllReportsPage / PastMeetingsPage ── */
+html.night-mode .page-wrap { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .page-header { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .page-title { color: #e2e8f0 !important; }
+html.night-mode .page-subtitle { color: #94a3b8 !important; }
+
+/* ── TacitKnowledgePage ── */
+html.night-mode .am-page { background: #0f172a !important; color: #e2e8f0 !important; }
+
+/* ── SessionPage ── */
+html.night-mode .sp-layout { background: #0f172a !important; }
+html.night-mode .sp-left,
+html.night-mode .sp-right,
+html.night-mode .sp-main { background: #1e293b !important; border-color: #334155 !important; }
+
+/* ── LoginPage / RegisterPage 팝업 카드 ── */
+html.night-mode .popup-card { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .popup-card .form-input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+
+/* ── HyeanAgent 패널 ── */
+html.night-mode .hyean-panel,
+html.night-mode .hyean-body { background: #1e293b !important; border-color: #334155 !important; }
+
+/* ── 일반 컨테이너 (bg #fff/#f8fafc 패턴 catch-all) ── */
+html.night-mode .two-col > .col-panel { background: #0f172a !important; }
+html.night-mode .tab-body { background: #0f172a !important; }
+html.night-mode .right-panel-header { background: #1e293b !important; border-bottom-color: #334155 !important; }
+html.night-mode .panel-tab { color: #94a3b8 !important; }
+html.night-mode .panel-tab.active { color: #60a5fa !important; border-bottom-color: #60a5fa !important; }
+html.night-mode .tab-badge { background: #1e3a5f !important; color: #93c5fd !important; }
+
+/* ── 섹션 구분선 ── */
+html.night-mode .section-divider,
+html.night-mode .divider { background: #334155 !important; }
+
+/* ── empty-state ── */
+html.night-mode .empty-state { color: #64748b !important; }
+html.night-mode .empty-state svg { opacity: .4; }
+
+/* ── Bootstrap utility 오버라이드 ── */
+html.night-mode .bg-white { background: #1e293b !important; }
+html.night-mode .bg-light { background: #162032 !important; }
+html.night-mode .bg-white,
+html.night-mode .bg-light { color: #e2e8f0 !important; }
+html.night-mode .text-dark { color: #e2e8f0 !important; }
+html.night-mode .text-secondary { color: #94a3b8 !important; }
+html.night-mode .border { border-color: #334155 !important; }
+html.night-mode .border-bottom { border-bottom-color: #334155 !important; }
+html.night-mode .border-top { border-top-color: #334155 !important; }
+
+/* ── 입력 그룹 버튼 ── */
+html.night-mode .input-group-text { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ── select 태그 네이티브 옵션 ── */
+html.night-mode option { background: #1e293b !important; color: #e2e8f0 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   야간 모드 - OrganizationPage 전용
+   ═══════════════════════════════════════════════════════════ */
+html.night-mode .org-page { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .filter-bar { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .meeting-select,
+html.night-mode .form-select-sm,
+html.night-mode .form-input-sm {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.night-mode .form-select-sm:focus,
+html.night-mode .form-input-sm:focus { background: #0f172a !important; }
+html.night-mode .search-input { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .search-input:focus { background: #0f172a !important; border-color: #3b82f6 !important; }
+html.night-mode .icon-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .icon-btn:hover { background: #0f172a !important; }
+html.night-mode .role-chip { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .role-chip.active:not([style]) { background: #1e3a5f !important; color: #60a5fa !important; border-color: #1d4ed8 !important; }
+html.night-mode .table-wrap { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .member-table thead th { background: #162032 !important; color: #94a3b8 !important; border-color: #334155 !important; }
+html.night-mode .member-row:hover { background: #162032 !important; }
+html.night-mode .member-row td { border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .member-name-text { color: #e2e8f0 !important; }
+html.night-mode .cell-muted { color: #94a3b8 !important; }
+html.night-mode .cell-meeting { color: #64748b !important; }
+html.night-mode .act-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .act-btn:hover { background: #1e3a5f !important; border-color: var(--primary) !important; color: #60a5fa !important; }
+html.night-mode .modal-box { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .modal-header { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .modal-title { color: #e2e8f0 !important; }
+html.night-mode .modal-footer { border-color: #334155 !important; background: #1e293b !important; }
+html.night-mode .modal-field label,
+html.night-mode .form-label { color: #94a3b8 !important; }
+html.night-mode .modal-input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .modal-input:focus { border-color: #3b82f6 !important; }
+html.night-mode .modal-select { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .dropdown-results { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .dropdown-item-result { color: #e2e8f0 !important; border-color: #334155 !important; }
+html.night-mode .dropdown-item-result:hover { background: #0f172a !important; }
+html.night-mode .edit-member-info { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .btn-cancel { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   야간 모드 - MeetingGroupsPage 전용
+   ═══════════════════════════════════════════════════════════ */
+html.night-mode .mg-page { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .mg-header { background: #0f172a !important; border-color: #334155 !important; }
+html.night-mode .mg-search { background: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .mg-search:focus { border-color: #3b82f6 !important; }
+html.night-mode .mg-count-badge { background: #1e293b !important; color: #94a3b8 !important; }
+html.night-mode .mg-body { background: #0f172a !important; }
+html.night-mode .mg-group { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .mg-group-header:hover { background: #162032 !important; }
+html.night-mode .mg-group-title { color: #e2e8f0 !important; }
+html.night-mode .mg-member-count { background: #1e3a5f !important; color: #93c5fd !important; }
+html.night-mode .mg-member-wrap { border-color: #334155 !important; }
+html.night-mode .mg-table thead tr { background: #162032 !important; }
+html.night-mode .mg-table th { color: #94a3b8 !important; border-color: #334155 !important; }
+html.night-mode .mg-table td { border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .mg-table tbody tr:hover { background: #162032 !important; }
+html.night-mode .mg-name { color: #e2e8f0 !important; }
+html.night-mode .mg-role-select { color: #e2e8f0 !important; }
+html.night-mode .mg-add-btn { background: #1e3a5f !important; color: #93c5fd !important; border-color: #1d4ed8 !important; }
+html.night-mode .mg-add-btn:hover { background: var(--primary) !important; color: #fff !important; }
+/* MeetingGroupsPage 모달 */
+html.night-mode .modal-box { background: #1e293b !important; }
+html.night-mode .modal-title { color: #e2e8f0 !important; }
+html.night-mode .modal-close { color: #94a3b8 !important; }
+html.night-mode .modal-field label { color: #94a3b8 !important; }
+html.night-mode .btn-cancel { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   야간 모드 - SessionPage (회의록 뷰어) 전용
+   ═══════════════════════════════════════════════════════════ */
+html.night-mode .sp-layout { background: #0f172a !important; }
+html.night-mode .sp-sidebar { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .sp-sidebar-header { border-color: #334155 !important; }
+html.night-mode .sp-sidebar-title { color: #64748b !important; }
+html.night-mode .sp-mtg-group { border-color: #334155 !important; }
+html.night-mode .sp-mtg-header:hover,
+html.night-mode .sp-mtg-header.expanded { background: #162032 !important; }
+html.night-mode .sp-mtg-title { color: #94a3b8 !important; }
+html.night-mode .sp-session-list { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .sp-session-item:hover,
+html.night-mode .sp-session-item.active { background: #1e3a5f !important; }
+html.night-mode .sp-session-name { color: #cbd5e1 !important; }
+html.night-mode .sp-main { background: #0f172a !important; }
+html.night-mode .sp-panel-header { border-color: #334155 !important; background: #1e293b !important; }
+html.night-mode .sp-panel-title { color: #e2e8f0 !important; }
+html.night-mode .sp-tabs { background: #0f172a !important; }
+html.night-mode .sp-tab { color: #94a3b8 !important; }
+html.night-mode .sp-tab.active { background: #1e293b !important; color: #60a5fa !important; box-shadow: 0 1px 3px rgba(0,0,0,.3) !important; }
+html.night-mode .sp-tab-body { background: #1e293b !important; }
+html.night-mode .tline-text { color: #cbd5e1 !important; }
+html.night-mode .ts-summary-box { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .ts-summary-header { background: #162032 !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .ts-summary-body { color: #94a3b8 !important; }
+html.night-mode .minutes-tool-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .minutes-tool-btn:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .minutes-edit-area { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .minutes-md { color: #e2e8f0 !important; }
+html.night-mode .sp-ctrl-bar { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .ctrl-btn { background: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .ctrl-btn:hover,
+html.night-mode .ctrl-active { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #60a5fa !important; }
+html.night-mode .ctrl-popover { background: #1e293b !important; border-color: #334155 !important; box-shadow: 0 8px 24px rgba(0,0,0,.5) !important; }
+html.night-mode .cpop-opt:hover { background: #0f172a !important; }
+html.night-mode .cpop-label { color: #64748b !important; }
+html.night-mode .sp-agent-panel { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .sp-agent-header { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .sp-agent-name { color: #fbbf24 !important; }
+html.night-mode .sp-agent-sub { color: #92400e !important; }
+html.night-mode .sp-bubble.agent { background: #1c1a0a !important; border-color: #854d0e !important; color: #fde68a !important; }
+html.night-mode .sp-ara-textarea { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .minutes-upload-row { border-color: #334155 !important; }
+html.night-mode .uploaded-item { background: #1e3a5f !important; border-color: #1d4ed8 !important; }
+html.night-mode .uploaded-name { color: #93c5fd !important; }
+html.night-mode .uploaded-meta { color: #60a5fa !important; }
+
+/* ══════════════════════════════════════════
+   MeetingNav 야간 모드
+   ══════════════════════════════════════════ */
+html.night-mode .meeting-nav { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .tab-item.inactive:hover,
+html.night-mode .tab-item.prev:hover,
+html.night-mode .tab-item.next:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .home-btn:hover { background: #0f172a !important; color: #e2e8f0 !important; }
+html.night-mode .leave-btn:hover { background: #3f1111 !important; color: #fca5a5 !important; }
+html.night-mode .btn-nav-end { color: #94a3b8 !important; border-color: #334155 !important; }
+
+/* ══════════════════════════════════════════
+   AgentPanel 야간 모드
+   ══════════════════════════════════════════ */
+html.night-mode .agent-panel { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .ap-header { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .ap-bubble { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .ap-bubble-agent { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .ap-bubble-user { background: #1d4ed8 !important; color: #fff !important; }
+html.night-mode .ap-input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .ap-input-wrap { background: #0f172a !important; border-color: #334155 !important; }
+html.night-mode .ap-input-area { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .ap-file-chip { background: #162032 !important; border-color: #334155 !important; color: #93c5fd !important; }
+html.night-mode .ap-attach-btn { background: #0f172a !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .ap-attach-btn:hover:not(:disabled) { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #60a5fa !important; }
+html.night-mode .ap-drag-overlay { background: rgba(99,102,241,.15) !important; }
+html.night-mode .ap-drag-hint { background: #1e293b !important; border-color: #6366f1 !important; color: #a5b4fc !important; }
+html.night-mode .ap-messages { background: #162032 !important; }
+html.night-mode .ap-inline-quick { background: transparent !important; }
+html.night-mode .ap-inline-btn { background: rgba(255,255,255,.08) !important; border-color: #4f46e5 !important; color: #a5b4fc !important; }
+html.night-mode .ap-inline-btn:hover:not(:disabled) { background: rgba(255,255,255,.15) !important; }
+
+/* ══════════════════════════════════════════
+   HyeanAgent 야간 모드
+   ══════════════════════════════════════════ */
+html.night-mode .hyean-panel { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .panel-header { background: #162032 !important; border-color: #334155 !important; }
+html.night-mode .panel-body { background: #1e293b !important; }
+html.night-mode .chat-bubble.agent { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .chat-bubble.user { background: #1d4ed8 !important; color: #fff !important; }
+html.night-mode .chat-input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }
+html.night-mode .chat-input-area { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .chat-attach-btn { background: #0f172a !important; border-color: #334155 !important; color: #94a3b8 !important; }
+html.night-mode .chat-attach-btn:hover:not(:disabled) { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #60a5fa !important; }
+html.night-mode .chat-file-chip { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #93c5fd !important; }
+html.night-mode .chat-messages { background: #162032 !important; }
+html.night-mode .hy-new-chat-btn:hover { background: #1e3a5f !important; border-color: #3b82f6 !important; color: #60a5fa !important; }
+html.night-mode .hy-drag-hint { background: #1e293b !important; border-color: #6366f1 !important; color: #a5b4fc !important; }
+html.night-mode .hy-inline-btn { background: rgba(255,255,255,.08) !important; border-color: #4f46e5 !important; color: #a5b4fc !important; }
+html.night-mode .hy-inline-btn:hover:not(:disabled) { background: rgba(255,255,255,.15) !important; }
+html.night-mode .resize-handle:hover { background: #1e3a5f !important; color: var(--primary) !important; }
+html.night-mode .mem-card { background: #0f172a !important; border-color: #334155 !important; }
+html.night-mode .mem-title { color: #e2e8f0 !important; }
+html.night-mode .mem-content { color: #94a3b8 !important; }
+html.night-mode .act-btn.del:hover { background: #3f1111 !important; }
+html.night-mode .mem-add-btn:hover { background: #2e1065 !important; }
+html.night-mode .mem-status-bar.refreshing { background: #2e1065 !important; color: #a78bfa !important; }
+html.night-mode .mem-status-bar.done { background: #052e16 !important; color: #4ade80 !important; }
+html.night-mode .mem-toolbar { background: #1e293b !important; border-color: #334155 !important; }
+html.night-mode .mem-scroll { background: #162032 !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   공유 UI 컴포넌트 (Shared UI Components)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── App Select: compact dropdown with custom arrow ── */
+.app-select { font-size:11px;appearance:none;-webkit-appearance:none;background:#f1f5f9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 6px center;background-size:8px 5px;border:1px solid #e2e8f0;border-radius:6px;color:#475569;padding:4px 22px 4px 8px;cursor:pointer;outline:none;flex-shrink:0; }
+.app-select:focus { border-color:rgba(96,165,250,.5); }
+.app-select option { background:#fff;color:#1e293b; }
+.day-mode .app-select { background:#f1f5f9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 6px center;background-size:8px 5px;border-color:#e2e8f0;color:#475569; }
+.day-mode .app-select option { background:#fff;color:#1e293b; }
+html.night-mode .app-select { background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 6px center !important;background-size:8px 5px !important;border-color:rgba(255,255,255,.1) !important;color:#94a3b8 !important; }
+html.night-mode .app-select option { background:#1e293b !important;color:#f1f5f9 !important; }
+
+/* ── App Tabs: pill toggle buttons ── */
+.app-tabs { display:flex;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:2px;gap:2px;flex-shrink:0; }
+.app-tab { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.app-tab:hover { color:#475569; }
+.app-tab.active { background:#fff;color:#2563eb;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:1px 6px; }
+.app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
+.day-mode .app-tabs { background:#fff;border-color:#e2e8f0; }
+.day-mode .app-tab { color:#94a3b8; }
+.day-mode .app-tab.active { background:#eff6ff;color:#2563eb;box-shadow:none; }
+.day-mode .app-tab-badge { background:rgba(0,0,0,.06); }
+.day-mode .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
+html.night-mode .app-tabs { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.1) !important; }
+html.night-mode .app-tab { color:#64748b !important; }
+html.night-mode .app-tab:hover { color:#94a3b8 !important; }
+html.night-mode .app-tab.active { background:rgba(96,165,250,.2) !important;color:#93c5fd !important;box-shadow:none !important; }
+html.night-mode .app-tab-badge { background:rgba(255,255,255,.1) !important; }
+html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2) !important; }
+
+/* ── App Modal ── */
+.app-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
+.app-modal { background:#fff;border-radius:16px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden; }
+.app-modal-sm { width:420px; }
+.app-modal-md { width:480px; }
+.app-modal-lg { width:520px; }
+.app-modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-title { font-size:15px;font-weight:700;color:#1e293b; }
+.app-modal-close { width:28px;height:28px;border-radius:7px;border:none;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
+.app-modal-close:hover { background:#e2e8f0;color:#1e293b; }
+.app-modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:72vh; }
+.app-modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-field { display:flex;flex-direction:column;gap:5px; }
+.app-modal-field label { font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.04em; }
+.app-modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+.app-modal-input { padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;background:#f8fafc;outline:none;width:100%;box-sizing:border-box;font-family:inherit;color:#1e293b; }
+.app-modal-input:focus { border-color:rgba(96,165,250,.6); }
+textarea.app-modal-input { resize:vertical;min-height:64px; }
+select.app-modal-input { appearance:none;-webkit-appearance:none;background:#f8fafc url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E") no-repeat right 10px center;background-size:10px 6px;padding-right:28px;cursor:pointer; }
+.app-btn-cancel { padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;transition:all .15s; }
+.app-btn-cancel:hover { background:#f1f5f9; }
+.app-btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.app-btn-primary:hover { opacity:.85; }
+.app-btn-primary:disabled { opacity:.4;cursor:not-allowed; }
+/* dark variant (explicit class, used by MeetingGroupsPage & ArchivePage) */
+.app-modal.dark { background:#1e293b;border-color:rgba(255,255,255,.1);box-shadow:0 24px 64px rgba(0,0,0,.4); }
+.app-modal.dark .app-modal-header { border-bottom-color:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-title { color:#f1f5f9; }
+.app-modal.dark .app-modal-close { background:rgba(255,255,255,.07);color:#64748b; }
+.app-modal.dark .app-modal-close:hover { background:rgba(255,255,255,.12);color:#94a3b8; }
+.app-modal.dark .app-modal-footer { border-top-color:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-field label { color:#64748b; }
+.app-modal.dark .app-modal-input { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#f1f5f9; }
+.app-modal.dark .app-modal-input:focus { border-color:rgba(96,165,250,.5);background:rgba(255,255,255,.08); }
+.app-modal.dark .app-modal-input::placeholder { color:#334155; }
+.app-modal.dark select.app-modal-input { background-color:rgba(255,255,255,.06);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:10px 6px; }
+.app-modal.dark .app-btn-cancel { background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:#94a3b8; }
+.app-modal.dark .app-btn-cancel:hover { background:rgba(255,255,255,.1); }
+/* night-mode for pages without explicit dark class (SessionPage, OrganizationPage) */
+html.night-mode .app-modal { background:#1e293b !important;border-color:rgba(255,255,255,.1) !important;box-shadow:0 24px 64px rgba(0,0,0,.4) !important; }
+html.night-mode .app-modal-header { border-bottom-color:rgba(255,255,255,.08) !important; }
+html.night-mode .app-modal-title { color:#f1f5f9 !important; }
+html.night-mode .app-modal-close { background:rgba(255,255,255,.07) !important;color:#64748b !important; }
+html.night-mode .app-modal-close:hover { background:rgba(255,255,255,.12) !important;color:#94a3b8 !important; }
+html.night-mode .app-modal-footer { border-top-color:rgba(255,255,255,.08) !important; }
+html.night-mode .app-modal-field label { color:#64748b !important; }
+html.night-mode .app-modal-input { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.12) !important;color:#f1f5f9 !important; }
+html.night-mode .app-modal-input:focus { border-color:rgba(96,165,250,.5) !important; }
+html.night-mode .app-modal-input::placeholder { color:#334155 !important; }
+html.night-mode select.app-modal-input { background-color:rgba(255,255,255,.06) !important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") !important;background-repeat:no-repeat !important;background-position:right 10px center !important;background-size:10px 6px !important; }
+html.night-mode .app-btn-cancel { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.12) !important;color:#94a3b8 !important; }
+html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !important; }

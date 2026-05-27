@@ -10,7 +10,30 @@
       "Bash(curl -s -X POST http://localhost:8000/api/auth/register -H \"Content-Type: application/json\" -d '{\"name\":\"테스트 관리자\",\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
       "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
       "Bash(curl -sv -X POST http://localhost:8000/api/auth/register -H 'Content-Type: application/json' -d '{\"name\":\"테스트 관리자\",\"employee_id\":\"admin001\",\"password\":\"password123\"}')",
-      "Bash(pkill -f \"uvicorn main:app\")"
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(git -C /Users/als7928/Workspace/codes/Workmaite status --short)",
+      "Bash(sed *)",
+      "Bash(PGPASSWORD=team9postgres1234 psql *)",
+      "Bash(xargs cat)",
+      "Bash(xargs ls -la)",
+      "Bash(./gradlew compileJava)",
+      "Bash(curl -s http://localhost:8000/openapi.json)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(sorted\\(d['paths'].keys\\(\\)\\)\\)\\)\")",
+      "Bash(kill 43256)",
+      "Bash(nohup python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(p\\) for p in sorted\\(d['paths'].keys\\(\\)\\) if 'sync' in p]\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X POST http://localhost:8000/api/sync/all -H 'Authorization: Bearer __TRACKED_VAR__')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:8000/api/sync/logs?limit=10 -H 'Authorization: Bearer __TRACKED_VAR__')",
+      "Bash(curl -s http://localhost:8000/api/neo4j/archive -H 'Authorization: Bearer __TRACKED_VAR__')",
+      "Bash(python3 -m py_compile /Users/als7928/Workspace/codes/Workmaite/backend/ai/routers/neo4j_graph.py)",
+      "Bash(curl -s -u neo4j:neo4j http://localhost:7474/db/neo4j/tx/commit -X POST -H \"Content-Type: application/json\" -d '{\"statements\":[{\"statement\":\"RETURN 1\"}]}')",
+      "Bash(curl *)",
+      "Bash(python3 *)",
+      "Bash(kill 81493)",
+      "Bash(nohup ./gradlew bootRun)"
     ]
   }
 }

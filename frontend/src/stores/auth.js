@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import api from '../api'
 
 function safeParseUser() {
@@ -11,8 +11,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(safeParseUser())
   const token = ref(localStorage.getItem('token') || '')
 
-  async function login(email, password) {
-    const { data } = await api.post('/api/v1/auth/login', { email, password })
+  async function login(employee_id, password) {
+    const { data } = await api.post('/api/v1/auth/login', { email: employee_id, password })
     token.value = data.accessToken
     user.value = data.user
     localStorage.setItem('token', data.accessToken)
@@ -20,17 +20,21 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loginWithEmail(email, password) {
-    return login(email, password)
+    const { data } = await api.post('/api/v1/auth/login', { email, password })
+    token.value = data.accessToken
+    user.value = data.user
+    localStorage.setItem('token', data.accessToken)
+    localStorage.setItem('user', JSON.stringify(data.user))
   }
 
   async function register(form) {
     await api.post('/api/v1/auth/signup', form)
   }
 
-  async function updateProfile(data) {
-    const { data: updated } = await api.patch('/api/v1/users/me', data)
-    user.value = updated
-    localStorage.setItem('user', JSON.stringify(updated))
+  async function updateProfile(payload) {
+    const { data } = await api.patch('/api/v1/users/me', payload)
+    user.value = data
+    localStorage.setItem('user', JSON.stringify(data))
   }
 
   function logout() {
@@ -40,5 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  return { user, token, login, loginWithEmail, register, updateProfile, logout }
+  const isStrategicTeam = computed(() => (user.value?.department || '').trim() === '전략기획팀')
+
+  return { user, token, isStrategicTeam, login, loginWithEmail, register, updateProfile, logout }
 })
