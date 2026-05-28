@@ -408,7 +408,7 @@ async function saveProfileSettings() {
               <!-- 이메일 (readonly) -->
               <div class="ps-field">
                 <label class="ps-label">이메일 <span class="ps-readonly-tag">변경 불가</span></label>
-                <input :value="auth.user?.employee_id" class="form-control" readonly style="background:#f8fafc;color:#94a3b8" />
+                <input :value="auth.user?.email" class="form-control" readonly style="background:#f8fafc;color:#94a3b8" />
               </div>
               <!-- 비밀번호 -->
               <div class="ps-divider">비밀번호 변경</div>
