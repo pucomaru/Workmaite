@@ -18,7 +18,7 @@ lib/
 lib64/
 .venv/
 venv/
-env/
+.env/
 ENV/
 
 # FastAPI / Uvicorn
@@ -42,7 +42,7 @@ vite.config.ts.timestamp-*
 # Environment variables
 .env
 .env.*
-!.env.example
+.env.example
 
 # Database
 *.db

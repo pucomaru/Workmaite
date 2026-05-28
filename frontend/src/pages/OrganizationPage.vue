@@ -25,7 +25,8 @@ const allMembers = ref([])
 const loadingMembers = ref(false)
 
 const showAddModal = ref(false)
-const addForm = ref({ name: '', email: '', organization: '', department: '', position: '' })
+const addForm = ref({ name: '', email: '', company: '', department: '', position: '' })
+const addError = ref('')
 
 const editModal = ref(null)  // { ...member }
 
@@ -77,25 +78,32 @@ onMounted(async () => {
 })
 
 function openAddModal() {
-  addForm.value = { name: '', email: '', organization: '', department: '', position: '' }
+  addForm.value = { name: '', email: '', company: '', department: '', position: '' }
+  addError.value = ''
   showAddModal.value = true
 }
 
 async function submitAdd() {
   if (!addForm.value.name.trim()) return
-  // Add as a local custom member (no API user account)
-  const newMember = {
-    id: 'custom_' + Date.now(),
-    name: addForm.value.name,
-    email: addForm.value.email,
-    organization: addForm.value.organization,
-    department: addForm.value.department,
-    position: addForm.value.position,
-    meetings: [],
-    isCustom: true,
+  addError.value = ''
+  if (!addForm.value.email.trim()) {
+    addError.value = '이메일을 입력해주세요.'
+    return
   }
-  allMembers.value = [newMember, ...allMembers.value]
-  showAddModal.value = false
+  try {
+    await api.post('/api/v1/auth/signup', {
+      name: addForm.value.name,
+      email: addForm.value.email,
+      company: addForm.value.company || null,
+      department: addForm.value.department || null,
+      position: addForm.value.position || null,
+      password: 'qwer1234',
+    })
+    await fetchAllMembers()
+    showAddModal.value = false
+  } catch (e) {
+    addError.value = e.response?.data?.message || '등록에 실패했습니다.'
+  }
 }
 
 async function removeMember(member) {
@@ -172,6 +180,8 @@ function handleCSVFile(e) {
   e.target.value = ''
 }
 
+const csvImportResult = ref(null)
+
 function parseCSVLine(line) {
   const result = []
   let cur = '', inQuote = false
@@ -198,7 +208,7 @@ const CSV_HEADER_MAP = {
   '직책': 'position', 'position': 'position',
 }
 
-function parseAndImportCSV(text) {
+async function parseAndImportCSV(text) {
   // BOM 제거
   const content = text.replace(/^\uFEFF/, '')
   const lines = content.split(/\r?\n/).filter(l => l.trim())
@@ -213,30 +223,51 @@ function parseAndImportCSV(text) {
   }
 
   const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))
-  const newMembers = []
-  const skipped = []
+  const skippedNoEmail = []
+  const skippedDuplicate = []
+  const succeeded = []
+  const failed = []
 
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i])
     const obj = {}
     fieldKeys.forEach((key, idx) => { if (key) obj[key] = cols[idx] || '' })
     if (!obj.name) continue
-    const email = (obj.email || '').toLowerCase()
-    if (email && existingEmails.has(email)) { skipped.push(obj.name); continue }
-    if (email) existingEmails.add(email)
-    newMembers.push({
-      id: 'csv_' + Date.now() + '_' + i,
-      name: obj.name,
-      email: obj.email || '',
-      organization: obj.organization || '',
-      department: obj.department || '',
-      position: obj.position || '',
-      meetings: [],
-      isCustom: true,
-    })
+
+    if (!obj.email) {
+      skippedNoEmail.push(obj.name)
+      continue
+    }
+
+    const emailLower = obj.email.toLowerCase()
+    if (existingEmails.has(emailLower)) {
+      skippedDuplicate.push(obj.name)
+      continue
+    }
+
+    try {
+      await api.post('/api/v1/auth/signup', {
+        name: obj.name,
+        email: obj.email,
+        company: obj.organization || null,
+        department: obj.department || null,
+        position: obj.position || null,
+        password: 'qwer1234',
+      })
+      existingEmails.add(emailLower)
+      succeeded.push(obj.name)
+    } catch {
+      failed.push(obj.name)
+    }
   }
 
-  allMembers.value = [...newMembers, ...allMembers.value]
+  await fetchAllMembers()
+
+  const resultLines = [`${succeeded.length}명 등록 완료`]
+  if (skippedNoEmail.length) resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
+  if (skippedDuplicate.length) resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
+  if (failed.length) resultLines.push(`등록 실패 (${failed.length}명): ${failed.join(', ')}`)
+  csvImportResult.value = resultLines.join('\n')
 }
 
 // Each user from /api/users/all is already unique – no grouping needed
@@ -403,8 +434,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             <!-- Organization & Department -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>조직명</label>
-                <input v-model="addForm.organization" class="app-modal-input" placeholder="예: 워크메이트" />
+                <label>회사명</label>
+                <input v-model="addForm.company" class="app-modal-input" placeholder="예: 워크메이트" />
               </div>
               <div class="app-modal-field">
                 <label>부서명</label>
@@ -418,10 +449,27 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <input v-model="addForm.position" class="app-modal-input" placeholder="예: 팀장" />
               </div>
             </div>
+            <div v-if="addError" style="color:#ef4444;font-size:13px;margin-top:8px">{{ addError }}</div>
           </div>
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showAddModal = false">취소</button>
             <button class="app-btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">추가</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CSV 가져오기 결과 모달 -->
+      <div v-if="csvImportResult" class="app-modal-backdrop" @click.self="csvImportResult = null">
+        <div class="app-modal app-modal-sm">
+          <div class="app-modal-header">
+            <span class="app-modal-title">CSV 가져오기 결과</span>
+            <button class="app-modal-close" @click="csvImportResult = null">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="app-modal-body" style="white-space:pre-line;font-size:14px;line-height:1.8">{{ csvImportResult }}</div>
+          <div class="app-modal-footer">
+            <button class="app-btn-primary" @click="csvImportResult = null">확인</button>
           </div>
         </div>
       </div>
