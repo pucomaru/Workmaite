@@ -18,7 +18,7 @@ async function submit() {
     await auth.loginWithEmail(form.value.email, form.value.password)
     router.push('/')
   } catch (e) {
-    error.value = e.response?.data?.message || e.message || '이메일 또는 비밀번호가 올바르지 않습니다.'
+    error.value = e.message?.includes('서버') ? e.message : (e.response?.data?.detail || e.response?.data?.message || '이메일 또는 비밀번호가 올바르지 않습니다.')
   } finally {
     loading.value = false
   }
@@ -86,7 +86,7 @@ async function submit() {
       <hr class="my-3" />
       <div class="text-center small text-muted">
         계정이 없으신가요?
-        <router-link to="/register" class="fw-semibold" style="color:var(--accent)">회원가입</router-link>
+        <router-link to="/landing" class="fw-semibold" style="color:var(--accent)">회원가입</router-link>
       </div>
     </div>
   </div>
