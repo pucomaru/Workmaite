@@ -82,4 +82,4 @@ docker-compose.override.yml
 *.tmp
 *.orig
 *.pdf
-**/.gradle/
+.gradle/
