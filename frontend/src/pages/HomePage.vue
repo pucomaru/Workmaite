@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
-import api, { apiAI } from '../api'
+import api from '../api'
 
 import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
@@ -162,30 +162,30 @@ async function hydrateMeetingMeta() {
   const entries = await Promise.all(
     active.map(async (m) => {
       try {
-        const [membersRes, todosRes] = await Promise.all([
+        const [membersRes, agendasRes] = await Promise.all([
           api.get(`/api/v1/meetings/${m.id}/members`),
-          apiAI.get(`/api/meetings/${m.id}/todos`),
+          api.get(`/api/v1/meetings/${m.id}/agendas`),
         ])
 
         const members = membersRes.data || []
-        const todos = todosRes.data || []
+        const agendas = agendasRes.data || []
 
         const admin = members.find(mm => mm.role === 'admin')
         const owner_name = admin?.user?.name || admin?.user_name || '-'
 
-        const openTodos = todos
-          .filter(t => t.status !== 'done')
+        const openAgendas = agendas
+          .filter(a => a.status !== 'done')
           .sort((a, b) => {
             const da = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
             const db = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
             return da - db
           })
 
-        const topTodo = openTodos[0]
+        const topAgenda = openAgendas[0]
         return [m.id, {
           owner_name,
-          due_date: topTodo?.due_date || null,
-          priority: topTodo?.priority || 'normal',
+          due_date: topAgenda?.due_date || null,
+          priority: topAgenda?.priority || 'normal',
         }]
       } catch {
         return [m.id, { owner_name: '-', due_date: null, priority: 'normal' }]
