@@ -7,8 +7,10 @@ export const useNotificationsStore = defineStore('notifications', () => {
   const unreadCount = computed(() => notifications.value.filter(n => !n.is_read).length)
 
   async function fetch() {
-    const { data } = await apiAI.get('/api/notifications')
-    notifications.value = data
+    try {
+      const { data } = await apiAI.get('/api/notifications')
+      notifications.value = data
+    } catch {}
   }
 
   async function markRead(id) {

@@ -17,7 +17,7 @@ const meetingsStore = useMeetingsStore()
 const ws = ref(null)
 
 onMounted(async () => {
-  await notifStore.fetch()
+  try { await notifStore.fetch() } catch {}
   await meetingsStore.fetchMeetings()
   connectNotifWs()
 })
