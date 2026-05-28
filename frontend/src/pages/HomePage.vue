@@ -139,7 +139,13 @@ onMounted(async () => {
   await meetingsStore.fetchMeetings()
   try {
     const calRes = await api.get('/api/v1/home/calendar', { params: { view: 'month', date: new Date().toISOString().slice(0, 10) } })
-    calendarEvents.value = calRes.data
+    calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
+      ...s,
+      id: s.sessionId,
+      type: 'session',
+      date: s.scheduledAt?.slice(0, 10),
+      meeting_title: s.meetingTitle,
+    }))
   } catch {}
 
   await hydrateMeetingMeta()
