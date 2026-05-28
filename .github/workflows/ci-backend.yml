@@ -51,4 +51,5 @@ jobs:
           git config user.email "github-actions@github.com"
           git add k8s/backend.yaml
           git commit -m "ci: update backend image tag to ${{ env.IMAGE_TAG }}"
+          git pull --rebase origin develop
           git push origin develop
