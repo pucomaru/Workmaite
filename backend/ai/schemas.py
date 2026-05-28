@@ -102,6 +102,22 @@ class AgendaOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# SttSegment
+class SttSegmentOut(BaseModel):
+    id: int
+    session_id: int
+    speaker_label: str
+    speaker_user_id: Optional[int] = None
+    speaker_name: Optional[str] = None
+    content: str
+    start_sec: float
+    end_sec: float
+    confidence: Optional[float] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # Todo
 class TodoCreate(BaseModel):
     content: str
@@ -227,6 +243,10 @@ LoopOut.model_rebuild()
 
 
 # Minutes
+class MinutesSave(BaseModel):
+    content_summary: str
+
+
 class MinutesOut(BaseModel):
     id: int
     session_id: int

@@ -123,6 +123,95 @@ async def ara_sessions_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+@router.post("/ara/generate-minutes")
+async def ara_generate_minutes(
+    data: schemas.AgentChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """STT 대화 기록을 받아 구조화된 회의록을 스트리밍으로 생성."""
+    import os as _os
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    transcript = data.message or ""
+    meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
+    agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
+    agenda_text = "\n".join([f"- {a.title} ({a.status})" for a in agendas]) or "없음"
+
+    from datetime import datetime
+    now = datetime.now().strftime("%Y년 %m월 %d일")
+
+    system_prompt = f"""당신은 전문 회의록 작성 AI입니다.
+제공된 STT 대화 기록을 분석해 실무에서 바로 활용 가능한 고품질 회의록을 작성합니다.
+
+회의 정보:
+{meeting_context}
+
+등록된 안건:
+{agenda_text}
+
+회의록 작성 원칙:
+1. 발언 내용을 그대로 옮기지 말고, 핵심 의미를 추출해 재구성하세요.
+2. 발언자별 주요 발언을 정확히 귀속시키세요.
+3. 결정 사항은 "~로 결정", "~하기로 합의" 등 명확한 표현을 사용하세요.
+4. 액션 아이템은 반드시 담당자, 내용, 기한을 포함하세요.
+5. 수치, 날짜, 고유명사는 정확하게 기재하세요.
+6. 아래 형식을 반드시 따르세요."""
+
+    user_prompt = f"""다음 STT 대화 기록으로 회의록을 작성해주세요.
+
+---
+{transcript}
+---
+
+아래 형식으로 작성하세요:
+
+# 회의록
+
+**일시:** {now}
+**참석자:** (대화 기록에서 발언자 추출)
+
+---
+
+## 1. 회의 목적 및 배경
+(이 회의가 왜 열렸는지, 무엇을 논의하기 위한 자리인지 2-3문장으로)
+
+## 2. 안건별 주요 논의
+(각 주제마다 소제목(###)을 붙이고, 누가 말했냐가 아닌 어떤 내용이 논의됐고 어떤 방향으로 흘렀는지 흐름 중심으로 서술. 핵심 수치나 쟁점은 bullet point로 강조)
+
+## 3. 결정 사항
+(회의에서 확정된 내용. 각 항목에 결정 배경도 한 줄 포함)
+- **[결정 내용]** - 배경: ~
+
+## 4. 액션 아이템
+(담당자가 해야 할 일)
+| 담당자 | 내용 | 기한 |
+|--------|------|------|
+
+## 5. 보류 및 추가 검토 사항
+(이번 회의에서 결론 내지 못한 항목)
+
+## 6. 다음 회의 안건
+(이번 논의에서 도출된 다음 회의 주제)"""
+
+    llm = ChatOpenAI(
+        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        temperature=0.2,
+        api_key=_os.getenv("OPENAI_API_KEY"),
+        streaming=True,
+    )
+
+    async def stream():
+        async for chunk in llm.astream([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]):
+            text = chunk.content
+            if text:
+                yield f"data: {text.replace(chr(10), chr(92)+chr(110))}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 # ─── 혜안 Agent ───────────────────────────────
 @router.post("/hyean/status")
 async def hyean_status(
