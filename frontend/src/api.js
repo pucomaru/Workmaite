@@ -1,10 +1,12 @@
 import axios from 'axios'
 
 // SpringBoot (8080) — 인증/CRUD 전담
-export const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+// 로컬: VITE_API_URL=http://localhost:8080, k8s: 미설정(상대경로, Ingress가 /api 라우팅)
+export const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 // FastAPI (8000) — AI 에이전트/알림/채팅 전담
-export const AI_BASE_URL = import.meta.env.VITE_AI_URL || 'http://localhost:8000'
+// 로컬: VITE_AI_URL=http://localhost:8000, k8s: 미설정(상대경로, Ingress가 /ai 라우팅)
+export const AI_BASE_URL = import.meta.env.VITE_AI_URL ?? ''
 
 /** AI 서버 WebSocket URL 변환 */
 export function toWsUrl(path) {
