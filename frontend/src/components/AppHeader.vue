@@ -132,7 +132,7 @@ function logout() {
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
 const showProfileSettings = ref(false)
-const profileForm = ref({ name: '', organization: '', department: '', position: '', password: '', passwordConfirm: '' })
+const profileForm = ref({ name: '', company: '', department: '', position: '', password: '', passwordConfirm: '' })
 const profileSaving = ref(false)
 const profileMsg = ref('')
 const showNewPw = ref(false)
@@ -141,7 +141,7 @@ const showConfirmPw = ref(false)
 function openProfileSettings() {
   profileForm.value = {
     name: auth.user?.name || '',
-    organization: auth.user?.organization || '',
+    company: auth.user?.company || '',
     department: auth.user?.department || '',
     position: auth.user?.position || '',
     password: '',
@@ -163,14 +163,14 @@ async function saveProfileSettings() {
     const payload = {
       name: profileForm.value.name,
       department: profileForm.value.department || null,
-      organization: profileForm.value.organization || null,
+      company: profileForm.value.company || null,
       position: profileForm.value.position || null,
     }
     if (profileForm.value.password) payload.password = profileForm.value.password
     await auth.updateProfile(payload)
-    profileMsg.value = 'ok:저장되었습니다.'
     profileForm.value.password = ''
     profileForm.value.passwordConfirm = ''
+    showProfileSettings.value = false
   } catch (e) {
     profileMsg.value = 'error:' + (e.response?.data?.detail || '저장에 실패했습니다.')
   } finally {
@@ -390,10 +390,10 @@ async function saveProfileSettings() {
                 <label class="ps-label">이름</label>
                 <input v-model="profileForm.name" class="form-control" placeholder="홍길동" />
               </div>
-              <!-- 조직 -->
+              <!-- 회사명 -->
               <div class="ps-field">
-                <label class="ps-label">조직</label>
-                <input v-model="profileForm.organization" class="form-control" placeholder="-" />
+                <label class="ps-label">회사명</label>
+                <input v-model="profileForm.company" class="form-control" placeholder="-" />
               </div>
               <!-- 부서 -->
               <div class="ps-field">
