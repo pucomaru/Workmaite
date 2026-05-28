@@ -34,6 +34,12 @@ spec:
               value: "team9postgres1234"
             - name: AI_URL
               value: "http://workmaite-ai-agent:8000"
+            - name: SPRING_DATA_REDIS_HOST
+              value: "redis-1-master.redis.svc.cluster.local"
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: SPRING_DATA_REDIS_PASSWORD
+              value: "Skala25a!23$"
           readinessProbe:
             httpGet:
               path: /actuator/health
