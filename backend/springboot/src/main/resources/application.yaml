@@ -30,7 +30,7 @@ spring:
 jwt:
   # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증)
   secret: workmaite-shared-secret-key-2024-very-secure-at-least-32chars
-  access-token-expiration: 1800000    # 30분 (ms)
+  access-token-expiration: 28800000   # 8시간 (ms)
   refresh-token-expiration: 1209600000 # 14일 (ms)
 
 ai:
