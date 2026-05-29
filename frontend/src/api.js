@@ -37,7 +37,8 @@ api.interceptors.response.use(
     }
     if (err.response?.status === 401 || err.response?.status === 403) {
       const refreshToken = sessionStorage.getItem('refreshToken')
-      if (refreshToken && !err.config._retry) {
+      const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
+      if (refreshToken && !err.config._retry && !isAuthRequest) {
         err.config._retry = true
         try {
           const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
@@ -49,13 +50,13 @@ api.interceptors.response.use(
           sessionStorage.removeItem('token')
           sessionStorage.removeItem('refreshToken')
           sessionStorage.removeItem('user')
-          window.location.href = '/login'
+          window.location.href = '/landing'
         }
-      } else {
+      } else if (!isAuthRequest) {
         sessionStorage.removeItem('token')
         sessionStorage.removeItem('refreshToken')
         sessionStorage.removeItem('user')
-        window.location.href = '/login'
+        window.location.href = '/landing'
       }
     }
     return Promise.reject(err)
