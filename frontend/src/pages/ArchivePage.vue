@@ -2578,6 +2578,34 @@ function computeTreeLayout(hubIdx, w, h) {
   return pos
 }
 
+let _effEdgesCacheKey = ''
+let _effEdgesCache = null
+function getEffectiveEdges() {
+  const key = hiddenNodeTypes.value.join(',') + '|' + gEdges.length
+  if (key === _effEdgesCacheKey) return _effEdgesCache
+  _effEdgesCacheKey = key
+  if (hiddenNodeTypes.value.length === 0) { _effEdgesCache = gEdges; return gEdges }
+  const isHid = (i) => { const n = gNodes[i]; if (!n) return false; return hiddenNodeTypes.value.includes(n.id === 'org-root' ? 'org-root' : n.type) }
+  const adj = {}
+  gEdges.forEach(e => {
+    if (!adj[e.from]) adj[e.from] = []; if (!adj[e.to]) adj[e.to] = []
+    adj[e.from].push({ nb: e.to, rel: e.rel }); adj[e.to].push({ nb: e.from, rel: e.rel })
+  })
+  const findVis = (hidIdx, exclIdx) => {
+    const vis = new Set([exclIdx, hidIdx]); const q = [hidIdx]; const res = []
+    while (q.length) { const c = q.shift(); for (const { nb } of (adj[c] || [])) { if (vis.has(nb)) continue; vis.add(nb); if (!isHid(nb)) res.push(nb); else q.push(nb) } }
+    return res
+  }
+  const eff = []; const added = new Set()
+  gEdges.forEach(e => {
+    const fh = isHid(e.from), th = isHid(e.to)
+    if (!fh && !th) { eff.push(e) }
+    else if (!fh && th) { for (const vn of findVis(e.to, e.from)) { const k=`${Math.min(e.from,vn)}_${Math.max(e.from,vn)}`; if (!added.has(k)) { added.add(k); eff.push({ from: e.from, to: vn, rel: e.rel }) } } }
+    else if (fh && !th) { for (const vn of findVis(e.from, e.to)) { const k=`${Math.min(e.to,vn)}_${Math.max(e.to,vn)}`; if (!added.has(k)) { added.add(k); eff.push({ from: e.to, to: vn, rel: e.rel }) } } }
+  })
+  _effEdgesCache = eff; return eff
+}
+
 function drawArchiveGraph() {
   const canvas = canvasRef.value; if (!canvas||!ctx) return
   const w=canvas.offsetWidth,h=canvas.offsetHeight
@@ -2643,7 +2671,7 @@ function drawArchiveGraph() {
     })
   }
 
-  gEdges.forEach(e => {
+  getEffectiveEdges().forEach(e => {
     const { from, to, rel } = e
     if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
     else { if (!visibleSet.has(from)||!visibleSet.has(to)) return }
@@ -2986,9 +3014,16 @@ function initConstellation() {
   constRo = new ResizeObserver(() => { resizeConstCanvas(); buildConstPositions() })
   constRo.observe(canvas)
   constScale = 1; constTargetScale = 1
-  constCamX = 0; constCamY = 0; constTargetCamX = 0; constTargetCamY = 0
   constSelMgIdx.value = null
   buildConstPositions()
+  // '나' 노드(org-root)가 화면 중앙에 오도록 카메라 초기화
+  const orgIdx = gNodes.findIndex(n => n.id === 'org-root')
+  if (orgIdx >= 0 && cPos[orgIdx]) {
+    constCamX = cPos[orgIdx].x; constCamY = cPos[orgIdx].y
+    constTargetCamX = cPos[orgIdx].x; constTargetCamY = cPos[orgIdx].y
+  } else {
+    constCamX = 0; constCamY = 0; constTargetCamX = 0; constTargetCamY = 0
+  }
   if (constAnimId) cancelAnimationFrame(constAnimId)
   constAnimId = requestAnimationFrame(animateConst)
 }
@@ -3647,21 +3682,20 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </button>
         <button class="app-tab" :class="{ active: viewMode==='constellation' }" @click="viewMode='constellation'">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="3" r="1.5"/><circle cx="3" cy="19" r="1.5"/><circle cx="21" cy="19" r="1.5"/><circle cx="17" cy="8" r="1.5"/><circle cx="7" cy="14" r="1.5"/><line x1="12" y1="4.5" x2="17" y2="8"/><line x1="17" y1="8" x2="21" y2="19"/><line x1="7" y1="14" x2="3" y2="19"/><line x1="7" y1="14" x2="12" y2="4.5"/><line x1="7" y1="14" x2="17" y2="8"/></svg>
-          별자리
+          관계도2
         </button>
       </div>
 
       <button class="agent-header-btn" :class="{ active: agentSidebarOpen }" @click="agentSidebarOpen=!agentSidebarOpen" title="AI 에이전트">
-        <svg class="ai-btn-icon" viewBox="0 0 40 20" xmlns="http://www.w3.org/2000/svg">
+        <svg class="ai-btn-icon" viewBox="0 0 40 22" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#93c5fd"/>
               <stop offset="100%" stop-color="#7b80cc"/>
             </linearGradient>
           </defs>
-          <text x="20" y="15" text-anchor="middle" font-family="'SF Pro Display',system-ui,sans-serif" font-weight="800" font-size="15" fill="url(#aiGrad)" letter-spacing="-0.5">AI</text>
+          <text x="20" y="17" text-anchor="middle" font-family="'SF Pro Display',system-ui,sans-serif" font-weight="800" font-size="19" fill="url(#aiGrad)" letter-spacing="-0.5">AI</text>
         </svg>
-        <span class="ai-btn-label">채팅</span>
       </button>
     </div>
 
@@ -4533,48 +4567,50 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <!-- 온톨로지 범례 -->
         <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
-          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('org-root') }" @click="toggleNodeType('org-root')">
-            <svg class="legend-dot-pentagon" width="12" height="12" viewBox="0 0 12 12"><polygon points="6,0.5 11.5,4.1 9.4,11 2.6,11 0.5,4.1" fill="rgba(71,85,105,0.85)" stroke="rgba(148,163,184,0.75)" stroke-width="1"/></svg>
-            나
-            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <template v-if="!isHiddenType('org-root')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
-              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+          <!-- 나: 숨기기 불가, 눈 아이콘 없음 -->
+          <div class="legend-onto-item" style="cursor:default">
+            <svg width="13" height="13" viewBox="0 0 13 13" style="flex-shrink:0">
+              <circle cx="6.5" cy="6.5" r="6" fill="#1f2937" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
+              <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.88)"/>
+              <path d="M3.5 10.5 C3.5 8.5 5 7.8 6.5 7.8 C8 7.8 9.5 8.5 9.5 10.5" fill="rgba(255,255,255,0.88)"/>
             </svg>
+            나
           </div>
-          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('meeting_group') }" @click="toggleNodeType('meeting_group')">
+          <!-- 회의체: 숨기기 불가, 눈 아이콘 없음 -->
+          <div class="legend-onto-item" style="cursor:default">
             <div class="legend-onto-dot legend-dot-circle" style="background:#3b82f6"></div>
             회의체
-            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <template v-if="!isHiddenType('meeting_group')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
-              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
-            </svg>
           </div>
+          <!-- 부서: 토글 가능 -->
           <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('dept') }" @click="toggleNodeType('dept')">
-            <div class="legend-onto-dot legend-dot-rect" style="background:#b8aee0"></div>
+            <div class="legend-onto-dot legend-dot-circle" style="background:#8b5cf6"></div>
             부서
             <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <template v-if="!isHiddenType('dept')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
               <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
             </svg>
           </div>
+          <!-- 과제: 토글 가능 -->
           <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('agenda') }" @click="toggleNodeType('agenda')">
-            <div class="legend-onto-dot legend-dot-rect" style="background:#7ac8b0"></div>
+            <div class="legend-onto-dot legend-dot-circle" style="background:#f59e0b"></div>
             과제
             <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <template v-if="!isHiddenType('agenda')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
               <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
             </svg>
           </div>
+          <!-- 회의: 토글 가능 -->
           <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('session') }" @click="toggleNodeType('session')">
-            <div class="legend-onto-dot legend-dot-rect" style="background:#d4b483"></div>
+            <div class="legend-onto-dot legend-dot-circle" style="background:#f97316"></div>
             회의
             <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <template v-if="!isHiddenType('session')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
               <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
             </svg>
           </div>
+          <!-- 파일: 토글 가능 -->
           <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('file') }" @click="toggleNodeType('file')">
-            <div class="legend-onto-dot legend-dot-rect" style="background:#c5c2be"></div>
+            <div class="legend-onto-dot legend-dot-circle" style="background:#64748b"></div>
             파일
             <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <template v-if="!isHiddenType('file')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
@@ -4591,13 +4627,13 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+          <div class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div v-if="isAnyAdmin" class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
+          <div class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -5168,42 +5204,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 </div>
               </div>
 
-              <!-- 제안 아젠다 -->
-              <div class="ai-section">
-                <div class="ai-section-title">
-                  <svg width="13" height="13" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                  AI 제안 아젠다 <span class="ai-badge">{{ selectedAgendas.length }}/{{ aiResult.agendas.length }} 선택</span>
-                </div>
-                <div v-if="!aiResult.agendas.length" class="ai-empty">제안 아젠다 없음</div>
-                <div v-for="(ag, i) in aiResult.agendas" :key="i"
-                  class="ai-check-row" :class="{ selected: selectedAgendas.includes(i) }"
-                  @click="toggleAgenda(i)">
-                  <span class="ai-checkbox" :class="{ checked: selectedAgendas.includes(i) }">
-                    <svg v-if="selectedAgendas.includes(i)" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-                  </span>
-                  <div class="ai-check-content">
-                    <div class="ag-content">{{ ag.content }}</div>
-                    <div v-if="ag.department" class="ag-dept">담당: {{ ag.department }}</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 유관부서 -->
-              <div class="ai-section">
-                <div class="ai-section-title">
-                  <svg width="13" height="13" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-                  AI 추천 유관부서 <span class="ai-badge">{{ selectedRelDepts.length }}/{{ aiResult.related_depts.length }} 선택</span>
-                </div>
-                <div v-if="!aiResult.related_depts.length" class="ai-empty">추천 유관부서 없음</div>
-                <div class="ai-dept-chips">
-                  <span v-for="dept in aiResult.related_depts" :key="dept"
-                    class="ai-dept-chip" :class="{ selected: selectedRelDepts.includes(dept) }"
-                    @click="toggleRelDept(dept)">
-                    <svg v-if="selectedRelDepts.includes(dept)" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
-                    {{ dept }}
-                  </span>
-                </div>
-              </div>
             </template>
           </div>
           <div class="app-modal-footer" style="justify-content:space-between">
@@ -5904,11 +5904,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .btn-reject { padding:7px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:13px;cursor:pointer; }
 
 /* ── Agent header button ── */
-.agent-header-btn { height:34px;padding:0 10px;gap:4px;border-radius:8px;border:1px solid rgba(123,128,204,.4);background:rgba(100,110,200,.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s; }
+.agent-header-btn { padding:5px 12px;border-radius:6px;border:1px solid rgba(123,128,204,.4);background:rgba(100,110,200,.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s; }
 .agent-header-btn:hover { background:rgba(123,128,204,.28);border-color:rgba(123,128,204,.65); }
 .agent-header-btn.active { background:rgba(123,128,204,.35);border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.25); }
-.ai-btn-icon { width:28px;height:14px;flex-shrink:0; }
-.ai-btn-label { font-size:11px;font-weight:600;color:#93c5fd;letter-spacing:0.02em;flex-shrink:0; }
+.ai-btn-icon { width:34px;height:17px;flex-shrink:0; }
 
 /* ── Agent right sidebar ── */
 .agent-right-sidebar { position:absolute;top:0;right:0;bottom:0;width:320px;background:#fff;border-left:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;overflow:hidden;z-index:50; }
@@ -6140,7 +6139,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .day-mode .agent-header-btn { border-color:rgba(99,102,241,.35);background:rgba(99,102,241,.1); }
 .day-mode .agent-header-btn:hover { background:rgba(99,102,241,.18);border-color:rgba(99,102,241,.55); }
 .day-mode .agent-header-btn.active { background:rgba(99,102,241,.22);border-color:#6366f1;box-shadow:0 0 0 2px rgba(99,102,241,.2); }
-.day-mode .ai-btn-label { color:#6366f1; }
 .day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
 .day-mode .archive-title { color:#1e293b; }
 .day-mode .archive-desc { color:#94a3b8; }
