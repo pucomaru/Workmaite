@@ -59,7 +59,8 @@ public class AuthService {
         }
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
-        return LoginResponse.of(accessToken, UserResponse.from(user));
+        String refreshToken = jwtTokenProvider.createRefreshToken(user.getId());
+        return LoginResponse.of(accessToken, refreshToken, UserResponse.from(user));
     }
 
     // Refresh Token 검증 후 새 Access Token 발급
@@ -70,7 +71,9 @@ public class AuthService {
         if (!userRepository.existsById(userId)) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
-        return LoginResponse.of(jwtTokenProvider.createAccessToken(userId));
+        String newAccessToken = jwtTokenProvider.createAccessToken(userId);
+        String newRefreshToken = jwtTokenProvider.createRefreshToken(userId);
+        return LoginResponse.of(newAccessToken, newRefreshToken);
     }
 
     // Redis 도입 후 Access Token 블랙리스트 처리 예정
