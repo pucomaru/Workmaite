@@ -269,15 +269,15 @@ class MinutesSave(BaseModel):
 class MinutesOut(BaseModel):
     id: int
     session_id: int
-    recorder_id: Optional[int]
-    content_raw: Optional[str]
-    content_summary: Optional[str]
-    # 5대 필수요소
-    attendees_json: Optional[Any]       # Joiner
-    decisions_json: Optional[Any]       # Done
-    action_items_json: Optional[Any]    # WILL DO
-    tbd_items_json: Optional[Any]       # TBD
-    next_meeting_note: Optional[str]    # 차기 회의
+    recorder_id: Optional[int] = None
+    content_raw: Optional[str] = None
+    content_summary: Optional[str] = None
+    # 5대 필수요소 (DB 컬럼 미존재 → 추후 마이그레이션 시 활성화)
+    attendees_json: Optional[Any] = None
+    decisions_json: Optional[Any] = None
+    action_items_json: Optional[Any] = None
+    tbd_items_json: Optional[Any] = None
+    next_meeting_note: Optional[str] = None
     generated_at: datetime
 
     model_config = {"from_attributes": True}

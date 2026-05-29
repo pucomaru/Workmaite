@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
         models.AgentLog.__table__,
         models.TokenUsageLog.__table__,
         models.HitlReview.__table__,
+        models.ArchiveCombined.__table__,
     ]
     models.Base.metadata.create_all(bind=engine, tables=ai_only_tables, checkfirst=True)
     await init_vector_index()

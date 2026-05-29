@@ -44,8 +44,8 @@ def seed_postgres():
         # ── 기존 더미 데이터 삭제 (cascade 순서) ─────────────────────────
         for tbl in [
             "hitl_reviews","token_usage_logs","agent_logs","chat_messages",
-            "notifications","minutes","stt_segments","report_criteria",
-            "reports","agendas","meeting_relations","meeting_sessions",
+            "notifications","archives_combined","minutes","stt_segments","report_criteria",
+            "report_reviews","agendas","meeting_relations","meeting_sessions",
             "meeting_members","meetings","users",
         ]:
             db.execute(text(f"DELETE FROM {tbl}"))
@@ -54,7 +54,7 @@ def seed_postgres():
         db.execute(text("ALTER SEQUENCE meeting_members_id_seq RESTART WITH 1"))
         db.execute(text("ALTER SEQUENCE meeting_sessions_id_seq RESTART WITH 1"))
         db.execute(text("ALTER SEQUENCE agendas_id_seq RESTART WITH 1"))
-        db.execute(text("ALTER SEQUENCE reports_id_seq RESTART WITH 1"))
+        db.execute(text("ALTER SEQUENCE report_reviews_id_seq RESTART WITH 1"))
         db.execute(text("ALTER SEQUENCE minutes_id_seq RESTART WITH 1"))
         db.execute(text("ALTER SEQUENCE stt_segments_id_seq RESTART WITH 1"))
         db.execute(text("ALTER SEQUENCE notifications_id_seq RESTART WITH 1"))
@@ -683,10 +683,78 @@ def seed_postgres():
                  content_summary="스프린트 #8 완료율 71%. 외부 API 장애로 인한 지연 발생. 다음 스프린트에서 멀티 프로바이더 폴백 구현과 Redis 캐싱 완성을 최우선으로 진행 예정.",
                  status="DRAFT", generated_at=ago(days=6), updated_at=ago(days=5)),
         ]
+        minutes_objs = []
         for mn in minutes_data:
-            db.add(models.Minutes(**mn))
+            obj = models.Minutes(**mn)
+            db.add(obj)
+            db.flush()
+            minutes_objs.append(obj)
         db.commit()
-        print(f"✓ 회의록 {len(minutes_data)}개 생성")
+        print(f"✓ 회의록 {len(minutes_objs)}개 생성")
+
+        # ─────────────────────────────────────────────────────────────────
+        # ARCHIVES_COMBINED (확정 회의록 3개 + 승인 보고서 2개)
+        # ─────────────────────────────────────────────────────────────────
+        # minutes_objs[0] = 1차 정기회의, [1] = 2차 정기회의, [2] = Q1 경영 전략 (모두 CONFIRMED)
+        # rpts[0] = Q1 AI 전략 리뷰 (APPROVED), rpts[3] = Q1 경영 실적 보고서 (APPROVED)
+        archives_data = [
+            dict(meeting_id=M["AI 제품 전략 회의"].id,
+                 session_id=S["1차 정기회의 — Q1 리뷰"].id,
+                 type="MINUTES",
+                 title="AI 전략 1차 회의록 (확정)",
+                 content=minutes_data[0]["content_summary"],
+                 source_type="minutes",
+                 source_id=minutes_objs[0].id,
+                 archived_by=U["이서연"].id,
+                 status="ACTIVE",
+                 archived_at=ago(days=26)),
+            dict(meeting_id=M["AI 제품 전략 회의"].id,
+                 session_id=S["2차 정기회의 — 경쟁사 분석"].id,
+                 type="MINUTES",
+                 title="AI 전략 2차 회의록 (확정)",
+                 content=minutes_data[1]["content_summary"],
+                 source_type="minutes",
+                 source_id=minutes_objs[1].id,
+                 archived_by=U["이서연"].id,
+                 status="ACTIVE",
+                 archived_at=ago(days=12)),
+            dict(meeting_id=M["전사 경영 전략 회의"].id,
+                 session_id=S["2024 Q1 경영 전략 회의"].id,
+                 type="MINUTES",
+                 title="2024 Q1 경영 전략 회의록 (확정)",
+                 content=minutes_data[2]["content_summary"],
+                 source_type="minutes",
+                 source_id=minutes_objs[2].id,
+                 archived_by=U["이서연"].id,
+                 status="ACTIVE",
+                 archived_at=ago(days=53)),
+            dict(meeting_id=M["AI 제품 전략 회의"].id,
+                 session_id=S["1차 정기회의 — Q1 리뷰"].id,
+                 type="REPORT",
+                 title="2024 Q1 AI 전략 리뷰 보고서 (승인)",
+                 content=None,
+                 file_path=rpts[0].file_path,
+                 source_type="report_reviews",
+                 source_id=rpts[0].id,
+                 archived_by=U["김민준"].id,
+                 status="ACTIVE",
+                 archived_at=ago(days=25)),
+            dict(meeting_id=M["전사 경영 전략 회의"].id,
+                 session_id=S["2024 Q1 경영 전략 회의"].id,
+                 type="REPORT",
+                 title="2024 Q1 경영 실적 보고서 (승인)",
+                 content=None,
+                 file_path=rpts[3].file_path,
+                 source_type="report_reviews",
+                 source_id=rpts[3].id,
+                 archived_by=U["관리자"].id,
+                 status="ACTIVE",
+                 archived_at=ago(days=53)),
+        ]
+        for ar in archives_data:
+            db.add(models.ArchiveCombined(**ar))
+        db.commit()
+        print(f"✓ 아카이브 {len(archives_data)}개 생성")
 
         # ─────────────────────────────────────────────────────────────────
         # NOTIFICATIONS (각 사용자 2~3개)
