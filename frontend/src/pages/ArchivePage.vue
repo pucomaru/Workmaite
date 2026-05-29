@@ -2,6 +2,7 @@
 import { ref, computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
 import BaseModal from '../components/BaseModal.vue'
+import ConstellationView from '../components/ConstellationView.vue'
 import AppTable from '../components/AppTable.vue'
 import ProcessStepBar from '../components/ProcessStepBar.vue'
 import FileUploadArea from '../components/FileUploadArea.vue'
@@ -78,20 +79,14 @@ watch(viewMode, (next, prev) => {
   }
   // constellation 진입/이탈
   if (next === 'constellation') {
-    nextTick(() => initConstellation())
+    nextTick(() => constViewRef.value?.init())
   } else if (prev === 'constellation') {
-    stopConstellation()
+    constViewRef.value?.stop()
   }
 })
 
 // ─── Constellation state ─────────────────────────────────────
-const constCanvasRef = ref(null)
-const constSelMgIdx  = ref(null)   // 선택된 meeting_group 인덱스
-let constCtx = null, constAnimId = null, constRo = null
-let cPos = []                       // { x, y } 배열 (gNodes 인덱스 대응)
-let constScale = 1, constTargetScale = 1
-let constCamX = 0, constCamY = 0, constTargetCamX = 0, constTargetCamY = 0
-let constDragging = false, constLastMx = 0, constLastMy = 0, constDragMoved = false
+const constViewRef = ref(null)  // ConstellationView 컴포넌트 ref
 
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
@@ -1121,9 +1116,9 @@ async function openGroupSetting() {
       department: mb.user?.department || mb.department || '',
       organization: mb.user?.organization || mb.organization || '',
       position: mb.user?.position || mb.position || '',
-      role: mb.role || 'presenter',
+      role: mb.role || 'member',
     }))
-  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'presenter' })) }
+  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'member' })) }
   settingsModal.value = {
     meeting: m,
     form: { title: m.title || '', purpose: m.purpose || m.description || '', guidelines: m.guidelines || '' },
@@ -1153,7 +1148,7 @@ function watchSettingsSearch(q) {
 function addMemberToSettings(user) {
   if (!settingsModal.value) return
   if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
   settingsSearchQ.value = ''
   settingsSearchResults.value = []
 }
@@ -1187,7 +1182,7 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { admin: '간사', presenter: '참여자' }
+const ROLE_MAP = { admin: '간사', member: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 
 // ─── Role-based helpers ───────────────────────────────────────
@@ -1465,20 +1460,25 @@ async function assignTasks() {
 // ─── Ontology edge relation constants ─────────────────────────
 // ── Neo4j 관계명 색상 매핑 ─────────────────────────────────────
 const REL_COLORS = {
-  'PART_OF':        '#a89fd4',  // org → meetingGroup
-  'PARTICIPATES_IN':'#8b7fc0',  // dept/subGroup → meetingGroup
-  'BELONGS_TO':     '#a78bfa',  // person → dept
-  'ADMIN_OF':       '#fbbf24',  // person → meetingGroup (간사)
-  'MEMBER_OF':      '#60a5fa',  // person → meetingGroup (구성원)
-  'ASSIGNED_TO':    '#34d399',  // person → agenda
-  'OWNED_BY':       '#6abba5',  // agenda → meetingGroup
-  'HELD_BY':        '#c9a870',  // session → meetingGroup
-  'COVERS':         '#f472b6',  // session → agenda
-  'PRODUCED':       '#a8a5a2',  // session → document
-  'ATTACHED_TO':    '#fb923c',  // document → meetingGroup
-  'BASED_ON':       '#38bdf8',  // decision → session
-  'CAUSED_BY':      '#86efac',  // decision → agenda
-  'REFERENCES':     '#7a8090',  // generic reference
+  '포함':   '#a89fd4',  // org → meetingGroup
+  '참여':   '#8b7fc0',  // dept/subGroup → meetingGroup
+  '소속':   '#a78bfa',  // person → dept
+  '간사':   '#fbbf24',  // person → meetingGroup (간사)
+  '구성원': '#60a5fa',  // person → meetingGroup (구성원)
+  '담당':   '#34d399',  // person → agenda
+  '관할':   '#6abba5',  // agenda → meetingGroup
+  '개최':   '#c9a870',  // session → meetingGroup
+  '도출':   '#f472b6',  // session → agenda
+  '산출':   '#a8a5a2',  // session → document
+  '첨부':   '#fb923c',  // document → meetingGroup
+  '근거':   '#38bdf8',  // decision → session
+  '원인':   '#86efac',  // decision → agenda
+  '참조':   '#7a8090',  // generic reference
+  '후속':   '#e879f9',  // session → session
+  '출처':   '#94a3b8',  // document → meeting (sync)
+  '생성':   '#c4b5fd',  // minutes → session
+  '상위':   '#f9a8d4',  // meeting hierarchy
+  '관련':   '#fcd34d',  // meeting → meeting
 }
 function hexToRgba(hex, a) {
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
@@ -1489,35 +1489,35 @@ function hexToRgba(hex, a) {
 // 역방향으로 드래그해도 canonical 방향을 자동으로 맞춤
 const REL_MATRIX = {
   // ── Org / Dept ─────────────────────────────────────────────
-  'dept→meeting_group':          'PARTICIPATES_IN',
-  'org→meeting_group':           'PART_OF',
-  'org→dept':                    'PART_OF',
-  'dept→dept':                   'PART_OF',
-  'person→dept':                 'BELONGS_TO',
-  'dept→file':                   'ATTACHED_TO',
-  'org→file':                    'REFERENCES',
+  'dept→meeting_group':          '참여',
+  'org→meeting_group':           '포함',
+  'org→dept':                    '포함',
+  'dept→dept':                   '포함',
+  'person→dept':                 '소속',
+  'dept→file':                   '첨부',
+  'org→file':                    '참조',
   // ── MeetingGroup ───────────────────────────────────────────
-  'meeting_group→meeting_group': 'PARTICIPATES_IN',
-  'person→meeting_group':        'MEMBER_OF',
-  'file→meeting_group':          'ATTACHED_TO',
+  'meeting_group→meeting_group': '참여',
+  'person→meeting_group':        '구성원',
+  'file→meeting_group':          '첨부',
   // ── Agenda ─────────────────────────────────────────────────
-  'agenda→meeting_group':        'OWNED_BY',
-  'person→agenda':               'ASSIGNED_TO',
-  'file→agenda':                 'REFERENCES',
+  'agenda→meeting_group':        '관할',
+  'person→agenda':               '담당',
+  'file→agenda':                 '참조',
   // ── Session ────────────────────────────────────────────────
-  'session→meeting_group':       'HELD_BY',
-  'session→agenda':              'COVERS',
-  'session→file':                'PRODUCED',
-  'session→session':             'FOLLOWED_BY',
+  'session→meeting_group':       '개최',
+  'session→agenda':              '도출',
+  'session→file':                '산출',
+  'session→session':             '후속',
   // ── Decision ───────────────────────────────────────────────
-  'decision→session':            'BASED_ON',
-  'decision→agenda':             'CAUSED_BY',
-  'decision→meeting_group':      'BASED_ON',
+  'decision→session':            '근거',
+  'decision→agenda':             '원인',
+  'decision→meeting_group':      '근거',
   // ── File / Document ────────────────────────────────────────
-  'file→file':                   'REFERENCES',
-  'file→session':                'REFERENCES',
-  'file→dept':                   'ATTACHED_TO',
-  'person→file':                 'ATTACHED_TO',
+  'file→file':                   '참조',
+  'file→session':                '참조',
+  'file→dept':                   '첨부',
+  'person→file':                 '첨부',
 }
 function autoRel(sourceNodeId, targetType) {
   const srcNode = gNodes.find(n => n.id === sourceNodeId)
@@ -1525,7 +1525,7 @@ function autoRel(sourceNodeId, targetType) {
   if (REL_MATRIX[fwd]) return REL_MATRIX[fwd]
   // try reverse
   const rev = `${targetType}→${srcNode?.type}`
-  return REL_MATRIX[rev] || 'REFERENCES'
+  return REL_MATRIX[rev] || '참조'
 }
 
 /**
@@ -1538,7 +1538,7 @@ function resolveRel(fromIdx, toIdx) {
   if (REL_MATRIX[fwd]) return { rel: REL_MATRIX[fwd], neo4jFromId: fn?.id, neo4jToId: tn?.id }
   const rev = `${tn?.type}→${fn?.type}`
   if (REL_MATRIX[rev]) return { rel: REL_MATRIX[rev], neo4jFromId: tn?.id, neo4jToId: fn?.id }
-  return { rel: 'REFERENCES', neo4jFromId: fn?.id, neo4jToId: tn?.id }
+  return { rel: '참조', neo4jFromId: fn?.id, neo4jToId: tn?.id }
 }
 
 // ─── Relationship manager ─────────────────────────────────────
@@ -1574,7 +1574,7 @@ const allGraphNodeList = computed(() => {
 })
 
 const relAddActive = ref(false)
-const relAddForm   = ref({ fromId: '', toId: '', rel: 'REFERENCES' })
+const relAddForm   = ref({ fromId: '', toId: '', rel: '참조' })
 const relEditIdx   = ref(null)
 const relEditRel   = ref('')
 
@@ -1582,7 +1582,7 @@ const relEditRel   = ref('')
 watch(() => [relAddForm.value.fromId, relAddForm.value.toId], ([fId, tId]) => {
   if (!fId || !tId) return
   const tNode = gNodes.find(n => n.id === tId)
-  relAddForm.value.rel = autoRel(fId, tNode?.type || '') || 'REFERENCES'
+  relAddForm.value.rel = autoRel(fId, tNode?.type || '') || '참조'
 })
 
 function startRelEdit(edgeIdx) {
@@ -1646,7 +1646,7 @@ async function doDeleteEdge(edgeIdx) {
   graphVersion.value++
 }
 function openAddRel() {
-  relAddForm.value = { fromId: currentNodeId.value || '', toId: '', rel: 'REFERENCES' }
+  relAddForm.value = { fromId: currentNodeId.value || '', toId: '', rel: '참조' }
   relAddActive.value = true
 }
 async function doAddRel() {
@@ -1888,7 +1888,7 @@ function doAddFile() {
       gNodes.push({ id: deptId, label: deptName, type: 'dept', groupIdx: mgNode?.groupIdx, x: Math.cos(angle)*100, y: 20, z: Math.sin(angle)*100 })
       deptNodeIdx = gNodes.length - 1
     }
-    gEdges.push({ from: fileIdx, to: deptNodeIdx, rel: 'ATTACHED_TO' })
+    gEdges.push({ from: fileIdx, to: deptNodeIdx, rel: '첨부' })
   })
 
   // AI가 추천한 아젠다 노드 생성 (미래 회의 연결)
@@ -2188,9 +2188,9 @@ function buildGraphNodes() {
       mb.email === myEmail || mb.userName === myName
     )
     const selfRole = selfMember?.role ?? meetingsStore.meetingRoles?.[g.id]
-    const selfRel = selfRole === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
+    const selfRel = selfRole === 'admin' ? '간사' : '구성원'
     edges.push({ from: orgIdx, to: mgIdx, rel: selfRel })
-    edges.push({ from: mgIdx, to: orgNodeIdx, rel: 'PART_OF' })
+    edges.push({ from: mgIdx, to: orgNodeIdx, rel: '포함' })
 
     // ── Department 노드: 회의에 PARTICIPATES_IN ───────────────
     const membersByDept = new Map()
@@ -2215,7 +2215,7 @@ function buildGraphNodes() {
         neo4jId: deptIdByName.get(deptName) || null,
       })
       // dept -[PARTICIPATES_IN]→ meetingGroup
-      edges.push({ from: deptIdx, to: mgIdx, rel: 'PARTICIPATES_IN' })
+      edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
 
       // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
       const deptMembers = membersByDept.get(deptName) || []
@@ -2232,9 +2232,9 @@ function buildGraphNodes() {
           neo4jId: mb.userId || null,
         })
         // person -[BELONGS_TO]→ dept
-        edges.push({ from: pIdx, to: deptIdx, rel: 'BELONGS_TO' })
+        edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
         // person -[ADMIN_OF or MEMBER_OF]→ meetingGroup
-        const memberRel = mb.role === 'admin' ? 'ADMIN_OF' : 'MEMBER_OF'
+        const memberRel = mb.role === 'admin' ? '간사' : '구성원'
         edges.push({ from: pIdx, to: mgIdx, rel: memberRel })
       })
     })
@@ -2275,14 +2275,14 @@ function buildGraphNodes() {
           neo4jId: task.id || null,
         })
         // agenda -[OWNED_BY]→ meetingGroup
-        edges.push({ from: agIdx, to: mgIdx, rel: 'OWNED_BY' })
+        edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
         // person -[ASSIGNED_TO]→ agenda (담당 부서의 첫 번째 구성원)
         const assigneeDept = task.assignee_dept || deptName
         const assigneeMembers = membersByDept.get(assigneeDept) || []
         if (assigneeMembers.length > 0) {
           const personId = `person-${g.id || gi}-${assigneeMembers[0].userId || 0}`
           const personIdx = nodes.findIndex(n => n.id === personId)
-          if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: 'ASSIGNED_TO' })
+          if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: '담당' })
         }
         agendaIdxByTodoId.set(String(task.id), agIdx)
       })
@@ -2300,7 +2300,7 @@ function buildGraphNodes() {
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
           groupIdx: gi, data: task, meetingGroupId: mgNodeId
         })
-        edges.push({ from: mgIdx, to: agIdx, rel: 'OWNED_BY' })
+        edges.push({ from: mgIdx, to: agIdx, rel: '관할' })
         agendaIdxByTodoId.set(String(task.id), agIdx)
       })
     }
@@ -2325,9 +2325,9 @@ function buildGraphNodes() {
         neo4jId: m.id || null,
       })
       // session -[HELD_BY]→ meetingGroup
-      edges.push({ from: sIdx, to: mgIdx, rel: 'HELD_BY' })
+      edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
       // session -[COVERS]→ agenda (순환 배분)
-      if (aTotal > 0) edges.push({ from: sIdx, to: allAgendaIdxList[mi % aTotal], rel: 'COVERS' })
+      if (aTotal > 0) edges.push({ from: sIdx, to: allAgendaIdxList[mi % aTotal], rel: '도출' })
 
       // ── Document 노드 (회의록): session -[PRODUCED]→ document
       const dIdx = nodes.length
@@ -2343,7 +2343,7 @@ function buildGraphNodes() {
           file_name: m.file_name,
         }
       })
-      edges.push({ from: sIdx, to: dIdx, rel: 'PRODUCED' })
+      edges.push({ from: sIdx, to: dIdx, rel: '산출' })
     })
 
     // ── Document 노드 (보고자료): ATTACHED_TO meetingGroup ───
@@ -2362,7 +2362,7 @@ function buildGraphNodes() {
         neo4jId: rp.id || null,
       })
       // document -[ATTACHED_TO]→ meetingGroup
-      edges.push({ from: rIdx, to: mgIdx, rel: 'ATTACHED_TO' })
+      edges.push({ from: rIdx, to: mgIdx, rel: '첨부' })
     })
   })
 
@@ -2375,7 +2375,7 @@ function buildGraphNodes() {
     const subIdx = nodes.findIndex(n => n.id === subId)
     const parentIdx = nodes.findIndex(n => n.id === parId)
     if (subIdx >= 0 && parentIdx >= 0)
-      edges.push({ from: subIdx, to: parentIdx, rel: 'PARTICIPATES_IN' })
+      edges.push({ from: subIdx, to: parentIdx, rel: '참여' })
   })
 
   return { nodes, edges }
@@ -2437,6 +2437,23 @@ function getHubFill(g) {
   if (u === 'warning') return '#f59e0b'
   return '#3b82f6'
 }
+
+/** ConstellationView에서 MG 노드 클릭 시 사이드바 열기 */
+function onConstSelectMeeting(node) {
+  if (!node) {
+    detailOpen.value = false
+    detailMeeting.value = null
+    return
+  }
+  // meeting_group 노드의 data는 회의체 정보 (graph1의 onCanvasClick과 동일한 구조)
+  if (node.type === 'meeting_group' && node.data) {
+    detailMeeting.value = node.data
+    detailNode.value = null
+    detailTab.value = 'basic'
+    detailOpen.value = true
+  }
+}
+
 function getVisibleSet() {
   const vis = new Set()
   if (expandedHubIdx === null) {
@@ -2456,7 +2473,7 @@ function getVisibleSet() {
       })
       vis.add(expandedHubIdx)
       // org 노드 (PART_OF 관계) 표시
-      gEdges.forEach(e => { if (e.from === expandedHubIdx && e.rel === 'PART_OF') vis.add(e.to) })
+      gEdges.forEach(e => { if (e.from === expandedHubIdx && e.rel === '포함') vis.add(e.to) })
       // 엣지로만 연결된 추가 노드도 표시 (localAddedEdges로 추가된 크로스-그룹 연결 등)
       gEdges.forEach(e => {
         const fromNode = gNodes[e.from], toNode = gNodes[e.to]
@@ -2969,278 +2986,6 @@ function drawArchiveGraph() {
   }
 }
 
-// ── CONSTELLATION FUNCTIONS ─────────────────────────────────
-function buildConstPositions() {
-  const canvas = constCanvasRef.value
-  const w = canvas ? canvas.offsetWidth : 900
-  const h = canvas ? canvas.offsetHeight : 600
-  const cx = w / 2, cy = h / 2
-  if (!gNodes.length) { cPos = []; return }
-  // meeting_group 인덱스 맵 (groupIdx → nodeIdx)
-  const mgByGroup = new Map()
-  gNodes.forEach((n, i) => { if (n.type === 'meeting_group') mgByGroup.set(n.groupIdx ?? i, i) })
-  const mgList = [...mgByGroup.values()]
-  const mgCount = mgList.length
-  const radius = Math.min(w, h) * 0.30
-  // 1st pass: MG 노드 원형 배치
-  cPos = gNodes.map(() => ({ x: cx, y: cy }))
-  mgList.forEach((idx, gi) => {
-    const ang = (gi / Math.max(mgCount, 1)) * Math.PI * 2 - Math.PI / 2
-    cPos[idx] = { x: cx + Math.cos(ang) * radius, y: cy + Math.sin(ang) * radius }
-  })
-  // 2nd pass: 세부 노드는 부모 MG 주위에 파이토탁시스 배치
-  const placed = new Map()
-  gNodes.forEach((n, i) => {
-    if (n.type === 'meeting_group' || n.id === 'org-root' || n.id === 'org-node') return
-    const mgIdx = mgByGroup.get(n.groupIdx)
-    if (mgIdx === undefined) return
-    const cnt = placed.get(mgIdx) || 0
-    placed.set(mgIdx, cnt + 1)
-    const goldenAng = cnt * 2.399963
-    const r = 22 + 9 * Math.sqrt(cnt)
-    cPos[i] = {
-      x: cPos[mgIdx].x + Math.cos(goldenAng) * r,
-      y: cPos[mgIdx].y + Math.sin(goldenAng) * r,
-    }
-  })
-  // org-root 중앙
-  const orgIdx = gNodes.findIndex(n => n.id === 'org-root')
-  if (orgIdx >= 0) cPos[orgIdx] = { x: cx, y: cy }
-}
-
-function initConstellation() {
-  const canvas = constCanvasRef.value; if (!canvas) return
-  constCtx = canvas.getContext('2d')
-  resizeConstCanvas()
-  if (constRo) constRo.disconnect()
-  constRo = new ResizeObserver(() => { resizeConstCanvas(); buildConstPositions() })
-  constRo.observe(canvas)
-  constScale = 1; constTargetScale = 1
-  constSelMgIdx.value = null
-  buildConstPositions()
-  // '나' 노드(org-root)가 화면 중앙에 오도록 카메라 초기화
-  const orgIdx = gNodes.findIndex(n => n.id === 'org-root')
-  if (orgIdx >= 0 && cPos[orgIdx]) {
-    constCamX = cPos[orgIdx].x; constCamY = cPos[orgIdx].y
-    constTargetCamX = cPos[orgIdx].x; constTargetCamY = cPos[orgIdx].y
-  } else {
-    constCamX = 0; constCamY = 0; constTargetCamX = 0; constTargetCamY = 0
-  }
-  if (constAnimId) cancelAnimationFrame(constAnimId)
-  constAnimId = requestAnimationFrame(animateConst)
-}
-
-function stopConstellation() {
-  if (constAnimId) { cancelAnimationFrame(constAnimId); constAnimId = null }
-  if (constRo) { constRo.disconnect(); constRo = null }
-}
-
-function resizeConstCanvas() {
-  const c = constCanvasRef.value; if (!c || !constCtx) return
-  const dpr2 = window.devicePixelRatio || 1
-  c.width = c.offsetWidth * dpr2; c.height = c.offsetHeight * dpr2
-  constCtx.setTransform(dpr2, 0, 0, dpr2, 0, 0)
-}
-
-function animateConst() {
-  constCamX   += (constTargetCamX   - constCamX)   * 0.09
-  constCamY   += (constTargetCamY   - constCamY)   * 0.09
-  constScale  += (constTargetScale  - constScale)   * 0.09
-  drawConstellation()
-  constAnimId = requestAnimationFrame(animateConst)
-}
-
-function drawConstellation() {
-  const canvas = constCanvasRef.value; if (!canvas || !constCtx) return
-  const w = canvas.offsetWidth, h = canvas.offsetHeight
-  if (!w || !h || !cPos.length) return
-  constCtx.clearRect(0, 0, w, h)
-  const isDark = nightMode.value
-  // 배경: 별자리 느낌의 짙은 배경
-  constCtx.fillStyle = isDark ? '#080f1e' : '#e8eeff'
-  constCtx.fillRect(0, 0, w, h)
-  // 배경에 작은 별 점들
-  if (isDark) {
-    constCtx.fillStyle = 'rgba(255,255,255,0.25)'
-    for (let i = 0; i < 120; i++) {
-      const hx = ((i * 7919) % w), hy = ((i * 6271) % h)
-      constCtx.beginPath(); constCtx.arc(hx, hy, 0.6, 0, Math.PI*2); constCtx.fill()
-    }
-  }
-  if (!gNodes.length) return
-  const sel = constSelMgIdx.value
-  const zf = constScale
-  const toS = (px, py) => ({ sx: w/2 + (px - constCamX) * zf, sy: h/2 + (py - constCamY) * zf })
-  // 선택된 MG의 groupIdx
-  const selGroup = sel !== null ? (gNodes[sel]?.groupIdx ?? null) : null
-
-  // ── 엣지 ────────────────────────────────────────────────────
-  gEdges.forEach(e => {
-    const pA = cPos[e.from], pB = cPos[e.to]
-    const nA = gNodes[e.from], nB = gNodes[e.to]
-    if (!pA || !pB || !nA || !nB) return
-    if (nA.id === 'org-node' || nB.id === 'org-node') return
-    if (nA.id === 'org-root' || nB.id === 'org-root') return
-    const a = toS(pA.x, pA.y), b = toS(pB.x, pB.y)
-    let alpha = isDark ? 0.18 : 0.14
-    if (sel !== null) {
-      const aRel = nA.type === 'meeting_group' ? e.from === sel : nA.groupIdx === selGroup
-      const bRel = nB.type === 'meeting_group' ? e.to === sel : nB.groupIdx === selGroup
-      alpha = (aRel && bRel) ? (isDark ? 0.55 : 0.45) : (isDark ? 0.05 : 0.04)
-    }
-    constCtx.save()
-    constCtx.strokeStyle = isDark ? `rgba(148,163,184,${alpha})` : `rgba(100,116,139,${alpha})`
-    constCtx.lineWidth = 0.7
-    constCtx.beginPath(); constCtx.moveTo(a.sx, a.sy); constCtx.lineTo(b.sx, b.sy); constCtx.stroke()
-    constCtx.restore()
-  })
-
-  // ── 세부 노드 ────────────────────────────────────────────────
-  gNodes.forEach((n, i) => {
-    if (n.type === 'meeting_group' || n.id === 'org-root' || n.id === 'org-node') return
-    const pos = cPos[i]; if (!pos) return
-    const s = toS(pos.x, pos.y)
-    const isRelated = sel === null ? false : (n.groupIdx === selGroup)
-    const showDetail = isRelated && zf > 0.8
-    let alpha = sel === null ? 0.55 : (isRelated ? 1.0 : 0.18)
-    const r = showDetail ? Math.min(14, 11 * zf) : 4
-    const color = { dept:'#8b5cf6', agenda:'#f59e0b', session:'#f97316', file:'#64748b', person:'#f472b6' }[n.type] || '#60a5fa'
-    constCtx.save()
-    constCtx.globalAlpha = alpha
-    constCtx.beginPath(); constCtx.arc(s.sx, s.sy, r, 0, Math.PI*2)
-    constCtx.fillStyle = color; constCtx.fill()
-    if (showDetail) {
-      _constDrawIcon(n, s.sx, s.sy, r)
-      const fs = Math.max(9, Math.round(10 * Math.min(1.5, zf)))
-      constCtx.fillStyle = isDark ? 'rgba(226,232,240,0.9)' : 'rgba(15,23,42,0.85)'
-      constCtx.font = `${fs}px sans-serif`
-      constCtx.textAlign = 'center'; constCtx.textBaseline = 'top'
-      constCtx.fillText((n.label||'').slice(0,9), s.sx, s.sy + r + 3)
-    }
-    constCtx.restore()
-  })
-
-  // ── MG 노드 ─────────────────────────────────────────────────
-  gNodes.forEach((n, i) => {
-    if (n.type !== 'meeting_group') return
-    const pos = cPos[i]; if (!pos) return
-    const s = toS(pos.x, pos.y)
-    const isSel = sel === i
-    const alpha = sel === null ? 1.0 : (isSel ? 1.0 : 0.3)
-    const r = isSel ? 30 * Math.min(1.5, zf) : 22
-    const hubColor = getHubFill(n.data)
-    constCtx.save()
-    constCtx.globalAlpha = alpha
-    // 선택된 노드 glow
-    if (isSel) {
-      const glow = constCtx.createRadialGradient(s.sx, s.sy, r*0.4, s.sx, s.sy, r*3)
-      glow.addColorStop(0, 'rgba(59,130,246,0.28)'); glow.addColorStop(1, 'rgba(59,130,246,0)')
-      constCtx.beginPath(); constCtx.arc(s.sx, s.sy, r*3, 0, Math.PI*2)
-      constCtx.fillStyle = glow; constCtx.fill()
-    }
-    const grad = constCtx.createRadialGradient(s.sx, s.sy, 0, s.sx, s.sy, r)
-    grad.addColorStop(0, hubColor + 'ee'); grad.addColorStop(1, hubColor + '66')
-    constCtx.beginPath(); constCtx.arc(s.sx, s.sy, r, 0, Math.PI*2)
-    constCtx.fillStyle = grad; constCtx.fill()
-    if (isSel) { constCtx.strokeStyle = isDark ? '#fff' : '#1e293b'; constCtx.lineWidth = 2.5; constCtx.stroke() }
-    // 라벨
-    const fs = Math.max(10, Math.round(12 * Math.min(1.4, zf)))
-    constCtx.fillStyle = isDark ? 'rgba(255,255,255,0.95)' : 'rgba(30,58,138,0.95)'
-    constCtx.font = `bold ${fs}px sans-serif`
-    constCtx.textAlign = 'center'; constCtx.textBaseline = 'middle'
-    constCtx.fillText((n.label||'').slice(0,7), s.sx, s.sy)
-    constCtx.restore()
-  })
-
-  // org-root (나)
-  const orgIdx = gNodes.findIndex(n => n.id === 'org-root')
-  if (orgIdx >= 0 && cPos[orgIdx]) {
-    const s = toS(cPos[orgIdx].x, cPos[orgIdx].y)
-    constCtx.save()
-    constCtx.globalAlpha = sel === null ? 0.9 : 0.35
-    constCtx.beginPath(); constCtx.arc(s.sx, s.sy, 14, 0, Math.PI*2)
-    constCtx.fillStyle = '#1f2937'; constCtx.fill()
-    constCtx.strokeStyle = 'rgba(255,255,255,0.35)'; constCtx.lineWidth = 1.5; constCtx.stroke()
-    constCtx.restore()
-  }
-}
-
-function _constDrawIcon(n, sx, sy, r) {
-  constCtx.save()
-  constCtx.strokeStyle = 'rgba(255,255,255,0.92)'; constCtx.fillStyle = 'rgba(255,255,255,0.92)'
-  constCtx.lineWidth = Math.max(1, r*0.12); constCtx.lineCap = 'round'; constCtx.lineJoin = 'round'
-  if (n.type === 'agenda') {
-    const cs = r*0.5
-    constCtx.beginPath(); constCtx.moveTo(sx-cs,sy+cs*0.1); constCtx.lineTo(sx-cs*0.18,sy+cs*0.78); constCtx.lineTo(sx+cs,sy-cs*0.62); constCtx.stroke()
-  } else if (n.type === 'session') {
-    const cw=r*0.68,ch=r*0.6,cx2=sx-cw/2,cy2=sy-ch/2+r*0.06,fold=cw*0.22
-    constCtx.strokeRect(cx2,cy2,cw,ch)
-    constCtx.beginPath(); constCtx.moveTo(cx2,cy2+ch*0.33); constCtx.lineTo(cx2+cw,cy2+ch*0.33); constCtx.stroke()
-    constCtx.beginPath(); constCtx.arc(cx2+cw*0.28,cy2-fold*0.3,fold*0.4,0,Math.PI*2); constCtx.fill()
-    constCtx.beginPath(); constCtx.arc(cx2+cw*0.72,cy2-fold*0.3,fold*0.4,0,Math.PI*2); constCtx.fill()
-  } else if (n.type === 'file') {
-    const fw=r*0.5,fh=r*0.62,fx=sx-fw/2,fy=sy-fh/2,fold=fw*0.3
-    constCtx.beginPath(); constCtx.moveTo(fx,fy); constCtx.lineTo(fx+fw-fold,fy); constCtx.lineTo(fx+fw,fy+fold); constCtx.lineTo(fx+fw,fy+fh); constCtx.lineTo(fx,fy+fh); constCtx.closePath(); constCtx.stroke()
-  } else if (n.type === 'dept') {
-    const shx=sx-r*0.24,shy=sy-r*0.14,shr=r*0.13,sbr=r*0.16
-    constCtx.beginPath(); constCtx.arc(shx,shy,shr,0,Math.PI*2); constCtx.fill()
-    constCtx.beginPath(); constCtx.arc(shx,shy+shr+sbr*1.1,sbr,Math.PI,Math.PI*2); constCtx.fill()
-    const bhx=sx+r*0.2,bhy=sy-r*0.17,bhr=r*0.18,bbr=r*0.22
-    constCtx.beginPath(); constCtx.arc(bhx,bhy,bhr,0,Math.PI*2); constCtx.fill()
-    constCtx.beginPath(); constCtx.arc(bhx,bhy+bhr+bbr*1.1,bbr,Math.PI,Math.PI*2); constCtx.fill()
-  }
-  constCtx.restore()
-}
-
-function onConstCanvasClick(e) {
-  if (constDragMoved) return
-  const canvas = constCanvasRef.value; if (!canvas) return
-  const rect = canvas.getBoundingClientRect()
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top
-  const w = canvas.offsetWidth, h = canvas.offsetHeight
-  let hitIdx = null, minDist = Infinity
-  gNodes.forEach((n, i) => {
-    if (n.type !== 'meeting_group') return
-    const pos = cPos[i]; if (!pos) return
-    const sx = w/2 + (pos.x - constCamX) * constScale
-    const sy = h/2 + (pos.y - constCamY) * constScale
-    const r = (constSelMgIdx.value === i ? 30 * Math.min(1.5, constScale) : 22) + 8
-    const d = Math.hypot(sx - mx, sy - my)
-    if (d <= r && d < minDist) { minDist = d; hitIdx = i }
-  })
-  if (hitIdx !== null) {
-    if (constSelMgIdx.value === hitIdx) {
-      constSelMgIdx.value = null
-      constTargetScale = 1; constTargetCamX = 0; constTargetCamY = 0
-    } else {
-      constSelMgIdx.value = hitIdx
-      constTargetCamX = cPos[hitIdx].x; constTargetCamY = cPos[hitIdx].y
-      constTargetScale = 2.4
-    }
-  } else {
-    constSelMgIdx.value = null
-    constTargetScale = 1; constTargetCamX = 0; constTargetCamY = 0
-  }
-}
-
-function onConstMouseDown(e) { constDragging=true; constDragMoved=false; constLastMx=e.clientX; constLastMy=e.clientY }
-function onConstMouseMove(e) {
-  if (!constDragging) return
-  const dx=e.clientX-constLastMx, dy=e.clientY-constLastMy
-  if (Math.abs(dx)+Math.abs(dy) > 3) constDragMoved = true
-  constTargetCamX -= dx/constScale; constCamX -= dx/constScale
-  constTargetCamY -= dy/constScale; constCamY -= dy/constScale
-  constLastMx=e.clientX; constLastMy=e.clientY
-}
-function onConstMouseUp() { constDragging=false }
-function onConstWheel(e) {
-  e.preventDefault()
-  constTargetScale = Math.max(0.3, Math.min(6, constTargetScale * (e.deltaY < 0 ? 1.12 : 0.88)))
-}
-function onConstResetView() {
-  constSelMgIdx.value = null; constTargetScale=1; constTargetCamX=0; constTargetCamY=0
-}
-// END CONSTELLATION FUNCTIONS
 
 function animateGraph() {
   if(expandedHubIdx === null && autoRotate && !rotationPaused) rotY+=.002
@@ -3733,7 +3478,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-header-left">
               <div class="detail-name-badge-row">
                 <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
-                <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-presenter'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
+                <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-member'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
               </div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ detailMeeting?.members?.length||0 }}명</span>
@@ -4481,7 +4226,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </Transition>
 
         <!-- Sidebar toggle handle — visible whenever a meeting or node is selected -->
-        <button v-if="(detailMeeting || detailNode) && viewMode==='graph'"
+        <button v-if="(detailMeeting || detailNode) && (viewMode==='graph' || viewMode==='constellation')"
           class="sidebar-toggle-handle"
           :style="{ left: (detailOpen ? sidebarW : 0) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }"
           @click="detailOpen = !detailOpen"
@@ -4498,15 +4243,22 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <span>불러오는 중...</span>
         </div>
 
-        <!-- Zoom controls (top-left) -->
-        <div v-if="!loading && viewMode==='graph'" class="graph-zoom-controls"
+        <!-- Zoom controls (top-left) — graph & constellation 공용 -->
+        <div v-if="!loading && (viewMode==='graph' || viewMode==='constellation')" class="graph-zoom-controls"
           :style="{ left: (detailOpen ? sidebarW + 10 : 10) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
-          <button class="zoom-btn" @click="targetZoom = Math.min(4, targetZoom * 1.3)" title="확대 (Zoom In)">+</button>
-          <button class="zoom-btn zoom-reset" @click="targetZoom = 1.0; targetCamX = 0; targetCamY = 0; targetCamZ = 0" title="초기화 (Reset)">⌂</button>
-          <button class="zoom-btn" @click="targetZoom = Math.max(0.25, targetZoom / 1.3)" title="축소 (Zoom Out)">−</button>
-          <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">
-            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
-          </button>
+          <template v-if="viewMode==='graph'">
+            <button class="zoom-btn" @click="targetZoom = Math.min(4, targetZoom * 1.3)" title="확대 (Zoom In)">+</button>
+            <button class="zoom-btn zoom-reset" @click="targetZoom = 1.0; targetCamX = 0; targetCamY = 0; targetCamZ = 0" title="초기화 (Reset)">⌂</button>
+            <button class="zoom-btn" @click="targetZoom = Math.max(0.25, targetZoom / 1.3)" title="축소 (Zoom Out)">−</button>
+            <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+            </button>
+          </template>
+          <template v-else>
+            <button class="zoom-btn" @click="constViewRef?.zoomIn()" title="확대 (Zoom In)">+</button>
+            <button class="zoom-btn zoom-reset" @click="constViewRef?.resetView()" title="초기화 (Reset)">⌂</button>
+            <button class="zoom-btn" @click="constViewRef?.zoomOut()" title="축소 (Zoom Out)">−</button>
+          </template>
         </div>
         <canvas v-show="!loading && viewMode==='graph'"
           ref="canvasRef"
@@ -4525,33 +4277,16 @@ const TYPES=['Draft','In Progress','Done','Pending']
         ></canvas>
 
         <!-- ── Constellation view ── -->
-        <template v-if="viewMode==='constellation'">
-          <canvas
-            ref="constCanvasRef"
-            class="archive-canvas const-canvas"
-            @mousedown="onConstMouseDown"
-            @mousemove="onConstMouseMove"
-            @mouseup="onConstMouseUp"
-            @mouseleave="onConstMouseUp"
-            @click="onConstCanvasClick"
-            @wheel.prevent="onConstWheel"
-          ></canvas>
-          <!-- Zoom controls -->
-          <div class="const-zoom-controls">
-            <button class="zoom-btn" @click="constTargetScale = Math.min(6, constTargetScale * 1.25)">+</button>
-            <button class="zoom-btn zoom-reset" @click="onConstResetView">⌂</button>
-            <button class="zoom-btn" @click="constTargetScale = Math.max(0.3, constTargetScale / 1.25)">−</button>
-          </div>
-          <!-- Hint -->
-          <div class="const-hint" v-if="constSelMgIdx === null">
-            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-            회의체 노드를 클릭하면 상세보기로 확대됩니다
-          </div>
-          <div class="const-hint" v-else>
-            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-            {{ gNodes[constSelMgIdx]?.label }} · 빈 공간 클릭 시 전체 보기
-          </div>
-        </template>
+        <ConstellationView
+          v-if="viewMode==='constellation'"
+          ref="constViewRef"
+          class="archive-canvas"
+          :gNodes="gNodes"
+          :gEdges="gEdges"
+          :nightMode="nightMode"
+          :getHubFill="getHubFill"
+          @selectMeeting="onConstSelectMeeting"
+        />
 
         <!-- Map drag invalid toast -->
         <Transition name="map-toast-fade">
@@ -4566,11 +4301,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </Transition>
 
-        <!-- 온톨로지 범례 -->
-        <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
+        <!-- 온톨로지 범례 — graph & constellation 공용 -->
+        <div v-if="!loading && (viewMode==='graph' || viewMode==='constellation')" class="graph-legend-onto"
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
-          <!-- 나: 숨기기 불가, 눈 아이콘 없음 -->
-          <div class="legend-onto-item" style="cursor:default">
+          <!-- 나: graph에서만 표시 (constellation에선 org-root 노드 없음) -->
+          <div v-if="viewMode==='graph'" class="legend-onto-item" style="cursor:default">
             <svg width="13" height="13" viewBox="0 0 13 13" style="flex-shrink:0">
               <circle cx="6.5" cy="6.5" r="6" fill="#1f2937" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
               <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.88)"/>
@@ -4616,6 +4351,15 @@ const TYPES=['Draft','In Progress','Done','Pending']
             파일
             <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <template v-if="!isHiddenType('file')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <!-- 인원: 토글 가능 -->
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('person') }" @click="toggleNodeType('person')">
+            <div class="legend-onto-dot legend-dot-circle" style="background:#f472b6"></div>
+            인원
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('person')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
               <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
             </svg>
           </div>
@@ -4706,7 +4450,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                       <span v-else class="lv-type-text" style="color:#94a3b8">-</span>
                     </td>
                     <td class="lv-td-role">
-                      <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                      <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
                         {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                       </span>
                     </td>
@@ -5870,7 +5614,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .member-name { font-size:11px;color:#c4b5fd; }
 .member-role { font-size:9px;font-weight:600;padding:1px 5px;border-radius:99px; }
 .role-admin { background:rgba(251,191,36,.2);color:#fbbf24; }
-.role-presenter { background:rgba(96,165,250,.15);color:#60a5fa; }
+.role-member { background:rgba(96,165,250,.15);color:#60a5fa; }
 
 /* ── Bottom panel ── */
 .bottom-panel { position:absolute;left:0;right:0;bottom:0;height:46%;background:#fff;border-top:2px solid #e2e8f0;transform:translateY(100%);transition:transform .3s ease;z-index:50;display:flex;flex-direction:column;overflow:hidden; }
@@ -6281,14 +6025,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* ── Role badges ── */
 .detail-role-badge { display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-top:3px;width:fit-content; }
 .detail-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3); }
-.detail-role-badge.role-presenter { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
+.detail-role-badge.role-member { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
 .lv-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-left:5px; }
 .lv-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
-.lv-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.lv-role-badge.role-member { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
 .day-mode .detail-role-badge.role-admin { background:rgba(59,130,246,.1);color:#2563eb;border-color:rgba(59,130,246,.25); }
-.day-mode .detail-role-badge.role-presenter { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
+.day-mode .detail-role-badge.role-member { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
 .day-mode .lv-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
-.day-mode .lv-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
+.day-mode .lv-role-badge.role-member { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
 /* ── Node detail styles ── */
 .node-member-list { display:flex;flex-direction:column;gap:5px; }
 .node-member-row { display:flex;align-items:center;gap:9px;padding:4px 0; }

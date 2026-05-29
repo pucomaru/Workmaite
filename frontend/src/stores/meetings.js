@@ -8,7 +8,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const myRole = ref(null)
   const currentMembers = ref([])
   const currentLoopIdx = ref(0)   // MeetingNav ↔ SessionsPage 공유
-  const meetingRoles = ref({})    // { [meetingId]: 'admin' | 'presenter' | null }
+  const meetingRoles = ref({})    // { [meetingId]: 'admin' | 'member' | null }
 
   async function fetchMeetings() {
     const { data } = await api.get('/api/v1/meetings')
@@ -79,8 +79,8 @@ export const useMeetingsStore = defineStore('meetings', () => {
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = null
   }
 
-  async function addMember(meetingId, userId, role = 'presenter') {
-    const { data } = await apiAI.post(`/api/v1/meetings/${meetingId}/members`, { userId, role })
+  async function addMember(meetingId, userId, role = 'member') {
+    const { data } = await api.post(`/api/v1/meetings/${meetingId}/members`, { userId, role })
     await fetchMembers(meetingId)
     return data
   }

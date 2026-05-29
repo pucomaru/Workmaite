@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
-from agents import gaon, naru, ara, naon, hyean
+from agents import task_agent, knowledge_agent, minutes_agent, report_agent
 from datetime import datetime
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 
@@ -57,7 +57,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
         for m in members:
             user = db.query(models.User).filter(models.User.id == m.user_id).first()
             if user:
-                role_label = "운영자" if m.role == "SECRETARY" else "참여자"
+                role_label = "운영자" if m.role == "admin" else "참여자"
                 dept = user.department or ""
                 member_parts.append(f"{user.name}({dept}, {role_label})")
         if member_parts:
@@ -66,7 +66,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
 
 
 # ─── 아라 Agent ───────────────────────────────
-@router.post("/ara/sessions-chat")
+@router.post("/minutes/sessions-chat", summary="Minutes Sessions Chat")
 async def ara_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
@@ -110,7 +110,7 @@ async def ara_sessions_chat(
         extra_context += f"\n\n[세션별 회의록]\n" + "\n\n".join(session_summaries)
 
     async def stream():
-        async for chunk in ara.chat_stream(
+        async for chunk in minutes_agent.chat_stream(
             message=data.message,
             chat_history=data.chat_history or [],
             previous_minutes=[extra_context],
@@ -123,7 +123,7 @@ async def ara_sessions_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/ara/generate-minutes")
+@router.post("/minutes/generate-minutes", summary="Minutes Generate Minutes")
 async def ara_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
@@ -145,8 +145,8 @@ async def ara_generate_minutes(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── 혜안 Agent ───────────────────────────────
-@router.post("/hyean/status")
+# ─── report_agent (구 혜안) ───────────────────────────────
+@router.post("/report/status", summary="Report Status")
 async def hyean_status(
     data: schemas.HyeanStatusRequest,
     background_tasks: BackgroundTasks,
@@ -155,10 +155,10 @@ async def hyean_status(
 ):
     meeting_status = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "회의 현황 분석 요청", "")
+    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "회의 현황 분석 요청", "")
 
     async def stream():
-        async for chunk in hyean.status_stream(
+        async for chunk in report_agent.status_stream(
             meeting_status=meeting_status,
             user_role=data.user_role,
             active_knowledge=knowledge,
@@ -186,24 +186,19 @@ async def supervisor_chat(
         '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
         '추출', '과제 목록', '안건', '다음 회의'
     ]):
-        _route = 'gaon'
-    elif any(kw in msg_lower for kw in [
-        '카드뉴스', '카드 뉴스', '콘텐츠', '소셜', 'sns', '홍보', '카드',
-        'card news', '인포그래픽', '소식지'
-    ]):
-        _route = 'naon'
+        _route = 'task_agent'
     elif any(kw in msg_lower for kw in [
         '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성',
         '속기', '회의 보조'
     ]):
-        _route = 'ara'
+        _route = 'minutes_agent'
     elif any(kw in msg_lower for kw in [
         '검토', '보고서', '자료 분석', '리뷰', 'review', '문제점', '개선',
         '첨삭', '피드백', '문서 검토', '파일 검토'
     ]):
-        _route = 'naru'
+        _route = 'report_agent'
     else:
-        _route = 'hyean'
+        _route = 'report_agent'
 
     knowledge = _get_knowledge(db, data.meeting_id)
     background_tasks.add_task(
@@ -226,7 +221,7 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
                 "RETURN mg.id AS mg_id",
                 {"pid": user_person_id},
             )
@@ -299,13 +294,13 @@ async def supervisor_chat(
                     if user_person_id:
                         # 현재 사용자의 소속 회의체만 조회
                         person_rows = await run_cypher(
-                            "MATCH (p:Person {id: $pid})-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                            "MATCH (p:Person {id: $pid})-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
                             "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
                             {"pid": user_person_id},
                         )
                     elif is_admin:
                         person_rows = await run_cypher(
-                            "MATCH (p:Person)-[r:MEMBER_OF]->(mg:MeetingGroup) "
+                            "MATCH (p:Person)-[r:`구성원`]->(mg:MeetingGroup) "
                             "RETURN p.name AS person, mg.title AS meeting, r.role AS role"
                         )
                     else:
@@ -354,58 +349,51 @@ async def supervisor_chat(
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
-        if _route == 'gaon':
+        if _route == 'task_agent':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             departments = _get_member_departments(db, data.meeting_id)
             meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = gaon.chat_stream(
+            gen = task_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes, knowledge=knowledge,
                 departments=departments, meeting_context=meeting_context,
             )
-        elif _route == 'naru':
-            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = naru.chat_stream(
-                message=msg, chat_history=data.chat_history or [],
-                knowledge=knowledge, meeting_context=meeting_context,
-            )
-        elif _route == 'ara':
+        elif _route == 'minutes_agent':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             agendas = db.query(models.Agenda).filter(
                 models.Agenda.meeting_id == data.meeting_id,
                 models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
             ).all()
-            gen = ara.chat_stream(
+            gen = minutes_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes,
                 current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        elif _route == 'naon':
+        elif _route == 'report_agent':
             meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = naon.chat_stream(
+            gen = report_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
-                meeting_context=meeting_context,
+                knowledge=knowledge, meeting_context=meeting_context,
             )
-        else:  # hyean
+        else:  # default → report_agent (meeting status)
             member = db.query(models.MeetingMember).filter(
                 models.MeetingMember.meeting_id == data.meeting_id,
                 models.MeetingMember.user_id == current_user.id,
             ).first()
-            # 현재 사용자의 접근 범위로 필터링된 상태 빌드
-            hyean_status = await _build_neo4j_meeting_status(
+            meeting_status = await _build_neo4j_meeting_status(
                 person_id=None if is_admin else user_person_id
             )
-            if not hyean_status:
-                hyean_status = _build_all_meetings_status(
+            if not meeting_status:
+                meeting_status = _build_all_meetings_status(
                     db, user_id=None if is_admin else current_user.id
                 )
             if data.meeting_id and neo4j_ctx:
-                hyean_status["current_meeting"] = neo4j_ctx  # 이미 조회된 Neo4j 컨텍스트 재사용
+                meeting_status["current_meeting"] = neo4j_ctx
             elif data.meeting_id:
-                hyean_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
-            gen = hyean.status_stream(
-                meeting_status=hyean_status,
+                meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
+            gen = report_agent.status_stream(
+                meeting_status=meeting_status,
                 user_role=member.role if member else "presenter",
                 active_knowledge=knowledge,
                 chat_history=data.chat_history,
@@ -432,7 +420,7 @@ async def supervisor_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/hyean/chat")
+@router.post("/report/chat", summary="Report Chat")
 async def hyean_chat(
     data: schemas.AgentChatRequest,
     background_tasks: BackgroundTasks,
@@ -471,10 +459,10 @@ async def hyean_chat(
         meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
     meeting_context = _get_meeting_context(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "현황 대화", f'"{ data.message[:80] }"')
+    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "현황 대화", f'"{ data.message[:80] }"')
 
     async def stream():
-        async for chunk in hyean.status_stream(
+        async for chunk in report_agent.status_stream(
             meeting_status=meeting_status,
             user_role=user_role,
             active_knowledge=knowledge,
@@ -729,24 +717,24 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
         if person_id:
             # 해당 사용자의 소속 회의체만 조회
             mg_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
-                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
+                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
                 "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department",
                 {"pid": person_id},
             )
             agenda_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "MATCH (ag:Agenda)-[:`관할`]->(mg) "
                 "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
                 "       ag.priority AS priority",
                 {"pid": person_id},
             )
             person_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg) "
                 "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
                 {"pid": person_id},
             )
@@ -755,19 +743,19 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
             # admin: 전체 조회
             mg_rows = await run_cypher(
                 "MATCH (mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
-                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
+                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
                 "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department"
             )
             agenda_rows = await run_cypher(
-                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg:MeetingGroup) "
+                "MATCH (ag:Agenda)-[:`관할`]->(mg:MeetingGroup) "
                 "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
                 "       ag.priority AS priority"
             )
             person_rows = await run_cypher(
-                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
                 "RETURN p.name AS person, mg.title AS meeting, type(r) AS role"
             )
             scope_label = "전체 조직 (Neo4j)"
@@ -792,7 +780,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
                 mg["members"].append({
                     "name": row.get("person_name", "?"),
                     "department": row.get("department") or "",
-                    "role": "admin" if row.get("rel_type") == "ADMIN_OF" else "member",
+                    "role": "admin" if row.get("rel_type") == "간사" else "member",
                 })
     for row in agenda_rows:
         mg_id = row.get("mg_id", "")
@@ -809,7 +797,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
     for row in person_rows:
         pm[row.get("person", "?")].append({
             "title": row.get("meeting", "?"),
-            "role": "admin" if row.get("role") == "ADMIN_OF" else "member",
+            "role": "admin" if row.get("role") == "간사" else "member",
         })
     persons = [
         {"name": name, "meetings": mtgs}

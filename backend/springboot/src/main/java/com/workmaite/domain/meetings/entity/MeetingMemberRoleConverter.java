@@ -10,8 +10,8 @@ public class MeetingMemberRoleConverter implements AttributeConverter<MeetingMem
     public String convertToDatabaseColumn(MeetingMemberRole role) {
         if (role == null) return null;
         return switch (role) {
-            case SECRETARY -> "admin";
-            case MEMBER -> "presenter";
+            case ADMIN -> "admin";
+            case MEMBER -> "member";
         };
     }
 
@@ -19,8 +19,8 @@ public class MeetingMemberRoleConverter implements AttributeConverter<MeetingMem
     public MeetingMemberRole convertToEntityAttribute(String dbValue) {
         if (dbValue == null) return null;
         return switch (dbValue.toLowerCase()) {
-            case "admin" -> MeetingMemberRole.SECRETARY;
-            case "presenter" -> MeetingMemberRole.MEMBER;
+            case "admin" -> MeetingMemberRole.ADMIN;
+            case "member", "presenter" -> MeetingMemberRole.MEMBER;
             default -> throw new IllegalArgumentException("Unknown MeetingMemberRole: " + dbValue);
         };
     }

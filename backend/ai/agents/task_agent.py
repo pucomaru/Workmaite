@@ -1,22 +1,22 @@
-"""가온 (Gaon) - Agenda/Todo 추출 Agent (LangGraph)"""
+# 과제 추출 Agent - 회의록/문서를 입력받아 과제·담당자·기한 추출
+# HITL (Human-In-The-Loop): 추출 결과에 대한 사용자 Approve/Reject 포함
+# 수동 트리거 방식 유지 (POST /archive/extract-agendas)
 import os, json, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
-from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-_DB = os.path.join(os.path.dirname(__file__), "..", "checkpoints.db")
 
 
 # ── State ─────────────────────────────────────────────────────────────────
-class GaonState(TypedDict):
+class TaskState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     departments: List[str]
     knowledge: List[dict]
@@ -48,24 +48,6 @@ class ExtractionResult(BaseModel):
     todos: List[TodoItem] = Field(default_factory=list)
 
 
-# ── Tool ──────────────────────────────────────────────────────────────────
-@tool
-def parse_extraction_tool(text: str) -> str:
-    """응답 텍스트에서 아젠다/Todo JSON을 파싱해 반환한다."""
-    parsed = _parse_json_from_text(text)
-    return json.dumps(parsed, ensure_ascii=False) if parsed else "{}"
-
-
-# ── LLM ───────────────────────────────────────────────────────────────────
-def _make_llm(temperature: float = 0.1) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        streaming=True,
-    )
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _parse_json_from_text(text: str):
     """LLM 응답에서 JSON 추출. 마크다운 코드블록, 일반 JSON 모두 처리."""
@@ -90,8 +72,12 @@ def _parse_json_from_text(text: str):
     return None
 
 
-def _build_system_prompt(knowledge: List[dict] = None, departments: List[str] = None, meeting_context: str = "") -> str:
-    base = """너는 가온이야. 회의 준비를 도와주는 AI야.
+def _build_system_prompt(
+    knowledge: List[dict] = None,
+    departments: List[str] = None,
+    meeting_context: str = "",
+) -> str:
+    base = """너는 TaskAgent야. 회의록과 문서에서 과제·담당자·기한을 추출하는 AI야.
 
 말할 때는 회사 동료처럼 자연스럽고 편하게 말해. "~요" 체로 말하고, 헤딩이나 번호 목록 같은 형식 쓰지 마. 그냥 대화하듯 써. 사용자가 짧게 물으면 짧게 답하고, 공감 표현("아 그렇군요", "맞아요" 등)도 자연스럽게 섞어.
 
@@ -127,15 +113,17 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
 
 
 # ── Chat graph nodes ───────────────────────────────────────────────────────
-async def _chat_node(state: GaonState) -> dict:
-    system = _build_system_prompt(state.get("knowledge"), state.get("departments"), state.get("meeting_context", ""))
-    llm = _make_llm()
+async def _chat_node(state: TaskState) -> dict:
+    system = _build_system_prompt(
+        state.get("knowledge"), state.get("departments"), state.get("meeting_context", "")
+    )
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"), streaming=True)
     response = await llm.ainvoke([SystemMessage(content=system)] + state["messages"])
     return {"messages": [response]}
 
 
 def _build_chat_graph():
-    builder = StateGraph(GaonState)
+    builder = StateGraph(TaskState)
     builder.add_node("chat", _chat_node)
     builder.add_edge(START, "chat")
     builder.add_edge("chat", END)
@@ -207,7 +195,12 @@ async def chat_stream(
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     async for event in _chat_graph.astream_events(
-        {"messages": input_msgs, "departments": departments or [], "knowledge": knowledge or [], "meeting_context": meeting_context},
+        {
+            "messages": input_msgs,
+            "departments": departments or [],
+            "knowledge": knowledge or [],
+            "meeting_context": meeting_context,
+        },
         config,
         version="v2",
     ):
@@ -245,7 +238,6 @@ async def extract_agendas_and_todos(
         HumanMessage(content=prompt),
     ])
     parsed = _parse_json_from_text(response.content)
-    # Extract reason text (everything before the JSON block)
     reason = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', response.content).strip()
     reason = re.sub(r'\{[^{}]*"agendas"[^{}]*\}', '', reason).strip()
     if isinstance(parsed, list):
@@ -264,8 +256,13 @@ async def start_extraction_review(
     """[HITL Step 1] 아젠다 추출 제안 → interrupt()로 일시 정지. 제안 결과 반환."""
     config = {"configurable": {"thread_id": thread_id}}
     await _extraction_graph.ainvoke(
-        {"messages": [], "content": content, "departments": departments or [],
-         "knowledge": knowledge or [], "proposed": None},
+        {
+            "messages": [],
+            "content": content,
+            "departments": departments or [],
+            "knowledge": knowledge or [],
+            "proposed": None,
+        },
         config,
     )
     state = _extraction_graph.get_state(config)
