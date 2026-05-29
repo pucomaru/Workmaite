@@ -141,7 +141,9 @@ public class MeetingService {
         checkSecretaryPermission(meetingId, requesterId);
         MeetingMember member = meetingMemberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
+        Long userId = member.getUserId();
         meetingMemberRepository.delete(member);
+        neoSyncService.deleteMember(meetingId, userId);
     }
 
     @Transactional
@@ -152,6 +154,7 @@ public class MeetingService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
         member.updateRole(request.getRole());
         User user = userRepository.findById(member.getUserId()).orElse(null);
+        neoSyncService.syncMember(meetingId, member.getUserId());
         return MeetingMemberResponse.from(member, user);
     }
 

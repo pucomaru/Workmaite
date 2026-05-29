@@ -267,8 +267,9 @@ async function doCreateMeeting() {
     createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
     createMembers.value = []; createMemberSearch.value = ''; createMemberResults.value = []
     createConnectNodeId.value = ''
-    // 아카이브 재로드 (Neo4j background task 완료 대기 후)
-    setTimeout(refreshArchive, 600)
+    // 아카이브 재로드: SQLite 즉시 반영 후 Neo4j 동기화까지 대기(1s)
+    await refreshArchive()
+    setTimeout(refreshArchive, 1000)
   } finally { creating.value = false }
 }
 
@@ -1594,7 +1595,7 @@ async function saveRelEdit() {
       old_rel: oldRel,
       new_rel: relEditRel.value,
       to_id: toNode?.neo4jId || toNode?.id,
-    }).catch(() => {})
+    }).then(() => setTimeout(refreshArchive, 600)).catch(() => {})
   }
   relEditIdx.value = null
   graphVersion.value++
@@ -1632,7 +1633,7 @@ async function doDeleteEdge(edgeIdx) {
       from_id: _normalizeNeo4jId(fromNode.neo4jId || fromNode.id),
       rel_type: e.rel || '',
       to_id: _normalizeNeo4jId(toNode.neo4jId || toNode.id),
-    }}).catch(() => {})
+    }}).then(() => setTimeout(refreshArchive, 600)).catch(() => {})
   }
   gEdges.splice(edgeIdx, 1)
   relEditIdx.value = null
@@ -1664,7 +1665,7 @@ async function doAddRel() {
     from_id: _normalizeNeo4jId(fromNode.neo4jId || fromNode.id),
     rel_type: rel,
     to_id: _normalizeNeo4jId(toNode.neo4jId || toNode.id),
-  }).catch(() => {})
+  }).then(() => setTimeout(refreshArchive, 600)).catch(() => {})
 }
 
 const connectableNodes = computed(() => {
@@ -1895,6 +1896,19 @@ function doAddFile() {
 
   showUploadModal.value = false
   initGraph()
+
+  // 백엔드 업로드 + Neo4j 임베딩 동기화
+  const file = uploadForm.value.file
+  if (file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    const rawMgId = uploadForm.value.meetingId
+    const mgNumId = rawMgId ? _toSqliteId(rawMgId) : null
+    if (mgNumId) fd.append('meeting_id', String(mgNumId))
+    apiAI.post('/api/sync/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then(() => setTimeout(refreshArchive, 1200))
+      .catch(e => console.warn('[doAddFile] sync/file 실패:', e))
+  }
 }
 
 
@@ -3533,6 +3547,7 @@ async function refreshArchive() {
     if (g.nodes.length > 0) {
       gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
       buildConstPositions()
+      initGraph()  // 캔버스 시각 즉시 반영
     }
   } catch(e) { console.error('archive refresh error', e) }
 }

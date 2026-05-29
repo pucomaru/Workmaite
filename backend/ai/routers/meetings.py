@@ -2,34 +2,21 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
-import os, base64, httpx
+import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
 from notifications import create_notification
+from neo4j_sync import (
+    sync_meeting,
+    sync_meeting_member,
+    sync_user,
+    delete_meeting,
+    delete_meeting_member,
+    update_meeting_member_role,
+)
 
 router = APIRouter(prefix="/api", tags=["meetings"])
-
-NEO4J_URL      = os.getenv("NEO4J_URL", "http://localhost:7474")
-NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
-NEO4J_DB       = os.getenv("NEO4J_DATABASE", "neo4j")
-
-def _neo4j_auth():
-    creds = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
-    return {"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Accept": "application/json"}
-
-async def _neo4j(stmt: str, params: dict | None = None):
-    """Neo4j Cypher 실행 (fire-and-forget용; 실패해도 SQLite 트랜잭션에 영향 없음)"""
-    try:
-        body = {"statements": [{"statement": stmt, **(({"parameters": params}) if params else {})}]}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(
-                f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit",
-                json=body, headers=_neo4j_auth()
-            )
-    except Exception as e:
-        print(f"[Neo4j sync warn] {e}")
 
 
 STRATEGIC_DEPT = "전략기획팀"
@@ -99,19 +86,23 @@ async def create_meeting(
     db.refresh(meeting)
 
     # Neo4j 동기화 (백그라운드)
-    mg_id = f"mg-sqlite-{meeting.id}"
     async def _sync():
-        await _neo4j(
-            "MERGE (mg:MeetingGroup {id: $id}) SET mg.title=$title, mg.meeting_type=$mt, mg.purpose=$purpose, mg.status='active'",
-            {"id": mg_id, "title": meeting.title, "mt": meeting.meeting_type or "", "purpose": meeting.purpose or ""},
+        await sync_meeting(
+            meeting_id=meeting.id,
+            title=meeting.title,
+            purpose=meeting.purpose,
+            status=str(meeting.status or "ACTIVE"),
+            meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
         )
-        # 조직 연결
-        await _neo4j("MATCH (mg:MeetingGroup {id:$mid}), (o:Organization) MERGE (mg)-[:PART_OF]->(o)", {"mid": mg_id})
-        # 생성자 연결
-        await _neo4j(
-            "MATCH (mg:MeetingGroup {id:$mid}) MATCH (p:Person) WHERE p.email=$email OR p.name=$name MERGE (p)-[:ADMIN_OF]->(mg)",
-            {"mid": mg_id, "email": current_user.employee_id or "", "name": current_user.name or ""},
+        await sync_user(
+            user_id=current_user.id,
+            name=current_user.name,
+            email=current_user.email,
+            company=current_user.company,
+            department=current_user.department,
+            position=current_user.position,
         )
+        await sync_meeting_member(meeting_id=meeting.id, user_id=current_user.id, role="ADMIN")
     background_tasks.add_task(_sync)
     return meeting
 
@@ -171,11 +162,14 @@ async def update_meeting(
     db.refresh(meeting)
 
     # Neo4j 동기화 (백그라운드)
-    mg_id = f"mg-sqlite-{meeting_id}"
-    neo4j_fields = {k: v for k, v in data.items() if k in ("title", "purpose", "status", "meeting_type", "guidelines")}
-    if neo4j_fields:
-        set_clause = ", ".join(f"mg.{k}=${k}" for k in neo4j_fields)
-        background_tasks.add_task(_neo4j, f"MATCH (mg:MeetingGroup {{id:$mid}}) SET {set_clause}", {"mid": mg_id, **neo4j_fields})
+    background_tasks.add_task(
+        sync_meeting,
+        meeting_id=meeting.id,
+        title=meeting.title,
+        purpose=meeting.purpose,
+        status=str(meeting.status or "ACTIVE"),
+        meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
+    )
     return meeting
 
 
@@ -225,24 +219,33 @@ async def add_member(
     )
     db.commit()
 
-    # Neo4j 동기화 (백그라운드)
+    # Neo4j 동기화 (백그라운드): Person 노드 보장 후 관계 생성
     added_user = db.query(models.User).filter(models.User.id == data.user_id).first()
     if added_user:
-        rel = "ADMIN_OF" if data.role == "admin" else "MEMBER_OF"
-        mg_id = f"mg-sqlite-{meeting_id}"
-        background_tasks.add_task(
-            _neo4j,
-            f"MATCH (mg:MeetingGroup {{id:$mid}}) MATCH (p:Person) WHERE p.email=$email OR p.name=$name MERGE (p)-[:{rel}]->(mg)",
-            {"mid": mg_id, "email": added_user.employee_id or "", "name": added_user.name or ""},
-        )
+        async def _sync_member():
+            await sync_user(
+                user_id=added_user.id,
+                name=added_user.name,
+                email=added_user.email,
+                company=added_user.company,
+                department=added_user.department,
+                position=added_user.position,
+            )
+            await sync_meeting_member(
+                meeting_id=meeting_id,
+                user_id=added_user.id,
+                role=data.role.upper(),
+            )
+        background_tasks.add_task(_sync_member)
     return member
 
 
 @router.patch("/meetings/{meeting_id}/members/{member_id}")
-def update_member_role(
+async def update_member_role(
     meeting_id: int,
     member_id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -258,6 +261,14 @@ def update_member_role(
     if "role" in data:
         member.role = data["role"]
     db.commit()
+
+    # Neo4j 동기화 (기존 관계 삭제 후 새 역할로 재생성)
+    background_tasks.add_task(
+        update_meeting_member_role,
+        meeting_id=meeting_id,
+        user_id=member.user_id,
+        new_role=str(data.get("role", member.role)).upper(),
+    )
     return member
 
 
@@ -283,13 +294,12 @@ async def remove_member(
     db.delete(target)
     db.commit()
 
-    # Neo4j 동기화 (백그라운드)
+    # Neo4j 동기화 (백그라운드): pg_id 기반으로 관계 삭제
     if removed_user:
-        mg_id = f"mg-sqlite-{meeting_id}"
         background_tasks.add_task(
-            _neo4j,
-            "MATCH (p:Person)-[r:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup {id:$mid}) WHERE p.email=$email OR p.name=$name DELETE r",
-            {"mid": mg_id, "email": removed_user.employee_id or "", "name": removed_user.name or ""},
+            delete_meeting_member,
+            meeting_id=meeting_id,
+            user_id=removed_user.id,
         )
     return {"ok": True}
 
@@ -334,9 +344,8 @@ async def delete_meeting(
     db.delete(meeting)
     db.commit()
 
-    # Neo4j 동기화 (백그라운드)
-    mg_id = f"mg-sqlite-{meeting_id}"
-    background_tasks.add_task(_neo4j, "MATCH (mg:MeetingGroup {id:$mid}) DETACH DELETE mg", {"mid": mg_id})
+    # Neo4j 동기화 (백그라운드): :Meeting {pg_id} DETACH DELETE
+    background_tasks.add_task(delete_meeting, meeting_id=meeting_id)
     return {"ok": True}
 
 

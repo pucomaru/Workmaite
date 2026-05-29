@@ -1,28 +1,13 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-import os, base64, httpx
 import models, schemas
 from database import get_db
 from auth import get_current_user
 from notifications import create_notification
+from neo4j_sync import sync_session, delete_session
 
 router = APIRouter(prefix="/api", tags=["sessions"])
-
-NEO4J_URL      = os.getenv("NEO4J_URL", "http://localhost:7474")
-NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
-NEO4J_DB       = os.getenv("NEO4J_DATABASE", "neo4j")
-
-async def _neo4j(stmt: str, params: dict | None = None):
-    try:
-        creds = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
-        headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Accept": "application/json"}
-        body = {"statements": [{"statement": stmt, **(({"parameters": params}) if params else {})}]}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit", json=body, headers=headers)
-    except Exception as e:
-        print(f"[Neo4j sync warn] {e}")
 
 @router.get("/meetings/{meeting_id}/sessions", response_model=List[schemas.SessionOut])
 def list_sessions(
@@ -94,15 +79,14 @@ async def create_session(
     db.commit()
     db.refresh(session)
 
-    # Neo4j 동기화 (백그라운드)
-    s_id = f"session-{meeting_id}-{session.id}"
-    mg_id = f"mg-sqlite-{meeting_id}"
+    # Neo4j 동기화 (백그라운드): neo4j_sync.sync_session 사용
     background_tasks.add_task(
-        _neo4j,
-        "MERGE (s:Session {id:$id}) SET s.title=$title, s.session_number=$num, s.date=$date "
-        "WITH s MATCH (mg:MeetingGroup {id:$mgid}) MERGE (s)-[:HELD_BY]->(mg)",
-        {"id": s_id, "title": session.title or "", "num": session.session_number,
-         "date": str(session.scheduled_at or ""), "mgid": mg_id},
+        sync_session,
+        session_id=session.id,
+        meeting_id=meeting_id,
+        title=session.title or "",
+        status=str(session.status or "SCHEDULED"),
+        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
     )
     return session
 

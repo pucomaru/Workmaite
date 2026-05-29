@@ -2,27 +2,12 @@ from typing import List
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
-import os, base64, httpx
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from neo4j_sync import sync_todo, delete_todo, sync_minutes
 
 router = APIRouter(prefix="/api", tags=["todos"])
-
-NEO4J_URL      = os.getenv("NEO4J_URL", "http://localhost:7474")
-NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
-NEO4J_DB       = os.getenv("NEO4J_DATABASE", "neo4j")
-
-async def _neo4j(stmt: str, params: dict | None = None):
-    try:
-        creds = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode()).decode()
-        headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Accept": "application/json"}
-        body = {"statements": [{"statement": stmt, **(({"parameters": params}) if params else {})}]}
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            await client.post(f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit", json=body, headers=headers)
-    except Exception as e:
-        print(f"[Neo4j sync warn] {e}")
 
 @router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
 def all_todos(
@@ -61,22 +46,18 @@ async def create_todo(
     db.commit()
     db.refresh(todo)
 
-    # Neo4j 동기화 (백그라운드)
-    ag_id = f"agenda-{todo.id}"
-    mg_id = f"mg-sqlite-{meeting_id}"
-    async def _sync():
-        await _neo4j(
-            "MERGE (a:Agenda {id:$id}) SET a.title=$title, a.priority=$priority, a.status='pending', a.due_date=$due "
-            "WITH a MATCH (mg:MeetingGroup {id:$mgid}) MERGE (a)-[:OWNED_BY]->(mg)",
-            {"id": ag_id, "title": todo.content or "", "priority": todo.priority or "normal",
-             "due": str(todo.due_date or ""), "mgid": mg_id},
-        )
-        if todo.assignee_name:
-            await _neo4j(
-                "MATCH (a:Agenda {id:$aid}) MATCH (p:Person) WHERE p.name=$name MERGE (a)-[:ASSIGNED_TO]->(p)",
-                {"aid": ag_id, "name": todo.assignee_name},
-            )
-    background_tasks.add_task(_sync)
+    # Neo4j 동기화 (백그라운드): :Todo 노드로 올바르게 저장
+    background_tasks.add_task(
+        sync_todo,
+        todo_id=todo.id,
+        meeting_id=meeting_id,
+        content=todo.content or "",
+        user_id=todo.user_id,
+        assignee_name=todo.assignee_name,
+        status=str(todo.status or "pending"),
+        due_date=todo.due_date.isoformat() if todo.due_date else None,
+        priority=str(todo.priority or "normal"),
+    )
     return todo
 
 
@@ -124,9 +105,10 @@ def get_minutes(
 
 
 @router.post("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
-def save_minutes(
+async def save_minutes(
     session_id: int,
     data: schemas.MinutesSave,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -143,6 +125,14 @@ def save_minutes(
         db.add(m)
     db.commit()
     db.refresh(m)
+
+    # Neo4j 동기화 (백그라운드)
+    background_tasks.add_task(
+        sync_minutes,
+        minutes_id=m.id,
+        session_id=session_id,
+        content_summary=data.content_summary,
+    )
     return m
 
 

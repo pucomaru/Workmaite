@@ -660,6 +660,109 @@ async def retry_failed_syncs(max_retries: int = 3) -> dict:
     return result
 
 
+# ─── 삭제 동기화 ──────────────────────────────────────────────────────────────
+
+async def delete_meeting(meeting_id: int) -> None:
+    """Meeting 노드 및 연결된 모든 관계/하위 노드를 Neo4j에서 삭제합니다."""
+    cypher = "MATCH (m:Meeting {pg_id: $pg_id}) DETACH DELETE m"
+    try:
+        await run_cypher(cypher, {"pg_id": meeting_id})
+        logger.debug(f"[Neo4jSync] Meeting {meeting_id} 삭제 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Meeting {meeting_id} 삭제 실패: {e}")
+        _log_failure("delete_meeting", "meeting", str(meeting_id), e)
+
+
+async def delete_session(session_id: int) -> None:
+    """Session 노드를 Neo4j에서 삭제합니다."""
+    cypher = "MATCH (s:Session {pg_id: $pg_id}) DETACH DELETE s"
+    try:
+        await run_cypher(cypher, {"pg_id": session_id})
+        logger.debug(f"[Neo4jSync] Session {session_id} 삭제 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Session {session_id} 삭제 실패: {e}")
+        _log_failure("delete_session", "session", str(session_id), e)
+
+
+async def delete_agenda(agenda_id: int) -> None:
+    """Agenda 노드를 Neo4j에서 삭제합니다."""
+    cypher = "MATCH (ag:Agenda {pg_id: $pg_id}) DETACH DELETE ag"
+    try:
+        await run_cypher(cypher, {"pg_id": agenda_id})
+        logger.debug(f"[Neo4jSync] Agenda {agenda_id} 삭제 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Agenda {agenda_id} 삭제 실패: {e}")
+        _log_failure("delete_agenda", "agenda", str(agenda_id), e)
+
+
+async def delete_todo(todo_id: int) -> None:
+    """Todo 노드를 Neo4j에서 삭제합니다."""
+    cypher = "MATCH (t:Todo {pg_id: $pg_id}) DETACH DELETE t"
+    try:
+        await run_cypher(cypher, {"pg_id": todo_id})
+        logger.debug(f"[Neo4jSync] Todo {todo_id} 삭제 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Todo {todo_id} 삭제 실패: {e}")
+        _log_failure("delete_todo", "todo", str(todo_id), e)
+
+
+async def delete_meeting_member(meeting_id: int, user_id: int) -> None:
+    """Person → Meeting 멤버십 관계를 Neo4j에서 삭제합니다."""
+    cypher = """
+    MATCH (p:Person {pg_id: $user_id})-[r:ADMIN_OF|MEMBER_OF]->(m:Meeting {pg_id: $meeting_id})
+    DELETE r
+    """
+    params = {"meeting_id": meeting_id, "user_id": user_id}
+    try:
+        await run_cypher(cypher, params)
+        logger.debug(f"[Neo4jSync] MeetingMember {meeting_id}/{user_id} 관계 삭제 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] MeetingMember {meeting_id}/{user_id} 관계 삭제 실패: {e}")
+        _log_failure("delete_meeting_member", "meeting_member", f"{meeting_id}_{user_id}", e, params)
+
+
+async def sync_meeting_relation(
+    source_meeting_id: int,
+    target_meeting_id: int,
+    relation_type: str,
+) -> None:
+    """회의체 간 관계(MeetingRelation)를 Neo4j에 upsert합니다."""
+    rel_map = {
+        "PARENT_OF": "PARENT_OF",
+        "RELATED_TO": "RELATED_TO",
+        "FOLLOW_UP": "FOLLOW_UP",
+    }
+    rel = rel_map.get(relation_type.upper(), "RELATED_TO")
+    cypher = f"""
+    MATCH (src:Meeting {{pg_id: $src_id}})
+    MATCH (tgt:Meeting {{pg_id: $tgt_id}})
+    MERGE (src)-[:{rel}]->(tgt)
+    """
+    params = {"src_id": source_meeting_id, "tgt_id": target_meeting_id}
+    try:
+        await run_cypher(cypher, params)
+        logger.debug(f"[Neo4jSync] MeetingRelation {source_meeting_id}-[{rel}]->{target_meeting_id} 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] MeetingRelation 동기화 실패: {e}")
+        _log_failure(
+            "sync_meeting_relation", "meeting_relation",
+            f"{source_meeting_id}_{target_meeting_id}", e, params,
+        )
+
+
+async def update_meeting_member_role(
+    meeting_id: int,
+    user_id: int,
+    new_role: str,
+) -> None:
+    """
+    Person → Meeting 멤버십 관계의 역할을 변경합니다.
+    기존 ADMIN_OF / MEMBER_OF 관계를 삭제하고 새 관계를 생성합니다.
+    """
+    await delete_meeting_member(meeting_id, user_id)
+    await sync_meeting_member(meeting_id, user_id, new_role)
+
+
 # ─── PostgreSQL 전체 동기화 ───────────────────────────────────────────────────
 
 async def sync_all_from_pg(db: DBSession | None = None) -> dict:
@@ -677,7 +780,8 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
 
     stats: dict[str, int] = {
         "users": 0, "meetings": 0, "members": 0,
-        "sessions": 0, "agendas": 0, "minutes": 0,
+        "sessions": 0, "agendas": 0, "todos": 0,
+        "minutes": 0, "meeting_relations": 0,
     }
     try:
         # Users → Person 노드
@@ -719,6 +823,20 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["agendas"] += 1
 
+        # Todos → Todo 노드
+        for t in db.query(models.Todo).all():
+            await sync_todo(
+                todo_id=t.id,
+                meeting_id=t.meeting_id,
+                content=t.content,
+                user_id=t.user_id,
+                assignee_name=getattr(t, "assignee_name", None),
+                status=str(t.status or "pending"),
+                due_date=t.due_date.isoformat() if t.due_date else None,
+                priority=str(getattr(t, "priority", None) or "normal"),
+            )
+            stats["todos"] += 1
+
         # Minutes → Minutes 노드
         for mn in db.query(models.Minutes).all():
             await sync_minutes(
@@ -726,6 +844,16 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 mn.content_summary,
             )
             stats["minutes"] += 1
+
+        # MeetingRelations → 회의체 간 관계
+        if hasattr(models, "MeetingRelation"):
+            for mr in db.query(models.MeetingRelation).all():
+                await sync_meeting_relation(
+                    mr.source_meeting_id,
+                    mr.target_meeting_id,
+                    mr.relation_type,
+                )
+                stats["meeting_relations"] += 1
 
     finally:
         if close_db:
