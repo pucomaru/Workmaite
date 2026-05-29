@@ -66,7 +66,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
 
 
 # ─── 아라 Agent ───────────────────────────────
-@router.post("/ara/sessions-chat")
+@router.post("/minutes/sessions-chat", summary="Minutes Sessions Chat")
 async def ara_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
@@ -123,7 +123,7 @@ async def ara_sessions_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/ara/generate-minutes")
+@router.post("/minutes/generate-minutes", summary="Minutes Generate Minutes")
 async def ara_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
@@ -212,8 +212,8 @@ async def ara_generate_minutes(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── 혜안 Agent ───────────────────────────────
-@router.post("/hyean/status")
+# ─── report_agent (구 혜안) ───────────────────────────────
+@router.post("/report/status", summary="Report Status")
 async def hyean_status(
     data: schemas.HyeanStatusRequest,
     background_tasks: BackgroundTasks,
@@ -222,10 +222,10 @@ async def hyean_status(
 ):
     meeting_status = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "회의 현황 분석 요청", "")
+    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "회의 현황 분석 요청", "")
 
     async def stream():
-        async for chunk in hyean.status_stream(
+        async for chunk in report_agent.status_stream(
             meeting_status=meeting_status,
             user_role=data.user_role,
             active_knowledge=knowledge,
@@ -253,24 +253,19 @@ async def supervisor_chat(
         '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
         '추출', '과제 목록', '안건', '다음 회의'
     ]):
-        _route = 'gaon'
-    elif any(kw in msg_lower for kw in [
-        '카드뉴스', '카드 뉴스', '콘텐츠', '소셜', 'sns', '홍보', '카드',
-        'card news', '인포그래픽', '소식지'
-    ]):
-        _route = 'naon'
+        _route = 'task_agent'
     elif any(kw in msg_lower for kw in [
         '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성',
         '속기', '회의 보조'
     ]):
-        _route = 'ara'
+        _route = 'minutes_agent'
     elif any(kw in msg_lower for kw in [
         '검토', '보고서', '자료 분석', '리뷰', 'review', '문제점', '개선',
         '첨삭', '피드백', '문서 검토', '파일 검토'
     ]):
-        _route = 'naru'
+        _route = 'report_agent'
     else:
-        _route = 'hyean'
+        _route = 'report_agent'
 
     knowledge = _get_knowledge(db, data.meeting_id)
     background_tasks.add_task(
@@ -421,58 +416,51 @@ async def supervisor_chat(
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
-        if _route == 'gaon':
+        if _route == 'task_agent':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             departments = _get_member_departments(db, data.meeting_id)
             meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = gaon.chat_stream(
+            gen = task_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes, knowledge=knowledge,
                 departments=departments, meeting_context=meeting_context,
             )
-        elif _route == 'naru':
-            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = naru.chat_stream(
-                message=msg, chat_history=data.chat_history or [],
-                knowledge=knowledge, meeting_context=meeting_context,
-            )
-        elif _route == 'ara':
+        elif _route == 'minutes_agent':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             agendas = db.query(models.Agenda).filter(
                 models.Agenda.meeting_id == data.meeting_id,
                 models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
             ).all()
-            gen = ara.chat_stream(
+            gen = minutes_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=previous_minutes,
                 current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        elif _route == 'naon':
+        elif _route == 'report_agent':
             meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
-            gen = naon.chat_stream(
+            gen = report_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
-                meeting_context=meeting_context,
+                knowledge=knowledge, meeting_context=meeting_context,
             )
-        else:  # hyean
+        else:  # default → report_agent (meeting status)
             member = db.query(models.MeetingMember).filter(
                 models.MeetingMember.meeting_id == data.meeting_id,
                 models.MeetingMember.user_id == current_user.id,
             ).first()
-            # 현재 사용자의 접근 범위로 필터링된 상태 빌드
-            hyean_status = await _build_neo4j_meeting_status(
+            meeting_status = await _build_neo4j_meeting_status(
                 person_id=None if is_admin else user_person_id
             )
-            if not hyean_status:
-                hyean_status = _build_all_meetings_status(
+            if not meeting_status:
+                meeting_status = _build_all_meetings_status(
                     db, user_id=None if is_admin else current_user.id
                 )
             if data.meeting_id and neo4j_ctx:
-                hyean_status["current_meeting"] = neo4j_ctx  # 이미 조회된 Neo4j 컨텍스트 재사용
+                meeting_status["current_meeting"] = neo4j_ctx
             elif data.meeting_id:
-                hyean_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
-            gen = hyean.status_stream(
-                meeting_status=hyean_status,
+                meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
+            gen = report_agent.status_stream(
+                meeting_status=meeting_status,
                 user_role=member.role if member else "presenter",
                 active_knowledge=knowledge,
                 chat_history=data.chat_history,
@@ -499,7 +487,7 @@ async def supervisor_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/hyean/chat")
+@router.post("/report/chat", summary="Report Chat")
 async def hyean_chat(
     data: schemas.AgentChatRequest,
     background_tasks: BackgroundTasks,
@@ -538,10 +526,10 @@ async def hyean_chat(
         meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
     knowledge = _get_knowledge(db, data.meeting_id)
     meeting_context = _get_meeting_context(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "혜안", "현황 대화", f'"{ data.message[:80] }"')
+    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "현황 대화", f'"{ data.message[:80] }"')
 
     async def stream():
-        async for chunk in hyean.status_stream(
+        async for chunk in report_agent.status_stream(
             meeting_status=meeting_status,
             user_role=user_role,
             active_knowledge=knowledge,
