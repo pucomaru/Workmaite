@@ -31,13 +31,32 @@ api.interceptors.response.use(
     }
     return res
   },
-  err => {
+  async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
       return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
     }
     if (err.response?.status === 401) {
-      sessionStorage.removeItem('token')
-      window.location.href = '/login'
+      const refreshToken = sessionStorage.getItem('refreshToken')
+      if (refreshToken && !err.config._retry) {
+        err.config._retry = true
+        try {
+          const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
+          sessionStorage.setItem('token', data.data?.accessToken || data.accessToken)
+          sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken)
+          err.config.headers.Authorization = `Bearer ${sessionStorage.getItem('token')}`
+          return api(err.config)
+        } catch {
+          sessionStorage.removeItem('token')
+          sessionStorage.removeItem('refreshToken')
+          sessionStorage.removeItem('user')
+          window.location.href = '/login'
+        }
+      } else {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('refreshToken')
+        sessionStorage.removeItem('user')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }

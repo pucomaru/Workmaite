@@ -24,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = data.accessToken
     user.value = data.user
     sessionStorage.setItem('token', data.accessToken)
+    sessionStorage.setItem('refreshToken', data.refreshToken)
     sessionStorage.setItem('user', JSON.stringify(data.user))
   }
 
@@ -41,6 +42,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = ''
     user.value = null
     sessionStorage.removeItem('token')
+    sessionStorage.removeItem('refreshToken')
     sessionStorage.removeItem('user')
   }
 
