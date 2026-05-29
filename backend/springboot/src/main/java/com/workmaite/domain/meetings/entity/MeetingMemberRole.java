@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public enum MeetingMemberRole {
     @JsonProperty("admin")
-    SECRETARY,
+    ADMIN,
 
     @JsonProperty("presenter")
     MEMBER

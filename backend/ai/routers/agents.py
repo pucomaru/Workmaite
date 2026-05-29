@@ -57,7 +57,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
         for m in members:
             user = db.query(models.User).filter(models.User.id == m.user_id).first()
             if user:
-                role_label = "운영자" if m.role == "SECRETARY" else "참여자"
+                role_label = "운영자" if m.role == "admin" else "참여자"
                 dept = user.department or ""
                 member_parts.append(f"{user.name}({dept}, {role_label})")
         if member_parts:

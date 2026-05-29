@@ -46,7 +46,7 @@ class MeetingMember(Base):
     id         = Column(BigInteger, primary_key=True, index=True)
     meeting_id = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
     user_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
-    role       = Column(String(20), nullable=False)   # SECRETARY | MEMBER
+    role       = Column(String(20), nullable=False)   # admin | presenter
     created_at = Column(DateTime)
 
     user = relationship("User", foreign_keys=[user_id])
