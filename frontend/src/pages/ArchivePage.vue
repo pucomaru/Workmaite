@@ -2,7 +2,7 @@
 import { ref, computed, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import MemberInvite from '../components/MemberInvite.vue'
 import BaseModal from '../components/BaseModal.vue'
-import ConstellationView from '../components/ConstellationView.vue'
+import GraphView from '../components/GraphView.vue'
 import AppTable from '../components/AppTable.vue'
 import ProcessStepBar from '../components/ProcessStepBar.vue'
 import FileUploadArea from '../components/FileUploadArea.vue'
@@ -28,8 +28,6 @@ const lvColumns = [
 // import naruAvatar from '../assets/agents/naru.png'
 // import araAvatar from '../assets/agents/ara.png'
 // import naonAvatar from '../assets/agents/naon.png'
-import agentHierarchyIcon from '../assets/agents/agent_hierarchy_icon.svg'
-
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
 const authStore = useAuthStore()
@@ -55,38 +53,28 @@ const viewMode = ref('graph')
 // nightMode는 전역 themeStore.nightMode(computed)를 사용합니다
 
 // ─── 뷰 전환 시 패널 상태 저장/복원 ─────────────────────────
-const _graphSnapshot = { detailOpen: false, agentSidebarOpen: false, bottomMode: null }
+const _graphSnapshot = { detailOpen: false, agentSidebarOpen: false }
 const _listSnapshot  = { expandedMeeting: null }
 
 watch(viewMode, (next, prev) => {
   // graph ↔ list
   if (prev === 'graph' && next === 'list') {
-    _graphSnapshot.detailOpen      = detailOpen.value
+    _graphSnapshot.detailOpen       = detailOpen.value
     _graphSnapshot.agentSidebarOpen = agentSidebarOpen.value
-    _graphSnapshot.bottomMode      = bottomMode.value
     detailOpen.value = false
     agentSidebarOpen.value = false
-    bottomMode.value = null
     expandedMeeting.value = _listSnapshot.expandedMeeting
   } else if (prev === 'list' && next === 'graph') {
     _listSnapshot.expandedMeeting = expandedMeeting.value
     expandedMeeting.value = null
     nextTick(() => {
-      detailOpen.value      = _graphSnapshot.detailOpen
+      detailOpen.value       = _graphSnapshot.detailOpen
       agentSidebarOpen.value = _graphSnapshot.agentSidebarOpen
-      bottomMode.value      = _graphSnapshot.bottomMode
     })
-  }
-  // constellation 진입/이탈
-  if (next === 'constellation') {
-    nextTick(() => constViewRef.value?.init())
-  } else if (prev === 'constellation') {
-    constViewRef.value?.stop()
   }
 })
 
-// ─── Constellation state ─────────────────────────────────────
-const constViewRef = ref(null)  // ConstellationView 컴포넌트 ref
+const graphViewRef = ref(null)  // GraphView (PIXI) 컴포넌트 ref
 
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
@@ -237,21 +225,6 @@ async function doCreateSession() {
     setTimeout(refreshArchive, 600)
   } catch(e) { console.error(e) }
   finally { creatingSession.value = false }
-}
-
-function onFloatBtnMouseDown(type, e) {
-  floatDragging.value = type
-  floatDragPos.value = { x: e.clientX, y: e.clientY }
-  floatDragStartX = e.clientX; floatDragStartY = e.clientY
-  floatDragMoved = false; floatDragTarget = null; floatDragNearInvalidNode = false; floatDragPreviewLine.value = null
-  document.body.style.cursor = 'grabbing'
-  // document capture 단계 리스너: window.mouseup 이 누락될 경우에도 항상 처리
-  function _floatDragCapture() {
-    document.removeEventListener('mouseup', _floatDragCapture, true)
-    if (floatDragging.value) onGlobalMouseUp()
-  }
-  document.addEventListener('mouseup', _floatDragCapture, true)
-  e.preventDefault()
 }
 
 async function doCreateMeeting() {
@@ -604,37 +577,6 @@ async function injectActionToAgent(userText, planningSteps, agentReply) {
   }
 }
 
-const bottomMode = ref(null)
-const bottomH = ref(0)
-let bottomResizing = false, brStartY = 0, brStartH = 0
-
-function initBottomH() {
-  const el = mainAreaRef.value
-  if (el) bottomH.value = Math.round(el.offsetHeight * 0.46)
-  else bottomH.value = Math.round(window.innerHeight * 0.42)
-}
-
-function onBottomResizeStart(e) {
-  bottomResizing = true
-  brStartY = e.clientY; brStartH = bottomH.value
-  e.preventDefault()
-}
-
-const taskForm = ref({ title: '장소 등록', type: 'Draft', deadline: new Date().toISOString().slice(0,10), depts: ['운영팀'], assignee: '홍길동', purpose: '위원회 추진을 위한 장소 탐색 및 예약', meetingId: '' })
-const taskDeptInput = ref('')
-function addDept() { if (taskDeptInput.value.trim()) { taskForm.value.depts.push(taskDeptInput.value.trim()); taskDeptInput.value = '' } }
-function removeDept(i) { taskForm.value.depts.splice(i, 1) }
-
-function activateTaskMode() {
-  bottomMode.value = 'task'; switchAgent('gaon')
-  nextTick(initBottomH)
-}
-function activateReviewMode() {
-  bottomMode.value = 'review'; switchAgent('naru')
-  nextTick(initBottomH)
-}
-function closeBottomPanel() { bottomMode.value = null }
-
 // ─── Detail sidebar resize ─────────────────────────────────────
 const sidebarW = ref(260)
 let sidebarResizing = false, srStartX = 0, srStartW = 0
@@ -648,138 +590,9 @@ function onGlobalMouseMove(e) {
   if (sidebarResizing) {
     sidebarW.value = Math.max(200, Math.min(480, srStartW + (e.clientX - srStartX)))
   }
-  if (bottomResizing) {
-    const el = mainAreaRef.value
-    const maxH = el ? el.offsetHeight * 0.82 : 600
-    bottomH.value = Math.max(90, Math.min(maxH, brStartH + (brStartY - e.clientY)))
-  }
-  if (floatDragging.value) {
-    floatDragPos.value = { x: e.clientX, y: e.clientY }
-    if (Math.hypot(e.clientX - floatDragStartX, e.clientY - floatDragStartY) > 5) floatDragMoved = true
-    const canvas = canvasRef.value
-    if (canvas && viewMode.value === 'graph') {
-      const rect = canvas.getBoundingClientRect()
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top
-      const w = canvas.offsetWidth, h = canvas.offsetHeight
-      if (mx >= 0 && my >= 0 && mx <= w && my <= h) {
-        const docValidTypes = ['meeting_group', 'dept', 'agenda']
-        const zf = Math.max(.6, Math.min(2.5, worldZoom))
-        const snapR = 22 * zf + 70
-        // Find closest valid target — tree 모드에서는 화면에 보이는 노드만 탐색
-        let closest = null, minDist = Infinity
-        gNodes.forEach((n, i) => {
-          if (expandedHubIdx !== null && !_treePositions?.has(i)) return
-          const isDoc = floatDragging.value === 'doc'
-          if (isDoc ? !docValidTypes.includes(n.type) : (n.type !== 'meeting_group' && n.id !== 'org-root')) return
-          let sx, sy
-          if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
-          else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
-          const d = Math.hypot(sx - mx, sy - my)
-          if (d < snapR && d < minDist) { minDist = d; closest = { idx: i, node: n, proj: { sx, sy } } }
-        })
-        // Find closest node of ANY type (to detect invalid hover) — only check visible nodes
-        // In tree mode (expandedHubIdx set), only nodes in _treePositions are visible
-        let anyClosest = null, anyMinDist = Infinity
-        gNodes.forEach((n, i) => {
-          if (expandedHubIdx !== null && !_treePositions?.has(i)) return
-          let sx, sy
-          if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
-          else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
-          const d = Math.hypot(sx - mx, sy - my)
-          if (d < snapR && d < anyMinDist) { anyMinDist = d; anyClosest = { idx: i, node: n } }
-        })
-        // 유효 타겟이 없는 경우에만 invalid로 처리 (가까운 거리 비교 제거)
-        const overInvalid = anyClosest && !closest
-        floatDragNearInvalidNode = !!overInvalid
-        floatDragTarget = overInvalid ? null : closest
-        if (!overInvalid && closest) {
-          floatDragPreviewLine.value = { x1: closest.proj.sx, y1: closest.proj.sy, x2: mx, y2: my }
-          if (floatDragging.value === 'doc' || floatDragging.value === 'session') {
-            const hubNode = closest.node
-            let hubIdx = closest.idx
-            if (hubNode.type !== 'meeting_group') {
-              if (hubNode.meetingGroupId) {
-                const mgi = gNodes.findIndex(n => n.id === hubNode.meetingGroupId)
-                if (mgi >= 0) hubIdx = mgi
-              } else {
-                const mgEdge = gEdges.find(e => e.to === closest.idx && gNodes[e.from]?.type === 'meeting_group')
-                if (mgEdge) hubIdx = mgEdge.from
-              }
-            }
-            if (expandedHubIdx !== hubIdx) {
-              expandedHubIdx = hubIdx; expandedDeptIdx = null
-              targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
-              targetPan2DX=0; targetPan2DY=0; pan2DX=0; pan2DY=0
-            }
-          }
-        } else { floatDragPreviewLine.value = null }
-      } else { floatDragTarget = null; floatDragNearInvalidNode = false; floatDragPreviewLine.value = null }
-    }
-  }
 }
 function onGlobalMouseUp() {
-  sidebarResizing = false; bottomResizing = false
-  if (floatDragging.value) {
-    const type = floatDragging.value
-    const target = floatDragTarget
-    const nearInvalid = floatDragNearInvalidNode
-    floatDragging.value = null; floatDragTarget = null; floatDragPreviewLine.value = null
-    floatDragNearInvalidNode = false
-    const moved = floatDragMoved
-    floatDragMoved = false
-    document.body.style.cursor = ''
-    // Dropped onto an invalid node type → show toast (only if no valid target was found)
-    if (moved && nearInvalid && !target) {
-      const label = type === 'meeting' ? '회의체' : type === 'session' ? '회의' : '자료'
-      showMapToast(`${label}는 해당 노드에 연결할 수 없습니다.`)
-      return
-    }
-    if (!moved || !target) {
-      // Click or missed drop → open normally
-      if (type === 'meeting') openCreateModal()
-      else if (type === 'doc') openUploadModal()
-      else if (type === 'session') openSessionModal()
-    } else {
-      // Dropped onto a valid node
-      if (type === 'meeting') {
-        const connectId = target.node.id
-        if (target.node.type === 'meeting_group') {
-          selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
-          targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
-          targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
-        }
-        openCreateModal()
-        createConnectNodeId.value = connectId
-      } else if (type === 'doc') {
-        const tn = target.node
-        const ctx = {}
-        if (tn.type === 'meeting_group') {
-          ctx.meetingId = tn.id
-          ctx.connectNodeId = tn.id  // meeting_group 자체도 connectNode로 설정
-        } else if (tn.type === 'dept') {
-          ctx.connectNodeId = tn.id
-          ctx.meetingId = tn.meetingGroupId || ''
-          if (!ctx.meetingId) {
-            const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
-            if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
-          }
-        } else if (tn.type === 'agenda') {
-          ctx.relatedTodoId = String(tn.data?.id || '')
-          ctx.agendaContent = tn.data?.content || tn.fullContent || tn.label || ''
-          ctx.connectNodeId = tn.id  // 파일 노드를 과제 노드에 직접 연결
-          // meetingGroupId: node 속성 또는 edge로 찾기
-          ctx.meetingId = tn.meetingGroupId || ''
-          if (!ctx.meetingId) {
-            const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
-            if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
-          }
-        }
-        openUploadModal(ctx)
-      } else if (type === 'session') {
-        openSessionModal(target.node.data?.id || null)
-      }
-    }
-  }
+  sidebarResizing = false
 }
 
 // ─── Hover ────────────────────────────────────────────
@@ -1236,19 +1049,6 @@ async function openDetail(groupData) {
   } catch { detailTodos.value = [] }
 }
 
-// ─── 3D Graph ─────────────────────────────────────────────────
-const canvasRef = ref(null)
-const mainAreaRef = ref(null)
-let ctx = null, animId = null, ro = null
-let rotX = 0.35, rotY = 0.1
-let isDragging = false, lastMx = 0, lastMy = 0
-const isPanMode = ref(false)
-let autoRotate = false, focusNode = null
-const selectedNodeIdx = ref(null)
-const breadcrumb = ref([])
-let targetCamX = 0, targetCamY = 0, targetCamZ = 0
-let camX = 0, camY = 0, camZ = 0
-let worldZoom = 1.0, targetZoom = 1.0, dpr = 1
 let gNodes = [], gEdges = []
 // ─── 로컬 관계 오버라이드: refreshArchive 후에도 유지 ────────
 // key 형식: "fromNodeId|toNodeId" (양방향 모두 등록)
@@ -1270,33 +1070,6 @@ function _applyLocalEdgeOverrides(nodes, edges) {
   })
   return result
 }
-let expandedHubIdx = null
-let expandedDeptIdx = null
-let rotationPaused = false
-// 2D tree mode pan state (used when expandedHubIdx !== null)
-let pan2DX = 0, pan2DY = 0, targetPan2DX = 0, targetPan2DY = 0
-let _treePositions = null // Map<idx, {sx, sy}> cached each frame in 2D mode
-let dragNode2D = null // idx of node being dragged in 2D tree mode
-let dragNode2DMoved = false
-const _node2DOffsets = new Map() // Map<idx, {dx,dy}> — accumulated screen-pixel offsets from dragging
-// Float button drag state
-const floatDragging = ref(null)       // null | 'meeting' | 'doc'
-const floatDragPos = ref({ x: 0, y: 0 })
-const floatDragPreviewLine = ref(null) // { x1,y1,x2,y2 } in canvas px
-let floatDragTarget = null
-let floatDragStartX = 0, floatDragStartY = 0, floatDragMoved = false
-let floatDragNearInvalidNode = false
-
-// ─── Connection dot / edge-draw state ─────────────────────────
-const connDotVisible = ref(false)   // reactive → drives cursor style
-let connDotNodeIdx = -1
-let connDotSx = 0, connDotSy = 0
-const connDragging = ref(false)     // reactive → drives cursor style
-let connDragFromIdx = -1
-let connDragFromSx = 0, connDragFromSy = 0
-let connDragCurSx = 0, connDragCurSy = 0
-let connDragTargetIdx = -1
-
 // ─── Upload modal ──────────────────────────────────────────────
 const FILE_TYPES = ['보고자료', '발제자료', '회의록']
 const FILE_TYPE_COLORS = { '보고자료': '#34d399', '발제자료': '#a78bfa', '회의록': '#60a5fa' }
@@ -1344,119 +1117,6 @@ watch(() => uploadForm.value.connectNodeId, (nodeId) => {
 })
 
 // ─── 파일 노드 AI 검토 패널 ────────────────────────────────────
-const fileReviewPanel = ref(null)  // { node, aiResult, extracting, assigning, extractedAgendas }
-const fileReviewAnalyzing = ref(false)
-
-async function openFileReview(node) {
-  fileReviewPanel.value = {
-    node,
-    aiResult: node.aiReview || null,
-    extracting: false,
-    assigning: false,
-    extractedAgendas: node.extractedAgendas || [],
-  }
-}
-
-async function rerunFileReview() {
-  if (!fileReviewPanel.value) return
-  fileReviewAnalyzing.value = true
-
-  // ── 사고 과정 주입 ──────────────────────────────────────
-  const fileName = fileReviewPanel.value.node.label
-  injectActionToAgent(
-    `"${fileName}" 파일을 AI로 검토해줘`,
-    [
-      `파일 메타데이터 분석 중: ${fileName}`,
-      `Neo4j MATCH (doc:Document {label:"${fileName}"}) 조회`,
-      `MATCH (doc)-[:ATTACHED_TO]->(mg:MeetingGroup) 관련 회의체 확인`,
-      `Graph Context 기반 내용 적합성 평가 중...`,
-      `AI 검토 결과 생성 중...`,
-    ],
-    `**${fileName}** 검토가 완료되었습니다.\n검토 결과는 좌측 파일 패널에서 확인하세요.`
-  )
-
-  try {
-    const { data } = await apiAI.post('/api/agent/archive/analyze-file', {
-      file_name: fileReviewPanel.value.node.label,
-      file_type: fileReviewPanel.value.node.fileType,
-      graph_context: buildGraphContextStr(),
-    })
-    fileReviewPanel.value.aiResult = data
-    fileReviewPanel.value.node.aiReview = data
-  } catch {
-    fileReviewPanel.value.aiResult = fileReviewPanel.value.node.aiReview || {
-      score: 70, feedback: ['AI 서버 연결 실패'], agendas: [], related_depts: [],
-      criteria: { recap: false, progress: false, hurdle: false, plan: false },
-    }
-  } finally { fileReviewAnalyzing.value = false }
-}
-
-async function extractAgendas() {
-  if (!fileReviewPanel.value) return
-  fileReviewPanel.value.extracting = true
-
-  // ── 사고 과정 주입 ──────────────────────────────────────
-  const fileName = fileReviewPanel.value.node.label
-  injectActionToAgent(
-    `"${fileName}"에서 아젠다를 추출해줘`,
-    [
-      `문서 텍스트 파싱: ${fileName}`,
-      `Neo4j MATCH (doc:Document)-[:ATTACHED_TO]->(mg) 맥락 조회`,
-      `핵심 의제 및 결정 사항 식별 중...`,
-      `아젠다 구조화 및 우선순위 분류 중...`,
-    ],
-    `아젠다 추출이 완료되었습니다.\n추출된 아젠다를 검토하고 과제 배정으로 이동하세요.`
-  )
-
-  try {
-    const { data } = await apiAI.post('/api/agent/archive/extract-agendas', {
-      file_name: fileReviewPanel.value.node.label,
-      file_type: fileReviewPanel.value.node.fileType,
-      graph_context: buildGraphContextStr(),
-    })
-    fileReviewPanel.value.extractedAgendas = data.agendas || []
-    fileReviewPanel.value.node.extractedAgendas = data.agendas || []
-  } catch {
-    // 목업 아젠다
-    const mock = [
-      { title: '기술 투자를 위한 협업 체계 구축', bullets: ['멤버사 간 공동 투자 전략을 통해 사업 시너지 제고', '지속적인 사업 Needs 반영 및 문제 정의를 통한 해결 방안 모색'] },
-      { title: '데이터 기반 의사결정 체계 수립', bullets: ['핵심 KPI 정의 및 대시보드 구축 계획', '부서별 데이터 오너십 및 거버넌스 정책 마련'] },
-    ]
-    fileReviewPanel.value.extractedAgendas = mock
-    fileReviewPanel.value.node.extractedAgendas = mock
-  } finally { fileReviewPanel.value.extracting = false }
-}
-
-async function assignTasks() {
-  if (!fileReviewPanel.value) return
-  fileReviewPanel.value.assigning = true
-
-  // ── 사고 과정 주입 ──────────────────────────────────────
-  const agendaCount = fileReviewPanel.value.extractedAgendas?.length || 0
-  injectActionToAgent(
-    `추출된 ${agendaCount}개 아젠다를 부서·담당자에게 배정해줘`,
-    [
-      `Neo4j MATCH (p:Person)-[:BELONGS_TO]->(d:Department) 구성원 조회`,
-      `각 아젠다 담당 부서 적합도 분석 중...`,
-      `MATCH (mg)-[:PARTICIPATES_IN]-(d:Department) 참여 부서 확인`,
-      `GraphRAG 기반 최적 배정 후보 생성 중...`,
-      `과제 배정 요청 전송 중...`,
-    ],
-    `${agendaCount}개 아젠다 배정 요청이 완료되었습니다.\nNeo4j에 과제 노드가 생성됩니다.`
-  )
-
-  try {
-    await apiAI.post('/api/agent/archive/assign-tasks', {
-      file_name: fileReviewPanel.value.node.label,
-      agendas: fileReviewPanel.value.extractedAgendas,
-      graph_context: buildGraphContextStr(),
-    })
-    alert('과제 배정이 완료되었습니다. (GraphRAG 기반)')
-  } catch {
-    alert('과제 배정 요청이 전송되었습니다.')
-  } finally { fileReviewPanel.value.assigning = false }
-}
-
 // ─── Ontology edge relation constants ─────────────────────────
 // ── Neo4j 관계명 색상 매핑 ─────────────────────────────────────
 const REL_COLORS = {
@@ -1479,10 +1139,6 @@ const REL_COLORS = {
   '생성':   '#c4b5fd',  // minutes → session
   '상위':   '#f9a8d4',  // meeting hierarchy
   '관련':   '#fcd34d',  // meeting → meeting
-}
-function hexToRgba(hex, a) {
-  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16)
-  return `rgba(${r},${g},${b},${a})`
 }
 // ── 소스 타입 × 대상 타입 → Neo4j 관계 자동 추론 ──────────────
 // 정방향 키 (from→to)로 관계와 Neo4j 방향 정의
@@ -2382,38 +2038,6 @@ function buildGraphNodes() {
 }
 
 /** 노드의 논리적 히트 반경 (연결 점 검출에 사용) */
-function getNodeHitRadius(n, zf, scale = 1.0) {
-  if (n.id === 'org-root')       return Math.min(30, 18 * scale * zf)
-  if (n.type === 'meeting_group') return Math.min(36, 22 * scale * zf)
-  if (n.type === 'person')        return Math.min(22, 14 * scale * zf)
-  return Math.min(28, 18 * scale * zf) // dept, agenda, session, file
-}
-
-function initGraph() {
-  const canvas = canvasRef.value; if (!canvas) return
-  ctx = canvas.getContext('2d')
-  resizeCanvas()
-  ro = new ResizeObserver(resizeCanvas); ro.observe(canvas)
-  animateGraph()
-}
-
-function resizeCanvas() {
-  const c = canvasRef.value; if (!c) return
-  dpr = window.devicePixelRatio || 1
-  c.width = c.offsetWidth * dpr; c.height = c.offsetHeight * dpr
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-}
-
-function projectNode(n, w, h) {
-  let x=(n.x-camX)*worldZoom, y=(n.y-camY)*worldZoom, z=(n.z-camZ)*worldZoom
-  const cosX=Math.cos(rotX),sinX=Math.sin(rotX),cosY=Math.cos(rotY),sinY=Math.sin(rotY)
-  const x1=cosY*x+sinY*z,y1=y,z1=-sinY*x+cosY*z
-  const x2=x1,y2=cosX*y1-sinX*z1,z2=sinX*y1+cosX*z1
-  const fov=600,s=fov/(fov+z2+400)
-  return { sx: w/2+x2*s, sy: h/2+y2*s, scale: s, z: z2 }
-}
-
-const PALETTE=['#60a5fa','#34d399','#f472b6','#fbbf24','#a78bfa','#fb923c','#38bdf8','#86efac']
 
 function computeUrgency(g) {
   if (g?.urgency) return g.urgency
@@ -2439,855 +2063,24 @@ function getHubFill(g) {
 }
 
 /** ConstellationView에서 MG 노드 클릭 시 사이드바 열기 */
-function onConstSelectMeeting(node) {
-  if (!node) {
-    detailOpen.value = false
-    detailMeeting.value = null
-    return
-  }
-  // meeting_group 노드의 data는 회의체 정보 (graph1의 onCanvasClick과 동일한 구조)
+/** GraphView (PIXI) 노드 클릭 핸들러 */
+function onGraphNodeClick(node) {
+  if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     detailMeeting.value = node.data
     detailNode.value = null
     detailTab.value = 'basic'
     detailOpen.value = true
+  } else if (node.type !== 'org-root') {
+    detailNode.value = node
+    detailMeeting.value = null
+    detailOpen.value = true
   }
 }
 
-function getVisibleSet() {
-  const vis = new Set()
-  if (expandedHubIdx === null) {
-    // 기본: 본인(충심 person) + 회의체만 표시
-    gNodes.forEach((n, i) => { if (n.id === 'org-root' || n.type === 'meeting_group') vis.add(i) })
-  } else {
-    const hubNode = gNodes[expandedHubIdx]
-    if (hubNode?.type === 'meeting_group') {
-      // ── 기본: 같은 groupIdx를 가진 노드는 엣지 여부와 무관하게 항상 표시 ──
-      // (엣지 삭제 시 노드가 사라지는 문제 방지)
-      const hubGroupIdx = hubNode.groupIdx
-      gNodes.forEach((n, i) => {
-        if (n.groupIdx === hubGroupIdx) {
-          if (n.type === 'person') return  // person 노드는 맵에 표시 안 함
-          vis.add(i)
-        }
-      })
-      vis.add(expandedHubIdx)
-      // org 노드 (PART_OF 관계) 표시
-      gEdges.forEach(e => { if (e.from === expandedHubIdx && e.rel === '포함') vis.add(e.to) })
-      // 엣지로만 연결된 추가 노드도 표시 (localAddedEdges로 추가된 크로스-그룹 연결 등)
-      gEdges.forEach(e => {
-        const fromNode = gNodes[e.from], toNode = gNodes[e.to]
-        if (!fromNode || !toNode) return
-        if (e.to === expandedHubIdx || e.from === expandedHubIdx) {
-          const otherIdx = e.to === expandedHubIdx ? e.from : e.to
-          const other = gNodes[otherIdx]
-          if (other && other.type !== 'person') vis.add(otherIdx)
-        }
-      })
-    } else {
-      gNodes.forEach((n, i) => { if (n.id === 'org-root' || n.type === 'meeting_group') vis.add(i) })
-    }
-  }
-  return vis
-}
-
-function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath()}
-
-function getRelatedIndices(mgIdx) {
-  const related = new Set([mgIdx])
-  gEdges.forEach(e => {
-    if (e.from === mgIdx) related.add(e.to)
-    if (e.to === mgIdx) related.add(e.from)
-  })
-  return related
-}
-
-function computeTreeLayout(hubIdx, w, h) {
-  const naturalPos = new Map()
-  const visSet = getVisibleSet()
-  const TOP = 60, GAP = 140, PAD = 60
-
-  // ── Neo4j 온톨로지 계층 구조 (타입별 명시적 부모→자식 규칙) ──
-  // meetingGroup → dept, agenda, standalone file
-  // dept         → person
-  // agenda       → session
-  // session      → file (PRODUCED)
-  const visited = new Set()
-
-  function kids(idx) {
-    const node = gNodes[idx]
-    if (!node) return []
-    const result = []
-
-    if (node.type === 'meeting_group') {
-      // dept: dept -[PARTICIPATES_IN]→ mg  (역방향 탐색)
-      gEdges.forEach(e => {
-        if (e.to === idx && gNodes[e.from]?.type === 'dept' && visSet.has(e.from) && !visited.has(e.from))
-          result.push(e.from)
-      })
-      // agenda: agenda -[OWNED_BY]→ mg  (역방향 탐색)
-      gEdges.forEach(e => {
-        if (e.to === idx && gNodes[e.from]?.type === 'agenda' && visSet.has(e.from) && !visited.has(e.from))
-          result.push(e.from)
-      })
-      // standalone doc: file -[ATTACHED_TO]→ mg  (역방향 탐색)
-      gEdges.forEach(e => {
-        if (e.to === idx && gNodes[e.from]?.type === 'file' && visSet.has(e.from) && !visited.has(e.from))
-          result.push(e.from)
-      })
-    } else if (node.type === 'dept') {
-      // person: person -[BELONGS_TO]→ dept  (역방향)
-      gEdges.forEach(e => {
-        if (e.to === idx && gNodes[e.from]?.type === 'person' && visSet.has(e.from) && !visited.has(e.from))
-          result.push(e.from)
-      })
-    } else if (node.type === 'agenda') {
-      // session: session -[COVERS]→ agenda  (역방향)
-      gEdges.forEach(e => {
-        if (e.to === idx && gNodes[e.from]?.type === 'session' && visSet.has(e.from) && !visited.has(e.from))
-          result.push(e.from)
-      })
-    } else if (node.type === 'session') {
-      // file: session -[PRODUCED]→ file  (정방향)
-      gEdges.forEach(e => {
-        if (e.from === idx && gNodes[e.to]?.type === 'file' && visSet.has(e.to) && !visited.has(e.to))
-          result.push(e.to)
-      })
-    }
-
-    return [...new Set(result)]
-  }
-
-  const _lc = new Map()
-  function leafCount(idx) {
-    if (_lc.has(idx)) return _lc.get(idx)
-    visited.add(idx)
-    const ch = kids(idx)
-    const c = ch.length ? ch.reduce((s, ci) => s + leafCount(ci), 0) : 1
-    _lc.set(idx, c); return c
-  }
-  // leafCount 먼저 실행해서 visited 구성
-  leafCount(hubIdx)
-  visited.clear()
-
-  function placeNatural(idx, cx, y) {
-    if (visited.has(idx)) return
-    visited.add(idx)
-    naturalPos.set(idx, { cx, y })
-    const ch = kids(idx)
-    if (!ch.length) return
-    const total = _lc.get(idx) ?? ch.length
-    const spread = Math.min(w - PAD * 2, Math.max(ch.length * 110, total * 110))
-    let x = cx - spread / 2
-    for (const ci of ch) {
-      const frac = (_lc.get(ci) ?? 1) / total
-      placeNatural(ci, x + frac * spread / 2, y + GAP)
-      x += frac * spread
-    }
-  }
-  placeNatural(hubIdx, w / 2, TOP)
-  // Apply zoom (anchored at hub top-center) and pan
-  const pos = new Map()
-  naturalPos.forEach(({ cx, y }, idx) => {
-    pos.set(idx, {
-      sx: w/2 + (cx - w/2) * worldZoom + pan2DX,
-      sy: TOP  + (y  - TOP) * worldZoom + pan2DY,
-    })
-  })
-  return pos
-}
-
-let _effEdgesCacheKey = ''
-let _effEdgesCache = null
-function getEffectiveEdges() {
-  const key = hiddenNodeTypes.value.join(',') + '|' + gEdges.length
-  if (key === _effEdgesCacheKey) return _effEdgesCache
-  _effEdgesCacheKey = key
-  if (hiddenNodeTypes.value.length === 0) { _effEdgesCache = gEdges; return gEdges }
-  const isHid = (i) => { const n = gNodes[i]; if (!n) return false; return hiddenNodeTypes.value.includes(n.id === 'org-root' ? 'org-root' : n.type) }
-  const adj = {}
-  gEdges.forEach(e => {
-    if (!adj[e.from]) adj[e.from] = []; if (!adj[e.to]) adj[e.to] = []
-    adj[e.from].push({ nb: e.to, rel: e.rel }); adj[e.to].push({ nb: e.from, rel: e.rel })
-  })
-  const findVis = (hidIdx, exclIdx) => {
-    const vis = new Set([exclIdx, hidIdx]); const q = [hidIdx]; const res = []
-    while (q.length) { const c = q.shift(); for (const { nb } of (adj[c] || [])) { if (vis.has(nb)) continue; vis.add(nb); if (!isHid(nb)) res.push(nb); else q.push(nb) } }
-    return res
-  }
-  const eff = []; const added = new Set()
-  gEdges.forEach(e => {
-    const fh = isHid(e.from), th = isHid(e.to)
-    if (!fh && !th) { eff.push(e) }
-    else if (!fh && th) { for (const vn of findVis(e.to, e.from)) { const k=`${Math.min(e.from,vn)}_${Math.max(e.from,vn)}`; if (!added.has(k)) { added.add(k); eff.push({ from: e.from, to: vn, rel: e.rel }) } } }
-    else if (fh && !th) { for (const vn of findVis(e.from, e.to)) { const k=`${Math.min(e.to,vn)}_${Math.max(e.to,vn)}`; if (!added.has(k)) { added.add(k); eff.push({ from: e.to, to: vn, rel: e.rel }) } } }
-  })
-  _effEdgesCache = eff; return eff
-}
-
-function drawArchiveGraph() {
-  const canvas = canvasRef.value; if (!canvas||!ctx) return
-  const w=canvas.offsetWidth,h=canvas.offsetHeight
-  if(w===0||h===0) return
-  ctx.clearRect(0,0,w,h)
-  const isDark = nightMode.value
-  if(!isDark){ctx.fillStyle='#eef2ff';ctx.fillRect(0,0,w,h)}
-  if(!gNodes.length){ctx.fillStyle=isDark?'rgba(148,163,184,.5)':'rgba(100,116,139,.6)';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('데이터를 불러오는 중...',w/2,h/2);return}
-  const visibleSet = getVisibleSet()
-  const is2D = expandedHubIdx !== null
-  let projected
-  if (is2D) {
-    _treePositions = computeTreeLayout(expandedHubIdx, w, h)
-    if (_node2DOffsets.size > 0) {
-      _node2DOffsets.forEach((off, idx) => {
-        const tp = _treePositions.get(idx)
-        if (tp) _treePositions.set(idx, { sx: tp.sx + off.dx, sy: tp.sy + off.dy })
-      })
-    }
-    projected = gNodes.map((n, i) => {
-      const tp = _treePositions.get(i)
-      return { sx: tp ? tp.sx : -9999, sy: tp ? tp.sy : -9999, scale: 1.0, z: tp ? tp.sy : 0, node: n, idx: i }
-    })
-  } else {
-    _treePositions = null
-    projected = gNodes.map((n,i)=>({...projectNode(n,w,h),node:n,idx:i}))
-  }
-  const order=projected.slice().sort((a,b)=>a.z-b.z)
-  const zf=Math.max(0.6,Math.min(2.5,worldZoom))
-  const now = Date.now() / 1000
-
-  // ── 하이라이트 엣지 glow pre-pass (노드보다 먼저 그려서 아래 레이어) ──
-  if (queryHlEdgeIdxs.value.size > 0) {
-    const tHL = Date.now() / 350
-    gEdges.forEach((e, ei) => {
-      if (!queryHlEdgeIdxs.value.has(ei)) return
-      const { from, to } = e
-      if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
-      else { if (!visibleSet.has(from) || !visibleSet.has(to)) return }
-      if (from >= projected.length || to >= projected.length) return
-      const pa = projected[from], pb = projected[to]
-      const pulse = 0.55 + 0.45 * Math.sin(tHL * 4)
-      ctx.save()
-      ctx.strokeStyle = `rgba(139,92,246,${0.55 * pulse})`
-      ctx.lineWidth = is2D ? 7 : 6
-      ctx.lineCap = 'round'
-      if (is2D) {
-        const midY = (pa.sy + pb.sy) / 2
-        ctx.beginPath(); ctx.moveTo(pa.sx, pa.sy)
-        ctx.bezierCurveTo(pa.sx, midY, pb.sx, midY, pb.sx, pb.sy); ctx.stroke()
-      } else {
-        const dx = pb.sx - pa.sx, dy = pb.sy - pa.sy
-        const len = Math.sqrt(dx * dx + dy * dy)
-        if (len < 8) { ctx.restore(); return }
-        const ux = dx / len, uy = dy / len
-        const cpBow = Math.min(len * 0.25, 40)
-        const cpX = (pa.sx + pb.sx) / 2 - uy * cpBow
-        const cpY = (pa.sy + pb.sy) / 2 + ux * cpBow
-        ctx.beginPath(); ctx.moveTo(pa.sx + ux * 12, pa.sy + uy * 12)
-        ctx.quadraticCurveTo(cpX, cpY, pb.sx - ux * 18, pb.sy - uy * 18); ctx.stroke()
-      }
-      ctx.restore()
-    })
-  }
-
-  getEffectiveEdges().forEach(e => {
-    const { from, to, rel } = e
-    if (is2D) { if (!_treePositions?.has(from) || !_treePositions?.has(to)) return }
-    else { if (!visibleSet.has(from)||!visibleSet.has(to)) return }
-    if (from>=projected.length||to>=projected.length) return
-    const pa=projected[from], pb=projected[to]
-    const relColor = REL_COLORS[rel] || '#60a5fa'
-    const isFocused = focusNode!==null&&(focusNode===from||focusNode===to)
-    const alpha = is2D ? (isFocused ? 0.85 : 0.55) : (isFocused ? 0.75 : Math.max(0.07, Math.min(0.35,(pa.scale+pb.scale)/2)))
-    const lw = isFocused ? 1.8 : (is2D ? 1.2 : 0.9)
-    const dx=pb.sx-pa.sx, dy=pb.sy-pa.sy
-    const len=Math.sqrt(dx*dx+dy*dy)
-    if (len < 8) return
-    const ux=dx/len, uy=dy/len
-    const as = Math.max(5, 8*Math.min(1.4,(pa.scale+pb.scale)/2)*Math.min(1.5,zf))
-
-    ctx.strokeStyle=hexToRgba(relColor,alpha); ctx.lineWidth=lw
-
-    if (is2D) {
-      // ── 2D 트리: 위→아래 S커브 베지어 연결선 (org차트 스타일) ──
-      const midY = (pa.sy + pb.sy) / 2
-      ctx.beginPath()
-      ctx.moveTo(pa.sx, pa.sy)
-      ctx.bezierCurveTo(pa.sx, midY, pb.sx, midY, pb.sx, pb.sy)
-      ctx.stroke()
-      // 화살표: 종점에서 수직으로 내려오는 방향
-      const aLen = as
-      const tipX = pb.sx, tipY = pb.sy
-      const ax = 0, ay = -1  // 아래→위 방향 (끝점에서 역방향)
-      const px2 = -ay * aLen * 0.44, py2 = ax * aLen * 0.44
-      ctx.beginPath()
-      ctx.moveTo(tipX, tipY)
-      ctx.lineTo(tipX + ax * (-aLen) + px2, tipY + ay * (-aLen) + py2)
-      ctx.lineTo(tipX + ax * (-aLen) - px2, tipY + ay * (-aLen) - py2)
-      ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
-    } else {
-      // ── 3D 글로브: 살짝 휘는 2차 베지어 ──
-      const cpBow = Math.min(len * 0.25, 40)
-      const cpX = (pa.sx + pb.sx) / 2 - uy * cpBow
-      const cpY = (pa.sy + pb.sy) / 2 + ux * cpBow
-      const x1=pa.sx+ux*12, y1=pa.sy+uy*12
-      const x2=pb.sx-ux*(as+10), y2=pb.sy-uy*(as+10)
-      if (Math.sqrt((x2-x1)**2+(y2-y1)**2) < 4) return
-      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.quadraticCurveTo(cpX,cpY,x2,y2)
-      ctx.stroke()
-      // 화살표
-      const tipX=x2+ux*as, tipY=y2+uy*as
-      const px2=-uy*as*0.44, py2=ux*as*0.44
-      ctx.beginPath(); ctx.moveTo(tipX,tipY); ctx.lineTo(x2+px2,y2+py2); ctx.lineTo(x2-px2,y2-py2)
-      ctx.closePath(); ctx.fillStyle=hexToRgba(relColor,alpha); ctx.fill()
-    }
-    // Relation label
-    if (rel && len > 42 && zf > 0.85) {
-      const lx = is2D ? (pa.sx + pb.sx) / 2 + 6 : (pa.sx+pb.sx)/2-uy*8
-      const ly = is2D ? (pa.sy + pb.sy) / 2       : (pa.sy+pb.sy)/2+ux*8
-      ctx.font=`${Math.max(7,Math.round(8*Math.min(1.8,zf)))}px sans-serif`
-      ctx.textAlign='center'; ctx.textBaseline='middle'
-      ctx.fillStyle=hexToRgba(relColor,Math.min(1,alpha+0.35))
-      ctx.fillText(rel,lx,ly)
-    }
-  })
-  order.forEach(p=>{
-    if(!visibleSet.has(p.idx)) return
-    if(is2D && !_treePositions?.has(p.idx)) return
-    const n=p.node,isFocused=focusNode===p.idx
-    const _htKey = n.id === 'org-root' ? 'org-root' : n.type
-    if(hiddenNodeTypes.value.includes(_htKey)) return
-    const isEnded=n.data?.status==='ended'
-    ctx.globalAlpha=1
-    if(n.id === 'org-root'){  // 중심 노드: 사용자 (Person) — 검정 원 + 사람 아이콘
-      const r=Math.min(30,(isFocused?22:18)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2)
-      ctx.fillStyle='#1f2937'; ctx.fill()
-      ctx.strokeStyle=selectedNodeIdx.value===p.idx||isFocused?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.35)'
-      ctx.lineWidth=selectedNodeIdx.value===p.idx||isFocused?2.5:1.5; ctx.stroke()
-      if(p.scale>.22){
-        const ic='rgba(255,255,255,0.9)'
-        const headR=r*0.22,bodyR=r*0.29,headY=p.sy-r*0.2,bodyY=p.sy+r*0.08
-        ctx.fillStyle=ic
-        ctx.beginPath(); ctx.arc(p.sx,headY,headR,0,Math.PI*2); ctx.fill()
-        ctx.beginPath(); ctx.arc(p.sx,bodyY+bodyR*0.7,bodyR,Math.PI,Math.PI*2); ctx.fill()
-      }
-      if(p.scale>.3){const fs=Math.max(8,Math.min(13,Math.round(9*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';const nm=n.label||'나';ctx.fillText(nm.length>7?nm.slice(0,6)+'…':nm,p.sx,p.sy+r+3)}
-    } else if(n.type==='meeting_group'){
-      const hubColor=getHubFill(n.data)
-      const urgency=computeUrgency(n.data)
-      const r=Math.min(36,(isFocused?26:22)*p.scale*zf)
-      // Search highlight ring
-      if(searchHitMgIdxs.value.includes(p.idx)){
-        const now2=Date.now()/1000;const pulse=0.55+0.3*Math.sin(now2*2.5)
-        ctx.beginPath();ctx.arc(p.sx,p.sy,r+8*Math.min(1,zf),0,Math.PI*2)
-        ctx.strokeStyle=isDark?`rgba(251,191,36,${pulse})`:`rgba(234,179,8,${pulse})`
-        ctx.lineWidth=2.5;ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([])
-      }
-      if(!isEnded&&urgency==='critical'){const pulse=0.3+0.25*Math.sin(now*3.5);const auraR=r*(1.8+0.4*Math.sin(now*2.2));const ag=ctx.createRadialGradient(p.sx,p.sy,r*.5,p.sx,p.sy,auraR);ag.addColorStop(0,`rgba(239,68,68,${pulse})`);ag.addColorStop(1,'rgba(239,68,68,0)');ctx.beginPath();ctx.arc(p.sx,p.sy,auraR,0,Math.PI*2);ctx.fillStyle=ag;ctx.fill()}
-      const grad=ctx.createRadialGradient(p.sx,p.sy,0,p.sx,p.sy,r)
-      if(isEnded){grad.addColorStop(0,'rgba(100,116,139,0.45)');grad.addColorStop(1,'rgba(71,85,105,0.2)')}
-      else{const rgb=urgency==='critical'?'239,68,68':urgency==='warning'?'245,158,11':'59,130,246';grad.addColorStop(0,`rgba(${rgb},0.9)`);grad.addColorStop(1,`rgba(${rgb},0.4)`)}
-      ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill()
-      const isHovered=hoverNodeIdx===p.idx
-      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle=isDark?'#fff':'#1e293b';ctx.lineWidth=2.5;ctx.stroke()}
-      else if(isHovered){ctx.strokeStyle=isDark?'rgba(255,255,255,0.9)':'rgba(15,23,42,0.8)';ctx.lineWidth=3;ctx.stroke();ctx.strokeStyle=isDark?'rgba(255,255,255,0.2)':'rgba(15,23,42,0.1)';ctx.lineWidth=6;ctx.stroke()}
-      // progress arc
-      const ratio=groupTodoRatio.value.get(n.data?.id??n.id)
-      if(ratio!=null&&ratio>0){
-        const ar=r+3.5*Math.min(1,zf)
-        ctx.beginPath();ctx.arc(p.sx,p.sy,ar,-Math.PI/2,-Math.PI/2+ratio*Math.PI*2)
-        ctx.strokeStyle=isDark?'rgba(134,239,172,0.85)':'rgba(22,163,74,0.75)'
-        ctx.lineWidth=Math.max(1.5,2.5*Math.min(1,zf));ctx.stroke()
-      }
-      if(p.scale>.28){const fs=Math.max(11,Math.min(20,Math.round(14*zf)));if(isEnded)ctx.fillStyle=isDark?`rgba(148,163,184,${Math.min(1,p.scale*1.4)})`:`rgba(71,85,105,${Math.min(1,p.scale*1.6)})`;else ctx.fillStyle=isDark?`rgba(255,255,255,${Math.min(1,p.scale*1.5)})`:`rgba(30,58,138,${Math.min(1,p.scale*1.8)})`;ctx.font=`bold ${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n.label.length>7?n.label.slice(0,6)+'…':n.label,p.sx,p.sy)}
-    } else if(n.type==='agenda'){  // amber 원 + 체크마크 아이콘
-      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#f59e0b'; ctx.fill()
-      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
-      if(p.scale>.2){
-        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.92)'; ctx.lineWidth=Math.max(1.5,r*0.14)
-        ctx.lineCap='round'; ctx.lineJoin='round'
-        const cs=r*0.52
-        ctx.beginPath(); ctx.moveTo(p.sx-cs,p.sy+cs*0.1); ctx.lineTo(p.sx-cs*0.18,p.sy+cs*0.78); ctx.lineTo(p.sx+cs,p.sy-cs*0.62)
-        ctx.stroke(); ctx.restore()
-      }
-      if(p.scale>.25){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
-    } else if(n.type==='person'){
-      const r=Math.min(22,(isFocused?18:14)*p.scale*zf)
-      ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2)
-      ctx.fillStyle='#f472b6'; ctx.fill()
-      if(p.scale>.25){const fs=Math.max(8,Math.min(12,Math.round(10*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>6?n.label.slice(0,5)+'…':n.label,p.sx,p.sy+r+3)}
-    } else if(n.type==='session'){  // coral 원 + 캘린더 아이콘
-      const r=Math.min(28,(isFocused?22:18)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#f97316'; ctx.fill()
-      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
-      if(p.scale>.2){
-        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.92)'; ctx.fillStyle='rgba(255,255,255,0.92)'
-        const cw=r*0.68,ch=r*0.6,cx=p.sx-cw/2,cy=p.sy-ch/2+r*0.06
-        ctx.lineWidth=Math.max(1,r*0.09); ctx.strokeRect(cx,cy,cw,ch)
-        ctx.beginPath(); ctx.moveTo(cx,cy+ch*0.33); ctx.lineTo(cx+cw,cy+ch*0.33); ctx.stroke()
-        const clipR=r*0.09
-        ctx.beginPath(); ctx.arc(cx+cw*0.28,cy-clipR*0.3,clipR,0,Math.PI*2); ctx.fill()
-        ctx.beginPath(); ctx.arc(cx+cw*0.72,cy-clipR*0.3,clipR,0,Math.PI*2); ctx.fill()
-        ctx.fillRect(cx+cw*0.52,cy+ch*0.5,cw*0.33,ch*0.33)
-        ctx.restore()
-      }
-      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
-    } else if(n.type==='file'){  // gray 원 + 접힌 문서 아이콘
-      const r=Math.min(22,(isFocused?17:14)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#64748b'; ctx.fill()
-      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
-      if(p.scale>.2){
-        ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.fillStyle='rgba(255,255,255,0.9)'
-        const fw=r*0.5,fh=r*0.62,fx=p.sx-fw/2,fy=p.sy-fh/2,fold=fw*0.3
-        ctx.lineWidth=Math.max(1,r*0.08)
-        ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(fx+fw-fold,fy); ctx.lineTo(fx+fw,fy+fold); ctx.lineTo(fx+fw,fy+fh); ctx.lineTo(fx,fy+fh); ctx.closePath(); ctx.stroke()
-        ctx.beginPath(); ctx.moveTo(fx+fw-fold,fy); ctx.lineTo(fx+fw-fold,fy+fold); ctx.lineTo(fx+fw,fy+fold); ctx.stroke()
-        ctx.lineWidth=Math.max(0.8,r*0.07)
-        ctx.beginPath(); ctx.moveTo(fx+fw*0.2,fy+fh*0.54); ctx.lineTo(fx+fw*0.82,fy+fh*0.54); ctx.stroke()
-        ctx.beginPath(); ctx.moveTo(fx+fw*0.2,fy+fh*0.74); ctx.lineTo(fx+fw*0.68,fy+fh*0.74); ctx.stroke()
-        ctx.restore()
-      }
-      if(p.scale>.25&&zf>.5){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>10?n.label.slice(0,9)+'…':n.label,p.sx,p.sy+r+3)}
-    } else if(n.type==='dept'){  // purple 원 + 두 명 그룹 아이콘
-      const isExpanded=expandedDeptIdx===p.idx
-      const r=Math.min(28,(isFocused||isExpanded?22:18)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#8b5cf6'; ctx.fill()
-      if(isFocused||selectedNodeIdx.value===p.idx||isExpanded){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
-      if(p.scale>.2){
-        ctx.save(); ctx.fillStyle='rgba(255,255,255,0.92)'
-        // 왼쪽 작은 사람
-        const shr=r*0.13,sbr=r*0.16,shx=p.sx-r*0.24,shy=p.sy-r*0.14
-        ctx.beginPath(); ctx.arc(shx,shy,shr,0,Math.PI*2); ctx.fill()
-        ctx.beginPath(); ctx.arc(shx,shy+shr+sbr*1.1,sbr,Math.PI,Math.PI*2); ctx.fill()
-        // 오른쪽 큰 사람
-        const bhr=r*0.18,bbr=r*0.22,bhx=p.sx+r*0.2,bhy=p.sy-r*0.17
-        ctx.beginPath(); ctx.arc(bhx,bhy,bhr,0,Math.PI*2); ctx.fill()
-        ctx.beginPath(); ctx.arc(bhx,bhy+bhr+bbr*1.1,bbr,Math.PI,Math.PI*2); ctx.fill()
-        ctx.restore()
-      }
-      if(p.scale>.25){const fs=Math.max(9,Math.min(14,Math.round(11*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>8?n.label.slice(0,7)+'…':n.label,p.sx,p.sy+r+3)}
-    } else if(n.type==='org'&&n.id!=='org-root'){  // teal 원 + 건물 아이콘
-      const r=Math.min(26,(isFocused?20:17)*p.scale*zf)
-      ctx.beginPath(); ctx.arc(p.sx,p.sy,r,0,Math.PI*2); ctx.fillStyle='#0d9488'; ctx.fill()
-      if(isFocused||selectedNodeIdx.value===p.idx){ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=2;ctx.stroke()}
-      if(p.scale>.25){const fs=Math.max(8,Math.min(13,Math.round(10*zf)));ctx.fillStyle=isDark?'rgba(226,232,240,0.9)':'rgba(15,23,42,0.85)';ctx.font=`${fs}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(n.label.length>9?n.label.slice(0,8)+'…':n.label,p.sx,p.sy+r+3)}
-    }
-    ctx.globalAlpha=1
-  })
-
-  // ── Neo4j query highlight rings (챗봇 그래프 탐색 시각화) ─────
-  if (queryHlIdxs.value.size > 0) {
-    const t = Date.now() / 350
-    queryHlIdxs.value.forEach(idx => {
-      if (!visibleSet.has(idx)) return
-      const pp = projected[idx]
-      if (!pp) return
-      const sx = pp.sx, sy = pp.sy
-      const nr = getNodeHitRadius(pp.node, zf, pp.scale || 1)
-      ctx.save()
-      // 1번 파동 — 빠른 확산
-      const phase = (t % 1.0)
-      const scanR  = nr * (1 + phase * 3.0)
-      const scanA  = (1 - phase) * 0.85
-      ctx.beginPath(); ctx.arc(sx, sy, scanR, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(99,102,241,${scanA})`
-      ctx.lineWidth = 3.5; ctx.stroke()
-      // 2번 파동 — 0.4 위상 차
-      const phase2 = ((t + 0.4) % 1.0)
-      const scanR2 = nr * (1 + phase2 * 3.0)
-      const scanA2 = (1 - phase2) * 0.6
-      ctx.beginPath(); ctx.arc(sx, sy, scanR2, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(139,92,246,${scanA2})`
-      ctx.lineWidth = 2.5; ctx.stroke()
-      // 3번 파동 — 0.7 위상 차
-      const phase3 = ((t + 0.7) % 1.0)
-      const scanR3 = nr * (1 + phase3 * 3.0)
-      const scanA3 = (1 - phase3) * 0.35
-      ctx.beginPath(); ctx.arc(sx, sy, scanR3, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(167,139,250,${scanA3})`
-      ctx.lineWidth = 2; ctx.stroke()
-      // 고정 내부 링 — 밝고 두꺼운 테두리
-      const pulse = 0.7 + 0.3 * Math.sin(t * 6)
-      ctx.beginPath(); ctx.arc(sx, sy, nr + 5, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(199,170,255,${pulse})`
-      ctx.lineWidth = 3.5; ctx.stroke()
-      // 노드 중심 glow fill
-      const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, nr)
-      grad.addColorStop(0, `rgba(139,92,246,${0.22 * pulse})`)
-      grad.addColorStop(1, 'rgba(139,92,246,0)')
-      ctx.beginPath(); ctx.arc(sx, sy, nr, 0, Math.PI * 2)
-      ctx.fillStyle = grad; ctx.fill()
-      ctx.restore()
-    })
-  }
-
-  // ── Connection dot (node-edge hover indicator) ────────────────
-  if (connDotNodeIdx >= 0 && !connDragging.value) {
-    const t = Date.now() / 280
-    const pulse = 0.65 + 0.35 * Math.sin(t)
-    ctx.save()
-    // outer glow ring
-    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 11, 0, Math.PI * 2)
-    ctx.strokeStyle = `rgba(52,211,153,${pulse * 0.38})`
-    ctx.lineWidth = 2.5; ctx.stroke()
-    // inner filled dot
-    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 6, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(52,211,153,${pulse})`
-    ctx.fill()
-    ctx.beginPath(); ctx.arc(connDotSx, connDotSy, 6, 0, Math.PI * 2)
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke()
-    ctx.restore()
-  }
-
-  // ── Connection drag preview (dashed line + arrowhead + target ring) ─
-  if (connDragging.value) {
-    const fsx = connDragFromSx, fsy = connDragFromSy
-    const tsx = connDragCurSx, tsy = connDragCurSy
-    const dx = tsx - fsx, dy = tsy - fsy
-    const len = Math.sqrt(dx * dx + dy * dy)
-    ctx.save()
-    // animated dashed line
-    const dashOffset = -(Date.now() / 50) % 14
-    ctx.setLineDash([8, 5]); ctx.lineDashOffset = dashOffset
-    ctx.strokeStyle = 'rgba(52,211,153,0.88)'; ctx.lineWidth = 2.2
-    ctx.beginPath(); ctx.moveTo(fsx, fsy); ctx.lineTo(tsx, tsy); ctx.stroke()
-    ctx.setLineDash([]); ctx.lineDashOffset = 0
-    // arrowhead at cursor end
-    if (len > 24) {
-      const ux = dx / len, uy = dy / len, as = 11
-      ctx.beginPath()
-      ctx.moveTo(tsx, tsy)
-      ctx.lineTo(tsx - ux * as - uy * as * 0.44, tsy - uy * as + ux * as * 0.44)
-      ctx.lineTo(tsx - ux * as + uy * as * 0.44, tsy - uy * as - ux * as * 0.44)
-      ctx.closePath()
-      ctx.fillStyle = 'rgba(52,211,153,0.92)'; ctx.fill()
-    }
-    // source node dot
-    ctx.beginPath(); ctx.arc(fsx, fsy, 6, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(52,211,153,0.95)'; ctx.fill()
-    ctx.beginPath(); ctx.arc(fsx, fsy, 6, 0, Math.PI * 2)
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.5; ctx.stroke()
-    // target highlight ring
-    if (connDragTargetIdx >= 0) {
-      let tgtSx, tgtSy
-      if (_treePositions?.has(connDragTargetIdx)) {
-        const tp = _treePositions.get(connDragTargetIdx); tgtSx = tp.sx; tgtSy = tp.sy
-      } else {
-        const p = projectNode(gNodes[connDragTargetIdx], w, h); tgtSx = p.sx; tgtSy = p.sy
-      }
-      const tPulse = 0.4 + 0.4 * Math.sin(Date.now() / 180)
-      ctx.beginPath(); ctx.arc(tgtSx, tgtSy, 32, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(52,211,153,${tPulse})`
-      ctx.lineWidth = 2.8; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([])
-    }
-    ctx.restore()
-  }
-}
-
-
-function animateGraph() {
-  if(expandedHubIdx === null && autoRotate && !rotationPaused) rotY+=.002
-  camX+=(targetCamX-camX)*.05;camY+=(targetCamY-camY)*.05;camZ+=(targetCamZ-camZ)*.05
-  worldZoom+=(targetZoom-worldZoom)*.1
-  pan2DX+=(targetPan2DX-pan2DX)*.12;pan2DY+=(targetPan2DY-pan2DY)*.12
-  drawArchiveGraph()
-  animId=requestAnimationFrame(animateGraph)
-}
-
-// ─── Mouse ────────────────────────────────────────────────────
-function onMouseDown(e) {
-  // float 드래그 중에는 canvas mousedown 무시 — onGlobalMouseUp에서만 처리
-  if (floatDragging.value) return
-  // ── Connection dot drag: start drawing a new edge ───────────────
-  if (connDotNodeIdx >= 0 && !floatDragging.value) {
-    connDragging.value = true
-    connDragFromIdx = connDotNodeIdx
-    connDragFromSx = connDotSx; connDragFromSy = connDotSy
-    const canvas = canvasRef.value
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect()
-      connDragCurSx = e.clientX - rect.left
-      connDragCurSy = e.clientY - rect.top
-    }
-    connDragTargetIdx = -1
-    connDotNodeIdx = -1; connDotVisible.value = false
-    e.preventDefault(); return
-  }
-  if (expandedHubIdx !== null && !isPanMode.value && _treePositions) {
-    const canvas = canvasRef.value
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect()
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top
-      const zf = Math.max(.6, Math.min(2.5, worldZoom))
-      let hitNode = null, minDist = Infinity
-      _treePositions.forEach((tp, idx) => {
-        const n = gNodes[idx]
-        if (!n || n.type === 'meeting_group') return
-        const d = Math.hypot(tp.sx - mx, tp.sy - my)
-        const baseR = n.type==='org'?22:n.type==='dept'?18:22
-        if (d < baseR * zf + 10 && d < minDist) { minDist = d; hitNode = idx }
-      })
-      if (hitNode !== null) {
-        dragNode2D = hitNode; dragNode2DMoved = false
-        lastMx = e.clientX; lastMy = e.clientY
-        e.preventDefault(); return
-      }
-    }
-  }
-  isDragging=true;autoRotate=false;lastMx=e.clientX;lastMy=e.clientY
-  if(isPanMode.value) e.preventDefault()
-}
-
-function onMouseMove(e) {
-  if (bottomResizing) return
-  if (dragNode2D !== null) {
-    const dx = e.clientX - lastMx, dy = e.clientY - lastMy
-    const cur = _node2DOffsets.get(dragNode2D) || { dx: 0, dy: 0 }
-    _node2DOffsets.set(dragNode2D, { dx: cur.dx + dx, dy: cur.dy + dy })
-    lastMx = e.clientX; lastMy = e.clientY
-    dragNode2DMoved = true
-    return
-  }
-  if(isDragging){
-    const dx=e.clientX-lastMx, dy=e.clientY-lastMy
-    if(expandedHubIdx !== null) {
-      // 2D tree mode: always pan
-      targetPan2DX += dx; pan2DX += dx
-      targetPan2DY += dy; pan2DY += dy
-    } else if(isPanMode.value){
-      const canvas=canvasRef.value
-      const fovScale = 600 / (600 + 400)
-      const panScale = 1 / (fovScale * worldZoom)
-      targetCamX -= dx * panScale
-      targetCamY -= dy * panScale
-    } else {
-      rotY+=dx*.004;rotX+=dy*.004
-      rotX=Math.max(-1.2,Math.min(1.2,rotX))
-    }
-    lastMx=e.clientX;lastMy=e.clientY
-    if(hoverNode.value){hoverNode.value=null}
-    hoverNodeIdx=-1
-    return
-  }
-  // ── Connection drag in progress ────────────────────────────
-  if (connDragging.value) {
-    const canvas = canvasRef.value; if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    connDragCurSx = e.clientX - rect.left
-    connDragCurSy = e.clientY - rect.top
-    const w = canvas.offsetWidth, h = canvas.offsetHeight
-    const zf = Math.max(.6, Math.min(2.5, worldZoom))
-    const vis = getVisibleSet()
-    let tIdx = -1, tDist = Infinity
-    gNodes.forEach((n, i) => {
-      if (i === connDragFromIdx) return
-      if (!vis.has(i)) return
-      let sx, sy
-      if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy }
-      else if (expandedHubIdx === null) { const p = projectNode(n, w, h); sx = p.sx; sy = p.sy }
-      else return
-      const d = Math.hypot(sx - connDragCurSx, sy - connDragCurSy)
-      const nr = getNodeHitRadius(n, zf)
-      if (d <= nr + 28 && d < tDist) { tDist = d; tIdx = i }
-    })
-    connDragTargetIdx = tIdx
-    return
-  }
-  if(viewMode.value!=='graph') return
-  const canvas=canvasRef.value;if(!canvas) return
-  const rect=canvas.getBoundingClientRect()
-  const mx=e.clientX-rect.left,my=e.clientY-rect.top
-  if(mx<0||my<0||mx>canvas.offsetWidth||my>canvas.offsetHeight){hoverNode.value=null;hoverNodeIdx=-1;connDotNodeIdx=-1;connDotVisible.value=false;return}
-  const w=canvas.offsetWidth,h=canvas.offsetHeight
-  let closest=null,minDist=Infinity
-  const hoverVis = getVisibleSet()
-  const zf=Math.max(.6,Math.min(2.5,worldZoom))
-  gNodes.forEach((n,i)=>{
-    if(!['meeting_group','dept','org','agenda','person','session','file','decision'].includes(n.type)) return
-    if(!hoverVis.has(i)) return
-    let sx, sy
-    if(_treePositions?.has(i)) {
-      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
-    } else if(expandedHubIdx === null) {
-      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
-    } else return
-    const d=Math.hypot(sx-mx,sy-my)
-    if(d<30*zf+10&&d<minDist){minDist=d;closest=i}
-  })
-  hoverNodeIdx = closest !== null ? closest : -1
-  hoverNode.value = closest !== null ? gNodes[closest] : null
-  // ── Connection dot: detect edge zone ────────────────────────────
-  if (!floatDragging.value) {
-    const DOT_ZONE = 16 // px beyond node radius
-    let newDotIdx = -1, newDotSx = 0, newDotSy = 0, minEdgeDist = Infinity
-    gNodes.forEach((n, i) => {
-      if (!hoverVis.has(i)) return
-      let sx, sy, scale = 1.0
-      if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy }
-      else if (expandedHubIdx === null) { const p = projectNode(n, w, h); sx = p.sx; sy = p.sy; scale = p.scale }
-      else return
-      const d = Math.hypot(sx - mx, sy - my)
-      const nr = getNodeHitRadius(n, zf, scale)
-      const edgeDist = d - nr
-      if (edgeDist >= -4 && edgeDist <= DOT_ZONE && edgeDist < minEdgeDist) {
-        minEdgeDist = edgeDist
-        newDotIdx = i
-        const angle = Math.atan2(my - sy, mx - sx)
-        newDotSx = sx + Math.max(nr, 12) * Math.cos(angle)
-        newDotSy = sy + Math.max(nr, 12) * Math.sin(angle)
-      }
-    })
-    connDotNodeIdx = newDotIdx
-    connDotSx = newDotSx; connDotSy = newDotSy
-    connDotVisible.value = newDotIdx >= 0
-  } else {
-    connDotNodeIdx = -1; connDotVisible.value = false
-  }
-}
-
-function onMouseUp() {
-  // ── Complete connection drag ────────────────────────────────
-  if (connDragging.value) {
-    if (connDragTargetIdx >= 0 && connDragTargetIdx !== connDragFromIdx) {
-      const already = gEdges.some(e =>
-        (e.from === connDragFromIdx && e.to === connDragTargetIdx) ||
-        (e.from === connDragTargetIdx && e.to === connDragFromIdx)
-      )
-      if (already) {
-        showMapToast('이미 연결된 노드입니다.')
-      } else {
-        const fromNode = gNodes[connDragFromIdx]
-        const toNode   = gNodes[connDragTargetIdx]
-        const { rel, neo4jFromId, neo4jToId } = resolveRel(connDragFromIdx, connDragTargetIdx)
-        gEdges.push({ from: connDragFromIdx, to: connDragTargetIdx, rel })
-        graphVersion.value++
-        showMapToast(`${fromNode?.label} → ${toNode?.label} (${rel})`)
-        // ── Neo4j 영속화 ─────────────────────────────────────────
-        if (neo4jFromId && neo4jToId) {
-          apiAI.post('/api/neo4j/relationships', {
-            from_id: neo4jFromId,
-            rel_type: rel,
-            to_id: neo4jToId,
-          }).catch(err => {
-            console.warn('[Neo4j] 관계 저장 실패:', err?.response?.data?.detail || err.message)
-            showMapToast('Neo4j 저장 실패 (로컬에는 반영됨)')
-          })
-        }
-      }
-    }
-    connDragging.value = false; connDragFromIdx = -1; connDragTargetIdx = -1
-    return
-  }
-  isDragging=false; dragNode2D=null
-}
-
-function onMouseLeave() {
-  if (connDragging.value) {
-    connDragging.value = false; connDragFromIdx = -1; connDragTargetIdx = -1
-  }
-  connDotNodeIdx = -1; connDotVisible.value = false
-  isDragging=false; dragNode2D=null
-  hoverNode.value=null
-  hoverNodeIdx=-1
-}
-
-function onWheel(e) {
-  e.preventDefault()
-  targetZoom=Math.max(.25,Math.min(4,targetZoom+(e.deltaY<0?.12:-.12)))
-}
-onWheel._t=null
-
-function onCanvasClick(e) {
-  if(isDragging) return
-  if(dragNode2DMoved) { dragNode2DMoved=false; return }
-  if(isPanMode.value) return  // 패닝 모드일 때 노드 클릭 무시
-  const canvas=canvasRef.value;if(!canvas) return
-  const rect=canvas.getBoundingClientRect()
-  const mx=e.clientX-rect.left,my=e.clientY-rect.top
-  const w=canvas.offsetWidth,h=canvas.offsetHeight
-  const visSet = getVisibleSet()
-  let closest=null,minDist=Infinity
-  const zf=Math.max(.6,Math.min(2.5,worldZoom))
-  gNodes.forEach((n,i)=>{
-    if(!visSet.has(i)) return
-    let sx, sy
-    if(_treePositions?.has(i)) {
-      const tp = _treePositions.get(i); sx = tp.sx; sy = tp.sy
-    } else {
-      const p = projectNode(n,w,h); sx = p.sx; sy = p.sy
-    }
-    const baseR=n.type==='meeting_group'?22:n.type==='org'?20:n.type==='dept'?14:n.type==='agenda'?13:n.type==='person'?11:n.type==='session'?12:10
-    const d=Math.hypot(sx-mx,sy-my)
-    if(d<baseR*zf+6&&d<minDist){minDist=d;closest=i}
-  })
-  if(closest!==null){
-    const n=gNodes[closest]
-    if(n.type==='meeting_group') {
-      if(selectedNodeIdx.value===closest) {
-        // 선택 해제: 전체 맵으로 복귀
-        selectedNodeIdx.value=null; expandedHubIdx=null; expandedDeptIdx=null; focusNode=null
-        _node2DOffsets.clear()
-        targetZoom=1.0
-        targetCamX=0;targetCamY=0;targetCamZ=0
-        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
-        breadcrumb.value=[]
-      } else {
-        selectedNodeIdx.value=closest; expandedHubIdx=closest; expandedDeptIdx=null
-        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
-        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
-        breadcrumb.value=[{ label: n.label, idx: closest, type: 'meeting_group' }]
-        focusNode=closest
-        openDetail(n.data)
-      }
-    } else if(n.type==='dept') {
-      expandedDeptIdx = expandedDeptIdx===closest ? null : closest
-      if(expandedDeptIdx!==null) {
-        const hubEntry = breadcrumb.value.find(b=>b.type==='meeting_group')
-        breadcrumb.value = hubEntry ? [hubEntry,{label:n.label,idx:closest,type:'dept'}] : [{label:n.label,idx:closest,type:'dept'}]
-      } else {
-        breadcrumb.value = breadcrumb.value.filter(b=>b.type!=='dept')
-      }
-      openNodeDetail(n)
-      focusNode=closest
-    } else if(n.type==='file') {
-      openFileReview(n)
-      openNodeDetail(n)
-      focusNode=closest
-    } else {
-      openNodeDetail(n)
-      focusNode=closest
-    }
-  } else {
-    // 배경 클릭: 아무것도 하지 않음
-  }
-}
-
-
-
-function onTouchStart(e){isDragging=true;autoRotate=false;lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
-function onTouchMove(e){if(!isDragging)return;rotY+=(e.touches[0].clientX-lastMx)*.004;rotX+=(e.touches[0].clientY-lastMy)*.004;rotX=Math.max(-1.2,Math.min(1.2,rotX));lastMx=e.touches[0].clientX;lastMy=e.touches[0].clientY}
-function onTouchEnd(){isDragging=false}
-
-function onBreadcrumbReset() {
-  breadcrumb.value = []; selectedNodeIdx.value = null
-  expandedHubIdx = null; expandedDeptIdx = null
-  _node2DOffsets.clear()
-  targetCamX = 0; targetCamY = 0; targetCamZ = 0
-  targetZoom = 1.0
-  targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
-}
-
-function onBreadcrumbClick(item, index) {
-  breadcrumb.value = breadcrumb.value.slice(0, index + 1)
-  if(item.type === 'meeting_group') {
-    selectedNodeIdx.value = item.idx; expandedHubIdx = item.idx; expandedDeptIdx = null
-    targetZoom = 1.0; targetCamX=0; targetCamY=0; targetCamZ=0
-    targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
-  } else if(item.type === 'dept') {
-    expandedDeptIdx = item.idx
-  }
+/** GraphView (PIXI) 배경 클릭 → 사이드바 닫기 */
+function onGraphBgClick() {
+  detailOpen.value = false
 }
 
 // ─── Lifecycle ─────────────────────────────────────────────────
@@ -3296,39 +2089,34 @@ onMounted(async () => {
   initAgentGreeting('hyean')
   window.addEventListener('mousemove', onGlobalMouseMove)
   window.addEventListener('mouseup', onGlobalMouseUp)
+
+  // meetingsStore(SpringBoot)와 Neo4j를 병렬로 요청 — 어느 쪽이 느려도 블로킹 없음
+  const [neo4jResult] = await Promise.allSettled([
+    apiAI.get('/api/neo4j/archive'),
+    meetingsStore.fetchMeetings().catch(e => console.error('meetings fetch error', e)),
+  ])
+
   try {
-    await meetingsStore.fetchMeetings()
-  } catch(e) {
-    console.error('meetings fetch error', e)
-  }
-  try {
-    // ── Neo4j 그래프 데이터 (단일 소스) ──────────────────────────
-    const neo4jResult = await apiAI.get('/api/neo4j/archive')
-    currentPerson.value = neo4jResult?.data?.current_person || null
-    currentOrg.value = neo4jResult?.data?.org || null
-    if (!neo4jResult?.data?.meetings?.length) {
-      // 회의체 없음 — 본인 노드만 그래프에 표시 (에러 아님)
-      return
+    if (neo4jResult.status === 'fulfilled') {
+      const data = neo4jResult.value?.data
+      currentPerson.value = data?.current_person || null
+      currentOrg.value    = data?.org || null
+      neo4jMeetings.value = data?.meetings     || []
+      neo4jDepts.value    = data?.departments  || []
+      minutes.value       = data?.minutes      || []
+      reports.value       = data?.reports      || []
+      membersData.value   = (data?.meetings || []).flatMap(m => m.members || [])
+      tasksData.value     = (data?.meetings || []).flatMap(m => m.tasks   || [])
+    } else {
+      console.error('archive fetch error', neo4jResult.reason)
     }
-    neo4jMeetings.value = neo4jResult.data.meetings
-    neo4jDepts.value    = neo4jResult.data.departments || []
-    minutes.value = neo4jResult.data.minutes || []
-    reports.value = neo4jResult.data.reports || []
-    membersData.value = neo4jResult.data.meetings.flatMap(m => m.members || [])
-    tasksData.value = neo4jResult.data.meetings.flatMap(m => m.tasks   || [])
-  } catch(e) {
-    console.error('archive fetch error', e)
-    // 연결 실패 시에도 본인 노드는 표시 (currentPerson은 auth store에서 fallback)
   } finally {
     loading.value = false
     const g = buildGraphNodes(); gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
-    initGraph()
-    buildConstPositions()
   }
 })
 
 onBeforeUnmount(()=>{
-  cancelAnimationFrame(animId);ro?.disconnect()
   window.removeEventListener('mousemove', onGlobalMouseMove)
   window.removeEventListener('mouseup', onGlobalMouseUp)
 })
@@ -3349,8 +2137,6 @@ async function refreshArchive() {
     const g = buildGraphNodes()
     if (g.nodes.length > 0) {
       gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
-      buildConstPositions()
-      initGraph()  // 캔버스 시각 즉시 반영
     }
   } catch(e) { console.error('archive refresh error', e) }
 }
@@ -3361,7 +2147,6 @@ watch(() => meetingsStore.meetings.length, () => {
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
-  buildConstPositions()
 })
 
 // Neo4j 데이터 로드 완료 시 그래프 재빌드
@@ -3370,30 +2155,8 @@ watch(() => neo4jMeetings.value.length, () => {
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
-  buildConstPositions()
 })
 
-watch(search, q=>{
-  if(!q){focusNode=null;searchHitMgIdxs.value=[];targetCamX=0;targetCamY=0;targetCamZ=0;return}
-  const lower=q.toLowerCase()
-  let bestIdx=null,bestScore=-1
-  // compute which meeting_group nodes contain matching sub-nodes
-  const hitMgs=new Set()
-  gNodes.forEach((n,i)=>{
-    let score=n.label.toLowerCase().includes(lower)?(n.type==='meeting_group'?10:5):0
-    if(score>bestScore){bestScore=score;bestIdx=i}
-    if(n.type!=='meeting_group'&&n.label.toLowerCase().includes(lower)){
-      const mgEdge=gEdges.find(e=>e.to===i&&gNodes[e.from]?.type==='meeting_group')
-      if(mgEdge)hitMgs.add(mgEdge.from)
-      else if(n.meetingGroupId){const mi=gNodes.findIndex(nd=>nd.id===n.meetingGroupId);if(mi>=0)hitMgs.add(mi)}
-    }
-  })
-  searchHitMgIdxs.value=[...hitMgs]
-  if(bestIdx!==null&&bestScore>0){
-    focusNode=bestIdx;const n=gNodes[bestIdx]
-    targetCamX=n.x*.55;targetCamY=n.y*.55;targetCamZ=n.z*.55;autoRotate=false
-  }
-})
 
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
@@ -3427,10 +2190,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
           목록
         </button>
-        <button class="app-tab" :class="{ active: viewMode==='constellation' }" @click="viewMode='constellation'">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="3" r="1.5"/><circle cx="3" cy="19" r="1.5"/><circle cx="21" cy="19" r="1.5"/><circle cx="17" cy="8" r="1.5"/><circle cx="7" cy="14" r="1.5"/><line x1="12" y1="4.5" x2="17" y2="8"/><line x1="17" y1="8" x2="21" y2="19"/><line x1="7" y1="14" x2="3" y2="19"/><line x1="7" y1="14" x2="12" y2="4.5"/><line x1="7" y1="14" x2="17" y2="8"/></svg>
-          관계도2
-        </button>
       </div>
 
       <button class="agent-header-btn" :class="{ active: agentSidebarOpen }" @click="agentSidebarOpen=!agentSidebarOpen" title="AI 에이전트">
@@ -3447,22 +2206,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
     </div>
 
     <!-- ── Graph Breadcrumb ── -->
-    <div v-if="viewMode==='graph'" class="graph-breadcrumb">
-      <button class="bc-home" @click="onBreadcrumbReset">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12L12 4l9 8"/><path d="M9 21V12h6v9"/></svg>
-        전체
-      </button>
-      <template v-for="(item, i) in breadcrumb" :key="i">
-        <span class="bc-sep">›</span>
-        <button class="bc-item" :class="'bc-'+item.type" @click="onBreadcrumbClick(item, i)">{{ item.label }}</button>
-      </template>
-    </div>
-
     <!-- ── Body ── -->
     <div class="archive-body">
 
       <!-- Main area -->
-      <div ref="mainAreaRef" class="main-area">
+      <div class="main-area">
 
         <!-- Detail sidebar (absolute overlay, canvas 크기 불변) -->
         <Transition name="sidebar-slide">
@@ -4105,7 +2853,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 <div class="detail-info-grid">
                   <SidebarInfoRow label="조직" :value="detailNode.data?.organization || currentOrg?.name || '-'" />
                   <SidebarInfoRow label="부서" :value="detailNode.data?.department || '-'" />
-                  <SidebarInfoRow label="직첸" :value="detailNode.data?.position || '-'" />
+                  <SidebarInfoRow label="직책" :value="detailNode.data?.position || '-'" />
                 </div>
               </div>
               <div class="detail-section">
@@ -4226,7 +2974,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </Transition>
 
         <!-- Sidebar toggle handle — visible whenever a meeting or node is selected -->
-        <button v-if="(detailMeeting || detailNode) && (viewMode==='graph' || viewMode==='constellation')"
+        <button v-if="(detailMeeting || detailNode) && viewMode==='graph'"
           class="sidebar-toggle-handle"
           :style="{ left: (detailOpen ? sidebarW : 0) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }"
           @click="detailOpen = !detailOpen"
@@ -4243,15 +2991,15 @@ const TYPES=['Draft','In Progress','Done','Pending']
           <span>불러오는 중...</span>
         </div>
 
-        <!-- Zoom controls (top-left) — graph & constellation 공용 -->
-        <div v-if="!loading && (viewMode==='graph' || viewMode==='constellation')" class="graph-zoom-controls"
+        <!-- Zoom controls (top-left) -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-zoom-controls"
           :style="{ left: (detailOpen ? sidebarW + 10 : 10) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
           <template v-if="viewMode==='graph'">
-            <button class="zoom-btn" @click="targetZoom = Math.min(4, targetZoom * 1.3)" title="확대 (Zoom In)">+</button>
-            <button class="zoom-btn zoom-reset" @click="targetZoom = 1.0; targetCamX = 0; targetCamY = 0; targetCamZ = 0" title="초기화 (Reset)">⌂</button>
-            <button class="zoom-btn" @click="targetZoom = Math.max(0.25, targetZoom / 1.3)" title="축소 (Zoom Out)">−</button>
-            <button class="zoom-btn zoom-pan" :class="{ active: isPanMode }" @click="isPanMode = !isPanMode" title="패닝 모드 (Pan Mode)">
-              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+            <button class="zoom-btn" @click="graphViewRef?.zoomIn()" title="확대 (Zoom In)">+</button>
+            <button class="zoom-btn zoom-reset" @click="graphViewRef?.resetView()" title="초기화 (Reset)">⌂</button>
+            <button class="zoom-btn" @click="graphViewRef?.zoomOut()" title="축소 (Zoom Out)">−</button>
+            <button class="zoom-btn zoom-pan-hint" title="드래그로 이동 (배경을 드래그하세요)">
+              <i class="bi bi-arrows-move"></i>
             </button>
           </template>
           <template v-else>
@@ -4260,34 +3008,27 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <button class="zoom-btn" @click="constViewRef?.zoomOut()" title="축소 (Zoom Out)">−</button>
           </template>
         </div>
-        <canvas v-show="!loading && viewMode==='graph'"
-          ref="canvasRef"
-          class="archive-canvas"
-          :style="{ cursor: connDragging ? 'crosshair' : connDotVisible ? 'crosshair' : isPanMode ? (isDragging ? 'grabbing' : 'grab') : 'default' }"
-          @mousedown="onMouseDown"
-          @mousemove="onMouseMove"
-          @mouseup="onMouseUp"
-          @mouseleave="onMouseLeave"
-          @click="onCanvasClick"
-
-          @wheel.prevent="onWheel"
-          @touchstart.prevent="onTouchStart"
-          @touchmove.prevent="onTouchMove"
-          @touchend="onTouchEnd"
-        ></canvas>
-
-        <!-- ── Constellation view ── -->
-        <ConstellationView
-          v-if="viewMode==='constellation'"
-          ref="constViewRef"
+        <!-- Graph view (PIXI.js force-directed) -->
+        <GraphView
+          v-if="!loading && viewMode==='graph'"
+          ref="graphViewRef"
           class="archive-canvas"
           :gNodes="gNodes"
           :gEdges="gEdges"
           :nightMode="nightMode"
+          :hiddenNodeTypes="hiddenNodeTypes"
+          :queryHlIdxs="queryHlIdxs"
+          :queryHlEdgeIdxs="queryHlEdgeIdxs"
+          :searchHitMgIdxs="searchHitMgIdxs"
           :getHubFill="getHubFill"
-          @selectMeeting="onConstSelectMeeting"
+          :computeUrgency="computeUrgency"
+          :relColors="REL_COLORS"
+          :groupTodoRatio="groupTodoRatio"
+          @nodeClick="onGraphNodeClick"
+          @bgClick="onGraphBgClick"
         />
 
+        <!-- ── Constellation view ── -->
         <!-- Map drag invalid toast -->
         <Transition name="map-toast-fade">
           <div v-if="mapToastMsg" class="map-toast">{{ mapToastMsg }}</div>
@@ -4301,8 +3042,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </Transition>
 
-        <!-- 온톨로지 범례 — graph & constellation 공용 -->
-        <div v-if="!loading && (viewMode==='graph' || viewMode==='constellation')" class="graph-legend-onto"
+        <!-- 온톨로지 범례 -->
+        <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
           <!-- 나: graph에서만 표시 (constellation에선 org-root 노드 없음) -->
           <div v-if="viewMode==='graph'" class="legend-onto-item" style="cursor:default">
@@ -4367,51 +3108,25 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- Graph floating action buttons (top-right of canvas) -->
         <div v-if="!loading && viewMode==='graph'" class="graph-float-btns">
-          <div class="float-btn-item" @click="openCreateModal" @mousedown.prevent="onFloatBtnMouseDown('meeting', $event)" title="클릭해서 회의체 생성">
+          <div class="float-btn-item" @click="openCreateModal" title="클릭해서 회의체 생성">
             <div class="float-node-preview meeting-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('session', $event)" title="회의체 노드에 드래그하여 회의 생성">
+          <div class="float-btn-item" @click="openSessionModal()" title="회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div class="float-btn-item" @mousedown.prevent="onFloatBtnMouseDown('doc', $event)" title="자료 업로드 및 노드 연결">
+          <div class="float-btn-item" @click="openUploadModal()" title="자료 업로드 및 노드 연결">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
             <span class="float-btn-label">자료 업로드</span>
           </div>
         </div>
-
-        <!-- Drag preview line SVG overlay -->
-        <svg v-if="floatDragging && floatDragPreviewLine"
-          width="100%" height="100%"
-          style="position:absolute;inset:0;pointer-events:none;z-index:16;overflow:visible">
-          <defs>
-            <marker id="drag-arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-              <circle cx="3" cy="3" r="2.5"
-                :fill="floatDragging==='meeting'?'rgba(59,130,246,0.9)':'rgba(52,211,153,0.9)'"/>
-            </marker>
-          </defs>
-          <line
-            :x1="floatDragPreviewLine.x1" :y1="floatDragPreviewLine.y1"
-            :x2="floatDragPreviewLine.x2" :y2="floatDragPreviewLine.y2"
-            :stroke="floatDragging==='meeting'?'rgba(59,130,246,0.75)':'rgba(52,211,153,0.75)'"
-            stroke-width="2.5" stroke-dasharray="9,5" stroke-linecap="round"
-            marker-end="url(#drag-arrow)"
-          />
-          <circle
-            :cx="floatDragPreviewLine.x1" :cy="floatDragPreviewLine.y1" r="10"
-            :fill="floatDragging==='meeting'?'rgba(59,130,246,0.2)':'rgba(52,211,153,0.2)'"
-            :stroke="floatDragging==='meeting'?'rgba(59,130,246,0.6)':'rgba(52,211,153,0.6)'"
-            stroke-width="2" stroke-dasharray="4,2"
-          />
-        </svg>
-
 
         <!-- List view -->
         <div v-show="viewMode==='list'" class="list-view">
@@ -4501,69 +3216,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
         </div>
 
         <!-- Bottom panel (slides up) -->
-        <div class="bottom-panel" :class="{ active: bottomMode }" :style="bottomMode ? { height: bottomH+'px' } : {}">
-          <!-- Drag handle -->
-          <div class="bottom-drag-handle" @mousedown="onBottomResizeStart">
-            <div class="drag-bar"></div>
-          </div>
-
-          <!-- Task extraction -->
-          <div v-if="bottomMode==='task'" class="bottom-inner">
-            <div class="bottom-left">
-              <div class="bottom-panel-label">▶ DRAFT (1)</div>
-              <div class="task-form-scroll">
-                <div class="tf-row"><div class="tf-label">안건명</div><input v-model="taskForm.title" class="tf-input" placeholder="장소 등록" /></div>
-                <div class="tf-row"><div class="tf-label">유형</div>
-                  <select v-model="taskForm.type" class="tf-input tf-select">
-                    <option v-for="t in TYPES" :key="t" :value="t">{{ t }}</option>
-                  </select>
-                </div>
-                <div class="tf-row"><div class="tf-label">마감일</div><input v-model="taskForm.deadline" type="date" class="tf-input" /></div>
-                <div class="tf-row">
-                  <div class="tf-label">담당 부서</div>
-                  <div class="tag-input-wrap tf-input" style="padding:3px 7px;">
-                    <span v-for="(d,i) in taskForm.depts" :key="i" class="dept-tag">{{ d }}<button @click="removeDept(i)" class="tag-rm">×</button></span>
-                    <input v-model="taskDeptInput" class="tag-bare-input" placeholder="부서 추가" @keydown.enter.prevent="addDept" />
-                  </div>
-                </div>
-                <div class="tf-row"><div class="tf-label">담당자</div><input v-model="taskForm.assignee" class="tf-input" placeholder="홍길동" /></div>
-                <div class="tf-row tf-row-top"><div class="tf-label" style="padding-top:6px">목적</div><textarea v-model="taskForm.purpose" class="tf-input tf-textarea" placeholder="위원회 추진을 위한 장소 탐색 및 예약"></textarea></div>
-                <div class="tf-row"><div class="tf-label">주관 회의체</div><input class="tf-input" placeholder="회의체 검색" /></div>
-              </div>
-              <div class="task-form-footer">
-                <button class="tf-btn-save">저장</button>
-                <button class="tf-btn-cancel" @click="closeBottomPanel">취소</button>
-              </div>
-            </div>
-            <div class="bottom-right">
-              <div class="ai-reason-title">AI 생성 근거</div>
-              <div class="ai-reason-body">AI가 회의록 내용을 기반으로 위 과제를 추출했습니다.<br><br><strong>주요 근거:</strong><br>• 3차 회의에서 "담당자 지정 필요" 언급<br>• 이전 회의록의 후속 과제 미이행 항목<br>• 참석자 간 합의된 실행 계획</div>
-              <div class="bottom-approve-row">
-                <button class="btn-approve" @click="closeBottomPanel">승인</button>
-                <button class="btn-reject" @click="closeBottomPanel">취소</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Material review -->
-          <div v-if="bottomMode==='review'" class="bottom-inner">
-            <div class="bottom-left">
-              <div class="bottom-panel-label">AI 검토 결과</div>
-              <div class="ai-reason-body" style="color:#94a3b8;font-size:13px">자료를 나루 채팅창에 업로드하면 AI가 검토 결과를 여기에 표시합니다.</div>
-            </div>
-            <div class="bottom-right">
-              <div class="ai-reason-title">업로드 자료</div>
-              <div class="upload-area">
-                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#475569"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                <div style="font-size:12px;color:#64748b;margin-top:6px">파일을 드래그하거나 클릭해서 업로드</div>
-              </div>
-              <div class="bottom-approve-row">
-                <button class="btn-approve">업로드</button>
-                <button class="btn-reject" @click="closeBottomPanel">취소</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
       </div><!-- /main-area -->
 
@@ -4694,20 +3346,6 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </div>
       </Transition>
-
-    <!-- Float drag ghost cursor follow -->
-    <Teleport to="body">
-      <div v-if="floatDragging" class="float-drag-ghost"
-        :style="{ left: (floatDragPos.x - 22) + 'px', top: (floatDragPos.y - 22) + 'px' }">
-        <div class="ghost-node" :class="floatDragging === 'meeting' ? 'ghost-meeting' : floatDragging === 'session' ? 'ghost-session' : 'ghost-doc'">
-          <svg v-if="floatDragging==='meeting'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
-          <svg v-else-if="floatDragging==='session'" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/></svg>
-          <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-        </div>
-        <span class="ghost-label">{{ floatDragging==='meeting' ? '회의체 생성' : floatDragging==='session' ? '회의 생성' : '자료 업로드' }}</span>
-        <span v-if="floatDragPreviewLine" class="ghost-connect-hint">✓ 연결 가능</span>
-      </div>
-    </Teleport>
 
     <!-- ── Create Meeting Modal ── -->
     <Teleport to="body">
@@ -5550,7 +4188,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
 }
 .zoom-btn:hover { background:rgba(59,130,246,.35); border-color:rgba(96,165,250,.5); color:#93c5fd; }
 .zoom-reset { font-size:14px; }
-.zoom-pan { font-size:14px; }
+.zoom-pan, .zoom-pan-hint { font-size:14px; }
+.zoom-pan-hint { cursor:default; opacity:0.7; }
 .zoom-btn.active { background:rgba(59,130,246,.5); border-color:rgba(96,165,250,.7); color:#bfdbfe; }
 .day-mode .zoom-btn { background:rgba(255,255,255,.85); border-color:#e2e8f0; color:#475569; }
 .day-mode .zoom-btn:hover { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
@@ -5650,9 +4289,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .btn-reject { padding:7px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:13px;cursor:pointer; }
 
 /* ── Agent header button ── */
-.agent-header-btn { padding:5px 12px;border-radius:6px;border:1px solid rgba(123,128,204,.4);background:rgba(100,110,200,.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s; }
-.agent-header-btn:hover { background:rgba(123,128,204,.28);border-color:rgba(123,128,204,.65); }
-.agent-header-btn.active { background:rgba(123,128,204,.35);border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.25); }
+@keyframes rainbow-border {
+  0%   { border-color: rgba(147,197,253,0.7); box-shadow: 0 0 6px 1px rgba(147,197,253,0.25); }
+  16%  { border-color: rgba(167,139,250,0.7); box-shadow: 0 0 6px 1px rgba(167,139,250,0.25); }
+  33%  { border-color: rgba(244,114,182,0.7); box-shadow: 0 0 6px 1px rgba(244,114,182,0.25); }
+  50%  { border-color: rgba(251,191,36,0.7);  box-shadow: 0 0 6px 1px rgba(251,191,36,0.20);  }
+  66%  { border-color: rgba(52,211,153,0.7);  box-shadow: 0 0 6px 1px rgba(52,211,153,0.22);  }
+  83%  { border-color: rgba(96,165,250,0.7);  box-shadow: 0 0 6px 1px rgba(96,165,250,0.25);  }
+  100% { border-color: rgba(147,197,253,0.7); box-shadow: 0 0 6px 1px rgba(147,197,253,0.25); }
+}
+.agent-header-btn { padding:5px 12px;border-radius:6px;border:1px solid rgba(123,128,204,.4);background:rgba(100,110,200,.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .15s;animation:rainbow-border 4s linear infinite; }
+.agent-header-btn:hover { background:rgba(123,128,204,.28); }
+.agent-header-btn.active { background:rgba(123,128,204,.35);animation:none;border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.25); }
 .ai-btn-icon { width:34px;height:17px;flex-shrink:0; }
 
 /* ── Agent right sidebar ── */
