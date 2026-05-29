@@ -44,8 +44,8 @@ public class MeetingService {
                 requesterId
         );
         Meeting saved = meetingRepository.save(meeting);
-        MeetingMember secretary = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.SECRETARY);
-        meetingMemberRepository.save(secretary);
+        MeetingMember admin = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.ADMIN);
+        meetingMemberRepository.save(admin);
         neoSyncService.syncMeeting(saved.getId());
         neoSyncService.syncMember(saved.getId(), requesterId);
         return MeetingResponse.from(saved);
@@ -62,7 +62,7 @@ public class MeetingService {
                 .filter(mm -> meetingIds.contains(mm.getMeetingId()))
                 .collect(Collectors.toMap(
                         MeetingMember::getMeetingId,
-                        mm -> mm.getRole() == MeetingMemberRole.SECRETARY ? "admin" : "presenter",
+                        mm -> mm.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
                         (a, b) -> a));
 
         return all.stream()
@@ -77,14 +77,14 @@ public class MeetingService {
         if (meetings.isEmpty()) return List.of();
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
-        List<MeetingMember> secretaries = meetingMemberRepository
-                .findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.SECRETARY);
+        List<MeetingMember> admins = meetingMemberRepository
+                .findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.ADMIN);
 
-        List<Long> secretaryUserIds = secretaries.stream().map(MeetingMember::getUserId).distinct().toList();
-        Map<Long, String> userNameMap = userRepository.findAllById(secretaryUserIds)
+        List<Long> adminUserIds = admins.stream().map(MeetingMember::getUserId).distinct().toList();
+        Map<Long, String> userNameMap = userRepository.findAllById(adminUserIds)
                 .stream().collect(Collectors.toMap(User::getId, User::getName));
 
-        Map<Long, String> secretaryNameMap = secretaries.stream()
+        Map<Long, String> adminNameMap = admins.stream()
                 .collect(Collectors.toMap(
                         MeetingMember::getMeetingId,
                         m -> userNameMap.getOrDefault(m.getUserId(), ""),
@@ -92,7 +92,7 @@ public class MeetingService {
                 ));
 
         return meetings.stream()
-                .map(m -> ActiveMeetingResponse.from(m, secretaryNameMap.get(m.getId())))
+                .map(m -> ActiveMeetingResponse.from(m, adminNameMap.get(m.getId())))
                 .toList();
     }
 
@@ -141,7 +141,9 @@ public class MeetingService {
         checkSecretaryPermission(meetingId, requesterId);
         MeetingMember member = meetingMemberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
+        Long userId = member.getUserId();
         meetingMemberRepository.delete(member);
+        neoSyncService.deleteMember(meetingId, userId);
     }
 
     @Transactional
@@ -152,13 +154,14 @@ public class MeetingService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
         member.updateRole(request.getRole());
         User user = userRepository.findById(member.getUserId()).orElse(null);
+        neoSyncService.syncMember(meetingId, member.getUserId());
         return MeetingMemberResponse.from(member, user);
     }
 
     /** 현재 사용자의 특정 회의체 내 역할 반환 (없으면 null) */
     public String getMyRole(Long meetingId, Long userId) {
         return meetingMemberRepository.findByMeetingIdAndUserId(meetingId, userId)
-                .map(m -> m.getRole() == MeetingMemberRole.SECRETARY ? "admin" : "presenter")
+                .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
                 .orElse(null);
     }
 
@@ -175,7 +178,7 @@ public class MeetingService {
 
     // secretary 권한이 없으면 403 예외 발생
     private void checkSecretaryPermission(Long meetingId, Long requesterId) {
-        if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(meetingId, requesterId, MeetingMemberRole.SECRETARY)) {
+        if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(meetingId, requesterId, MeetingMemberRole.ADMIN)) {
             throw new BusinessException(ErrorCode.MEETING_ACCESS_DENIED);
         }
     }

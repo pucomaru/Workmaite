@@ -179,10 +179,8 @@ async def generate_minutes(
         }
         return "회의 내용이 기록되지 않았습니다.", empty
 
-    # Neo4j 유사 회의록 벡터 검색
     similar_minutes = await _search_similar_minutes(raw_transcript)
 
-    # TPO 정보 구성
     tpo_lines = []
     if session_info:
         if session_info.get("title"):
@@ -234,54 +232,32 @@ async def generate_minutes(
     prompt = f"""{context_block}[회의 녹취/기록]
 {raw_transcript[:5000]}
 
----
-위 내용을 바탕으로 다음 두 가지를 작성하세요.
+위 회의 내용을 바탕으로 두 파트로 응답하세요.
 
-## [1] 마크다운 회의록
-아래 섹션을 반드시 포함하세요:
+## [1]
+# 회의록
+## 1. 회의 목적 및 배경
+## 2. 주요 논의 사항
+## 3. 결정 사항
+## 4. 액션 아이템
+| 담당자 | 내용 | 기한 |
+|--------|------|------|
+## 5. 보류 및 추가 검토 사항
+## 6. 다음 회의 안건
 
-### 📋 회의 개요 (TPO)
-- 일시, 장소, 목적
-
-### 👥 참석자 (Joiner)
-- 이름 / 부서 / 역할 / 참석여부
-
-### ✅ 결정 사항 (Done)
-- 확정된 내용과 결정 주체
-
-### 📌 실행 계획 (WILL DO)
-| 업무 내용 | 담당자 | 기한 | 상태 |
-각 항목 반드시 담당자·기한 포함
-
-### ⚠️ 미결 안건 (TBD)
-- 결론이 나지 않은 안건과 이유
-
-### 📅 차기 회의
-- 예정일, 주요 안건 예고
-
-## [2] JSON 구조 데이터
-다음 키를 가진 JSON을 ```json ... ``` 코드블록으로 출력하세요:
+## [2]
+```json
 {{
-  "attendees": [{{"name": "이름", "dept": "부서", "role": "admin|presenter", "present": true, "note": ""}}],
-  "absent": [{{"name": "이름", "dept": "부서", "reason": "사유"}}],
-  "decisions": [{{"content": "결정 내용", "decided_by": "결정 주체", "agenda_ref": "관련 안건 번호(없으면 null)"}}],
-  "action_items": [{{"content": "업무 내용", "assignee": "담당자", "due_date": "YYYY-MM-DD 또는 null", "status": "pending"}}],
-  "tbd_items": [{{"content": "미결 안건", "reason": "미결 이유"}}],
-  "next_meeting_note": "차기 회의 예정일 및 주요 안건 (없으면 빈 문자열)"
+  "attendees": ["참석자 목록"],
+  "decisions": ["결정 사항 목록"],
+  "action_items": [{{"assignee": "담당자", "content": "내용", "due_date": "기한"}}],
+  "tbd_items": ["보류 사항 목록"],
+  "next_meeting_note": "다음 회의 안건"
 }}
-- 불명확한 경우 빈 배열 []로 표기하세요
-- 반드시 JSON을 포함하세요"""
+```"""
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
-    response = await llm.ainvoke([
-        SystemMessage(content=(
-            "당신은 전문 회의록 작성 AI입니다. 한국어로 작성합니다.\n"
-            "회의록에는 무슨 말이 오갔는가보다 무엇이 결정되고 누가 무엇을 해야 하는가를 명확히 기록합니다.\n"
-            "5대 필수 요소(Joiner·TPO·Done·WILL DO·TBD)를 반드시 포함하세요."
-        )),
-        HumanMessage(content=prompt),
-    ])
-
+    llm = _make_llm(temperature=0.2)
+    response = await llm.ainvoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)])
     full_text = response.content
 
     md_part = full_text
@@ -299,3 +275,72 @@ async def generate_minutes(
                 pass
 
     return md_part, json_part
+
+
+async def generate_minutes_stream(
+    transcript: str,
+    meeting_context: str = "",
+    agenda_text: str = "없음",
+    now: str = "",
+) -> AsyncGenerator[str, None]:
+    from datetime import datetime as _dt
+    if not now:
+        now = _dt.now().strftime("%Y년 %m월 %d일")
+
+    system_prompt = f"""당신은 전문 회의록 작성 AI 아라(Ara)입니다.
+제공된 STT 대화 기록을 분석해 실무에서 바로 활용 가능한 고품질 회의록을 작성합니다.
+
+회의 정보:
+{meeting_context}
+
+등록된 안건:
+{agenda_text}
+
+회의록 작성 원칙:
+1. 발언 내용을 그대로 옮기지 말고, 핵심 의미를 추출해 재구성하세요.
+2. 발언자별 주요 발언을 정확히 귀속시키세요.
+3. 결정 사항은 "~로 결정", "~하기로 합의" 등 명확한 표현을 사용하세요.
+4. 액션 아이템은 반드시 담당자, 내용, 기한을 포함하세요.
+5. 수치, 날짜, 고유명사는 정확하게 기재하세요.
+6. 아래 형식을 반드시 따르세요."""
+
+    user_prompt = f"""다음 STT 대화 기록으로 회의록을 작성해주세요.
+
+---
+{transcript}
+---
+
+아래 형식으로 작성하세요:
+
+# 회의록
+
+**일시:** {now}
+**참석자:** (대화 기록에서 발언자 추출)
+
+---
+
+## 1. 회의 목적 및 배경
+(이 회의가 왜 열렸는지, 무엇을 논의하기 위한 자리인지 2-3문장으로)
+
+## 2. 안건별 주요 논의
+(각 주제마다 소제목(###)을 붙이고, 누가 말했냐가 아닌 어떤 내용이 논의됐고 어떤 방향으로 흘렀는지 흐름 중심으로 서술. 핵심 수치나 쟁점은 bullet point로 강조)
+
+## 3. 결정 사항
+(회의에서 확정된 내용. 각 항목에 결정 배경도 한 줄 포함)
+- **[결정 내용]** - 배경: ~
+
+## 4. 액션 아이템
+(담당자가 해야 할 일)
+| 담당자 | 내용 | 기한 |
+|--------|------|------|
+
+## 5. 보류 및 추가 검토 사항
+(이번 회의에서 결론 내지 못한 항목)
+
+## 6. 다음 회의 안건
+(이번 논의에서 도출된 다음 회의 주제)"""
+
+    llm = _make_llm(temperature=0.2)
+    async for chunk in llm.astream([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]):
+        if chunk.content:
+            yield chunk.content

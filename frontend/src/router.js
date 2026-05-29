@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   { path: '/landing', component: () => import('./pages/LandingPage.vue') },
-  { path: '/login', component: () => import('./pages/LoginPage.vue') },
+  { path: '/login', redirect: '/landing' },
   {
     path: '/',
     component: () => import('./layouts/MainLayout.vue'),
@@ -32,7 +32,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const token = sessionStorage.getItem('token')
   if (to.meta.requiresAuth && !token) return '/landing'
-  if ((to.path === '/login' || to.path === '/register' || to.path === '/landing') && token) return '/'
+  if ((to.path === '/register' || to.path === '/landing') && token) return '/'
 })
 
 export default router

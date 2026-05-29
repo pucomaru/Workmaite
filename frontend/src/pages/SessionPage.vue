@@ -126,7 +126,6 @@ const generatingMinutes = ref(false)
 const transcriptSummary = ref('')
 const summarizingTranscript = ref(false)
 const showSummary = ref(false)
-const showSources = ref(true)
 const transcriptAreaRef = ref(null)
 
 const editor = useEditor({
@@ -217,8 +216,8 @@ async function fetchTranscriptSummary() {
   injectAction(userMsg, thinkingSteps, '').then(() => {/* noop */})
   // 실제 summary는 스트리밍으로 별도 표시 (중앙 패널)
   try {
-    await streamPost('/api/agent/ara/sessions-chat',
-      { meeting_id: 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
+    await streamPost('/api/agent/supervisor/chat',
+      { meeting_id: activeSession.value?.meeting_id || 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
       (chunk) => { transcriptSummary.value += chunk },
       () => { summarizingTranscript.value = false }
     )
@@ -626,7 +625,7 @@ onMounted(() => {
                     <i class="bi bi-mic-fill"></i> {{ generatedMinutes.sources.stt_count }}개
                   </span>
                   <div class="tt-sep" v-if="generatedMinutes.sources"></div>
-                  <button class="tt-btn tt-delete" @click="deleteMinutes" title="삭제"><i class="bi bi-trash"></i></button>
+                  <button class="tt-btn tt-delete" :disabled="generatingMinutes" @click="deleteMinutes" title="삭제"><i class="bi bi-trash"></i></button>
                 </div>
 
                 <!-- Streaming preview (Markdown rendered) -->
@@ -634,53 +633,16 @@ onMounted(() => {
                 <!-- Tiptap Editor -->
                 <editor-content v-else :editor="editor" class="tiptap-content" />
 
-                <!-- 기반 발화 기록 -->
-                <div v-if="generatedMinutes.sources?.transcript?.length" class="minutes-sources-section">
-                  <button class="minutes-sources-toggle" @click="showSources = !showSources">
-                    <i class="bi bi-chat-left-text"></i>
-                    기반 발화 기록 {{ generatedMinutes.sources.stt_count }}개
-                    <i :class="showSources ? 'bi bi-chevron-up' : 'bi bi-chevron-down'" style="margin-left:auto"></i>
-                  </button>
-                  <div v-if="showSources" class="minutes-sources-body">
-                    <div v-for="(line, idx) in generatedMinutes.sources.transcript" :key="idx" class="src-line">
-                      <span class="src-time">{{ line.time }}</span>
-                      <span class="src-text">{{ line.text }}</span>
-                    </div>
-                  </div>
-                </div>
               </template>
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
 
             </div>
 
-            <!-- 회의록 액션 버튼 -->
-            <div v-if="generatedMinutes" class="minutes-action-row">
-              <div class="minutes-action-left">
-                <div class="minutes-download-group">
-                  <button class="minutes-action-btn" @click="downloadPDF">
-                    <i class="bi bi-file-earmark-pdf"></i> PDF
-                  </button>
-                  <button class="minutes-action-btn" @click="downloadWord">
-                    <i class="bi bi-file-earmark-word"></i> Word
-                  </button>
-                </div>
-              </div>
-              <div class="minutes-action-right">
-                <span v-if="minutesSavedAt" class="minutes-saved-label">
-                  <i class="bi bi-check-circle-fill"></i> {{ minutesSavedAt }} 저장됨
-                </span>
-                <button class="minutes-action-btn primary" :disabled="savingMinutes" @click="saveMinutesToDB">
-                  <i v-if="savingMinutes" class="bi bi-arrow-repeat spin"></i>
-                  <i v-else class="bi bi-cloud-upload"></i>
-                  {{ savingMinutes ? '저장 중...' : '아카이브 저장' }}
-                </button>
-              </div>
-            </div>
           </template>
         </div>
 
-        <!-- Control bar -->
-        <div class="sp-ctrl-bar" @click.stop>
+        <!-- Control bar (대화기록/스크립트 탭) -->
+        <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
           <div class="ctrl-group-left">
             <!-- Mic settings -->
             <div class="ctrl-pop-wrap">
@@ -735,6 +697,33 @@ onMounted(() => {
           <div class="ctrl-group-right">
             <button class="ctrl-minutes" :disabled="generatingMinutes" @click.stop="generateMinutes">
               <i class="bi bi-stars"></i> 회의록 생성
+            </button>
+          </div>
+        </div>
+
+        <!-- Minutes bar (회의록 탭) -->
+        <div v-if="activeTab === 'minutes'" class="sp-minutes-bar" @click.stop>
+          <div class="minutes-bar-left">
+            <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadPDF">
+              <i class="bi bi-file-earmark-pdf"></i> PDF
+            </button>
+            <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadWord">
+              <i class="bi bi-file-earmark-word"></i> Word
+            </button>
+          </div>
+          <div class="minutes-bar-right">
+            <span v-if="minutesSavedAt" class="mbar-saved-label">
+              <i class="bi bi-check-circle-fill"></i> {{ minutesSavedAt }} 저장됨
+            </span>
+            <button class="mbar-btn primary" :disabled="savingMinutes || generatingMinutes" @click="saveMinutesToDB">
+              <i v-if="savingMinutes" class="bi bi-arrow-repeat spin"></i>
+              <i v-else class="bi bi-cloud-upload"></i>
+              {{ savingMinutes ? '저장 중...' : '아카이브 저장' }}
+            </button>
+            <button class="mbar-btn regen" :disabled="generatingMinutes" @click.stop="generateMinutes">
+              <i v-if="generatingMinutes" class="bi bi-arrow-repeat spin"></i>
+              <i v-else class="bi bi-stars"></i>
+              {{ generatingMinutes ? '생성 중...' : '회의록 재생성' }}
             </button>
           </div>
         </div>
@@ -881,7 +870,7 @@ onMounted(() => {
 .sp-sm-name { flex:1;font-weight:600;color:#1e293b; }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
 .sp-sm-role-tag.admin { background:#eff6ff;color:var(--primary); }
-.sp-sm-role-tag.presenter { background:#f0fdf4;color:#16a34a; }
+.sp-sm-role-tag.member { background:#f0fdf4;color:#16a34a; }
 .sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
 .sp-sm-rm:hover { color:#ef4444; }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
@@ -949,6 +938,7 @@ onMounted(() => {
 .tt-btn.active { background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
 .tt-delete { color:#ef4444 !important; }
 .tt-delete:hover { background:#fef2f2 !important; }
+.tt-delete:disabled { opacity:.4;cursor:not-allowed;pointer-events:none; }
 .tt-sep { width:1px;height:18px;background:var(--border);margin:0 3px; }
 
 .tiptap-content { border:none;padding:4px 0;min-height:400px;background:transparent;outline:none; }
@@ -985,14 +975,6 @@ onMounted(() => {
 
 .tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;padding:0 4px;white-space:nowrap;cursor:default; }
 
-/* 기반 발화 기록 */
-.minutes-sources-section { margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden; }
-.minutes-sources-toggle { display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;background:#f8fafc;border:none;cursor:pointer;font-size:12px;color:#475569;font-weight:500;text-align:left; }
-.minutes-sources-toggle:hover { background:#f1f5f9; }
-.minutes-sources-body { max-height:240px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px; }
-.src-line { display:flex;gap:8px;font-size:12px;line-height:1.5; }
-.src-time { flex-shrink:0;color:#94a3b8;font-variant-numeric:tabular-nums; }
-.src-text { color:#475569; }
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
@@ -1116,4 +1098,16 @@ onMounted(() => {
 .minutes-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .spin { display:inline-block;animation:spin .7s linear infinite; }
+
+/* Minutes bottom bar */
+.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
+.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
+.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.mbar-btn:hover { background:#f1f5f9; }
+.mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
+.mbar-btn.primary:hover { opacity:.88; }
+.mbar-btn.regen { background:#f8fafc;border-color:#c7d2fe;color:#4f46e5; }
+.mbar-btn.regen:hover { background:#eef2ff; }
+.mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
+.mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
 </style>

@@ -25,7 +25,7 @@ const allMembers = ref([])
 const loadingMembers = ref(false)
 
 const showAddModal = ref(false)
-const addForm = ref({ name: '', email: '', company: '', department: '', position: '' })
+const addForm = ref({ name: '', email: '', company: '', department: '', position: '', password: '' })
 const addError = ref('')
 
 const editModal = ref(null)  // { ...member }
@@ -78,7 +78,7 @@ onMounted(async () => {
 })
 
 function openAddModal() {
-  addForm.value = { name: '', email: '', company: '', department: '', position: '' }
+  addForm.value = { name: '', email: '', company: '', department: '', position: '', password: '' }
   addError.value = ''
   showAddModal.value = true
 }
@@ -90,6 +90,10 @@ async function submitAdd() {
     addError.value = '이메일을 입력해주세요.'
     return
   }
+  if (!addForm.value.password.trim()) {
+    addError.value = '비밀번호를 입력해주세요.'
+    return
+  }
   try {
     await api.post('/api/v1/auth/signup', {
       name: addForm.value.name,
@@ -97,7 +101,7 @@ async function submitAdd() {
       company: addForm.value.company || null,
       department: addForm.value.department || null,
       position: addForm.value.position || null,
-      password: 'qwer1234',
+      password: addForm.value.password,
     })
     await fetchAllMembers()
     showAddModal.value = false
@@ -208,6 +212,11 @@ const CSV_HEADER_MAP = {
   '직책': 'position', 'position': 'position',
 }
 
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$'
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 async function parseAndImportCSV(text) {
   // BOM 제거
   const content = text.replace(/^\uFEFF/, '')
@@ -252,7 +261,7 @@ async function parseAndImportCSV(text) {
         company: obj.organization || null,
         department: obj.department || null,
         position: obj.position || null,
-        password: 'qwer1234',
+        password: generateTempPassword(),
       })
       existingEmails.add(emailLower)
       succeeded.push(obj.name)
@@ -447,6 +456,10 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               <div class="app-modal-field">
                 <label>직책</label>
                 <input v-model="addForm.position" class="app-modal-input" placeholder="예: 팀장" />
+              </div>
+              <div class="app-modal-field">
+                <label>비밀번호 <span class="req">*</span></label>
+                <input v-model="addForm.password" type="password" class="app-modal-input" placeholder="초기 비밀번호" />
               </div>
             </div>
             <div v-if="addError" style="color:#ef4444;font-size:13px;margin-top:8px">{{ addError }}</div>

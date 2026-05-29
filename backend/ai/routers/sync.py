@@ -30,7 +30,10 @@ from neo4j_sync import (
     sync_session,
     sync_agenda,
     sync_user,
+    sync_minutes,
     sync_meeting_member,
+    delete_meeting,
+    delete_meeting_member,
     retry_failed_syncs,
     sync_all_from_pg,
     vector_search,
@@ -98,6 +101,31 @@ def get_sync_logs(
         }
         for l in logs
     ]
+
+
+# ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
+
+@router.delete("/meeting/{meeting_id}/delete")
+async def delete_meeting_sync(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+):
+    """Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
+    await delete_meeting(meeting_id=meeting_id)
+    return {"success": True, "meeting_id": meeting_id}
+
+
+# ─── MeetingMember 관계 삭제 동기화 ──────────────────────────────────────────
+
+@router.delete("/member/delete")
+async def delete_member_sync(
+    meetingId: int,
+    userId: int,
+    current_user: models.User = Depends(get_current_user),
+):
+    """Person → Meeting 멤버십 관계를 Neo4j에서 삭제합니다."""
+    await delete_meeting_member(meeting_id=meetingId, user_id=userId)
+    return {"success": True, "meeting_id": meetingId, "user_id": userId}
 
 
 # ─── Meeting 수동 동기화 ──────────────────────────────────────────────────────
@@ -263,6 +291,26 @@ async def sync_agenda_manual(
         assignee_id=agenda.assignee_id,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
+
+
+# ─── Minutes 수동 동기화 ──────────────────────────────────────────────────────
+
+@router.post("/minutes/{minutes_id}")
+async def sync_minutes_manual(
+    minutes_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """특정 Minutes를 Neo4j에 수동으로 동기화합니다."""
+    m = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="Minutes를 찾을 수 없습니다.")
+    await sync_minutes(
+        minutes_id=m.id,
+        session_id=m.session_id,
+        content_summary=m.content_summary,
+    )
+    return {"success": True, "minutes_id": minutes_id}
 
 
 # ─── User 수동 동기화 ─────────────────────────────────────────────────────────

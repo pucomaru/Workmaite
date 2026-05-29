@@ -31,7 +31,7 @@ function onSearch(q) {
   }, 300)
 }
 
-function add(user, role = 'presenter') {
+function add(user, role = 'member') {
   if (props.modelValue.find(m => m.userId === user.id)) return
   emit('update:modelValue', [
     ...props.modelValue,
@@ -69,7 +69,7 @@ function updateRole(idx, role) {
         </div>
         <div class="mi-role-btns">
           <button class="mi-role-btn admin" @click="add(u, 'admin')">간사</button>
-          <button class="mi-role-btn" @click="add(u, 'presenter')">참여자</button>
+          <button class="mi-role-btn" @click="add(u, 'member')">참여자</button>
         </div>
       </div>
     </div>
@@ -83,7 +83,7 @@ function updateRole(idx, role) {
         </div>
         <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="mi-role-select">
           <option value="admin">간사</option>
-          <option value="presenter">참여자</option>
+          <option value="member">참여자</option>
         </select>
         <button class="mi-remove" @click="remove(idx)">
           <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>

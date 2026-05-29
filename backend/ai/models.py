@@ -46,7 +46,7 @@ class MeetingMember(Base):
     id         = Column(BigInteger, primary_key=True, index=True)
     meeting_id = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
     user_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
-    role       = Column(String(20), nullable=False)   # SECRETARY | MEMBER
+    role       = Column(String(20), nullable=False)   # admin | presenter
     created_at = Column(DateTime)
 
     user = relationship("User", foreign_keys=[user_id])
@@ -92,12 +92,12 @@ class Agenda(Base):
 
 
 class Report(Base):
-    __tablename__ = "reports"
+    __tablename__ = "report_reviews"
     id               = Column(BigInteger, primary_key=True, index=True)
     meeting_id       = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
     session_id       = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=True)
     uploader_id      = Column(BigInteger, ForeignKey("users.id"), nullable=False)
-    parent_id        = Column(BigInteger, ForeignKey("reports.id"), nullable=True)
+    parent_id        = Column(BigInteger, ForeignKey("report_reviews.id"), nullable=True)
     version          = Column(Integer, nullable=False, default=1)
     file_type        = Column(String(20), nullable=False)   # PDF | PPT | DOCX | HWP | ETC
     file_name        = Column(String(255), nullable=True)
@@ -111,6 +111,23 @@ class Report(Base):
     feedback         = Column(Text, nullable=True)
     missing_elements = Column(Text, nullable=True)          # jsonb
     created_at       = Column(DateTime, default=datetime.utcnow)
+
+
+class ArchiveCombined(Base):
+    """최종 아카이브 - 확정된 회의록/보고서/안건을 통합 보관"""
+    __tablename__ = "archives_combined"
+    id          = Column(BigInteger, primary_key=True, index=True)
+    meeting_id  = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
+    session_id  = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=True)
+    type        = Column(String(20), nullable=False)       # MINUTES | REPORT | AGENDA
+    title       = Column(String(255), nullable=True)
+    content     = Column(Text, nullable=True)              # 최종 텍스트 내용
+    file_path   = Column(String(500), nullable=True)       # 파일 경로 (선택)
+    source_type = Column(String(30), nullable=True)        # minutes | report_reviews | agendas
+    source_id   = Column(BigInteger, nullable=True)        # 원본 레코드 ID
+    archived_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    status      = Column(String(20), nullable=False, default="ACTIVE")  # ACTIVE | DELETED
+    archived_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ReportCriteria(Base):

@@ -12,14 +12,17 @@ from sqlalchemy.orm import Session
 _base = os.path.dirname(__file__)
 load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 
+# LangSmith 트레이싱 비활성화 (유효한 API 키 없을 때 403 방지)
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGSMITH_TRACING"] = "false"
+
 from database import engine, get_db
 import models
 from websocket_manager import manager
 from auth import get_current_user
 
-# AI 전용 라우터만 등록
-# auth / meetings / todos / sessions → SpringBoot(Java)로 이관
-from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router, todos
+from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router
+from routers import auth as auth_router
 from neo4j_sync import init_vector_index, retry_failed_syncs
 
 logger = logging.getLogger(__name__)
@@ -48,11 +51,13 @@ async def lifespan(app: FastAPI):
     # FastAPI가 관리하는 AI 전용 테이블만 생성
     # (users, meetings 등 공유 테이블은 SpringBoot ddl-auto:update가 생성)
     ai_only_tables = [
+        models.User.__table__,
         models.Notification.__table__,
         models.ChatMessage.__table__,
         models.AgentLog.__table__,
         models.TokenUsageLog.__table__,
         models.HitlReview.__table__,
+        models.ArchiveCombined.__table__,
     ]
     models.Base.metadata.create_all(bind=engine, tables=ai_only_tables, checkfirst=True)
     await init_vector_index()
@@ -82,13 +87,13 @@ app.add_middleware(
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# AI 전용 라우터
+# 라우터
+app.include_router(auth_router.router)
 app.include_router(notifications.router)
 app.include_router(agents.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
-app.include_router(todos.router)
 
 
 # WebSocket endpoints

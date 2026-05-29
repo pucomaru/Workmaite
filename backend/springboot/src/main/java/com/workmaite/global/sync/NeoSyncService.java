@@ -48,12 +48,32 @@ public class NeoSyncService {
         call("/api/sync/member?meetingId=" + meetingId + "&userId=" + userId, "member:" + meetingId + "/" + userId);
     }
 
+    @Async
+    public void deleteMeeting(Long meetingId) {
+        callDelete("/api/sync/meeting/" + meetingId + "/delete", "delete-meeting:" + meetingId);
+    }
+
+    @Async
+    public void deleteMember(Long meetingId, Long userId) {
+        callDelete("/api/sync/member/delete?meetingId=" + meetingId + "&userId=" + userId, "delete-member:" + meetingId + "/" + userId);
+    }
+
     private void call(String path, String label) {
         try {
             restTemplate.postForEntity(aiUrl + path, null, Void.class);
             log.debug("[NeoSync] synced {}", label);
         } catch (Exception e) {
             log.warn("[NeoSync] failed to sync {} — {}", label, e.getMessage());
+        }
+    }
+
+    private void callDelete(String path, String label) {
+        try {
+            org.springframework.web.client.RequestCallback callback = restTemplate.acceptHeaderRequestCallback(Void.class);
+            restTemplate.execute(aiUrl + path, org.springframework.http.HttpMethod.DELETE, callback, null);
+            log.debug("[NeoSync] deleted {}", label);
+        } catch (Exception e) {
+            log.warn("[NeoSync] failed to delete {} — {}", label, e.getMessage());
         }
     }
 }

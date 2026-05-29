@@ -85,18 +85,10 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
                        ORDER BY s.pg_id DESC LIMIT 5""",
                     {"pg_id": pg_id},
                 )
-                todo_rows = await run_cypher(
-                    """MATCH (t:Todo)-[:BELONGS_TO]->(m:Meeting {pg_id: $pg_id})
-                       OPTIONAL MATCH (p:Person)-[:ASSIGNED_TO]->(t)
-                       RETURN t.content AS content, t.status AS status,
-                              t.due_date AS due_date, p.name AS assignee LIMIT 15""",
-                    {"pg_id": pg_id},
-                )
                 return {
                     "meeting": mg_rows[0],
                     "agendas": agenda_rows,
                     "recent_sessions": session_rows,
-                    "todos": todo_rows,
                     "decisions": [],
                 }
 
@@ -166,12 +158,6 @@ def graph_context_to_str(ctx: dict) -> str:
         lines.append("[최근 세션]")
         for s in sessions:
             lines.append(f"  - {s.get('num', s.get('session_number','?'))}회차: {s.get('title','')} ({s.get('ended_at','?')})")
-    todos = ctx.get("todos", [])
-    if todos:
-        lines.append(f"[할 일 {len(todos)}건]")
-        for t in todos[:5]:
-            assignee = f" → {t['assignee']}" if t.get("assignee") else ""
-            lines.append(f"  - [{t.get('status','')}] {t.get('content','')}{assignee}")
     decisions = ctx.get("decisions", [])
     if decisions:
         lines.append(f"[의사결정 {len(decisions)}건]")

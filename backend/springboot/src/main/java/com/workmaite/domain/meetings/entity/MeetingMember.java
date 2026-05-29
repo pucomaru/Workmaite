@@ -32,8 +32,8 @@ public class MeetingMember {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    // SECRETARY | MEMBER
-    @Enumerated(EnumType.STRING)
+    // SECRETARY(admin) | MEMBER(presenter)
+    @Convert(converter = MeetingMemberRoleConverter.class)
     @Column(length = 20, nullable = false)
     private MeetingMemberRole role;
 

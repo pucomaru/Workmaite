@@ -73,7 +73,7 @@ async def get_archive(
         # Neo4j: pg_id 기반(새 sync) 또는 id 기반(시드 데이터) 모두 조회
         person_rows = await _run_cypher(
             "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
-            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
+            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname, p.pg_id AS pg_id",
             {"email": user_email, "name": user_name},
         )
 
@@ -82,15 +82,23 @@ async def get_archive(
 
         if person_rows:
             person_id = person_rows[0]["pid"]
+            # ── :MeetingGroup (시드) + :Meeting (pg_id 방식, 신규 sync) 모두 조회 ──
             allowed_mg_ids_rows = await _run_cypher(
-                "MATCH (p:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "RETURN mg.id AS mg_id",
+                """
+                MATCH (p:Person)-[:ADMIN_OF|MEMBER_OF]->(mg)
+                WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
+                  AND (mg:MeetingGroup OR mg:Meeting)
+                RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id
+                """,
                 {"pid": person_id},
             )
             allowed_mg_ids = {r["mg_id"] for r in allowed_mg_ids_rows}
         elif is_admin:
             # admin은 전체 회의체
-            all_mg = await _run_cypher("MATCH (mg:MeetingGroup) RETURN mg.id AS mg_id")
+            all_mg = await _run_cypher(
+                "MATCH (mg) WHERE mg:MeetingGroup OR mg:Meeting "
+                "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id"
+            )
             allowed_mg_ids = {r["mg_id"] for r in all_mg}
         else:
             allowed_mg_ids = set()
@@ -125,55 +133,69 @@ async def get_archive(
 
     try:
         mg_rows = await _run_cypher("""
-            MATCH (mg:MeetingGroup)
+            MATCH (mg) WHERE mg:MeetingGroup OR mg:Meeting
             OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg)
             OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department)
-            RETURN mg.id AS mg_id, mg.title AS title,
-                   mg.meeting_type AS meeting_type, mg.status AS status,
-                   mg.purpose AS purpose,
-                   p.id AS person_id, p.name AS person_name, p.email AS email,
-                   p.position AS position, type(rel) AS role, d.name AS department
-            ORDER BY mg.id
+            RETURN
+                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id,
+                coalesce(mg.title, '') AS title,
+                coalesce(mg.meeting_type, mg.type) AS meeting_type,
+                coalesce(mg.status, 'active') AS status,
+                mg.purpose AS purpose,
+                coalesce(p.id, toString(p.pg_id)) AS person_id,
+                p.name AS person_name, p.email AS email,
+                p.position AS position, type(rel) AS role, d.name AS department
+            ORDER BY mg_id
         """)
 
         agenda_rows = await _run_cypher("""
-            MATCH (ag:Agenda)-[:OWNED_BY]->(mg:MeetingGroup)
+            MATCH (ag:Agenda)-[:OWNED_BY]->(mg)
+            WHERE mg:MeetingGroup OR mg:Meeting
             OPTIONAL MATCH (p:Person)-[:ASSIGNED_TO]->(ag)
             OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department)
-            RETURN mg.id AS meetingId, ag.id AS id, ag.title AS content,
-                   ag.description AS description, ag.category AS category,
-                   ag.priority AS priority, ag.status AS status,
-                   toString(ag.due_date) AS due_date,
-                   toString(ag.created_at) AS created_at,
-                   p.name AS assignee_name, coalesce(d.name, '') AS assignee_dept
+            RETURN
+                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                coalesce(ag.id, toString(ag.pg_id)) AS id,
+                coalesce(ag.title, ag.content) AS content,
+                ag.description AS description, ag.category AS category,
+                ag.priority AS priority, ag.status AS status,
+                toString(ag.due_date) AS due_date,
+                toString(ag.created_at) AS created_at,
+                p.name AS assignee_name, coalesce(d.name, '') AS assignee_dept
         """)
 
         session_rows = await _run_cypher("""
-            MATCH (s:Session)-[:HELD_BY]->(mg:MeetingGroup)
+            MATCH (s:Session)-[:HELD_BY|BELONGS_TO]->(mg)
+            WHERE mg:MeetingGroup OR mg:Meeting
             OPTIONAL MATCH (s)-[:PRODUCED]->(doc:Document)
-            RETURN mg.id AS meetingId, mg.title AS meetingTitle,
-                   s.id AS id, s.title AS session_title,
-                   s.session_number AS session_number,
-                   toString(s.date) AS date,
-                   s.session_type AS session_type,
-                   s.description AS description,
-                   toString(s.ended_at) AS ended_at,
-                   doc.file_name AS file_name, doc.id AS doc_id,
-                   doc.title AS doc_title, doc.doc_type AS doc_type,
-                   doc.author AS doc_author,
-                   toString(doc.created_at) AS doc_created_at
+            RETURN
+                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                coalesce(mg.title, '') AS meetingTitle,
+                coalesce(s.id, toString(s.pg_id)) AS id,
+                s.title AS session_title,
+                s.session_number AS session_number,
+                toString(coalesce(s.date, s.scheduled_at)) AS date,
+                s.session_type AS session_type,
+                s.description AS description,
+                toString(s.ended_at) AS ended_at,
+                doc.file_name AS file_name, doc.id AS doc_id,
+                doc.title AS doc_title, doc.doc_type AS doc_type,
+                doc.author AS doc_author,
+                toString(doc.created_at) AS doc_created_at
         """)
 
         report_rows = await _run_cypher("""
-            MATCH (doc:Document)-[:ATTACHED_TO]->(mg:MeetingGroup)
-            WHERE NOT doc.doc_type = '회의록'
+            MATCH (doc:Document)-[:ATTACHED_TO]->(mg)
+            WHERE (mg:MeetingGroup OR mg:Meeting) AND NOT doc.doc_type = '회의록'
             OPTIONAL MATCH (dept:Department)-[:SUBMITTED]->(doc)
-            RETURN mg.id AS meetingId, mg.title AS meetingTitle,
-                   doc.id AS id, doc.title AS title,
-                   doc.file_name AS file_name, doc.doc_type AS doc_type,
-                   doc.author AS author, doc.file_url AS file_url,
-                   coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
-                   coalesce(dept.name, '') AS department
+            RETURN
+                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                coalesce(mg.title, '') AS meetingTitle,
+                doc.id AS id, doc.title AS title,
+                doc.file_name AS file_name, doc.doc_type AS doc_type,
+                doc.author AS author, doc.file_url AS file_url,
+                coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
+                coalesce(dept.name, '') AS department
         """)
 
         org_rows = await _run_cypher(
@@ -321,7 +343,7 @@ async def get_archive(
                     "userName": u.name or "",
                     "email": u.email or "",
                     "position": u.position or "",
-                    "role": "admin" if str(mb.role) == "SECRETARY" else "presenter",
+                    "role": "admin" if str(mb.role) == "admin" else "presenter",
                     "department": u.department or "",
                 }
                 for mb, u in members_db
