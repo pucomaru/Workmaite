@@ -3,7 +3,21 @@ from typing import Optional, List, Any
 from pydantic import BaseModel, model_validator
 
 
-# ── User (SpringBoot가 관리하는 users 테이블, FastAPI는 읽기 전용) ──────────────
+# ── User ──────────────────────────────────────────────────────────────────────
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    company: Optional[str] = None
+    department: Optional[str] = None
+    position: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
 class UserOut(BaseModel):
     id: int
     name: str
@@ -14,6 +28,11 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class Token(BaseModel):
+    accessToken: str
+    user: UserOut
 
 
 # Meeting

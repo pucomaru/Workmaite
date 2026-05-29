@@ -1,4 +1,7 @@
 import os
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
@@ -15,6 +18,27 @@ SECRET_KEY = os.getenv(
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer()
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
+    return f"pbkdf2:{salt}:{hashed.hex()}"
+
+
+def verify_password(plain: str, stored: str) -> bool:
+    try:
+        _, salt, hashed = stored.split(":")
+        test = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt.encode(), 100000)
+        return test.hex() == hashed
+    except Exception:
+        return False
+
+
+def create_access_token(data: dict, expires_minutes: int = 60 * 24 * 7) -> str:
+    to_encode = data.copy()
+    to_encode["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def get_current_user(
