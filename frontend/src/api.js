@@ -35,7 +35,7 @@ api.interceptors.response.use(
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
       return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
     }
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 || err.response?.status === 403) {
       const refreshToken = sessionStorage.getItem('refreshToken')
       if (refreshToken && !err.config._retry) {
         err.config._retry = true
