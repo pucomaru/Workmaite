@@ -159,6 +159,25 @@ class Minutes(Base):
 # Base.metadata.create_all 대상 (checkfirst=True)
 # ──────────────────────────────────────────────────────────────────────────────
 
+class Todo(Base):
+    __tablename__ = "todos"
+    id            = Column(BigInteger, primary_key=True, index=True)
+    meeting_id    = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
+    user_id       = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    agenda_id     = Column(BigInteger, ForeignKey("agendas.id"), nullable=True)
+    content       = Column(Text, nullable=False)
+    assignee_name = Column(String(100), nullable=True)
+    assignee_dept = Column(String(100), nullable=True)
+    how           = Column(Text, nullable=True)
+    why           = Column(Text, nullable=True)
+    priority      = Column(String(30), default="normal")
+    tags          = Column(JSON, nullable=True)
+    due_date      = Column(DateTime, nullable=True)
+    status        = Column(String(20), nullable=False, default="pending")
+    source_type   = Column(String(20), nullable=False, default="report")
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     id         = Column(BigInteger, primary_key=True, index=True)

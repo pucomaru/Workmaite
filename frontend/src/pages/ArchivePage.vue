@@ -96,6 +96,15 @@ let constDragging = false, constLastMx = 0, constLastMy = 0, constDragMoved = fa
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
 
+// ─── Node type visibility (eye toggle) ───────────────────────
+const hiddenNodeTypes = ref([])  // array of type keys: 'org-root'|'meeting_group'|'dept'|'agenda'|'session'|'file'
+function toggleNodeType(typeKey) {
+  const idx = hiddenNodeTypes.value.indexOf(typeKey)
+  if (idx >= 0) hiddenNodeTypes.value.splice(idx, 1)
+  else hiddenNodeTypes.value.push(typeKey)
+}
+function isHiddenType(typeKey) { return hiddenNodeTypes.value.includes(typeKey) }
+
 // ─── Map toast ────────────────────────────────────────────────
 const mapToastMsg = ref('')
 let _mapToastTimer = null
@@ -660,11 +669,12 @@ function onGlobalMouseMove(e) {
         const docValidTypes = ['meeting_group', 'dept', 'agenda']
         const zf = Math.max(.6, Math.min(2.5, worldZoom))
         const snapR = 22 * zf + 70
-        // Find closest valid target
+        // Find closest valid target — tree 모드에서는 화면에 보이는 노드만 탐색
         let closest = null, minDist = Infinity
         gNodes.forEach((n, i) => {
+          if (expandedHubIdx !== null && !_treePositions?.has(i)) return
           const isDoc = floatDragging.value === 'doc'
-          if (isDoc ? !docValidTypes.includes(n.type) : n.type !== 'meeting_group') return
+          if (isDoc ? !docValidTypes.includes(n.type) : (n.type !== 'meeting_group' && n.id !== 'org-root')) return
           let sx, sy
           if (_treePositions?.has(i)) { const tp = _treePositions.get(i); sx=tp.sx; sy=tp.sy }
           else { const p = projectNode(n, w, h); sx=p.sx; sy=p.sy }
@@ -682,8 +692,8 @@ function onGlobalMouseMove(e) {
           const d = Math.hypot(sx - mx, sy - my)
           if (d < snapR && d < anyMinDist) { anyMinDist = d; anyClosest = { idx: i, node: n } }
         })
-        // If cursor is over an invalid node (closer than any valid target), block connection
-        const overInvalid = anyClosest && (!closest || anyMinDist < minDist - 5)
+        // 유효 타겟이 없는 경우에만 invalid로 처리 (가까운 거리 비교 제거)
+        const overInvalid = anyClosest && !closest
         floatDragNearInvalidNode = !!overInvalid
         floatDragTarget = overInvalid ? null : closest
         if (!overInvalid && closest) {
@@ -737,9 +747,11 @@ function onGlobalMouseUp() {
       // Dropped onto a valid node
       if (type === 'meeting') {
         const connectId = target.node.id
-        selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
-        targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
-        targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
+        if (target.node.type === 'meeting_group') {
+          selectedNodeIdx.value = target.idx; expandedHubIdx = target.idx; expandedDeptIdx = null
+          targetZoom=1.0;targetCamX=0;targetCamY=0;targetCamZ=0
+          targetPan2DX=0;targetPan2DY=0;pan2DX=0;pan2DY=0
+        }
         openCreateModal()
         createConnectNodeId.value = connectId
       } else if (type === 'doc') {
@@ -1847,32 +1859,38 @@ function doAddFile() {
   const phi = Math.atan2(fromZ, fromX) + 0.28
   const baseR = Math.sqrt(fromX*fromX+fromZ*fromZ)
   const fileNodeId = `file-new-${Date.now()}`
+
+  // 연결 노드의 meeting_group을 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
+  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
+
   const newNode = {
     id: fileNodeId,
     label: uploadForm.value.label,
     type: 'file',
     fileType: uploadForm.value.fileType,
     aiScore: aiResult.value?.score ?? null,
-    aiReview: aiResult.value ? { ...aiResult.value } : null,  // AI검토결과 영구 저장
+    aiReview: aiResult.value ? { ...aiResult.value } : null,
     extractedAgendas: [],
+    groupIdx: mgNode?.groupIdx,
+    meetingGroupId: uploadForm.value.meetingId,
     x: Math.cos(phi)*(baseR+90), y: (fromNode?.y||0)+42, z: Math.sin(phi)*(baseR+90)
   }
   gNodes.push(newNode)
   const fileIdx = gNodes.length - 1
   const rel = autoRel(uploadForm.value.connectNodeId, 'file')
-  if (fromIdx >= 0) gEdges.push({ from:fromIdx, to:fileIdx, rel })
+  // 엣지 방향: file → connectNode (computeTreeLayout kids() 탐색 방향과 일치)
+  if (fromIdx >= 0) gEdges.push({ from: fileIdx, to: fromIdx, rel })
 
   // AI가 추천한 유관부서 자동 연결
   selectedRelDepts.value.forEach(deptName => {
     const deptId = `dept-${deptName}`
     let deptNodeIdx = gNodes.findIndex(n => n.id === deptId)
     if (deptNodeIdx < 0) {
-      // 그래프에 없으면 새로 생성
       const angle = Math.random() * Math.PI * 2
-      gNodes.push({ id: deptId, label: deptName, type: 'dept', x: Math.cos(angle)*100, y: 20, z: Math.sin(angle)*100 })
+      gNodes.push({ id: deptId, label: deptName, type: 'dept', groupIdx: mgNode?.groupIdx, x: Math.cos(angle)*100, y: 20, z: Math.sin(angle)*100 })
       deptNodeIdx = gNodes.length - 1
     }
-    gEdges.push({ from: deptNodeIdx, to: fileIdx, rel: '담당' })
+    gEdges.push({ from: fileIdx, to: deptNodeIdx, rel: 'ATTACHED_TO' })
   })
 
   // AI가 추천한 아젠다 노드 생성 (미래 회의 연결)
@@ -1888,13 +1906,13 @@ function doAddFile() {
       type: 'session',
       subType: 'agenda',
       department: ag.department,
+      groupIdx: mgNode?.groupIdx,
       x: Math.cos(agAngle)*(baseR+140), y: (fromNode?.y||0)-20, z: Math.sin(agAngle)*(baseR+140)
     })
     gEdges.push({ from: fileIdx, to: gNodes.length-1, rel: '생성' })
   })
 
   showUploadModal.value = false
-  initGraph()
 }
 
 
@@ -2675,6 +2693,8 @@ function drawArchiveGraph() {
     if(!visibleSet.has(p.idx)) return
     if(is2D && !_treePositions?.has(p.idx)) return
     const n=p.node,isFocused=focusNode===p.idx
+    const _htKey = n.id === 'org-root' ? 'org-root' : n.type
+    if(hiddenNodeTypes.value.includes(_htKey)) return
     const isEnded=n.data?.status==='ended'
     ctx.globalAlpha=1
     if(n.id === 'org-root'){  // 중심 노드: 사용자 (Person) — 검정 원 + 사람 아이콘
@@ -3625,6 +3645,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </defs>
           <text x="20" y="15" text-anchor="middle" font-family="'SF Pro Display',system-ui,sans-serif" font-weight="800" font-size="15" fill="url(#aiGrad)" letter-spacing="-0.5">AI</text>
         </svg>
+        <span class="ai-btn-label">채팅</span>
       </button>
     </div>
 
@@ -4496,12 +4517,54 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <!-- 온톨로지 범례 -->
         <div v-if="!loading && viewMode==='graph'" class="graph-legend-onto"
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
-          <div class="legend-onto-item"><svg class="legend-dot-pentagon" width="12" height="12" viewBox="0 0 12 12"><polygon points="6,0.5 11.5,4.1 9.4,11 2.6,11 0.5,4.1" fill="rgba(71,85,105,0.85)" stroke="rgba(148,163,184,0.75)" stroke-width="1"/></svg>나</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-circle" style="background:#3b82f6"></div>회의체</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#b8aee0"></div>부서</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#7ac8b0"></div>과제</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#d4b483"></div>회의</div>
-          <div class="legend-onto-item"><div class="legend-onto-dot legend-dot-rect" style="background:#c5c2be"></div>파일</div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('org-root') }" @click="toggleNodeType('org-root')">
+            <svg class="legend-dot-pentagon" width="12" height="12" viewBox="0 0 12 12"><polygon points="6,0.5 11.5,4.1 9.4,11 2.6,11 0.5,4.1" fill="rgba(71,85,105,0.85)" stroke="rgba(148,163,184,0.75)" stroke-width="1"/></svg>
+            나
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('org-root')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('meeting_group') }" @click="toggleNodeType('meeting_group')">
+            <div class="legend-onto-dot legend-dot-circle" style="background:#3b82f6"></div>
+            회의체
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('meeting_group')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('dept') }" @click="toggleNodeType('dept')">
+            <div class="legend-onto-dot legend-dot-rect" style="background:#b8aee0"></div>
+            부서
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('dept')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('agenda') }" @click="toggleNodeType('agenda')">
+            <div class="legend-onto-dot legend-dot-rect" style="background:#7ac8b0"></div>
+            과제
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('agenda')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('session') }" @click="toggleNodeType('session')">
+            <div class="legend-onto-dot legend-dot-rect" style="background:#d4b483"></div>
+            회의
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('session')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
+          <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('file') }" @click="toggleNodeType('file')">
+            <div class="legend-onto-dot legend-dot-rect" style="background:#c5c2be"></div>
+            파일
+            <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <template v-if="!isHiddenType('file')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>
+              <template v-else><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></template>
+            </svg>
+          </div>
         </div>
 
         <!-- Graph floating action buttons (top-right of canvas) -->
@@ -4963,7 +5026,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
         <!-- ── Step 1: 수동 입력 ── -->
         <template v-if="uploadStep===1">
           <div class="app-modal-header">
-            <span class="app-modal-title">자료 업로드</span>
+            <span class="app-modal-title">자료 정보 입력</span>
             <button class="app-modal-close" @click="showUploadModal=false"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
           <div class="app-modal-body">
@@ -4975,17 +5038,9 @@ const TYPES=['Draft','In Progress','Done','Pending']
                 @change="files => { uploadForm.file = files[0]; uploadForm.label = uploadForm.label || files[0]?.name }"
               />
             </div>
-            <div class="app-modal-field-row">
-              <div class="app-modal-field" style="flex:2">
-                <label>자료명 <span class="req">*</span></label>
-                <input v-model="uploadForm.label" class="app-modal-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
-              </div>
-              <div class="app-modal-field" style="flex:1">
-                <label>자료 유형</label>
-                <select v-model="uploadForm.fileType" class="app-modal-input">
-                  <option v-for="ft in FILE_TYPES" :key="ft" :value="ft">{{ ft }}</option>
-                </select>
-              </div>
+            <div class="app-modal-field">
+              <label>자료명 <span class="req">*</span></label>
+              <input v-model="uploadForm.label" class="app-modal-input" placeholder="예: 2025년 1분기 전략보고서.pdf" />
             </div>
 
             <!-- 관련 회의체 -->
@@ -5013,8 +5068,8 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <label>연관 과제 <span class="req">*</span><span v-if="prefilledCtx.relatedTodoId" class="prefill-label">자동 입력됨</span></label>
               <select v-model="uploadForm.relatedTodoId" class="app-modal-input" :class="{ 'prefilled': uploadForm.relatedTodoId }"
                 :disabled="!uploadForm.meetingId" @change="prefilledCtx.relatedTodoId = false">
-                <option value="">{{ uploadForm.meetingId ? (업로드회의쬬과제.length ? '과제 선택...' : '연결된 과제가 없습니다') : '회의체를 먼저 선택하세요' }}</option>
-                <option v-for="t in 업로드회의쬬과제" :key="t.id" :value="t.id">{{ t.content }}</option>
+                <option value="">{{ uploadForm.meetingId ? (업로드회의체과제.length ? '과제 선택...' : '연결된 과제가 없습니다') : '회의체를 먼저 선택하세요' }}</option>
+                <option v-for="t in 업로드회의체과제" :key="t.id" :value="t.id">{{ t.content }}</option>
               </select>
             </div>
 
@@ -5833,10 +5888,11 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .btn-reject { padding:7px 14px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#64748b;font-size:13px;cursor:pointer; }
 
 /* ── Agent header button ── */
-.agent-header-btn { width:42px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s;padding:0; }
-.agent-header-btn:hover { background:rgba(123,128,204,.25);border-color:rgba(123,128,204,.5); }
-.agent-header-btn.active { background:rgba(123,128,204,.3);border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.2); }
-.ai-btn-icon { width:36px;height:18px; }
+.agent-header-btn { height:34px;padding:0 10px;gap:4px;border-radius:8px;border:1px solid rgba(123,128,204,.4);background:rgba(100,110,200,.14);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .15s; }
+.agent-header-btn:hover { background:rgba(123,128,204,.28);border-color:rgba(123,128,204,.65); }
+.agent-header-btn.active { background:rgba(123,128,204,.35);border-color:#7b80cc;box-shadow:0 0 0 2px rgba(123,128,204,.25); }
+.ai-btn-icon { width:28px;height:14px;flex-shrink:0; }
+.ai-btn-label { font-size:11px;font-weight:600;color:#93c5fd;letter-spacing:0.02em;flex-shrink:0; }
 
 /* ── Agent right sidebar ── */
 .agent-right-sidebar { position:absolute;top:0;right:0;bottom:0;width:320px;background:#fff;border-left:1px solid rgba(0,0,0,.1);display:flex;flex-direction:column;overflow:hidden;z-index:50; }
@@ -6065,6 +6121,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
 /* ── Day mode overrides ── */
 .archive-page.day-mode { background:#eef2ff !important;color:#1e293b; }
+.day-mode .agent-header-btn { border-color:rgba(99,102,241,.35);background:rgba(99,102,241,.1); }
+.day-mode .agent-header-btn:hover { background:rgba(99,102,241,.18);border-color:rgba(99,102,241,.55); }
+.day-mode .agent-header-btn.active { background:rgba(99,102,241,.22);border-color:#6366f1;box-shadow:0 0 0 2px rgba(99,102,241,.2); }
+.day-mode .ai-btn-label { color:#6366f1; }
 .day-mode .archive-header { background:#eef2ff;border-bottom-color:#e2e8f0; }
 .day-mode .archive-title { color:#1e293b; }
 .day-mode .archive-desc { color:#94a3b8; }
@@ -6317,16 +6377,22 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .app-modal.dark .conn-node { color:#e2e8f0;background:rgba(255,255,255,.07); }
 .app-modal.dark .conn-rel { background:rgba(255,255,255,.06); }
 /* 온톨로지 범례 */
-.graph-legend-onto { position:absolute;bottom:12px;left:12px;z-index:15;display:flex;flex-direction:column;gap:5px;background:rgba(15,23,42,.82);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 12px;pointer-events:none; }
-.legend-onto-item { display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8; }
+.graph-legend-onto { position:absolute;bottom:12px;left:12px;z-index:15;display:flex;flex-direction:column;gap:4px;background:rgba(15,23,42,.82);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px 12px; }
+.legend-onto-item { display:flex;align-items:center;gap:6px;font-size:10px;color:#94a3b8;cursor:pointer;border-radius:4px;padding:2px 3px;transition:background .12s; }
+.legend-onto-item:hover { background:rgba(255,255,255,.07); }
+.legend-item-hidden { opacity:.38; }
 .legend-onto-dot { width:9px;height:9px;flex-shrink:0; }
 .legend-dot-pentagon { flex-shrink:0;display:block; }
 .legend-dot-circle { border-radius:50%; }
 .legend-dot-rect { border-radius:2px;width:14px;height:9px; }
 .legend-onto-dash { width:18px;height:2px;flex-shrink:0; }
+.legend-eye { flex-shrink:0;margin-left:auto;padding-left:4px;opacity:.5;transition:opacity .12s; }
+.legend-onto-item:hover .legend-eye { opacity:.9; }
+.legend-item-hidden .legend-eye { opacity:.75; }
 .day-mode .graph-legend-onto { background:rgba(238,242,255,.88);border-color:#e2e8f0;color:#64748b; }
 .day-mode .conn-preview,.day-mode .conn-preview-box { background:#f0f4f8;border-color:#e2e8f0; }
 .day-mode .legend-onto-item { color:#64748b; }
+.day-mode .legend-onto-item:hover { background:rgba(0,0,0,.05); }
 /* 툴팁 편집 버튼 */
 .tt-edit-btn { margin-top:6px;width:100%;padding:5px 0;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#94a3b8;font-size:11px;cursor:pointer;transition:all .15s; }
 .tt-edit-btn:hover { background:rgba(96,165,250,.15);border-color:#60a5fa;color:#93c5fd; }
