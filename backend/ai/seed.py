@@ -655,15 +655,9 @@ def seed_postgres():
         print(f"✓ STT 세그먼트 {len(stt_data)}개 생성")
 
         # ─────────────────────────────────────────────────────────────────
-        # MINUTES (4개)
+        # MINUTES (3개) — 1차 정기회의는 회의록 생성 기능 테스트용으로 빈 상태 유지
         # ─────────────────────────────────────────────────────────────────
         minutes_data = [
-            dict(session_id=S["1차 정기회의 — Q1 리뷰"].id,
-                 recorder_id=U["이서연"].id,
-                 content_raw="김민준: Q1 리뷰 시작합니다. 박준혁: 경쟁사 분석 공유합니다. GPT-4o 출시 후 시장 변화 큽니다. 최지은: 멀티모달 추가 시 GPU A100 8장 필요. 관리자: 견적서 준비 부탁드립니다. 김민준: Q2 LLM 성능 개선 집중, Q3 멀티모달 도입으로 결정.",
-                 content_original="## 1차 AI 전략 회의 회의록\n\n**일시:** 2024-04-29 10:00~12:00\n**장소:** 본사 2층 회의실 A\n**참석:** 김민준, 박준혁, 최지은, 관리자\n\n### 주요 논의 사항\n1. Q1 성과 리뷰: 목표 대비 94% 달성\n2. 경쟁사 분석: GPT-4o 출시 후 멀티모달 격차 확인\n3. 인프라 현황: 멀티모달 추가 시 A100 GPU 8장 필요\n\n### 결정 사항\n- Q2: LLM 성능 개선 집중 (vLLM 도입)\n- Q3: 멀티모달 도입 검토 착수\n- 인프라 견적서 다음 회의 전 제출\n\n### 액션 아이템\n- 박준혁: vLLM 도입 스프린트 반영\n- 최지은: GPU 견적서 작성 (1주 내)\n- 김민준: 파트너십 후보 기업 1차 미팅 추진",
-                 content_summary="AI 전략 1차 회의에서 Q1 실적(94% 달성)을 리뷰하고 경쟁사 대비 멀티모달 격차를 확인했습니다. Q2는 vLLM 기반 LLM 성능 개선에 집중하고, Q3에 멀티모달 도입을 검토하기로 결정했습니다. GPU 인프라 투자 견적 검토 예정입니다.",
-                 status="CONFIRMED", generated_at=ago(days=27), updated_at=ago(days=26)),
             dict(session_id=S["2차 정기회의 — 경쟁사 분석"].id,
                  recorder_id=U["이서연"].id,
                  content_raw="박준혁: 경쟁사 심층 분석 발표. OpenAI Assistants API, Google Gemini Pro 비교. 최지은: RAG 파이프라인 자체 구현으로 차별화 가능. 김민준: 파트너십 3곳 우선 협의 결정.",
@@ -695,26 +689,16 @@ def seed_postgres():
         # ─────────────────────────────────────────────────────────────────
         # ARCHIVES_COMBINED (확정 회의록 3개 + 승인 보고서 2개)
         # ─────────────────────────────────────────────────────────────────
-        # minutes_objs[0] = 1차 정기회의, [1] = 2차 정기회의, [2] = Q1 경영 전략 (모두 CONFIRMED)
+        # minutes_objs[0] = 2차 정기회의, [1] = Q1 경영 전략 (모두 CONFIRMED)
         # rpts[0] = Q1 AI 전략 리뷰 (APPROVED), rpts[3] = Q1 경영 실적 보고서 (APPROVED)
         archives_data = [
-            dict(meeting_id=M["AI 제품 전략 회의"].id,
-                 session_id=S["1차 정기회의 — Q1 리뷰"].id,
-                 type="MINUTES",
-                 title="AI 전략 1차 회의록 (확정)",
-                 content=minutes_data[0]["content_summary"],
-                 source_type="minutes",
-                 source_id=minutes_objs[0].id,
-                 archived_by=U["이서연"].id,
-                 status="ACTIVE",
-                 archived_at=ago(days=26)),
             dict(meeting_id=M["AI 제품 전략 회의"].id,
                  session_id=S["2차 정기회의 — 경쟁사 분석"].id,
                  type="MINUTES",
                  title="AI 전략 2차 회의록 (확정)",
-                 content=minutes_data[1]["content_summary"],
+                 content=minutes_data[0]["content_summary"],
                  source_type="minutes",
-                 source_id=minutes_objs[1].id,
+                 source_id=minutes_objs[0].id,
                  archived_by=U["이서연"].id,
                  status="ACTIVE",
                  archived_at=ago(days=12)),
@@ -722,9 +706,9 @@ def seed_postgres():
                  session_id=S["2024 Q1 경영 전략 회의"].id,
                  type="MINUTES",
                  title="2024 Q1 경영 전략 회의록 (확정)",
-                 content=minutes_data[2]["content_summary"],
+                 content=minutes_data[1]["content_summary"],
                  source_type="minutes",
-                 source_id=minutes_objs[2].id,
+                 source_id=minutes_objs[1].id,
                  archived_by=U["이서연"].id,
                  status="ACTIVE",
                  archived_at=ago(days=53)),
