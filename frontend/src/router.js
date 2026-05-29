@@ -30,7 +30,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   if (to.meta.requiresAuth && !token) return '/landing'
   if ((to.path === '/login' || to.path === '/register' || to.path === '/landing') && token) return '/'
 })

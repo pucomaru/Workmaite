@@ -1,8 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import MemberInvite from '../components/MemberInvite.vue'
-import api from '../api'
+import api, { apiAI } from '../api'
 import { streamPost } from '../api'
 import { useSTT } from '../composables/useSTT'
 import hyeanAvatar from '../assets/agents/hyean.png'
@@ -67,7 +71,7 @@ async function selectMeeting(m) {
   await loadSessions(m.id)
 }
 
-function enterSession(s) {
+async function enterSession(s) {
   activeSession.value = s
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
@@ -77,9 +81,39 @@ function enterSession(s) {
   transcriptLines.value = rec.transcriptLines
   generatedMinutes.value = rec.generatedMinutes
   showMinutesTab.value = rec.showMinutesTab
-  uploadedFiles.value = rec.uploadedFiles || []
-  minutesEditText.value = rec.generatedMinutes?.content_summary || ''
-  minutesEditing.value = false
+  await nextTick()
+  loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
+
+  if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
+    try {
+      const { data } = await apiAI.get(`/api/sessions/${s.id}/stt-segments`)
+      if (data && data.length) {
+        const lines = data.map(seg => ({
+          time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
+          text: `${seg.speaker_name || seg.speaker_label}: ${seg.content}`,
+        }))
+        rec.transcriptLines.push(...lines)
+        transcriptLines.value = rec.transcriptLines
+      }
+    } catch (e) {
+      console.error('STT 세그먼트 로드 실패', e)
+    }
+  }
+
+  // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
+  if (!rec.generatedMinutes) {
+    try {
+      const { data } = await apiAI.get(`/api/sessions/${s.id}/minutes`)
+      if (data?.content_summary) {
+        generatedMinutes.value = { content_summary: data.content_summary }
+        showMinutesTab.value = true
+        rec.generatedMinutes = generatedMinutes.value
+        rec.showMinutesTab = true
+        await nextTick()
+        loadMinutesToEditor(data.content_summary)
+      }
+    } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
+  }
 }
 
 // ─── Recording ────────────────────────────────────────────────
@@ -92,9 +126,38 @@ const generatingMinutes = ref(false)
 const transcriptSummary = ref('')
 const summarizingTranscript = ref(false)
 const showSummary = ref(false)
-const minutesEditing = ref(false)
-const minutesEditText = ref('')
+const showSources = ref(true)
 const transcriptAreaRef = ref(null)
+
+const editor = useEditor({
+  extensions: [
+    StarterKit,
+    Underline,
+    Table.configure({ resizable: false }),
+    TableRow,
+    TableHeader,
+    TableCell,
+  ],
+  content: '',
+  editable: true,
+  onUpdate: ({ editor }) => {
+    if (!generatingMinutes.value && generatedMinutes.value) {
+      generatedMinutes.value = { ...generatedMinutes.value, content_summary: editor.getHTML() }
+      if (activeSession.value) {
+        getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
+      }
+    }
+  }
+})
+
+function loadMinutesToEditor(content) {
+  if (!editor.value) return
+  if (!content) { editor.value.commands.clearContent(); return }
+  const html = content.startsWith('<') ? content : renderMd(content)
+  editor.value.commands.setContent(html, false)
+}
+
+onUnmounted(() => editor.value?.destroy())
 const showPopover = ref(null)
 const micSensitivity = ref(70)
 const noiseReduction = ref(true)
@@ -103,36 +166,8 @@ const transcriptLang = ref('ko')
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
   if (!sessionRecords.value.has(id))
-    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false, uploadedFiles: [] })
+    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false })
   return sessionRecords.value.get(id)
-}
-
-// ─── Minutes upload ───────────────────────────────────────────
-const uploadFileInput = ref(null)
-const uploadedFiles = ref([])
-
-function onUploadMinutes(e) {
-  const files = Array.from(e.target.files || [])
-  if (!files.length) return
-  files.forEach(f => {
-    const entry = { name: f.name, size: f.size, uploadedAt: new Date().toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-    uploadedFiles.value.push(entry)
-    if (activeSession.value) {
-      const rec = getOrCreateRecord(activeSession.value.id)
-      rec.uploadedFiles.push(entry)
-    }
-  })
-  e.target.value = ''
-  showMinutesTab.value = true
-  activeTab.value = 'minutes'
-}
-
-function removeUploadedFile(idx) {
-  uploadedFiles.value.splice(idx, 1)
-  if (activeSession.value) {
-    const rec = getOrCreateRecord(activeSession.value.id)
-    rec.uploadedFiles.splice(idx, 1)
-  }
 }
 
 const stt = useSTT({
@@ -195,42 +230,136 @@ async function generateMinutes() {
   generatingMinutes.value = true; showMinutesTab.value = true; activeTab.value = 'minutes'
 
   const sessionTitle = activeSession.value?.title || '회의'
+  const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
 
-  // ── 우측 채팅에 AI 사고 과정 표시 ──────────────────────────
-  const userMsg = `"${sessionTitle}" 회의록을 생성해줘`
+  // ── 우측 채팅에 AI 사고 과정 표시 (완료 메시지는 생성 후 추가) ──
+  wmMessages.value.push({ role: 'user', content: `"${sessionTitle}" 회의록을 생성해줘` })
+  const thinkingMsg = { role: 'thinking', steps: [], open: true, done: false }
+  wmMessages.value.push(thinkingMsg)
+  wmLoading.value = true
+  await nextTick()
+  const sttCount = transcriptLines.value.length
   const thinkingSteps = [
-    `Neo4j → MATCH (s:Session {title:"${sessionTitle}"}) 조회`,
-    `MATCH (s)-[:HAS_AGENDA]->(a:Agenda) 아젠다 노드 수집`,
-    `MATCH (s)-[:PRODUCED]->(doc:Document) 기존 회의록 확인`,
-    `Context Graph: Decision 및 Evidence 노드 분석`,
-    `발언 기록 및 액션 아이템 추출 중...`,
+    `대화 기록 ${sttCount}개 발화 분석 중...`,
+    `핵심 논의 및 방향 추출 중...`,
+    `결정 사항 및 액션 아이템 정리 중...`,
     `회의록 초안 구성 중...`,
   ]
-  const agentReply = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 중앙 패널 **회의록 탭**에 저장되었습니다.\n\n주요 결정 사항이나 후속 과제에 대해 더 알고 싶은 내용이 있으면 질문해 주세요.`
-  injectAction(userMsg, thinkingSteps, agentReply)
+  await _runThinkingSteps(thinkingMsg, thinkingSteps)
+  const agentMsg = { role: 'agent', content: '회의록을 생성하고 있습니다...' }
+  wmMessages.value.push(agentMsg)
+  await nextTick()
 
-  // Demo: simulate generated minutes
-  await new Promise(r => setTimeout(r, 1200))
-  const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
-  generatedMinutes.value = {
-    content_summary: transcriptText
-      ? `## 회의록\n\n**회의명:** ${activeSession.value?.title || '회의'}\n\n**주요 내용:**\n${transcriptText}\n\n**결정 사항:**\n- AI가 생성한 회의록입니다.`
-      : `## 회의록\n\n**회의명:** ${activeSession.value?.title || '회의'}\n\n> 녹음 내용이 없어 샘플 회의록을 생성했습니다.\n\n**주요 안건:**\n1. 현황 보고\n2. 주요 현안 논의\n3. 향후 계획 수립\n\n**결정 사항:**\n- 다음 회의까지 자료 준비 완료\n- 담당자별 업무 분장 확정`,
+  let minutesContent = ''
+  generatedMinutes.value = { content_summary: '' }
+
+  try {
+    await streamPost(
+      '/api/agent/ara/generate-minutes',
+      { meeting_id: activeSession.value?.meeting_id || 0, message: transcriptText, chat_history: [] },
+      (chunk) => {
+        minutesContent += chunk
+        generatedMinutes.value = { ...generatedMinutes.value, content_summary: minutesContent }
+      },
+      async () => {
+        const html = renderMd(minutesContent)
+        generatedMinutes.value = {
+          content_summary: html,
+          sources: {
+            stt_count: sttCount,
+            session_title: sessionTitle,
+            transcript: [...transcriptLines.value]
+          }
+        }
+        if (activeSession.value) {
+          const rec = getOrCreateRecord(activeSession.value.id)
+          rec.generatedMinutes = generatedMinutes.value
+          rec.showMinutesTab = true
+        }
+        await nextTick()
+        loadMinutesToEditor(html)
+        agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
+        wmLoading.value = false
+        generatingMinutes.value = false
+      }
+    )
+  } catch {
+    agentMsg.content = '회의록 생성 중 오류가 발생했습니다.'
+    generatedMinutes.value = { content_summary: '회의록 생성 중 오류가 발생했습니다. 다시 시도해주세요.' }
+    wmLoading.value = false
+    generatingMinutes.value = false
   }
-  minutesEditText.value = generatedMinutes.value.content_summary
-  if (activeSession.value) {
-    const rec = getOrCreateRecord(activeSession.value.id)
-    rec.generatedMinutes = generatedMinutes.value; rec.showMinutesTab = true
-  }
-  generatingMinutes.value = false
 }
 
-function saveMinutesEdit() {
-  if (generatedMinutes.value) generatedMinutes.value = { ...generatedMinutes.value, content_summary: minutesEditText.value }
-  minutesEditing.value = false
+function downloadPDF() {
+  const html = editor.value?.getHTML() || generatedMinutes.value?.content_summary || ''
+  const title = activeSession.value?.title || '회의록'
+  const w = window.open('', '_blank')
+  if (!w) return
+  w.document.write(`<!DOCTYPE html><html><head>
+    <meta charset="utf-8"><title>${title}</title>
+    <style>
+      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:#1e293b;padding:40px;max-width:820px;margin:0 auto}
+      h1{font-size:20px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
+      h2{font-size:16px;font-weight:700;color:#1e40af;margin-top:20px;margin-bottom:6px}
+      h3{font-size:14px;font-weight:700;color:#475569;margin-top:12px;margin-bottom:4px}
+      p{margin:0 0 6px}ul,ol{padding-left:20px;margin:4px 0}li{margin-bottom:2px}
+      table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+      th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:#f1f5f9;font-weight:600}
+      hr{border:none;border-top:1px solid #e2e8f0;margin:14px 0}
+      @media print{body{padding:20px}}
+    </style>
+  </head><body>${html}</body></html>`)
+  w.document.close()
+  setTimeout(() => { w.focus(); w.print() }, 400)
+}
+
+function downloadWord() {
+  const html = editor.value?.getHTML() || generatedMinutes.value?.content_summary || ''
+  const title = activeSession.value?.title || '회의록'
+  const full = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
+    <head><meta charset="utf-8">
+    <style>
+      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:11pt;line-height:1.6}
+      h1{font-size:16pt;font-weight:bold;border-bottom:1pt solid #ccc;padding-bottom:6pt}
+      h2{font-size:13pt;font-weight:bold;color:#1e40af}
+      h3{font-size:11pt;font-weight:bold;color:#475569}
+      table{border-collapse:collapse;width:100%}th,td{border:1pt solid #ccc;padding:4pt 8pt}th{background:#f1f5f9}
+    </style>
+    </head><body>${html}</body></html>`
+  const blob = new Blob([full], { type: 'application/msword;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `${title}.doc`; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+const savingMinutes = ref(false)
+const minutesSavedAt = ref(null)
+
+async function saveMinutesToDB() {
+  if (!activeSession.value || !generatedMinutes.value?.content_summary) return
+  savingMinutes.value = true
+  try {
+    const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
+    await apiAI.post(`/api/sessions/${activeSession.value.id}/minutes`, { content_summary: html })
+    minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  } catch (e) {
+    alert('저장에 실패했습니다.')
+  } finally {
+    savingMinutes.value = false
+  }
+}
+
+function deleteMinutes() {
+  if (!confirm('작성된 회의록을 삭제하시겠습니까?')) return
+  generatedMinutes.value = null
+  showMinutesTab.value = false
+  editor.value?.commands.clearContent()
   if (activeSession.value) {
     const rec = getOrCreateRecord(activeSession.value.id)
-    rec.generatedMinutes = generatedMinutes.value
+    rec.generatedMinutes = null
+    rec.showMinutesTab = false
   }
 }
 
@@ -470,51 +599,82 @@ onMounted(() => {
 
           <template v-else-if="activeTab === 'minutes'">
             <div class="minutes-scroll-area">
-              <div v-if="generatingMinutes" class="sp-empty">
+              <div v-if="generatingMinutes && !generatedMinutes?.content_summary" class="sp-empty">
                 <span class="spinner-border spinner-border-sm text-primary mb-2"></span>
                 <p class="text-muted small">AI가 회의록을 생성 중입니다...</p>
               </div>
               <template v-else-if="generatedMinutes">
-                <div class="minutes-edit-toolbar">
-                  <template v-if="!minutesEditing">
-                    <button class="minutes-tool-btn" @click="minutesEditing=true;minutesEditText=generatedMinutes.content_summary||''">
-                      <i class="bi bi-pencil"></i> 편집
-                    </button>
-                  </template>
-                  <template v-else>
-                    <button class="minutes-tool-btn primary" @click="saveMinutesEdit">
-                      <i class="bi bi-check-lg"></i> 저장
-                    </button>
-                    <button class="minutes-tool-btn" @click="minutesEditing=false">취소</button>
-                  </template>
+                <!-- Tiptap Toolbar -->
+                <div class="tiptap-toolbar">
+                  <button class="tt-btn" :class="{active: editor?.isActive('bold')}" @click="editor?.chain().focus().toggleBold().run()" title="굵게"><b>B</b></button>
+                  <button class="tt-btn" :class="{active: editor?.isActive('italic')}" @click="editor?.chain().focus().toggleItalic().run()" title="기울임"><i>I</i></button>
+                  <button class="tt-btn" :class="{active: editor?.isActive('underline')}" @click="editor?.chain().focus().toggleUnderline().run()" title="밑줄"><u>U</u></button>
+                  <div class="tt-sep"></div>
+                  <button class="tt-btn" :class="{active: editor?.isActive('heading', {level:1})}" @click="editor?.chain().focus().toggleHeading({level:1}).run()">H1</button>
+                  <button class="tt-btn" :class="{active: editor?.isActive('heading', {level:2})}" @click="editor?.chain().focus().toggleHeading({level:2}).run()">H2</button>
+                  <button class="tt-btn" :class="{active: editor?.isActive('heading', {level:3})}" @click="editor?.chain().focus().toggleHeading({level:3}).run()">H3</button>
+                  <div class="tt-sep"></div>
+                  <button class="tt-btn" :class="{active: editor?.isActive('bulletList')}" @click="editor?.chain().focus().toggleBulletList().run()" title="글머리">•≡</button>
+                  <button class="tt-btn" :class="{active: editor?.isActive('orderedList')}" @click="editor?.chain().focus().toggleOrderedList().run()" title="번호목록">1≡</button>
+                  <div class="tt-sep"></div>
+                  <button class="tt-btn" @click="editor?.chain().focus().setHorizontalRule().run()" title="구분선">—</button>
+                  <div class="tt-sep"></div>
+                  <button class="tt-btn" @click="editor?.chain().focus().undo().run()" title="실행취소">↩</button>
+                  <button class="tt-btn" @click="editor?.chain().focus().redo().run()" title="다시실행">↪</button>
+                  <div style="flex:1"></div>
+                  <span v-if="generatedMinutes.sources" class="tt-source-info" :title="`기반 자료: 발화 ${generatedMinutes.sources.stt_count}개 · ${generatedMinutes.sources.session_title}`">
+                    <i class="bi bi-mic-fill"></i> {{ generatedMinutes.sources.stt_count }}개
+                  </span>
+                  <div class="tt-sep" v-if="generatedMinutes.sources"></div>
+                  <button class="tt-btn tt-delete" @click="deleteMinutes" title="삭제"><i class="bi bi-trash"></i></button>
                 </div>
-                <textarea v-if="minutesEditing" v-model="minutesEditText" class="minutes-edit-area"></textarea>
-                <div v-else class="minutes-md" v-html="renderMd(generatedMinutes.content_summary||'')"></div>
+
+                <!-- Streaming preview (Markdown rendered) -->
+                <div v-if="generatingMinutes" class="tiptap-content minutes-md" v-html="renderMd(generatedMinutes.content_summary||'')"></div>
+                <!-- Tiptap Editor -->
+                <editor-content v-else :editor="editor" class="tiptap-content" />
+
+                <!-- 기반 발화 기록 -->
+                <div v-if="generatedMinutes.sources?.transcript?.length" class="minutes-sources-section">
+                  <button class="minutes-sources-toggle" @click="showSources = !showSources">
+                    <i class="bi bi-chat-left-text"></i>
+                    기반 발화 기록 {{ generatedMinutes.sources.stt_count }}개
+                    <i :class="showSources ? 'bi bi-chevron-up' : 'bi bi-chevron-down'" style="margin-left:auto"></i>
+                  </button>
+                  <div v-if="showSources" class="minutes-sources-body">
+                    <div v-for="(line, idx) in generatedMinutes.sources.transcript" :key="idx" class="src-line">
+                      <span class="src-time">{{ line.time }}</span>
+                      <span class="src-text">{{ line.text }}</span>
+                    </div>
+                  </div>
+                </div>
               </template>
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
 
-              <!-- Uploaded files list -->
-              <div v-if="uploadedFiles.length" class="uploaded-list">
-                <div class="uploaded-list-label">업로드된 회의록</div>
-                <div v-for="(f, idx) in uploadedFiles" :key="idx" class="uploaded-item">
-                  <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#3b82f6;flex-shrink:0"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  <div class="uploaded-item-info">
-                    <span class="uploaded-name">{{ f.name }}</span>
-                    <span class="uploaded-meta">{{ f.uploadedAt }}</span>
-                  </div>
-                  <button class="uploaded-remove" @click="removeUploadedFile(idx)" title="제거">✕</button>
-                </div>
-              </div>
             </div>
 
-            <!-- Upload button fixed at bottom of minutes tab -->
-            <div class="minutes-upload-row">
-              <button class="minutes-upload-btn" @click="uploadFileInput?.click()">
-                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                회의록 업로드
-              </button>
-              <span class="minutes-upload-hint">회의체 회의록 리스트에 추가됩니다</span>
-              <input ref="uploadFileInput" type="file" multiple accept=".pdf,.doc,.docx,.txt,.hwp" style="display:none" @change="onUploadMinutes" />
+            <!-- 회의록 액션 버튼 -->
+            <div v-if="generatedMinutes" class="minutes-action-row">
+              <div class="minutes-action-left">
+                <div class="minutes-download-group">
+                  <button class="minutes-action-btn" @click="downloadPDF">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF
+                  </button>
+                  <button class="minutes-action-btn" @click="downloadWord">
+                    <i class="bi bi-file-earmark-word"></i> Word
+                  </button>
+                </div>
+              </div>
+              <div class="minutes-action-right">
+                <span v-if="minutesSavedAt" class="minutes-saved-label">
+                  <i class="bi bi-check-circle-fill"></i> {{ minutesSavedAt }} 저장됨
+                </span>
+                <button class="minutes-action-btn primary" :disabled="savingMinutes" @click="saveMinutesToDB">
+                  <i v-if="savingMinutes" class="bi bi-arrow-repeat spin"></i>
+                  <i v-else class="bi bi-cloud-upload"></i>
+                  {{ savingMinutes ? '저장 중...' : '아카이브 저장' }}
+                </button>
+              </div>
             </div>
           </template>
         </div>
@@ -768,7 +928,7 @@ onMounted(() => {
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:#e2e8f0; }
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
-.sp-tab-body.minutes-mode .minutes-upload-row { padding:10px 16px;margin:0; }
+.sp-tab-body.minutes-mode .minutes-action-row { padding:10px 16px 8px;margin:0; }
 .sp-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted); }
 
 /* Transcript lines */
@@ -782,17 +942,57 @@ onMounted(() => {
 .ts-summary-close { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:13px;line-height:1; }
 .ts-summary-body { padding:10px 12px;font-size:13px;color:#334155;line-height:1.6; }
 
-/* Minutes */
-.minutes-edit-toolbar { display:flex;gap:6px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border); }
-.minutes-tool-btn { display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;cursor:pointer;transition:all .15s; }
-.minutes-tool-btn:hover { background:#f1f5f9; }
-.minutes-tool-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
-.minutes-edit-area { width:100%;min-height:200px;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;font-family:inherit;resize:vertical;outline:none; }
+/* Minutes – Tiptap editor */
+.tiptap-toolbar { display:flex;align-items:center;gap:2px;padding:6px 4px;border-bottom:1px solid var(--border);background:transparent;flex-wrap:wrap;margin-bottom:8px; }
+.tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:#475569;font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
+.tt-btn:hover { background:#e2e8f0; }
+.tt-btn.active { background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
+.tt-delete { color:#ef4444 !important; }
+.tt-delete:hover { background:#fef2f2 !important; }
+.tt-sep { width:1px;height:18px;background:var(--border);margin:0 3px; }
+
+.tiptap-content { border:none;padding:4px 0;min-height:400px;background:transparent;outline:none; }
+.tiptap-content :deep(.ProseMirror) { outline:none;min-height:380px; }
+.tiptap-content :deep(.ProseMirror p) { margin:0 0 6px;font-size:13px;line-height:1.7;color:#1e293b; }
+.tiptap-content :deep(.ProseMirror h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border);color:#0f172a; }
+.tiptap-content :deep(.ProseMirror h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
+.tiptap-content :deep(.ProseMirror h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
+.tiptap-content :deep(.ProseMirror strong) { font-weight:700; }
+.tiptap-content :deep(.ProseMirror em) { font-style:italic; }
+.tiptap-content :deep(.ProseMirror u) { text-decoration:underline; }
+.tiptap-content :deep(.ProseMirror ul),.tiptap-content :deep(.ProseMirror ol) { padding-left:20px;margin:4px 0; }
+.tiptap-content :deep(.ProseMirror li) { margin-bottom:2px;font-size:13px;line-height:1.6; }
+.tiptap-content :deep(.ProseMirror li > p) { margin:0; }
+.tiptap-content :deep(.ProseMirror table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;table-layout:fixed; }
+.tiptap-content :deep(.ProseMirror th),.tiptap-content :deep(.ProseMirror td) { border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;word-break:break-word; }
+.tiptap-content :deep(.ProseMirror th) { background:#f1f5f9;font-weight:600;font-size:12px; }
+.tiptap-content :deep(.ProseMirror td > p),.tiptap-content :deep(.ProseMirror th > p) { margin:0; }
+.tiptap-content :deep(.ProseMirror hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+.tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid #e2e8f0;padding-left:12px;color:#64748b;margin:6px 0; }
+
+/* Streaming preview uses same styles */
 .minutes-md { font-size:13px;line-height:1.7;color:#1e293b; }
-.minutes-md :deep(h2) { font-size:15px;font-weight:700;margin:12px 0 6px; }
+.minutes-md :deep(h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border); }
+.minutes-md :deep(h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
+.minutes-md :deep(h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
 .minutes-md :deep(strong) { font-weight:700; }
 .minutes-md :deep(ul),.minutes-md :deep(ol) { padding-left:18px;margin:4px 0; }
 .minutes-md :deep(li) { margin-bottom:2px; }
+.minutes-md :deep(table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px; }
+.minutes-md :deep(th),.minutes-md :deep(td) { border:1px solid var(--border);padding:5px 8px;text-align:left; }
+.minutes-md :deep(th) { background:#f8fafc;font-weight:600; }
+.minutes-md :deep(hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+
+.tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;padding:0 4px;white-space:nowrap;cursor:default; }
+
+/* 기반 발화 기록 */
+.minutes-sources-section { margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden; }
+.minutes-sources-toggle { display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;background:#f8fafc;border:none;cursor:pointer;font-size:12px;color:#475569;font-weight:500;text-align:left; }
+.minutes-sources-toggle:hover { background:#f1f5f9; }
+.minutes-sources-body { max-height:240px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px; }
+.src-line { display:flex;gap:8px;font-size:12px;line-height:1.5; }
+.src-time { flex-shrink:0;color:#94a3b8;font-variant-numeric:tabular-nums; }
+.src-text { color:#475569; }
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
@@ -904,18 +1104,16 @@ onMounted(() => {
 .sp-thinking-spinner { animation:sp-spin 1s linear infinite;flex-shrink:0; }
 .sp-msg-row.thinking { padding:0; }
 
-/* ── Minutes upload ── */
-.minutes-upload-row { display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:12px;border-top:1px solid #f1f5f9;flex-shrink:0; }
-.minutes-upload-btn { display:flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;border:1px solid var(--primary);background:#eff6ff;color:var(--primary);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.minutes-upload-btn:hover { background:var(--primary);color:#fff; }
-.minutes-upload-hint { font-size:11px;color:var(--text-muted); }
-
-.uploaded-list { margin-top:12px;display:flex;flex-direction:column;gap:4px; }
-.uploaded-list-label { font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px; }
-.uploaded-item { display:flex;align-items:center;gap:8px;padding:7px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px; }
-.uploaded-item-info { flex:1;min-width:0;display:flex;flex-direction:column;gap:1px; }
-.uploaded-name { font-size:12px;font-weight:600;color:#1e3a8a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.uploaded-meta { font-size:10px;color:#3b82f6; }
-.uploaded-remove { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:12px;line-height:1;flex-shrink:0;transition:color .15s; }
-.uploaded-remove:hover { color:#ef4444; }
+/* ── Minutes action row ── */
+.minutes-action-row { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 2px;border-top:1px solid var(--border);flex-shrink:0; }
+.minutes-action-left,.minutes-action-right { display:flex;align-items:center;gap:6px; }
+.minutes-download-group { display:flex;gap:4px; }
+.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.minutes-action-btn:hover { background:#f1f5f9; }
+.minutes-action-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
+.minutes-action-btn.primary:hover { opacity:.88; }
+.minutes-action-btn:disabled { opacity:.5;cursor:not-allowed; }
+.minutes-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.spin { display:inline-block;animation:spin .7s linear infinite; }
 </style>

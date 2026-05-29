@@ -18,7 +18,7 @@ export function toWsUrl(path) {
 const api = axios.create({ baseURL: BASE_URL, timeout: 10000 })
 
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -36,7 +36,7 @@ api.interceptors.response.use(
       return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
     }
     if (err.response?.status === 401) {
-      localStorage.removeItem('token')
+      sessionStorage.removeItem('token')
       window.location.href = '/login'
     }
     return Promise.reject(err)
@@ -49,7 +49,7 @@ export default api
 export const apiAI = axios.create({ baseURL: AI_BASE_URL, timeout: 30000 })
 
 apiAI.interceptors.request.use(config => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -66,7 +66,7 @@ apiAI.interceptors.response.use(
 
 // ── Streaming (FastAPI) ────────────────────────────────────────────────────
 export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight) {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   const response = await fetch(`${AI_BASE_URL}${path}`, {
     method: 'POST',
     headers: {
