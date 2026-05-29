@@ -44,8 +44,8 @@ public class MeetingService {
                 requesterId
         );
         Meeting saved = meetingRepository.save(meeting);
-        MeetingMember secretary = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.ADMIN);
-        meetingMemberRepository.save(secretary);
+        MeetingMember admin = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.ADMIN);
+        meetingMemberRepository.save(admin);
         neoSyncService.syncMeeting(saved.getId());
         neoSyncService.syncMember(saved.getId(), requesterId);
         return MeetingResponse.from(saved);
@@ -77,14 +77,14 @@ public class MeetingService {
         if (meetings.isEmpty()) return List.of();
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
-        List<MeetingMember> secretaries = meetingMemberRepository
+        List<MeetingMember> admins = meetingMemberRepository
                 .findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.ADMIN);
 
-        List<Long> secretaryUserIds = secretaries.stream().map(MeetingMember::getUserId).distinct().toList();
-        Map<Long, String> userNameMap = userRepository.findAllById(secretaryUserIds)
+        List<Long> adminUserIds = admins.stream().map(MeetingMember::getUserId).distinct().toList();
+        Map<Long, String> userNameMap = userRepository.findAllById(adminUserIds)
                 .stream().collect(Collectors.toMap(User::getId, User::getName));
 
-        Map<Long, String> secretaryNameMap = secretaries.stream()
+        Map<Long, String> adminNameMap = admins.stream()
                 .collect(Collectors.toMap(
                         MeetingMember::getMeetingId,
                         m -> userNameMap.getOrDefault(m.getUserId(), ""),
@@ -92,7 +92,7 @@ public class MeetingService {
                 ));
 
         return meetings.stream()
-                .map(m -> ActiveMeetingResponse.from(m, secretaryNameMap.get(m.getId())))
+                .map(m -> ActiveMeetingResponse.from(m, adminNameMap.get(m.getId())))
                 .toList();
     }
 
