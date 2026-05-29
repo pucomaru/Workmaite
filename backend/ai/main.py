@@ -19,7 +19,7 @@ from auth import get_current_user
 
 # AI 전용 라우터만 등록
 # auth / meetings / todos / sessions → SpringBoot(Java)로 이관
-from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router
+from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router, todos
 from neo4j_sync import init_vector_index, retry_failed_syncs
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,7 @@ app.include_router(agents.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
+app.include_router(todos.router)
 
 
 # WebSocket endpoints

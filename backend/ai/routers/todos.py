@@ -1,6 +1,7 @@
 from typing import List
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
+from datetime import datetime
 import os, base64, httpx
 import models, schemas
 from database import get_db
@@ -77,6 +78,72 @@ async def create_todo(
             )
     background_tasks.add_task(_sync)
     return todo
+
+
+@router.get("/sessions/{session_id}/stt-segments", response_model=List[schemas.SttSegmentOut])
+def get_stt_segments(
+    session_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    segments = (
+        db.query(models.SttSegment)
+        .filter(models.SttSegment.session_id == session_id)
+        .order_by(models.SttSegment.start_sec)
+        .all()
+    )
+    result = []
+    for s in segments:
+        user = db.query(models.User).filter(models.User.id == s.speaker_user_id).first() if s.speaker_user_id else None
+        item = schemas.SttSegmentOut(
+            id=s.id,
+            session_id=s.session_id,
+            speaker_label=s.speaker_label,
+            speaker_user_id=s.speaker_user_id,
+            speaker_name=user.name if user else None,
+            content=s.content,
+            start_sec=s.start_sec,
+            end_sec=s.end_sec,
+            confidence=s.confidence,
+            created_at=s.created_at,
+        )
+        result.append(item)
+    return result
+
+
+@router.get("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+def get_minutes(
+    session_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="Minutes not found")
+    return m
+
+
+@router.post("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+def save_minutes(
+    session_id: int,
+    data: schemas.MinutesSave,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if m:
+        m.content_summary = data.content_summary
+        m.updated_at = datetime.utcnow()
+    else:
+        m = models.Minutes(
+            session_id=session_id,
+            recorder_id=current_user.id,
+            content_summary=data.content_summary,
+        )
+        db.add(m)
+    db.commit()
+    db.refresh(m)
+    return m
 
 
 @router.get("/calendar/events")
