@@ -135,141 +135,70 @@ async def chat_stream(
                 yield chunk.content
 
 
-async def generate_minutes(
-    raw_transcript: str,
-    session_info: dict = None,
-    meeting_info: dict = None,
-    participants: list = None,
-    agendas: list = None,
-    todos: list = None,
-) -> tuple:
-    """
-    회의록 5대 필수요소를 포함한 구조적 회의록 생성.
-    Returns: (markdown_summary: str, structured: dict)
-    structured keys: attendees, decisions, action_items, tbd_items, next_meeting_note
-    """
-    if not raw_transcript or len(raw_transcript.strip()) < 5:
-        empty = {
-            "attendees": [], "decisions": [], "action_items": [],
-            "tbd_items": [], "next_meeting_note": "",
-        }
-        return "회의 내용이 기록되지 않았습니다.", empty
+async def generate_minutes_stream(
+    transcript: str,
+    meeting_context: str = "",
+    agenda_text: str = "없음",
+    now: str = "",
+) -> AsyncGenerator[str, None]:
+    from datetime import datetime as _dt
+    if not now:
+        now = _dt.now().strftime("%Y년 %m월 %d일")
 
-    # ── TPO 정보 구성 ─────────────────────────────────────────────────
-    tpo_lines = []
-    if session_info:
-        if session_info.get("title"):
-            tpo_lines.append(f"회의 제목: {session_info['title']}")
-        if session_info.get("started_at"):
-            tpo_lines.append(f"시작: {session_info['started_at']}")
-        if session_info.get("ended_at"):
-            tpo_lines.append(f"종료: {session_info['ended_at']}")
-        if session_info.get("location"):
-            tpo_lines.append(f"장소: {session_info['location']}")
-    if meeting_info:
-        if meeting_info.get("purpose"):
-            tpo_lines.append(f"회의 목적: {meeting_info['purpose']}")
+    system_prompt = f"""당신은 전문 회의록 작성 AI 아라(Ara)입니다.
+제공된 STT 대화 기록을 분석해 실무에서 바로 활용 가능한 고품질 회의록을 작성합니다.
 
-    # ── Joiner 정보 ───────────────────────────────────────────────────
-    participant_lines = []
-    if participants:
-        for p in participants:
-            role_label = "관리자" if p.get("role") == "admin" else "발제자"
-            participant_lines.append(f"- {p.get('name','?')} ({p.get('dept','')}, {role_label})")
+회의 정보:
+{meeting_context}
 
-    # ── 아젠다 목록 ───────────────────────────────────────────────────
-    agenda_lines = []
-    if agendas:
-        for i, a in enumerate(agendas, 1):
-            status_label = {"confirmed": "확정", "draft": "검토중", "tbd": "미결"}.get(a.get("status",""), a.get("status",""))
-            agenda_lines.append(f"{i}. [{status_label}] {a.get('content','')} (담당: {a.get('department') or '미정'})")
+등록된 안건:
+{agenda_text}
 
-    # ── 기존 Todo 목록 ────────────────────────────────────────────────
-    todo_lines = []
-    if todos:
-        for t in todos:
-            due = t.get("due_date","").split("T")[0] if t.get("due_date") else "기한 미정"
-            todo_lines.append(f"- {t.get('content','')} / 담당: {t.get('assignee','미정')} / 기한: {due}")
+회의록 작성 원칙:
+1. 발언 내용을 그대로 옮기지 말고, 핵심 의미를 추출해 재구성하세요.
+2. 발언자별 주요 발언을 정확히 귀속시키세요.
+3. 결정 사항은 "~로 결정", "~하기로 합의" 등 명확한 표현을 사용하세요.
+4. 액션 아이템은 반드시 담당자, 내용, 기한을 포함하세요.
+5. 수치, 날짜, 고유명사는 정확하게 기재하세요.
+6. 아래 형식을 반드시 따르세요."""
 
-    context_block = ""
-    if tpo_lines:
-        context_block += "[회의 기본 정보]\n" + "\n".join(tpo_lines) + "\n\n"
-    if participant_lines:
-        context_block += "[참석자]\n" + "\n".join(participant_lines) + "\n\n"
-    if agenda_lines:
-        context_block += "[안건 목록]\n" + "\n".join(agenda_lines) + "\n\n"
-    if todo_lines:
-        context_block += "[등록된 Todo]\n" + "\n".join(todo_lines) + "\n\n"
-
-    prompt = f"""{context_block}[회의 녹취/기록]
-{raw_transcript[:5000]}
+    user_prompt = f"""다음 STT 대화 기록으로 회의록을 작성해주세요.
 
 ---
-위 내용을 바탕으로 다음 두 가지를 작성하세요.
+{transcript}
+---
 
-## [1] 마크다운 회의록
-아래 섹션을 반드시 포함하세요:
+아래 형식으로 작성하세요:
 
-### 📋 회의 개요 (TPO)
-- 일시, 장소, 목적
+# 회의록
 
-### 👥 참석자 (Joiner)
-- 이름 / 부서 / 역할 / 참석여부
+**일시:** {now}
+**참석자:** (대화 기록에서 발언자 추출)
 
-### ✅ 결정 사항 (Done)
-- 확정된 내용과 결정 주체
+---
 
-### 📌 실행 계획 (WILL DO)
-| 업무 내용 | 담당자 | 기한 | 상태 |
-각 항목 반드시 담당자·기한 포함
+## 1. 회의 목적 및 배경
+(이 회의가 왜 열렸는지, 무엇을 논의하기 위한 자리인지 2-3문장으로)
 
-### ⚠️ 미결 안건 (TBD)
-- 결론이 나지 않은 안건과 이유
+## 2. 안건별 주요 논의
+(각 주제마다 소제목(###)을 붙이고, 누가 말했냐가 아닌 어떤 내용이 논의됐고 어떤 방향으로 흘렀는지 흐름 중심으로 서술. 핵심 수치나 쟁점은 bullet point로 강조)
 
-### 📅 차기 회의
-- 예정일, 주요 안건 예고
+## 3. 결정 사항
+(회의에서 확정된 내용. 각 항목에 결정 배경도 한 줄 포함)
+- **[결정 내용]** - 배경: ~
 
-## [2] JSON 구조 데이터
-다음 키를 가진 JSON을 ```json ... ``` 코드블록으로 출력하세요:
-{{
-  "attendees": [{{"name": "이름", "dept": "부서", "role": "admin|presenter", "present": true, "note": ""}}],
-  "absent": [{{"name": "이름", "dept": "부서", "reason": "사유"}}],
-  "decisions": [{{"content": "결정 내용", "decided_by": "결정 주체", "agenda_ref": "관련 안건 번호(없으면 null)"}}],
-  "action_items": [{{"content": "업무 내용", "assignee": "담당자", "due_date": "YYYY-MM-DD 또는 null", "status": "pending"}}],
-  "tbd_items": [{{"content": "미결 안건", "reason": "미결 이유"}}],
-  "next_meeting_note": "차기 회의 예정일 및 주요 안건 (없으면 빈 문자열)"
-}}
-- 불명확한 경우 빈 배열 []로 표기하세요
-- 반드시 JSON을 포함하세요"""
+## 4. 액션 아이템
+(담당자가 해야 할 일)
+| 담당자 | 내용 | 기한 |
+|--------|------|------|
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.2, api_key=os.getenv("OPENAI_API_KEY"))
-    response = await llm.ainvoke([
-        SystemMessage(content=(
-            "당신은 전문 회의록 작성 AI입니다. 한국어로 작성합니다.\n"
-            "회의록에는 무슨 말이 오갔는가보다 무엇이 결정되고 누가 무엇을 해야 하는가를 명확히 기록합니다.\n"
-            "5대 필수 요소(Joiner·TPO·Done·WILL DO·TBD)를 반드시 포함하세요."
-        )),
-        HumanMessage(content=prompt),
-    ])
+## 5. 보류 및 추가 검토 사항
+(이번 회의에서 결론 내지 못한 항목)
 
-    full_text = response.content
+## 6. 다음 회의 안건
+(이번 논의에서 도출된 다음 회의 주제)"""
 
-    # 마크다운 부분 추출 (## [1] 이후 ~ ## [2] 이전)
-    md_part = full_text
-    json_part = {}
-    split_marker = "## [2]"
-    if split_marker in full_text:
-        parts = full_text.split(split_marker, 1)
-        md_part = parts[0].replace("## [1]", "").strip()
-        raw_json_text = parts[1]
-        # JSON 코드블록 파싱
-        import re as _re
-        m = _re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', raw_json_text)
-        if m:
-            try:
-                import json as _json
-                json_part = _json.loads(m.group(1))
-            except Exception:
-                pass
-
-    return md_part, json_part
+    llm = _make_llm(temperature=0.2)
+    async for chunk in llm.astream([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]):
+        if chunk.content:
+            yield chunk.content
