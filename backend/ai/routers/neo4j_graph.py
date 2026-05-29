@@ -1,4 +1,5 @@
 import os
+import asyncio
 import base64
 import httpx
 from fastapi import APIRouter, HTTPException, Depends
@@ -63,27 +64,33 @@ async def get_archive(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """인증된 사용자의 소속 회의체만 반환. Neo4j Person에 없으면 빈 결과."""
-    try:
-        # ── 현재 사용자가 속한 Neo4j 회의체 ID 조회 ──
-        # email 또는 이름으로 Neo4j Person 매칭
-        user_email = current_user.email or ""
-        user_name = current_user.name or ""
+    """인증된 사용자의 소속 회의체만 반환 — Neo4j 기반, Postgres는 meeting_id 보완에만 사용."""
+    user_email = current_user.email or ""
+    user_name  = current_user.name  or ""
 
-        # Neo4j: pg_id 기반(새 sync) 또는 id 기반(시드 데이터) 모두 조회
+    # ── Postgres: 현재 유저의 소속 meeting_id 목록 (빠른 단순 조회) ──
+    pg_meeting_ids = {
+        f"mg-sqlite-{row.meeting_id}"
+        for row in db.query(models.MeetingMember.meeting_id)
+                     .filter(models.MeetingMember.user_id == current_user.id)
+                     .all()
+    }
+
+    # ── Step 1: 현재 사용자의 Neo4j Person 조회 ──────────────────
+    try:
         person_rows = await _run_cypher(
             "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
-            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname, p.pg_id AS pg_id",
+            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
             {"email": user_email, "name": user_name},
         )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
 
-        # admin 계정(position 기준)은 전체 조회
-        is_admin = current_user.position in ("대표", "CEO", "임원")
-
+    # ── Step 2: 소속 회의체 ID + org/dept 메타 — 병렬 조회 ───────
+    try:
         if person_rows:
             person_id = person_rows[0]["pid"]
-            # ── :MeetingGroup (시드) + :Meeting (pg_id 방식, 신규 sync) 모두 조회 ──
-            allowed_mg_ids_rows = await _run_cypher(
+            allowed_task = _run_cypher(
                 """
                 MATCH (p:Person)-[:`간사`|`구성원`]->(mg)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
@@ -92,131 +99,136 @@ async def get_archive(
                 """,
                 {"pid": person_id},
             )
-            allowed_mg_ids = {r["mg_id"] for r in allowed_mg_ids_rows}
-        elif is_admin:
-            # admin은 전체 회의체
-            all_mg = await _run_cypher(
-                "MATCH (mg) WHERE mg:MeetingGroup OR mg:Meeting "
-                "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id"
-            )
-            allowed_mg_ids = {r["mg_id"] for r in all_mg}
         else:
-            allowed_mg_ids = set()
+            person_id = None
+            async def _no_meetings(): return []
+            allowed_task = _no_meetings()
 
-        # SQLite 회의체도 항상 포함 (Neo4j background sync 전이어도 표시)
-        sqlite_member_rows = db.query(models.MeetingMember).filter(
-            models.MeetingMember.user_id == current_user.id
-        ).all()
-        for row in sqlite_member_rows:
-            allowed_mg_ids.add(f"mg-sqlite-{row.meeting_id}")
-
-        if not allowed_mg_ids:
-            # 소속 회의체 없음 — 본인 노드만 반환
-            return {
-                "meetings": [],
-                "minutes": [],
-                "reports": [],
-                "departments": [],
-                "current_person": {
-                    "id": f"user-{current_user.id}",
-                    "name": current_user.name,
-                    "email": current_user.email or "",
-                    "position": current_user.position or "",
-                    "department": current_user.department or "",
-                },
-            }
-
+        allowed_rows, org_rows, dept_rows = await asyncio.gather(
+            allowed_task,
+            _run_cypher(
+                "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
+            ),
+            _run_cypher(
+                "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
+            ),
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
 
+    allowed_mg_ids = {r["mg_id"] for r in allowed_rows} | pg_meeting_ids
+
+    if not allowed_mg_ids:
+        current_person = {
+            "id": person_rows[0]["pid"] if person_rows else f"user-{current_user.id}",
+            "name": person_rows[0]["pname"] if person_rows else current_user.name,
+            "email": user_email,
+            "position": current_user.position or "",
+            "department": current_user.department or "",
+        }
+        return {
+            "meetings": [], "minutes": [], "reports": [],
+            "departments": dept_rows,
+            "org": org_rows[0] if org_rows else None,
+            "current_person": current_person,
+        }
+
+    # ── Step 3: 회의체 상세 데이터 4종 — 병렬 조회 ───────────────
+    mg_ids_list = list(allowed_mg_ids)
     try:
-        mg_rows = await _run_cypher("""
-            MATCH (mg) WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
-            OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
-            RETURN
-                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id,
-                coalesce(mg.title, '') AS title,
-                coalesce(mg.meeting_type, mg.type) AS meeting_type,
-                coalesce(mg.status, 'active') AS status,
-                mg.purpose AS purpose,
-                coalesce(p.id, toString(p.pg_id)) AS person_id,
-                p.name AS person_name, p.email AS email,
-                p.position AS position, type(rel) AS role, d.name AS department
-            ORDER BY mg_id
-        """)
-
-        agenda_rows = await _run_cypher("""
-            MATCH (ag:Agenda)-[:`관할`]->(mg)
-            WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
-            OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
-            RETURN
-                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
-                coalesce(ag.id, toString(ag.pg_id)) AS id,
-                coalesce(ag.title, ag.content) AS content,
-                ag.description AS description, ag.category AS category,
-                ag.priority AS priority, ag.status AS status,
-                toString(ag.due_date) AS due_date,
-                toString(ag.created_at) AS created_at,
-                p.name AS assignee_name, coalesce(d.name, '') AS assignee_dept
-        """)
-
-        session_rows = await _run_cypher("""
-            MATCH (s:Session)-[:`개최`|`소속`]->(mg)
-            WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (s)-[:`산출`]->(doc:Document)
-            RETURN
-                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
-                coalesce(mg.title, '') AS meetingTitle,
-                coalesce(s.id, toString(s.pg_id)) AS id,
-                s.title AS session_title,
-                s.session_number AS session_number,
-                toString(coalesce(s.date, s.scheduled_at)) AS date,
-                s.session_type AS session_type,
-                s.description AS description,
-                toString(s.ended_at) AS ended_at,
-                doc.file_name AS file_name, doc.id AS doc_id,
-                doc.title AS doc_title, doc.doc_type AS doc_type,
-                doc.author AS doc_author,
-                toString(doc.created_at) AS doc_created_at
-        """)
-
-        report_rows = await _run_cypher("""
-            MATCH (doc:Document)-[:`첨부`]->(mg)
-            WHERE (mg:MeetingGroup OR mg:Meeting) AND NOT doc.doc_type = '회의록'
-            OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
-            RETURN
-                coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
-                coalesce(mg.title, '') AS meetingTitle,
-                doc.id AS id, doc.title AS title,
-                doc.file_name AS file_name, doc.doc_type AS doc_type,
-                doc.author AS author, doc.file_url AS file_url,
-                coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
-                coalesce(dept.name, '') AS department
-        """)
-
-        org_rows = await _run_cypher(
-            "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
+        mg_rows, agenda_rows, session_rows, report_rows = await asyncio.gather(
+            _run_cypher(
+                """
+                MATCH (mg) WHERE (mg:MeetingGroup OR mg:Meeting)
+                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
+                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
+                RETURN
+                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id,
+                    coalesce(mg.title, '') AS title,
+                    coalesce(mg.meeting_type, mg.type) AS meeting_type,
+                    coalesce(mg.status, 'active') AS status,
+                    mg.purpose AS purpose,
+                    coalesce(p.id, toString(p.pg_id)) AS person_id,
+                    p.name AS person_name, p.email AS email,
+                    p.position AS position, type(rel) AS role, d.name AS department
+                ORDER BY mg_id
+                """,
+                {"ids": mg_ids_list},
+            ),
+            _run_cypher(
+                """
+                MATCH (ag:Agenda)-[:`관할`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting)
+                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
+                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
+                RETURN
+                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    coalesce(ag.id, toString(ag.pg_id)) AS id,
+                    coalesce(ag.title, ag.content) AS content,
+                    ag.description AS description, ag.category AS category,
+                    ag.priority AS priority, ag.status AS status,
+                    toString(ag.due_date) AS due_date,
+                    toString(ag.created_at) AS created_at,
+                    p.name AS assignee_name, coalesce(d.name, '') AS assignee_dept
+                """,
+                {"ids": mg_ids_list},
+            ),
+            _run_cypher(
+                """
+                MATCH (s:Session)-[:`개최`|`소속`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting)
+                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                OPTIONAL MATCH (s)-[:`산출`]->(doc:Document)
+                RETURN
+                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    coalesce(mg.title, '') AS meetingTitle,
+                    coalesce(s.id, toString(s.pg_id)) AS id,
+                    s.title AS session_title,
+                    s.session_number AS session_number,
+                    toString(coalesce(s.date, s.scheduled_at)) AS date,
+                    s.session_type AS session_type,
+                    s.description AS description,
+                    toString(s.ended_at) AS ended_at,
+                    doc.file_name AS file_name, doc.id AS doc_id,
+                    doc.title AS doc_title, doc.doc_type AS doc_type,
+                    doc.author AS doc_author,
+                    toString(doc.created_at) AS doc_created_at
+                """,
+                {"ids": mg_ids_list},
+            ),
+            _run_cypher(
+                """
+                MATCH (doc:Document)-[:`첨부`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting)
+                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                  AND NOT doc.doc_type = '회의록'
+                OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
+                RETURN
+                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    coalesce(mg.title, '') AS meetingTitle,
+                    doc.id AS id, doc.title AS title,
+                    doc.file_name AS file_name, doc.doc_type AS doc_type,
+                    doc.author AS author, doc.file_url AS file_url,
+                    coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
+                    coalesce(dept.name, '') AS department
+                """,
+                {"ids": mg_ids_list},
+            ),
         )
-
-        dept_rows = await _run_cypher(
-            "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
-        )
-
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
 
+    # ── 결과 조합 ─────────────────────────────────────────────────
     meetings_map: dict[str, dict] = {}
 
     for row in mg_rows:
         mg_id = row["mg_id"]
-        if mg_id not in allowed_mg_ids:  # 접근 가능한 회의체만 포함
-            continue
         if mg_id not in meetings_map:
             meetings_map[mg_id] = {
                 "id": mg_id,
@@ -224,10 +236,7 @@ async def get_archive(
                 "meeting_type": row.get("meeting_type"),
                 "status": row.get("status", "active"),
                 "purpose": row.get("purpose"),
-                "members": [],
-                "tasks": [],
-                "minutes": [],
-                "reports": [],
+                "members": [], "tasks": [], "minutes": [], "reports": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
@@ -246,8 +255,7 @@ async def get_archive(
         mg_id = row.get("meetingId")
         if mg_id and mg_id in meetings_map:
             meetings_map[mg_id]["tasks"].append({
-                "id": row["id"],
-                "meetingId": mg_id,
+                "id": row["id"], "meetingId": mg_id,
                 "content": row.get("content", ""),
                 "description": row.get("description", ""),
                 "category": row.get("category"),
@@ -266,8 +274,7 @@ async def get_archive(
         if mg_id and mg_id in meetings_map and session_id not in seen_sessions:
             seen_sessions.add(session_id)
             meetings_map[mg_id]["minutes"].append({
-                "id": session_id,
-                "meeting_id": mg_id,
+                "id": session_id, "meeting_id": mg_id,
                 "meeting_title": row.get("meetingTitle", ""),
                 "session_title": row.get("session_title", ""),
                 "session_number": row.get("session_number"),
@@ -286,8 +293,7 @@ async def get_archive(
         mg_id = row.get("meetingId")
         if mg_id and mg_id in meetings_map:
             meetings_map[mg_id]["reports"].append({
-                "id": row["id"],
-                "meeting_id": mg_id,
+                "id": row["id"], "meeting_id": mg_id,
                 "meeting_title": row.get("meetingTitle", ""),
                 "title": row.get("title", ""),
                 "file_name": row.get("file_name", ""),
@@ -298,81 +304,58 @@ async def get_archive(
                 "department": row.get("department", ""),
             })
 
-    # meetings 리스트는 SQLite 보완 이후에 최종 빌드 (아래 SQLite 보완 블록 후에 계산)
-
-    # 현재 사용자 Person 노드 (소속 여부와 무관하게 항상 포함)
-    if person_rows:
-        pr = person_rows[0]
-        current_person = {
-            "id": pr["pid"],
-            "name": pr["pname"],
-            "email": user_email,
-            "position": current_user.position or "",
-            "department": current_user.department or "",
-        }
-    else:
-        current_person = {
-            "id": f"user-{current_user.id}",
-            "name": current_user.name,
-            "email": user_email,
-            "position": current_user.position or "",
-            "department": current_user.department or "",
-        }
-
-    # ── SQLite 회의체 보완: Neo4j에 아직 반영 안 된 신규 회의체도 포함 ──
-    sqlite_meetings = (
-        db.query(models.Meeting)
-        .join(models.MeetingMember, models.MeetingMember.meeting_id == models.Meeting.id)
-        .filter(models.MeetingMember.user_id == current_user.id)
-        .all()
-    )
-    for m in sqlite_meetings:
-        sqlite_mg_id = f"mg-sqlite-{m.id}"
-        if sqlite_mg_id not in meetings_map:
-            # Neo4j에 없는 회의체 — SQLite 데이터로 보완
+    # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
+    missing_pg_ids = pg_meeting_ids - meetings_map.keys()
+    if missing_pg_ids:
+        raw_ids = [int(mid.replace("mg-sqlite-", "")) for mid in missing_pg_ids if mid.replace("mg-sqlite-", "").isdigit()]
+        pg_meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(raw_ids)).all()
+        for m in pg_meetings:
+            sid = f"mg-sqlite-{m.id}"
             members_db = (
                 db.query(models.MeetingMember, models.User)
                 .join(models.User, models.User.id == models.MeetingMember.user_id)
                 .filter(models.MeetingMember.meeting_id == m.id)
                 .all()
             )
-            members_list = [
-                {
-                    "meetingId": sqlite_mg_id,
-                    "userId": f"user-{u.id}",
-                    "userName": u.name or "",
-                    "email": u.email or "",
-                    "position": u.position or "",
-                    "role": "admin" if str(mb.role) == "admin" else "presenter",
-                    "department": u.department or "",
-                }
-                for mb, u in members_db
-            ]
-            meetings_map[sqlite_mg_id] = {
-                "id": sqlite_mg_id,
+            meetings_map[sid] = {
+                "id": sid,
                 "title": m.title,
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
                 "purpose": m.purpose,
-                "members": members_list,
-                "tasks": [],
-                "minutes": [],
-                "reports": [],
+                "members": [
+                    {
+                        "meetingId": sid, "userId": f"user-{u.id}",
+                        "userName": u.name or "", "email": u.email or "",
+                        "position": u.position or "",
+                        "role": "admin" if str(mb.role) == "admin" else "presenter",
+                        "department": u.department or "",
+                    }
+                    for mb, u in members_db
+                ],
+                "tasks": [], "minutes": [], "reports": [],
             }
 
     meetings = list(meetings_map.values())
-    minutes = [mn for mg in meetings for mn in mg["minutes"]]
-    reports = [r for mg in meetings for r in mg["reports"]]
+    minutes  = [mn for mg in meetings for mn in mg["minutes"]]
+    reports  = [r  for mg in meetings for r  in mg["reports"]]
+
+    current_person = {
+        "id":         person_rows[0]["pid"]   if person_rows else f"user-{current_user.id}",
+        "name":       person_rows[0]["pname"] if person_rows else current_user.name,
+        "email":      user_email,
+        "position":   current_user.position   or "",
+        "department": current_user.department or "",
+    }
 
     return {
         "meetings": meetings,
-        "minutes": minutes,
-        "reports": reports,
+        "minutes":  minutes,
+        "reports":  reports,
         "departments": dept_rows,
-        "org": org_rows[0] if org_rows else None,
+        "org":         org_rows[0] if org_rows else None,
         "current_person": current_person,
     }
-
 
 @router.post("/relationships")
 async def create_relationship(data: dict):
