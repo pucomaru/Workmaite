@@ -166,7 +166,7 @@ async function openSettings(m) {
       userId: mb.user?.id || mb.user_id,
       name: mb.user?.name || mb.userName || mb.name || '?',
       email: mb.user?.email || mb.email || '',
-      role: mb.role || 'presenter',
+      role: mb.role || 'member',
     })),
     removedIds: [],
   }
@@ -193,7 +193,7 @@ function watchSettingsSearch(q) {
 function addMemberToSettings(user) {
   if (!settingsModal.value) return
   if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
   settingsSearchQ.value = ''
   settingsSearchResults.value = []
 }
@@ -225,7 +225,7 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { admin: '간사', presenter: '참여자' }
+const ROLE_MAP = { admin: '간사', member: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
 function fmtDate(s) {
@@ -290,7 +290,7 @@ onMounted(async () => {
                 <div class="mg-row-title">{{ g.title }}</div>
               </td>
               <td>
-                <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
                   {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                 </span>
               </td>
@@ -560,9 +560,9 @@ onMounted(async () => {
 /* ── Role badges ── */
 .mg-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:3px; }
 .mg-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
-.mg-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.mg-role-badge.role-member { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
 .day-mode .mg-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
-.day-mode .mg-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
+.day-mode .mg-role-badge.role-member { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
 
 .mg-member-wrap { border-top:1px solid rgba(255,255,255,.07);padding:10px 16px;display:flex;flex-direction:column;gap:6px; }
 .mg-members-state { font-size:12px;color:#475569;padding:4px 0; }

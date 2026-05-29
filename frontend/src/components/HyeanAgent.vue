@@ -135,7 +135,7 @@ async function loadBriefing(force = false) {
   try {
     await streamPost(
       '/api/agent/hyean/status',
-      { meeting_id: currentMeetingId.value, user_role: meetingsStore.myRole || 'presenter' },
+      { meeting_id: currentMeetingId.value, user_role: meetingsStore.myRole || 'member' },
       (chunk) => {
         agentMsg.content += chunk
         setTimeout(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }, 30)

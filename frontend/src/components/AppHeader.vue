@@ -92,13 +92,13 @@ async function searchUsers() {
 }
 
 async function addMember(user) {
-  await meetingsStore.addMember(Number(meetingId.value), user.id, 'presenter')
+  await meetingsStore.addMember(Number(meetingId.value), user.id, 'member')
   memberSearch.value = ''
   searchResults.value = []
 }
 
 async function changeRole(member) {
-  const newRole = member.role === 'admin' ? 'presenter' : 'admin'
+  const newRole = member.role === 'admin' ? 'member' : 'admin'
   await meetingsStore.updateMemberRole(Number(meetingId.value), member.id, newRole)
 }
 
@@ -576,7 +576,7 @@ async function saveProfileSettings() {
   border: 1px solid;
 }
 .role-badge.admin { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-.role-badge.presenter { background: #f8fafc; color: var(--text-muted); border-color: var(--border); }
+.role-badge.member { background: #f8fafc; color: var(--text-muted); border-color: var(--border); }
 .mgmt-del { color: var(--danger) !important; font-size: 12px !important; }
 
 /* 알림/프로필 (기존과 동일) */

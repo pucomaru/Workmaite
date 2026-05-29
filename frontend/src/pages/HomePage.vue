@@ -20,7 +20,7 @@ const searchResults = ref([])
 const selectedMembers = ref([])
 const creating = ref(false)
 
-const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'presenter' | null }
+const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'member' | null }
 const endingMeeting = ref(null)
 const deletingMeeting = ref(null)
 const meetingMeta = ref({}) // { [meetingId]: { owner_name, due_date, priority } }
@@ -230,7 +230,7 @@ async function searchMembers() {
   const { data } = await api.get(`/api/v1/users/search?q=${memberSearch.value}`)
   searchResults.value = data.filter(u => u.id !== auth.user?.id && !selectedMembers.value.find(m => m.id === u.id))
 }
-function addMember(u, role = 'presenter') {
+function addMember(u, role = 'member') {
   selectedMembers.value.push({ ...u, role })
   searchResults.value = []
   memberSearch.value = ''

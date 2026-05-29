@@ -44,7 +44,7 @@ public class MeetingService {
                 requesterId
         );
         Meeting saved = meetingRepository.save(meeting);
-        MeetingMember secretary = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.SECRETARY);
+        MeetingMember secretary = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.ADMIN);
         meetingMemberRepository.save(secretary);
         neoSyncService.syncMeeting(saved.getId());
         neoSyncService.syncMember(saved.getId(), requesterId);
@@ -62,7 +62,7 @@ public class MeetingService {
                 .filter(mm -> meetingIds.contains(mm.getMeetingId()))
                 .collect(Collectors.toMap(
                         MeetingMember::getMeetingId,
-                        mm -> mm.getRole() == MeetingMemberRole.SECRETARY ? "admin" : "presenter",
+                        mm -> mm.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
                         (a, b) -> a));
 
         return all.stream()
@@ -78,7 +78,7 @@ public class MeetingService {
 
         List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
         List<MeetingMember> secretaries = meetingMemberRepository
-                .findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.SECRETARY);
+                .findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.ADMIN);
 
         List<Long> secretaryUserIds = secretaries.stream().map(MeetingMember::getUserId).distinct().toList();
         Map<Long, String> userNameMap = userRepository.findAllById(secretaryUserIds)
@@ -161,7 +161,7 @@ public class MeetingService {
     /** 현재 사용자의 특정 회의체 내 역할 반환 (없으면 null) */
     public String getMyRole(Long meetingId, Long userId) {
         return meetingMemberRepository.findByMeetingIdAndUserId(meetingId, userId)
-                .map(m -> m.getRole() == MeetingMemberRole.SECRETARY ? "admin" : "presenter")
+                .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
                 .orElse(null);
     }
 
@@ -178,7 +178,7 @@ public class MeetingService {
 
     // secretary 권한이 없으면 403 예외 발생
     private void checkSecretaryPermission(Long meetingId, Long requesterId) {
-        if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(meetingId, requesterId, MeetingMemberRole.SECRETARY)) {
+        if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(meetingId, requesterId, MeetingMemberRole.ADMIN)) {
             throw new BusinessException(ErrorCode.MEETING_ACCESS_DENIED);
         }
     }
