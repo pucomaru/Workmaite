@@ -6,6 +6,6 @@ public enum MeetingMemberRole {
     @JsonProperty("admin")
     ADMIN,
 
-    @JsonProperty("presenter")
+    @JsonProperty("member")
     MEMBER
 }

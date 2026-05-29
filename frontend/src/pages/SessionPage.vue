@@ -870,7 +870,7 @@ onMounted(() => {
 .sp-sm-name { flex:1;font-weight:600;color:#1e293b; }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
 .sp-sm-role-tag.admin { background:#eff6ff;color:var(--primary); }
-.sp-sm-role-tag.presenter { background:#f0fdf4;color:#16a34a; }
+.sp-sm-role-tag.member { background:#f0fdf4;color:#16a34a; }
 .sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
 .sp-sm-rm:hover { color:#ef4444; }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }

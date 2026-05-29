@@ -1127,9 +1127,9 @@ async function openGroupSetting() {
       department: mb.user?.department || mb.department || '',
       organization: mb.user?.organization || mb.organization || '',
       position: mb.user?.position || mb.position || '',
-      role: mb.role || 'presenter',
+      role: mb.role || 'member',
     }))
-  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'presenter' })) }
+  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'member' })) }
   settingsModal.value = {
     meeting: m,
     form: { title: m.title || '', purpose: m.purpose || m.description || '', guidelines: m.guidelines || '' },
@@ -1159,7 +1159,7 @@ function watchSettingsSearch(q) {
 function addMemberToSettings(user) {
   if (!settingsModal.value) return
   if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'presenter' })
+  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
   settingsSearchQ.value = ''
   settingsSearchResults.value = []
 }
@@ -1193,7 +1193,7 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { admin: '간사', presenter: '참여자' }
+const ROLE_MAP = { admin: '간사', member: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 
 // ─── Role-based helpers ───────────────────────────────────────
@@ -3731,7 +3731,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             <div class="detail-header-left">
               <div class="detail-name-badge-row">
                 <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
-                <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-presenter'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
+                <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-member'">{{ isDetailAdmin ? '간사' : '참여자' }}</div>
               </div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ detailMeeting?.members?.length||0 }}명</span>
@@ -4704,7 +4704,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
                       <span v-else class="lv-type-text" style="color:#94a3b8">-</span>
                     </td>
                     <td class="lv-td-role">
-                      <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-presenter'">
+                      <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
                         {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                       </span>
                     </td>
@@ -5868,7 +5868,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .member-name { font-size:11px;color:#c4b5fd; }
 .member-role { font-size:9px;font-weight:600;padding:1px 5px;border-radius:99px; }
 .role-admin { background:rgba(251,191,36,.2);color:#fbbf24; }
-.role-presenter { background:rgba(96,165,250,.15);color:#60a5fa; }
+.role-member { background:rgba(96,165,250,.15);color:#60a5fa; }
 
 /* ── Bottom panel ── */
 .bottom-panel { position:absolute;left:0;right:0;bottom:0;height:46%;background:#fff;border-top:2px solid #e2e8f0;transform:translateY(100%);transition:transform .3s ease;z-index:50;display:flex;flex-direction:column;overflow:hidden; }
@@ -6279,14 +6279,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
 /* ── Role badges ── */
 .detail-role-badge { display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-top:3px;width:fit-content; }
 .detail-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3); }
-.detail-role-badge.role-presenter { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
+.detail-role-badge.role-member { background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.2); }
 .lv-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-left:5px; }
 .lv-role-badge.role-admin { background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25); }
-.lv-role-badge.role-presenter { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
+.lv-role-badge.role-member { background:rgba(100,116,139,.1);color:#94a3b8;border:1px solid rgba(100,116,139,.18); }
 .day-mode .detail-role-badge.role-admin { background:rgba(59,130,246,.1);color:#2563eb;border-color:rgba(59,130,246,.25); }
-.day-mode .detail-role-badge.role-presenter { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
+.day-mode .detail-role-badge.role-member { background:rgba(100,116,139,.08);color:#64748b;border-color:#e2e8f0; }
 .day-mode .lv-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
-.day-mode .lv-role-badge.role-presenter { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
+.day-mode .lv-role-badge.role-member { background:#f8fafc;color:#64748b;border-color:#e2e8f0; }
 /* ── Node detail styles ── */
 .node-member-list { display:flex;flex-direction:column;gap:5px; }
 .node-member-row { display:flex;align-items:center;gap:9px;padding:4px 0; }

@@ -62,7 +62,7 @@ public class MeetingService {
                 .filter(mm -> meetingIds.contains(mm.getMeetingId()))
                 .collect(Collectors.toMap(
                         MeetingMember::getMeetingId,
-                        mm -> mm.getRole() == MeetingMemberRole.ADMIN ? "admin" : "presenter",
+                        mm -> mm.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
                         (a, b) -> a));
 
         return all.stream()
@@ -161,7 +161,7 @@ public class MeetingService {
     /** 현재 사용자의 특정 회의체 내 역할 반환 (없으면 null) */
     public String getMyRole(Long meetingId, Long userId) {
         return meetingMemberRepository.findByMeetingIdAndUserId(meetingId, userId)
-                .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "presenter")
+                .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
                 .orElse(null);
     }
 

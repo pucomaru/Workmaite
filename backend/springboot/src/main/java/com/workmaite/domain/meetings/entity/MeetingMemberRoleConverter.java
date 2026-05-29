@@ -11,7 +11,7 @@ public class MeetingMemberRoleConverter implements AttributeConverter<MeetingMem
         if (role == null) return null;
         return switch (role) {
             case ADMIN -> "admin";
-            case MEMBER -> "presenter";
+            case MEMBER -> "member";
         };
     }
 
@@ -20,7 +20,7 @@ public class MeetingMemberRoleConverter implements AttributeConverter<MeetingMem
         if (dbValue == null) return null;
         return switch (dbValue.toLowerCase()) {
             case "admin" -> MeetingMemberRole.ADMIN;
-            case "presenter" -> MeetingMemberRole.MEMBER;
+            case "member", "presenter" -> MeetingMemberRole.MEMBER;
             default -> throw new IllegalArgumentException("Unknown MeetingMemberRole: " + dbValue);
         };
     }
