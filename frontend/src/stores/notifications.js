@@ -8,19 +8,19 @@ export const useNotificationsStore = defineStore('notifications', () => {
 
   async function fetch() {
     try {
-      const { data } = await apiAI.get('/api/notifications')
+      const { data } = await apiAI.get('/api/v1/notifications')
       notifications.value = data
     } catch {}
   }
 
   async function markRead(id) {
-    await apiAI.patch(`/api/notifications/${id}/read`)
+    await apiAI.patch(`/api/v1/notifications/${id}/read`)
     const n = notifications.value.find(n => n.id === id)
     if (n) n.is_read = true
   }
 
   async function markAllRead() {
-    await apiAI.patch('/api/notifications/read-all')
+    await apiAI.patch('/api/v1/notifications/read-all')
     notifications.value.forEach(n => n.is_read = true)
   }
 

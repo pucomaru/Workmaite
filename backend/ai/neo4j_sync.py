@@ -319,6 +319,84 @@ async def sync_meeting_member(
         )
 
 
+# ─── Document 노드 동기화 ────────────────────────────────────────────────────
+
+async def sync_document(
+    doc_id: str,
+    file_name: str,
+    title: str,
+    doc_type: str,
+    meeting_id: int | None = None,
+    agenda_neo4j_id: str | None = None,
+    agenda_content: str | None = None,
+    uploader_id: int | None = None,
+) -> None:
+    """
+    Document 노드를 Neo4j에 upsert하고 Meeting / Agenda와 연결합니다.
+    agenda_neo4j_id 가 주어지면 해당 Agenda 노드에 :ATTACHED_TO 관계를 추가합니다.
+    """
+    # Agenda 노드 upsert (드래그로 연결된 경우 — 내용 보장)
+    if agenda_neo4j_id and agenda_content:
+        ag_cypher = """
+        MERGE (ag:Agenda {id: $agenda_id})
+        ON CREATE SET ag.content = $content, ag.created_at = $now
+        ON MATCH  SET ag.content = $content
+        SET ag.updated_at = $now
+        WITH ag
+        OPTIONAL MATCH (m:Meeting {pg_id: $meeting_id})
+        FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (ag)-[:OWNED_BY]->(m)
+        )
+        """
+        try:
+            await run_cypher(ag_cypher, {
+                "agenda_id": agenda_neo4j_id,
+                "content": agenda_content,
+                "meeting_id": meeting_id,
+                "now": datetime.utcnow().isoformat(),
+            })
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] Agenda upsert 실패 (무시): {e}")
+
+    # Document 노드 upsert + Meeting / Agenda 연결
+    cypher = """
+    MERGE (d:Document {id: $doc_id})
+    SET d.file_name   = $file_name,
+        d.title       = $title,
+        d.doc_type    = $doc_type,
+        d.uploader_id = $uploader_id,
+        d.updated_at  = $updated_at
+    WITH d
+    OPTIONAL MATCH (m:Meeting {pg_id: $meeting_id})
+    FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (d)-[:ATTACHED_TO]->(m)
+    )
+    WITH d
+    OPTIONAL MATCH (ag:Agenda)
+    WHERE $agenda_id IS NOT NULL
+      AND (ag.id = $agenda_id OR toString(ag.pg_id) = $agenda_id)
+    FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (d)-[:ATTACHED_TO]->(ag)
+    )
+    """
+    params = {
+        "doc_id": doc_id,
+        "file_name": file_name,
+        "title": title,
+        "doc_type": doc_type,
+        "uploader_id": uploader_id,
+        "meeting_id": meeting_id,
+        "agenda_id": agenda_neo4j_id,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        await run_cypher(cypher, params)
+        logger.debug(f"[Neo4jSync] Document {doc_id} 저장 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Document {doc_id} 저장 실패: {e}")
+        _log_failure("sync_document", "document", doc_id, e, params)
+
+
 # ─── DocumentChunk (파일 임베딩) 동기화 ──────────────────────────────────────
 
 async def sync_document_chunk(
@@ -647,6 +725,54 @@ async def delete_meeting_member(meeting_id: int, user_id: int) -> None:
         _log_failure("delete_meeting_member", "meeting_member", f"{meeting_id}_{user_id}", e, params)
 
 
+async def sync_todo(
+    todo_id: int,
+    meeting_id: int,
+    content: str,
+    user_id: int | None = None,
+    assignee_name: str | None = None,
+    status: str = "pending",
+    due_date: str | None = None,
+    priority: str = "normal",
+) -> None:
+    """Todo 노드를 Neo4j에 upsert하고 Meeting 노드와 관계를 맺습니다."""
+    cypher = """
+    MERGE (t:Todo {pg_id: $pg_id})
+    SET t.meeting_id    = $meeting_id,
+        t.content       = $content,
+        t.assignee_name = $assignee_name,
+        t.status        = $status,
+        t.due_date      = $due_date,
+        t.priority      = $priority,
+        t.updated_at    = $updated_at
+    WITH t
+    MATCH (m:Meeting {pg_id: $meeting_id})
+    MERGE (t)-[:BELONGS_TO]->(m)
+    WITH t
+    OPTIONAL MATCH (p:Person {pg_id: $user_id})
+    FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (p)-[:OWNS]->(t)
+    )
+    """
+    params = {
+        "pg_id": todo_id,
+        "meeting_id": meeting_id,
+        "content": content,
+        "assignee_name": assignee_name or "",
+        "status": status,
+        "due_date": due_date or "",
+        "priority": priority,
+        "user_id": user_id,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        await run_cypher(cypher, params)
+        logger.debug(f"[Neo4jSync] Todo {todo_id} 동기화 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Todo {todo_id} 동기화 실패: {e}")
+        _log_failure("sync_todo", "todo", str(todo_id), e, params)
+
+
 async def sync_meeting_relation(
     source_meeting_id: int,
     target_meeting_id: int,
@@ -749,19 +875,20 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["agendas"] += 1
 
-        # Todos → Todo 노드
-        for t in db.query(models.Todo).all():
-            await sync_todo(
-                todo_id=t.id,
-                meeting_id=t.meeting_id,
-                content=t.content,
-                user_id=t.user_id,
-                assignee_name=getattr(t, "assignee_name", None),
-                status=str(t.status or "pending"),
-                due_date=t.due_date.isoformat() if t.due_date else None,
-                priority=str(getattr(t, "priority", None) or "normal"),
-            )
-            stats["todos"] += 1
+        # Todos → Todo 노드 (models.Todo가 있을 때만)
+        if hasattr(models, "Todo"):
+            for t in db.query(models.Todo).all():
+                await sync_todo(
+                    todo_id=t.id,
+                    meeting_id=t.meeting_id,
+                    content=t.content,
+                    user_id=t.user_id,
+                    assignee_name=getattr(t, "assignee_name", None),
+                    status=str(t.status or "pending"),
+                    due_date=t.due_date.isoformat() if t.due_date else None,
+                    priority=str(getattr(t, "priority", None) or "normal"),
+                )
+                stats["todos"] += 1
 
         # Minutes → Minutes 노드
         for mn in db.query(models.Minutes).all():

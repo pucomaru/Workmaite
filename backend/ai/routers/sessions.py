@@ -7,7 +7,7 @@ from auth import get_current_user
 from notifications import create_notification
 from neo4j_sync import sync_session, delete_session
 
-router = APIRouter(prefix="/api", tags=["sessions"])
+router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
 @router.get("/meetings/{meeting_id}/sessions", response_model=List[schemas.SessionOut])
 def list_sessions(

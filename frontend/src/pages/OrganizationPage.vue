@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import api from '../api'
+import api, { apiAI } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
@@ -116,7 +116,7 @@ async function removeMember(member) {
   const meeting = member.meetings[0]
   if (!meeting?.id || !meeting?.member_id) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
   try {
-    await api.delete(`/api/v1/meetings/${meeting.id}/members/${meeting.member_id}`)
+    await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${meeting.member_id}`)
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }

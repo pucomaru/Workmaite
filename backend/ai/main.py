@@ -23,12 +23,23 @@ from auth import get_current_user
 
 from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router
 from routers import auth as auth_router
-from neo4j_sync import init_vector_index, retry_failed_syncs
+from routers import meetings as meetings_router
+from routers import sessions as sessions_router
+from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 
 logger = logging.getLogger(__name__)
 
 # Neo4j 재시도 주기 (초). 환경변수로 조정 가능.
 _RETRY_INTERVAL_SEC = int(os.getenv("NEO4J_RETRY_INTERVAL_SEC", "300"))
+
+
+async def _startup_sync_task() -> None:
+    """서버 시작 시 PostgreSQL → Neo4j 전체 동기화 (백그라운드, 1회)."""
+    try:
+        result = await sync_all_from_pg()
+        logger.info(f"[StartupSync] 완료: {result}")
+    except Exception as e:
+        logger.error(f"[StartupSync] 오류: {e}")
 
 
 async def _periodic_retry_task() -> None:
@@ -62,6 +73,7 @@ async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=engine, tables=ai_only_tables, checkfirst=True)
     await init_vector_index()
 
+    asyncio.create_task(_startup_sync_task())
     retry_task = asyncio.create_task(_periodic_retry_task())
     try:
         yield
@@ -94,6 +106,8 @@ app.include_router(agents.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
+app.include_router(meetings_router.router)
+app.include_router(sessions_router.router)
 
 
 # WebSocket endpoints
