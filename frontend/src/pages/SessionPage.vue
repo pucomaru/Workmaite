@@ -126,7 +126,6 @@ const generatingMinutes = ref(false)
 const transcriptSummary = ref('')
 const summarizingTranscript = ref(false)
 const showSummary = ref(false)
-const showSources = ref(true)
 const transcriptAreaRef = ref(null)
 
 const editor = useEditor({
@@ -217,8 +216,8 @@ async function fetchTranscriptSummary() {
   injectAction(userMsg, thinkingSteps, '').then(() => {/* noop */})
   // 실제 summary는 스트리밍으로 별도 표시 (중앙 패널)
   try {
-    await streamPost('/api/agent/ara/sessions-chat',
-      { meeting_id: 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
+    await streamPost('/api/agent/supervisor/chat',
+      { meeting_id: activeSession.value?.meeting_id || 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
       (chunk) => { transcriptSummary.value += chunk },
       () => { summarizingTranscript.value = false }
     )
@@ -634,20 +633,6 @@ onMounted(() => {
                 <!-- Tiptap Editor -->
                 <editor-content v-else :editor="editor" class="tiptap-content" />
 
-                <!-- 기반 발화 기록 -->
-                <div v-if="generatedMinutes.sources?.transcript?.length" class="minutes-sources-section">
-                  <button class="minutes-sources-toggle" @click="showSources = !showSources">
-                    <i class="bi bi-chat-left-text"></i>
-                    기반 발화 기록 {{ generatedMinutes.sources.stt_count }}개
-                    <i :class="showSources ? 'bi bi-chevron-up' : 'bi bi-chevron-down'" style="margin-left:auto"></i>
-                  </button>
-                  <div v-if="showSources" class="minutes-sources-body">
-                    <div v-for="(line, idx) in generatedMinutes.sources.transcript" :key="idx" class="src-line">
-                      <span class="src-time">{{ line.time }}</span>
-                      <span class="src-text">{{ line.text }}</span>
-                    </div>
-                  </div>
-                </div>
               </template>
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
 
@@ -985,14 +970,6 @@ onMounted(() => {
 
 .tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;padding:0 4px;white-space:nowrap;cursor:default; }
 
-/* 기반 발화 기록 */
-.minutes-sources-section { margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden; }
-.minutes-sources-toggle { display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;background:#f8fafc;border:none;cursor:pointer;font-size:12px;color:#475569;font-weight:500;text-align:left; }
-.minutes-sources-toggle:hover { background:#f1f5f9; }
-.minutes-sources-body { max-height:240px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px; }
-.src-line { display:flex;gap:8px;font-size:12px;line-height:1.5; }
-.src-time { flex-shrink:0;color:#94a3b8;font-variant-numeric:tabular-nums; }
-.src-text { color:#475569; }
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }

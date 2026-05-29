@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * 자료 엔티티 - reports 테이블 매핑
  */
 @Entity
-@Table(name = "reports")
+@Table(name = "report_reviews")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
