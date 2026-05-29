@@ -17,16 +17,16 @@ public class ActiveMeetingResponse {
     private MeetingPriority priority;
     private MeetingType type;
     private LocalDateTime endDate;
-    private String secretaryName;
+    private String adminName;
 
-    public static ActiveMeetingResponse from(Meeting meeting, String secretaryName) {
+    public static ActiveMeetingResponse from(Meeting meeting, String adminName) {
         return ActiveMeetingResponse.builder()
                 .meetingId(meeting.getId())
                 .title(meeting.getTitle())
                 .priority(meeting.getPriority())
                 .type(meeting.getType())
                 .endDate(meeting.getEndDate())
-                .secretaryName(secretaryName)
+                .adminName(adminName)
                 .build();
     }
 }
