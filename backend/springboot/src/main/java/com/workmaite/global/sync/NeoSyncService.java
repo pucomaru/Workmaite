@@ -58,11 +58,6 @@ public class NeoSyncService {
         callDelete("/api/sync/member/delete?meetingId=" + meetingId + "&userId=" + userId, "delete-member:" + meetingId + "/" + userId);
     }
 
-    @Async
-    public void syncTodo(Long todoId) {
-        call("/api/sync/todo/" + todoId, "todo:" + todoId);
-    }
-
     private void call(String path, String label) {
         try {
             restTemplate.postForEntity(aiUrl + path, null, Void.class);

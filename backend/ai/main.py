@@ -21,7 +21,7 @@ import models
 from websocket_manager import manager
 from auth import get_current_user
 
-from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router, todos
+from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router
 from routers import auth as auth_router
 from neo4j_sync import init_vector_index, retry_failed_syncs
 
@@ -52,7 +52,6 @@ async def lifespan(app: FastAPI):
     # (users, meetings 등 공유 테이블은 SpringBoot ddl-auto:update가 생성)
     ai_only_tables = [
         models.User.__table__,
-        models.Todo.__table__,
         models.Notification.__table__,
         models.ChatMessage.__table__,
         models.AgentLog.__table__,
@@ -95,7 +94,6 @@ app.include_router(agents.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
-app.include_router(todos.router)
 
 
 # WebSocket endpoints
