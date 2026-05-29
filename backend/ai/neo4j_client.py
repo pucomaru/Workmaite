@@ -72,14 +72,14 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
             )
             if mg_rows:
                 agenda_rows = await run_cypher(
-                    """MATCH (ag:Agenda)-[:OWNED_BY]->(m:Meeting {pg_id: $pg_id})
-                       OPTIONAL MATCH (p:Person)-[:ASSIGNED_TO]->(ag)
+                    """MATCH (ag:Agenda)-[:`관할`]->(m:Meeting {pg_id: $pg_id})
+                       OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
                        RETURN ag.content AS title, ag.status AS status,
                               p.name AS assignee LIMIT 20""",
                     {"pg_id": pg_id},
                 )
                 session_rows = await run_cypher(
-                    """MATCH (s:Session)-[:BELONGS_TO]->(m:Meeting {pg_id: $pg_id})
+                    """MATCH (s:Session)-[:`소속`]->(m:Meeting {pg_id: $pg_id})
                        RETURN s.title AS title, s.pg_id AS num,
                               s.scheduled_at AS ended_at
                        ORDER BY s.pg_id DESC LIMIT 5""",
@@ -110,22 +110,22 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
         neo_id = mg_rows[0].get("neo_id", mid_str)
 
         agenda_rows = await run_cypher(
-            """MATCH (ag:Agenda)-[:OWNED_BY]->(mg:MeetingGroup {id: $id})
-               OPTIONAL MATCH (p:Person)-[:ASSIGNED_TO]->(ag)
+            """MATCH (ag:Agenda)-[:`관할`]->(mg:MeetingGroup {id: $id})
+               OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
                RETURN ag.title AS title, ag.status AS status,
                       p.name AS assignee LIMIT 20""",
             {"id": neo_id},
         )
         session_rows = await run_cypher(
-            """MATCH (s:Session)-[:HELD_BY]->(mg:MeetingGroup {id: $id})
+            """MATCH (s:Session)-[:`개최`]->(mg:MeetingGroup {id: $id})
                RETURN s.title AS title, s.session_number AS num,
                       toString(s.ended_at) AS ended_at
                ORDER BY s.session_number DESC LIMIT 5""",
             {"id": neo_id},
         )
         decision_rows = await run_cypher(
-            """MATCH (dec:Decision)-[:BASED_ON]->(s:Session)-[:HELD_BY]->(mg:MeetingGroup {id: $id})
-               OPTIONAL MATCH (dec)-[:CAUSED_BY]->(ag:Agenda)
+            """MATCH (dec:Decision)-[:`근거`]->(s:Session)-[:`개최`]->(mg:MeetingGroup {id: $id})
+               OPTIONAL MATCH (dec)-[:`원인`]->(ag:Agenda)
                RETURN dec.content AS content, ag.title AS agenda LIMIT 10""",
             {"id": neo_id},
         )

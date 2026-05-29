@@ -17,12 +17,12 @@ NEO4J_DB = os.getenv("NEO4J_DATABASE", "neo4j")
 
 ALLOWED_LABELS = {"MeetingGroup", "Person", "Department", "Agenda", "Document", "Session"}
 ALLOWED_REL_TYPES = {
-    "BELONGS_TO", "PARTICIPATES_IN", "ADMIN_OF", "MEMBER_OF", "PART_OF",
-    "OWNED_BY", "ASSIGNED_TO", "ATTACHED_TO", "SUBMITTED",
-    "HELD_BY", "COVERS", "PRODUCED", "BASED_ON", "CAUSED_BY",
-    "RECOMMENDED", "REFERENCES", "FOLLOWED_BY",
-    # 프론트 자유 관계 타입 (한국어 포함)
-    "참여", "관련", "연결", "포함", "협업", "공유", "지원", "검토",
+    "소속", "참여", "간사", "구성원", "포함",
+    "관할", "담당", "첨부", "제출",
+    "개최", "도출", "산출", "근거", "원인",
+    "추천", "참조", "후속",
+    # 프론트 자유 관계 타입
+    "연결", "협업", "공유", "지원", "검토", "상위", "관련", "후속회의", "출처", "생성", "세션출처",
 }
 
 
@@ -85,7 +85,7 @@ async def get_archive(
             # ── :MeetingGroup (시드) + :Meeting (pg_id 방식, 신규 sync) 모두 조회 ──
             allowed_mg_ids_rows = await _run_cypher(
                 """
-                MATCH (p:Person)-[:ADMIN_OF|MEMBER_OF]->(mg)
+                MATCH (p:Person)-[:`간사`|`구성원`]->(mg)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
                   AND (mg:MeetingGroup OR mg:Meeting)
                 RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id
@@ -134,8 +134,8 @@ async def get_archive(
     try:
         mg_rows = await _run_cypher("""
             MATCH (mg) WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg)
-            OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department)
+            OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
+            OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
             RETURN
                 coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id,
                 coalesce(mg.title, '') AS title,
@@ -149,10 +149,10 @@ async def get_archive(
         """)
 
         agenda_rows = await _run_cypher("""
-            MATCH (ag:Agenda)-[:OWNED_BY]->(mg)
+            MATCH (ag:Agenda)-[:`관할`]->(mg)
             WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (p:Person)-[:ASSIGNED_TO]->(ag)
-            OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department)
+            OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
+            OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
             RETURN
                 coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
                 coalesce(ag.id, toString(ag.pg_id)) AS id,
@@ -165,9 +165,9 @@ async def get_archive(
         """)
 
         session_rows = await _run_cypher("""
-            MATCH (s:Session)-[:HELD_BY|BELONGS_TO]->(mg)
+            MATCH (s:Session)-[:`개최`|`소속`]->(mg)
             WHERE mg:MeetingGroup OR mg:Meeting
-            OPTIONAL MATCH (s)-[:PRODUCED]->(doc:Document)
+            OPTIONAL MATCH (s)-[:`산출`]->(doc:Document)
             RETURN
                 coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
                 coalesce(mg.title, '') AS meetingTitle,
@@ -185,9 +185,9 @@ async def get_archive(
         """)
 
         report_rows = await _run_cypher("""
-            MATCH (doc:Document)-[:ATTACHED_TO]->(mg)
+            MATCH (doc:Document)-[:`첨부`]->(mg)
             WHERE (mg:MeetingGroup OR mg:Meeting) AND NOT doc.doc_type = '회의록'
-            OPTIONAL MATCH (dept:Department)-[:SUBMITTED]->(doc)
+            OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
             RETURN
                 coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
                 coalesce(mg.title, '') AS meetingTitle,
@@ -238,7 +238,7 @@ async def get_archive(
                     "userName": row.get("person_name", "?"),
                     "email": row.get("email", ""),
                     "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "ADMIN_OF" else "presenter",
+                    "role": "admin" if row.get("role") == "간사" else "presenter",
                     "department": row.get("department") or "",
                 })
 
@@ -391,7 +391,7 @@ async def create_relationship(data: dict):
         safe_rel = rel_type
     try:
         await _run_cypher(
-            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:{safe_rel}]->(b)",
+            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:`{safe_rel}`]->(b)",
             {"from_id": from_id, "to_id": to_id},
         )
     except HTTPException:
@@ -423,8 +423,8 @@ async def delete_relationship(data: dict):
 
     try:
         if use_rel_type:
-            cypher_fwd = f"MATCH (a {{id: $from_id}})-[r:{use_rel_type}]->(b {{id: $to_id}}) DELETE r"
-            cypher_rev = f"MATCH (a {{id: $to_id}})-[r:{use_rel_type}]->(b {{id: $from_id}}) DELETE r"
+            cypher_fwd = f"MATCH (a {{id: $from_id}})-[r:`{use_rel_type}`]->(b {{id: $to_id}}) DELETE r"
+            cypher_rev = f"MATCH (a {{id: $to_id}})-[r:`{use_rel_type}`]->(b {{id: $from_id}}) DELETE r"
         else:
             cypher_fwd = "MATCH (a {id: $from_id})-[r]->(b {id: $to_id}) DELETE r"
             cypher_rev = "MATCH (a {id: $to_id})-[r]->(b {id: $from_id}) DELETE r"
@@ -448,11 +448,11 @@ async def update_relationship(data: dict):
         raise HTTPException(status_code=400, detail="허용되지 않는 관계 유형")
     try:
         await _run_cypher(
-            f"MATCH (a {{id: $from_id}})-[r:{old_rel}]->(b {{id: $to_id}}) DELETE r",
+            f"MATCH (a {{id: $from_id}})-[r:`{old_rel}`]->(b {{id: $to_id}}) DELETE r",
             {"from_id": from_id, "to_id": to_id},
         )
         await _run_cypher(
-            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:{new_rel}]->(b)",
+            f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:`{new_rel}`]->(b)",
             {"from_id": from_id, "to_id": to_id},
         )
     except HTTPException:
@@ -483,7 +483,7 @@ async def create_meeting_group(data: dict):
         )
         if org_id:
             await _run_cypher(
-                "MATCH (mg:MeetingGroup {id: $mg_id}), (o:Organization {id: $org_id}) MERGE (mg)-[:PART_OF]->(o)",
+                "MATCH (mg:MeetingGroup {id: $mg_id}), (o:Organization {id: $org_id}) MERGE (mg)-[:`포함`]->(o)",
                 {"mg_id": mg_id, "org_id": org_id},
             )
         if creator_email or creator_name:
@@ -491,7 +491,7 @@ async def create_meeting_group(data: dict):
                 """
                 MATCH (mg:MeetingGroup {id: $mg_id})
                 MATCH (p:Person) WHERE p.email = $email OR p.name = $name
-                MERGE (p)-[:ADMIN_OF]->(mg)
+                MERGE (p)-[:`간사`]->(mg)
                 """,
                 {"mg_id": mg_id, "email": creator_email, "name": creator_name},
             )
@@ -542,13 +542,13 @@ async def add_member_to_group(mg_id: str, data: dict):
     person_name = data.get("name", "")
     person_email = data.get("email", "")
     role = data.get("role", "member")  # admin | member
-    rel = "ADMIN_OF" if role == "admin" else "MEMBER_OF"
+    rel = "간사" if role == "admin" else "구성원"
     try:
         await _run_cypher(
             f"""
             MATCH (mg:MeetingGroup {{id: $mg_id}})
             MATCH (p:Person) WHERE p.email = $email OR p.name = $name
-            MERGE (p)-[:{rel}]->(mg)
+            MERGE (p)-[:`{rel}`]->(mg)
             """,
             {"mg_id": mg_id, "email": person_email, "name": person_name},
         )
@@ -567,7 +567,7 @@ async def remove_member_from_group(mg_id: str, data: dict):
     try:
         await _run_cypher(
             """
-            MATCH (p:Person)-[r:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup {id: $mg_id})
+            MATCH (p:Person)-[r:`간사`|`구성원`]->(mg:MeetingGroup {id: $mg_id})
             WHERE p.email = $email OR p.name = $name
             DELETE r
             """,
@@ -603,7 +603,7 @@ async def create_session_node(data: dict):
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (s:Session {id: $s_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (s)-[:HELD_BY]->(mg)",
+                "MATCH (s:Session {id: $s_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (s)-[:`개최`]->(mg)",
                 {"s_id": s_id, "mg_id": mg_id},
             )
     except HTTPException:
@@ -638,12 +638,12 @@ async def create_agenda_node(data: dict):
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (ag:Agenda {id: $ag_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (ag)-[:OWNED_BY]->(mg)",
+                "MATCH (ag:Agenda {id: $ag_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (ag)-[:`관할`]->(mg)",
                 {"ag_id": ag_id, "mg_id": mg_id},
             )
         if assignee_name:
             await _run_cypher(
-                "MATCH (ag:Agenda {id: $ag_id}), (p:Person {name: $name}) MERGE (p)-[:ASSIGNED_TO]->(ag)",
+                "MATCH (ag:Agenda {id: $ag_id}), (p:Person {name: $name}) MERGE (p)-[:`담당`]->(ag)",
                 {"ag_id": ag_id, "name": assignee_name},
             )
     except HTTPException:

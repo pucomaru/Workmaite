@@ -221,7 +221,7 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
+                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
                 "RETURN mg.id AS mg_id",
                 {"pid": user_person_id},
             )
@@ -294,13 +294,13 @@ async def supervisor_chat(
                     if user_person_id:
                         # 현재 사용자의 소속 회의체만 조회
                         person_rows = await run_cypher(
-                            "MATCH (p:Person {id: $pid})-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                            "MATCH (p:Person {id: $pid})-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
                             "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
                             {"pid": user_person_id},
                         )
                     elif is_admin:
                         person_rows = await run_cypher(
-                            "MATCH (p:Person)-[r:MEMBER_OF]->(mg:MeetingGroup) "
+                            "MATCH (p:Person)-[r:`구성원`]->(mg:MeetingGroup) "
                             "RETURN p.name AS person, mg.title AS meeting, r.role AS role"
                         )
                     else:
@@ -717,24 +717,24 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
         if person_id:
             # 해당 사용자의 소속 회의체만 조회
             mg_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
-                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
+                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
                 "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department",
                 {"pid": person_id},
             )
             agenda_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "MATCH (ag:Agenda)-[:`관할`]->(mg) "
                 "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
                 "       ag.priority AS priority",
                 {"pid": person_id},
             )
             person_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:ADMIN_OF|MEMBER_OF]->(mg:MeetingGroup) "
-                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg) "
+                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
+                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg) "
                 "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
                 {"pid": person_id},
             )
@@ -743,19 +743,19 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
             # admin: 전체 조회
             mg_rows = await run_cypher(
                 "MATCH (mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:ADMIN_OF|MEMBER_OF]->(mg) "
-                "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Department) "
+                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
+                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
                 "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department"
             )
             agenda_rows = await run_cypher(
-                "MATCH (ag:Agenda)-[:OWNED_BY]->(mg:MeetingGroup) "
+                "MATCH (ag:Agenda)-[:`관할`]->(mg:MeetingGroup) "
                 "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
                 "       ag.priority AS priority"
             )
             person_rows = await run_cypher(
-                "MATCH (p:Person)-[r:MEMBER_OF|ADMIN_OF]->(mg:MeetingGroup) "
+                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
                 "RETURN p.name AS person, mg.title AS meeting, type(r) AS role"
             )
             scope_label = "전체 조직 (Neo4j)"
@@ -780,7 +780,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
                 mg["members"].append({
                     "name": row.get("person_name", "?"),
                     "department": row.get("department") or "",
-                    "role": "admin" if row.get("rel_type") == "ADMIN_OF" else "member",
+                    "role": "admin" if row.get("rel_type") == "간사" else "member",
                 })
     for row in agenda_rows:
         mg_id = row.get("mg_id", "")
@@ -797,7 +797,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
     for row in person_rows:
         pm[row.get("person", "?")].append({
             "title": row.get("meeting", "?"),
-            "role": "admin" if row.get("role") == "ADMIN_OF" else "member",
+            "role": "admin" if row.get("role") == "간사" else "member",
         })
     persons = [
         {"name": name, "meetings": mtgs}
