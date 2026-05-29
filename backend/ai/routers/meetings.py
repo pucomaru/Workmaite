@@ -16,7 +16,7 @@ from neo4j_sync import (
     update_meeting_member_role,
 )
 
-router = APIRouter(prefix="/api", tags=["meetings"])
+router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
 STRATEGIC_DEPT = "전략기획팀"

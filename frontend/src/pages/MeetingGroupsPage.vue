@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
-import api from '../api'
+import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
 
@@ -111,7 +111,7 @@ async function submitCreate() {
       meeting_type: createForm.value.meeting_type || null,
     })
     for (const mb of createMembers.value) {
-      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
     showCreate.value = false
   } catch (e) { alert(e.response?.data?.detail || '생성 실패') }
@@ -210,12 +210,12 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await api.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
+    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
     for (const memberId of removedIds) {
-      await api.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
+      await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }
     for (const mb of members.filter(m => m.id === null)) {
-      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
     await meetingsStore.fetchMeetings()
     const res = await api.get(`/api/v1/meetings/${meeting.id}/members`)

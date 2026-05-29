@@ -180,6 +180,10 @@ async def upload_and_embed_file(
     file: UploadFile = File(...),
     meeting_id: Optional[int] = Form(None),
     session_id: Optional[int] = Form(None),
+    agenda_neo4j_id: Optional[str] = Form(None),
+    agenda_content: Optional[str] = Form(None),
+    file_label: Optional[str] = Form(None),
+    doc_type: Optional[str] = Form("보고자료"),
     current_user: models.User = Depends(get_current_user),
 ):
     """
@@ -202,6 +206,10 @@ async def upload_and_embed_file(
         meeting_id=meeting_id,
         session_id=session_id,
         uploader_id=current_user.id,
+        agenda_neo4j_id=agenda_neo4j_id or None,
+        agenda_content=agenda_content or None,
+        file_label=file_label or None,
+        doc_type=doc_type or "보고자료",
     )
 
     return {
@@ -219,6 +227,10 @@ async def _run_embed(
     meeting_id: Optional[int],
     session_id: Optional[int],
     uploader_id: int,
+    agenda_neo4j_id: Optional[str] = None,
+    agenda_content: Optional[str] = None,
+    file_label: Optional[str] = None,
+    doc_type: str = "보고자료",
 ):
     """BackgroundTask 래퍼 — 임베딩 파이프라인 실행."""
     try:
@@ -228,6 +240,10 @@ async def _run_embed(
             meeting_id=meeting_id,
             session_id=session_id,
             extra_meta={"uploader_id": uploader_id},
+            agenda_neo4j_id=agenda_neo4j_id,
+            agenda_content=agenda_content,
+            file_label=file_label,
+            doc_type=doc_type,
         )
         logger.info(f"[Sync] 파일 임베딩 완료: {result}")
     except Exception as e:

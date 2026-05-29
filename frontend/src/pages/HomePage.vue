@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
-import api from '../api'
+import api, { apiAI } from '../api'
 
 import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
@@ -249,7 +249,7 @@ async function createMeeting() {
       end_date: form.value.end_date || null,
     })
     for (const m of selectedMembers.value) {
-      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.id, role: m.role })
+      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.id, role: m.role })
     }
     showCreateModal.value = false
     form.value = { title: '', purpose: '', start_date: '', end_date: '' }

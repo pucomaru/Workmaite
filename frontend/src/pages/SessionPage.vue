@@ -465,7 +465,7 @@ async function doCreateSessionForm() {
   creatingSessionForm.value = true
   try {
     const meetingId = createSessionForm.value.meetingId
-    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
+    await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
     })

@@ -20,7 +20,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from neo4j_sync import sync_document_chunk
+from neo4j_sync import sync_document_chunk, sync_document
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +188,10 @@ async def process_and_embed_file(
     meeting_id: int | None = None,
     session_id: int | None = None,
     extra_meta: dict | None = None,
+    agenda_neo4j_id: str | None = None,
+    agenda_content: str | None = None,
+    file_label: str | None = None,
+    doc_type: str = "보고자료",
 ) -> dict:
     """
     파일 전체 파이프라인을 실행합니다.
@@ -242,6 +246,20 @@ async def process_and_embed_file(
             failed += 1
         else:
             embedded += 1
+
+    # 5. Document 노드 upsert (파일 전체를 대표하는 노드)
+    doc_id = f"doc-{file_hash}-{meeting_id or 'g'}"
+    uploader_id = (extra_meta or {}).get("uploader_id")
+    await sync_document(
+        doc_id=doc_id,
+        file_name=file_name,
+        title=file_label or file_name,
+        doc_type=doc_type,
+        meeting_id=meeting_id,
+        agenda_neo4j_id=agenda_neo4j_id,
+        agenda_content=agenda_content,
+        uploader_id=uploader_id,
+    )
 
     logger.info(
         f"[Embedder] {file_name} 완료 — "

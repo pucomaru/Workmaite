@@ -230,7 +230,7 @@ async function doCreateSession() {
   try {
     const meetingId = sessionForm.value.meeting_id
     if (meetingId) {
-      await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
+      await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
         title: sessionForm.value.title,
         purpose: sessionForm.value.purpose || null,
         scheduled_at: sessionForm.value.date || null,
@@ -270,7 +270,7 @@ async function doCreateMeeting() {
     })
     const membersSnapshot = [...createMembers.value]  // save before clearing
     for (const m of createMembers.value) {
-      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.userId, role: m.role })
+      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.userId, role: m.role })
     }
     showCreateModal.value = false
     createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
@@ -770,19 +770,13 @@ function onGlobalMouseUp() {
           }
         } else if (tn.type === 'agenda') {
           ctx.relatedTodoId = String(tn.data?.id || '')
+          ctx.agendaContent = tn.data?.content || tn.fullContent || tn.label || ''
+          ctx.connectNodeId = tn.id  // 파일 노드를 과제 노드에 직접 연결
           // meetingGroupId: node 속성 또는 edge로 찾기
           ctx.meetingId = tn.meetingGroupId || ''
           if (!ctx.meetingId) {
             const mgEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'meeting_group')
             if (mgEdge) ctx.meetingId = gNodes[mgEdge.from]?.id || ''
-          }
-          // dept: agenda 부모 edge로 찾기
-          const deptEdge = gEdges.find(e => e.to === target.idx && gNodes[e.from]?.type === 'dept')
-          if (deptEdge) {
-            ctx.connectNodeId = gNodes[deptEdge.from]?.id || ''
-          } else {
-            // dept가 없는 경우 회의체 직접을 connectNode로
-            ctx.connectNodeId = ctx.meetingId
           }
         }
         openUploadModal(ctx)
@@ -1055,7 +1049,7 @@ async function saveApprovedTasks() {
     const saved = []
     for (const t of approved) {
       try {
-        const { data } = await apiAI.post(`/api/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
+        const { data } = await api.post(`/api/v1/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
           content: t.content,
           assignee_name: t.assignee || null,
           assignee_dept: t.dept || null,
@@ -1071,7 +1065,7 @@ async function saveApprovedTasks() {
     }
 
     // DB 저장 후 목록 새로고침
-    detailTodos.value = (await apiAI.get(`/api/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
+    detailTodos.value = (await api.get(`/api/v1/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
 
     const total = detailTodos.value.length
     const done = detailTodos.value.filter(t => t.status === 'done').length
@@ -1175,12 +1169,12 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await api.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, guidelines: form.guidelines })
+    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, guidelines: form.guidelines })
     for (const memberId of removedIds) {
-      await api.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
+      await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }
     for (const mb of members.filter(m => m.id === null)) {
-      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
     if (detailMeeting.value?.id === meeting.id) {
       detailMeeting.value.title = form.title
@@ -1236,7 +1230,7 @@ async function openDetail(groupData) {
   hoverNode.value = null
   detailTodos.value = []
   try {
-    detailTodos.value = (await apiAI.get(`/api/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
+    detailTodos.value = (await api.get(`/api/v1/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
     // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
     if (!groupTodoRatio.value.has(groupData.id)) {
@@ -1321,7 +1315,7 @@ const PRESENTATION_CRITERIA = [
 ]
 
 const showUploadModal = ref(false)
-const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', file: null })
+const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', agendaContent: '', file: null })
 const uploadMeetingTodos = ref([]) // 선택된 회의체의 과제 목록
 // 드래그로 자동 입력된 필드 추적 (직접 선택 시에는 표시 안 함)
 const prefilledCtx = ref({ meetingId: false, connectNodeId: false, relatedTodoId: false })
@@ -1337,7 +1331,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   const meetingId = id.match(/\d+$/)?.[0]
   if (!meetingId) return
   try {
-    uploadMeetingTodos.value = (await apiAI.get(`/api/meetings/${meetingId}/todos`)).data || []
+    uploadMeetingTodos.value = (await api.get(`/api/v1/meetings/${meetingId}/todos`)).data || []
     if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
   } catch { uploadMeetingTodos.value = [] }
 })
@@ -1695,17 +1689,18 @@ const connectableNodes = computed(() => {
   return result
 })
 
-// ─── Upload: dept-only connectable nodes ──────────────────────
+// ─── Upload: connectable nodes (meeting_group / dept / agenda) ──────────────
 const deptConnectableNodes = computed(() => {
-  // 선택된 회의체가 있으면 해당 회의체에 속한 부서 + 회의체 자체도 포함, 없으면 전체 유니크 부서
   if (uploadForm.value.meetingId) {
     const nodes = []
-    // meeting_group 자체도 연결 대상으로 포함
     const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
     if (mgNode) nodes.push({ id: mgNode.id, label: mgNode.label, typeLabel: '회의체', type: 'meeting_group' })
     gNodes
       .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
       .forEach(n => nodes.push({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+    gNodes
+      .filter(n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId)
+      .forEach(n => nodes.push({ id: n.id, label: n.label, typeLabel: '과제', type: 'agenda' }))
     return nodes
   }
   const seen = new Set()
@@ -1775,6 +1770,7 @@ function openUploadModal(ctx = {}) {
     relType: '생성',
     meetingId: ctx.meetingId || '',
     relatedTodoId: ctx.relatedTodoId ? String(ctx.relatedTodoId) : '',
+    agendaContent: ctx.agendaContent || '',
     file: null
   }
 }
@@ -1794,6 +1790,7 @@ async function runAiAnalysis() {
   aiAnalyzing.value = true
   uploadStep.value = 2
   const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
+            || deptConnectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
 
   // 실제 파일 내용 읽기 (텍스트 기반 파일만)
   let file_content = ''
@@ -1924,6 +1921,11 @@ function doAddFile() {
     const rawMgId = uploadForm.value.meetingId
     const mgNumId = rawMgId ? _toSqliteId(rawMgId) : null
     if (mgNumId) fd.append('meeting_id', String(mgNumId))
+    if (uploadForm.value.label) fd.append('file_label', uploadForm.value.label)
+    if (uploadForm.value.fileType) fd.append('doc_type', uploadForm.value.fileType)
+    // 과제 노드에 드래그한 경우 — Agenda / Document 노드 연결
+    if (uploadForm.value.relatedTodoId) fd.append('agenda_neo4j_id', uploadForm.value.relatedTodoId)
+    if (uploadForm.value.agendaContent) fd.append('agenda_content', uploadForm.value.agendaContent)
     apiAI.post('/api/sync/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then(() => setTimeout(refreshArchive, 1200))
       .catch(e => console.warn('[doAddFile] sync/file 실패:', e))
