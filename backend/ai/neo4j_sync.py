@@ -158,7 +158,7 @@ async def sync_session(
         s.updated_at   = $updated_at
     WITH s
     MATCH (m:Meeting {pg_id: $meeting_id})
-    MERGE (s)-[:BELONGS_TO]->(m)
+    MERGE (s)-[:`소속`]->(m)
     """
     params = {
         "pg_id": session_id,
@@ -234,11 +234,11 @@ async def sync_agenda(
         ag.updated_at   = $updated_at
     WITH ag
     MATCH (m:Meeting {pg_id: $meeting_id})
-    MERGE (ag)-[:OWNED_BY]->(m)
+    MERGE (ag)-[:`관할`]->(m)
     WITH ag
     OPTIONAL MATCH (p:Person {pg_id: $assignee_id})
     FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (p)-[:ASSIGNED_TO]->(ag)
+        MERGE (p)-[:`담당`]->(ag)
     )
     """
     params = {
@@ -276,7 +276,7 @@ async def sync_minutes(
         mn.updated_at      = $updated_at
     WITH mn
     MATCH (s:Session {pg_id: $session_id})
-    MERGE (mn)-[:PRODUCED_BY]->(s)
+    MERGE (mn)-[:`생성`]->(s)
     """
     params = {
         "pg_id": minutes_id,
@@ -301,11 +301,11 @@ async def sync_meeting_member(
     role: str = "MEMBER",
 ) -> None:
     """Person → Meeting 멤버십 관계를 Neo4j에 upsert합니다."""
-    rel = "ADMIN_OF" if role.upper() in ("ADMIN", "ADMIN_OF") else "MEMBER_OF"
+    rel = "간사" if role.upper() in ("ADMIN", "ADMIN_OF", "간사") else "구성원"
     cypher = f"""
     MATCH (m:Meeting {{pg_id: $meeting_id}})
     MATCH (p:Person {{pg_id: $user_id}})
-    MERGE (p)-[:{rel}]->(m)
+    MERGE (p)-[:`{rel}`]->(m)
     """
     params = {"meeting_id": meeting_id, "user_id": user_id}
     try:
@@ -349,13 +349,13 @@ async def sync_document_chunk(
     // Meeting과 연결
     OPTIONAL MATCH (m:Meeting {pg_id: $meeting_id})
     FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (dc)-[:FROM_MEETING]->(m)
+        MERGE (dc)-[:`출처`]->(m)
     )
     WITH dc
     // Session과 연결
     OPTIONAL MATCH (s:Session {pg_id: $session_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (dc)-[:FROM_SESSION]->(s)
+        MERGE (dc)-[:`세션출처`]->(s)
     )
     """
     params = {
@@ -635,7 +635,7 @@ async def delete_agenda(agenda_id: int) -> None:
 async def delete_meeting_member(meeting_id: int, user_id: int) -> None:
     """Person → Meeting 멤버십 관계를 Neo4j에서 삭제합니다."""
     cypher = """
-    MATCH (p:Person {pg_id: $user_id})-[r:ADMIN_OF|MEMBER_OF]->(m:Meeting {pg_id: $meeting_id})
+    MATCH (p:Person {pg_id: $user_id})-[r:`간사`|`구성원`]->(m:Meeting {pg_id: $meeting_id})
     DELETE r
     """
     params = {"meeting_id": meeting_id, "user_id": user_id}
@@ -654,15 +654,15 @@ async def sync_meeting_relation(
 ) -> None:
     """회의체 간 관계(MeetingRelation)를 Neo4j에 upsert합니다."""
     rel_map = {
-        "PARENT_OF": "PARENT_OF",
-        "RELATED_TO": "RELATED_TO",
-        "FOLLOW_UP": "FOLLOW_UP",
+        "PARENT_OF": "상위",
+        "RELATED_TO": "관련",
+        "FOLLOW_UP": "후속회의",
     }
     rel = rel_map.get(relation_type.upper(), "RELATED_TO")
     cypher = f"""
     MATCH (src:Meeting {{pg_id: $src_id}})
     MATCH (tgt:Meeting {{pg_id: $tgt_id}})
-    MERGE (src)-[:{rel}]->(tgt)
+    MERGE (src)-[:`{rel}`]->(tgt)
     """
     params = {"src_id": source_meeting_id, "tgt_id": target_meeting_id}
     try:

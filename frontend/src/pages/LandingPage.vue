@@ -1,11 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import araImg from '../assets/agents/ara.png'
-import gaonImg from '../assets/agents/gaon.png'
-import hyeanImg from '../assets/agents/hyean.png'
-import naonImg from '../assets/agents/naon.png'
-import naruImg from '../assets/agents/naru.png'
 import LoginPopup from '../components/LoginPopup.vue'
 import RegisterPopup from '../components/RegisterPopup.vue'
 
@@ -221,18 +216,10 @@ const features = [
   { icon: 'bi bi-journal-text fs-4', title: '자동 회의록 생성', desc: '실시간 STT와 AI 요약으로 완성도 높은 회의록을 자동으로 작성합니다.', bg: '#dbeafe', color: '#1e40af' },
   { icon: 'bi bi-layout-text-window fs-4', title: '의제 관리', desc: '회의 의제를 체계적으로 관리하고 발제자료를 한 곳에서 공유합니다.', bg: '#d1fae5', color: '#065f46' },
   { icon: 'bi bi-check2-square fs-4', title: '태스크 추적', desc: '회의에서 결정된 Action Item을 자동 등록하고 완료 여부를 추적합니다.', bg: '#fef3c7', color: '#92400e' },
-  { icon: 'bi bi-newspaper fs-4', title: '카드뉴스 생성', desc: '회의 결과를 임원 보고용 카드뉴스로 자동 변환합니다.', bg: '#fce7f3', color: '#9d174d' },
   { icon: 'bi bi-calendar3 fs-4', title: '일정 통합 관리', desc: '모든 회의 일정을 달력에서 한눈에 확인하고 관리합니다.', bg: '#ede9fe', color: '#5b21b6' },
   { icon: 'bi bi-robot fs-4', title: 'AI 에이전트 협업', desc: '전문화된 5개의 AI 에이전트가 회의의 각 단계에서 지원합니다.', bg: '#ffedd5', color: '#9a3412' },
 ]
 
-const agents = [
-  { img: araImg,   name: '아라', role: '회의 진행' },
-  { img: gaonImg,  name: '가온', role: '의제 분석' },
-  { img: hyeanImg, name: '혜안', role: '인사이트' },
-  { img: naonImg,  name: '나온', role: '회의록' },
-  { img: naruImg,  name: '나루', role: '후속조치' },
-]
 </script>
 
 <template>
@@ -284,11 +271,11 @@ const agents = [
           모든 회의 프로세스를 자동화합니다.
         </p>
         <div class="d-flex gap-3 justify-content-center flex-wrap">
-          <button class="btn btn-warning btn-lg fw-bold px-5 py-3" @click="openRegister">
-            무료로 시작하기 <i class="bi bi-arrow-right ms-1"></i>
-          </button>
           <button class="btn btn-outline-light btn-lg px-5 py-3" @click="openLogin">
             로그인
+          </button>
+          <button class="btn btn-warning btn-lg fw-bold px-5 py-3" @click="openRegister">
+            회원가입 <i class="bi bi-arrow-right ms-1"></i>
           </button>
         </div>
         <div class="hero-stats mt-5">
@@ -317,7 +304,7 @@ const agents = [
           <h2 class="fw-bold fs-2 mb-2" style="color: var(--primary)">왜 workma!te인가요?</h2>
           <p class="text-muted">AI 에이전트들이 협업하여 회의의 모든 단계를 지원합니다</p>
         </div>
-        <div class="row g-4">
+        <!-- <div class="row g-4">
           <div v-for="feat in features" :key="feat.title" class="col-md-6 col-lg-4">
             <div class="feature-card card h-100 p-4">
               <div class="feature-icon mb-3" :style="{ background: feat.bg }">
@@ -327,30 +314,10 @@ const agents = [
               <p class="text-muted small mb-0">{{ feat.desc }}</p>
             </div>
           </div>
-        </div>
+        </div> -->
       </div>
     </section>
 
-    <!-- Agents -->
-    <section class="agents-section py-6" style="background: var(--bg)">
-      <div class="container">
-        <div class="text-center mb-5">
-          <h2 class="fw-bold fs-2 mb-2" style="color: var(--primary)">AI 에이전트</h2>
-          <p class="text-muted">각 역할에 특화된 AI가 회의를 함께합니다</p>
-        </div>
-        <div class="row g-3 justify-content-center">
-          <div v-for="agent in agents" :key="agent.name" class="col-6 col-md-4 col-lg-2-4">
-            <div class="agent-card card text-center p-4 h-100">
-              <div class="agent-avatar mb-3">
-                <img :src="agent.img" :alt="agent.name" class="agent-img" />
-              </div>
-              <h6 class="fw-bold mb-1">{{ agent.name }}</h6>
-              <p class="text-muted small mb-0">{{ agent.role }}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- CTA -->
     <section class="cta-section text-center py-6">
@@ -358,7 +325,7 @@ const agents = [
         <h2 class="fw-bold fs-2 text-white mb-3">지금 바로 시작하세요</h2>
         <p class="text-white-50 mb-4 fs-6">무료로 가입하고 AI가 이끄는 스마트한 회의를 경험해보세요</p>
         <button class="btn btn-warning btn-lg fw-bold px-5 py-3" @click="openRegister">
-          무료 회원가입 <i class="bi bi-arrow-right ms-1"></i>
+          회원가입 <i class="bi bi-arrow-right ms-1"></i>
         </button>
       </div>
     </section>
@@ -366,7 +333,7 @@ const agents = [
     <!-- Footer -->
     <footer class="landing-footer py-4">
       <div class="container text-center text-muted small">
-        <span class="fw-bold" style="color: var(--primary)">workma!te</span> © 2025 — AI 기반 회의 운영 플랫폼
+        <span class="fw-bold" style="color: var(--primary)">workmaite</span> © 2026 — AI Archive Link Platform
       </div>
     </footer>
 
@@ -509,12 +476,6 @@ const agents = [
 .feature-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg) !important; }
 .feature-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 
-/* Agents */
-.agent-card { border: 1px solid var(--border) !important; transition: transform .2s, box-shadow .2s; }
-.agent-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg) !important; }
-.agent-avatar { width: 80px; height: 80px; border-radius: 50%; overflow: hidden; margin: 0 auto; border: 2px solid var(--border); }
-.agent-img { width: 100%; height: 100%; object-fit: cover; }
-.col-lg-2-4 { width: 20%; }
 
 /* Popup */
 .popup-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
