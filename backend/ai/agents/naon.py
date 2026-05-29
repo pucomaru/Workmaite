@@ -613,7 +613,7 @@ async def extract_params_from_chat(
     """
     대화 기록에서 카드뉴스 생성에 필요한 파라미터를 LLM으로 추출합니다.
     반환: {session_ids, target_audience, include_minutes, include_reports,
-           include_agendas, include_todos, include_decisions, confidence, summary}
+           include_agendas, include_decisions, confidence, summary}
     """
     sessions_info = "\n".join(
         f"- {s['session_number']}차: {s.get('title', '(제목 없음)')} (id={s['id']})"
@@ -634,7 +634,6 @@ async def extract_params_from_chat(
   "include_minutes": true,
   "include_reports": true,
   "include_agendas": true,
-  "include_todos": true,
   "include_decisions": true,
   "confidence": 0.5,
   "summary": "설정 요약 한 줄"
@@ -667,7 +666,7 @@ async def extract_params_from_chat(
     # 기본값 보정
     result.setdefault("session_ids", [])
     result.setdefault("target_audience", "staff")
-    for key in ("include_minutes", "include_reports", "include_agendas", "include_todos", "include_decisions"):
+    for key in ("include_minutes", "include_reports", "include_agendas", "include_decisions"):
         result.setdefault(key, True)
     result.setdefault("confidence", 0.5)
     result.setdefault("summary", "전체 회의 / 구성원 대상 / 전체 자료")

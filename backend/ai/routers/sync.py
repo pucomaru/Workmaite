@@ -30,7 +30,6 @@ from neo4j_sync import (
     sync_session,
     sync_agenda,
     sync_user,
-    sync_todo,
     sync_minutes,
     sync_meeting_member,
     delete_meeting,
@@ -292,31 +291,6 @@ async def sync_agenda_manual(
         assignee_id=agenda.assignee_id,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
-
-
-# ─── Todo 수동 동기화 ──────────────────────────────────────────────────────────
-
-@router.post("/todo/{todo_id}")
-async def sync_todo_manual(
-    todo_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """특정 Todo를 Neo4j에 수동으로 동기화합니다."""
-    todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo를 찾을 수 없습니다.")
-    await sync_todo(
-        todo_id=todo.id,
-        meeting_id=todo.meeting_id,
-        content=todo.content or "",
-        user_id=todo.user_id,
-        assignee_name=getattr(todo, "assignee_name", None),
-        status=str(todo.status or "pending"),
-        due_date=todo.due_date.isoformat() if todo.due_date else None,
-        priority=str(getattr(todo, "priority", None) or "normal"),
-    )
-    return {"success": True, "todo_id": todo_id, "content": todo.content}
 
 
 # ─── Minutes 수동 동기화 ──────────────────────────────────────────────────────

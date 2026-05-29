@@ -12,7 +12,6 @@ neo4j_sync.py — Dual-Write 동기화 서비스
   Session       → :Session          (pg_id=PostgreSQL PK)
   User          → :Person           (pg_id=PostgreSQL PK)
   Agenda        → :Agenda           (pg_id=PostgreSQL PK)
-  Todo          → :Todo             (pg_id=PostgreSQL PK)
   Minutes       → :Minutes          (pg_id=PostgreSQL PK)
   MeetingMember → (Person)-[]->(Meeting) 관계
   FileChunk     → :DocumentChunk    (with embedding vector)
@@ -260,56 +259,6 @@ async def sync_agenda(
         _log_failure("sync_agenda", "agenda", str(agenda_id), e, params)
 
 
-# ─── Todo 동기화 ──────────────────────────────────────────────────────────────
-
-async def sync_todo(
-    todo_id: int,
-    meeting_id: int,
-    content: str,
-    user_id: int | None = None,
-    assignee_name: str | None = None,
-    status: str = "pending",
-    due_date: str | None = None,
-    priority: str = "normal",
-) -> None:
-    """Todo 노드를 Neo4j에 upsert하고 Meeting/Person과 관계를 맺습니다."""
-    cypher = """
-    MERGE (t:Todo {pg_id: $pg_id})
-    SET t.meeting_id    = $meeting_id,
-        t.content       = $content,
-        t.status        = $status,
-        t.due_date      = $due_date,
-        t.priority      = $priority,
-        t.assignee_name = $assignee_name,
-        t.updated_at    = $updated_at
-    WITH t
-    MATCH (m:Meeting {pg_id: $meeting_id})
-    MERGE (t)-[:BELONGS_TO]->(m)
-    WITH t
-    OPTIONAL MATCH (p:Person {pg_id: $user_id})
-    FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (p)-[:ASSIGNED_TO]->(t)
-    )
-    """
-    params = {
-        "pg_id": todo_id,
-        "meeting_id": meeting_id,
-        "content": content,
-        "user_id": user_id,
-        "assignee_name": assignee_name or "",
-        "status": status,
-        "due_date": due_date or "",
-        "priority": priority,
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-    try:
-        await run_cypher(cypher, params)
-        logger.debug(f"[Neo4jSync] Todo {todo_id} 동기화 완료")
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Todo {todo_id} 동기화 실패: {e}")
-        _log_failure("sync_todo", "todo", str(todo_id), e, params)
-
-
 # ─── Minutes 동기화 ───────────────────────────────────────────────────────────
 
 async def sync_minutes(
@@ -549,18 +498,6 @@ async def retry_failed_syncs(max_retries: int = 3) -> dict:
                         assignee_id=payload.get("assignee_id"),
                     )
                     success = True
-                elif op == "sync_todo":
-                    await sync_todo(
-                        todo_id=int(payload.get("pg_id", log.entity_id)),
-                        meeting_id=int(payload.get("meeting_id", 0)),
-                        content=payload.get("content", ""),
-                        user_id=payload.get("user_id"),
-                        assignee_name=payload.get("assignee_name"),
-                        status=payload.get("status", "pending"),
-                        due_date=payload.get("due_date"),
-                        priority=payload.get("priority", "normal"),
-                    )
-                    success = True
                 elif op == "sync_minutes":
                     decisions_raw = payload.get("decisions", "[]")
                     decisions_list = json.loads(decisions_raw) if isinstance(decisions_raw, str) else decisions_raw
@@ -693,17 +630,6 @@ async def delete_agenda(agenda_id: int) -> None:
     except Exception as e:
         logger.error(f"[Neo4jSync] Agenda {agenda_id} 삭제 실패: {e}")
         _log_failure("delete_agenda", "agenda", str(agenda_id), e)
-
-
-async def delete_todo(todo_id: int) -> None:
-    """Todo 노드를 Neo4j에서 삭제합니다."""
-    cypher = "MATCH (t:Todo {pg_id: $pg_id}) DETACH DELETE t"
-    try:
-        await run_cypher(cypher, {"pg_id": todo_id})
-        logger.debug(f"[Neo4jSync] Todo {todo_id} 삭제 완료")
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Todo {todo_id} 삭제 실패: {e}")
-        _log_failure("delete_todo", "todo", str(todo_id), e)
 
 
 async def delete_meeting_member(meeting_id: int, user_id: int) -> None:

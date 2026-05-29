@@ -137,51 +137,6 @@ class SttSegmentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Todo
-class TodoCreate(BaseModel):
-    content: str
-    assignee_name: Optional[str] = None
-    assignee_dept: Optional[str] = None
-    how: Optional[str] = None
-    why: Optional[str] = None
-    priority: Optional[str] = "normal"  # urgent_important | important | urgent | low | normal
-    tags: Optional[list] = None
-    due_date: Optional[datetime] = None
-    agenda_id: Optional[int] = None
-    source_type: Optional[str] = "report"
-
-
-class TodoUpdate(BaseModel):
-    content: Optional[str] = None
-    assignee_name: Optional[str] = None
-    assignee_dept: Optional[str] = None
-    how: Optional[str] = None
-    why: Optional[str] = None
-    priority: Optional[str] = None
-    tags: Optional[list] = None
-    due_date: Optional[datetime] = None
-    status: Optional[str] = None  # pending | in_progress | at_risk | done | on_hold
-
-
-class TodoOut(BaseModel):
-    id: int
-    meeting_id: int
-    user_id: int
-    agenda_id: Optional[int]
-    content: str
-    assignee_name: Optional[str] = None
-    assignee_dept: Optional[str] = None
-    how: Optional[str] = None
-    why: Optional[str] = None
-    priority: Optional[str] = "normal"
-    tags: Optional[Any] = None
-    due_date: Optional[datetime]
-    status: str
-    source_type: str
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
 
 # Report
 class ReportOut(BaseModel):
@@ -429,7 +384,6 @@ class CardNewsPlanRequest(BaseModel):
     include_minutes: Optional[bool] = True
     include_reports: Optional[bool] = True
     include_agendas: Optional[bool] = True
-    include_todos: Optional[bool] = True
     include_decisions: Optional[bool] = True
     # 스타일 힌트
     slide_count: Optional[int] = None
