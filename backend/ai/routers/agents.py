@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
-from agents import gaon, naru, ara, naon, hyean
+from agents import task_agent, knowledge_agent, minutes_agent, report_agent
 from datetime import datetime
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 
@@ -110,7 +110,7 @@ async def ara_sessions_chat(
         extra_context += f"\n\n[세션별 회의록]\n" + "\n\n".join(session_summaries)
 
     async def stream():
-        async for chunk in ara.chat_stream(
+        async for chunk in minutes_agent.chat_stream(
             message=data.message,
             chat_history=data.chat_history or [],
             previous_minutes=[extra_context],
