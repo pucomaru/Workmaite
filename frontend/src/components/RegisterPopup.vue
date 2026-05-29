@@ -7,15 +7,13 @@ const emit = defineEmits(['close', 'go-login'])
 const router = useRouter()
 const auth = useAuthStore()
 
-// ── State ────────────────────────────────────────────────────
-const step = ref(1)   // 1: 이메일 입력, 2: 세부정보, 3: 완료
+const step = ref(1)
 const form = ref({ email: '', name: '', password: '', confirm: '', organization: '', department: '', position: '' })
 const error = ref('')
 const loading = ref(false)
 const showPw = ref(false)
 const showConfirm = ref(false)
 
-// ── Validators ───────────────────────────────────────────────
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email))
 
 const pwStrength = computed(() => {
@@ -31,7 +29,8 @@ const pwStrength = computed(() => {
 const pwStrengthLabel = computed(() => ['', '매우 약함', '약함', '보통', '강함'][pwStrength.value] || '')
 const pwStrengthColor = computed(() => ['', '#ef4444', '#f59e0b', '#3b82f6', '#10b981'][pwStrength.value] || '')
 const pwMatch = computed(() => form.value.confirm && form.value.password === form.value.confirm)
-const step2Valid = computed(() =>
+const formValid = computed(() =>
+  emailValid.value &&
   form.value.name.trim() &&
   form.value.organization.trim() &&
   form.value.department.trim() &&
@@ -42,12 +41,6 @@ const step2Valid = computed(() =>
   pwMatch.value
 )
 
-const steps = [
-  { label: '이메일 입력' },
-  { label: '세부 정보' },
-]
-
-// ── Actions ──────────────────────────────────────────────────
 async function submit() {
   error.value = ''
   loading.value = true
@@ -61,7 +54,7 @@ async function submit() {
       position: form.value.position,
     })
     await auth.loginWithEmail(form.value.email, form.value.password)
-    step.value = 3
+    step.value = 2
   } catch (e) {
     error.value = e.response?.data?.message || e.message || '회원가입에 실패했습니다.'
   } finally {
@@ -79,26 +72,13 @@ async function submit() {
       <h5 class="fw-bold mb-0" style="color:var(--primary)">workma<span style="color:#f59e0b">!</span>te</h5>
     </div>
 
-    <!-- Step indicator -->
-    <div v-if="step < 3" class="step-bar mb-4">
-      <div v-for="(s, i) in steps" :key="i" class="step-dot-wrap">
-        <div class="step-node"
-          :class="{ active: step === i+1, done: step > i+1 }">
-          <i v-if="step > i+1" class="bi bi-check-lg"></i>
-          <span v-else>{{ i+1 }}</span>
-        </div>
-        <div class="step-node-label">{{ s.label }}</div>
-        <div v-if="i < steps.length-1" class="step-line"
-          :class="{ done: step > i+1 }"></div>
-      </div>
-    </div>
-
-    <!-- ── STEP 1: 이메일 입력 ──────────────────────── -->
+    <!-- ── STEP 1: 회원가입 폼 ──────────────────────── -->
     <div v-if="step === 1">
-      <h5 class="fw-bold mb-1" style="color:var(--primary)">이메일 입력</h5>
-      <p class="text-muted small mb-4">사용할 이메일 주소를 입력하세요</p>
+      <h5 class="fw-bold mb-1" style="color:var(--primary)">회원가입</h5>
+      <p class="text-muted small mb-4">정보를 입력하고 계정을 만드세요</p>
 
-      <div class="mb-4">
+      <!-- 이메일 -->
+      <div class="mb-3">
         <label class="form-label">이메일 <span class="text-danger">*</span></label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
@@ -107,25 +87,14 @@ async function submit() {
           <input v-model="form.email" type="email"
             class="form-control border-start-0"
             :class="form.email ? (emailValid ? 'is-valid' : 'is-invalid') : ''"
-            placeholder="name@company.com"
-            @keyup.enter="emailValid && (step = 2)" />
+            placeholder="name@company.com" />
         </div>
         <div v-if="form.email && !emailValid" class="invalid-feedback d-block small">
           올바른 이메일 형식을 입력하세요
         </div>
       </div>
 
-      <button class="btn btn-primary w-100 py-2 fw-semibold"
-        :disabled="!emailValid" @click="step = 2">
-        다음 <i class="bi bi-arrow-right ms-1"></i>
-      </button>
-    </div>
-
-    <!-- ── STEP 2: 세부 정보 ─────────────────────── -->
-    <div v-else-if="step === 2">
-      <h5 class="fw-bold mb-1" style="color:var(--primary)">세부 정보 입력</h5>
-      <p class="text-muted small mb-4">이름, 소속 정보, 비밀번호를 설정하세요</p>
-
+      <!-- 이름 -->
       <div class="mb-3">
         <label class="form-label">이름 <span class="text-danger">*</span></label>
         <div class="input-group">
@@ -138,6 +107,7 @@ async function submit() {
         </div>
       </div>
 
+      <!-- 조직 / 부서 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="mb-3">
         <div>
           <label class="form-label">조직 <span class="text-danger">*</span></label>
@@ -149,11 +119,13 @@ async function submit() {
         </div>
       </div>
 
+      <!-- 직책 -->
       <div class="mb-3">
         <label class="form-label">직책 <span class="text-danger">*</span></label>
         <input v-model="form.position" type="text" class="form-control" placeholder="예: 매니저" />
       </div>
 
+      <!-- 비밀번호 -->
       <div class="mb-3">
         <label class="form-label">비밀번호 <span class="text-danger">*</span></label>
         <div class="input-group">
@@ -193,6 +165,7 @@ async function submit() {
         </div>
       </div>
 
+      <!-- 비밀번호 확인 -->
       <div class="mb-4">
         <label class="form-label">비밀번호 확인</label>
         <div class="input-group">
@@ -217,20 +190,15 @@ async function submit() {
         <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
       </div>
 
-      <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary" @click="step = 1">
-          <i class="bi bi-arrow-left"></i>
-        </button>
-        <button class="btn btn-primary flex-grow-1 py-2 fw-semibold"
-          :disabled="!step2Valid || loading" @click="submit">
-          <span v-if="loading" class="spinner-border spinner-border-sm me-2" />
-          {{ loading ? '가입 중...' : '회원가입 완료' }}
-        </button>
-      </div>
+      <button class="btn btn-primary w-100 py-2 fw-semibold"
+        :disabled="!formValid || loading" @click="submit">
+        <span v-if="loading" class="spinner-border spinner-border-sm me-2" />
+        {{ loading ? '가입 중...' : '회원가입' }}
+      </button>
     </div>
 
-    <!-- ── STEP 3: 완료 ──────────────────────────────── -->
-    <div v-else-if="step === 3" class="text-center py-3">
+    <!-- ── STEP 2: 완료 ──────────────────────────────── -->
+    <div v-else-if="step === 2" class="text-center py-3">
       <div class="success-icon mb-3">
         <i class="bi bi-check-lg text-white fs-2"></i>
       </div>
@@ -245,7 +213,7 @@ async function submit() {
     </div>
 
     <!-- Footer link -->
-    <div v-if="step < 3" class="text-center mt-4 small text-muted">
+    <div v-if="step < 2" class="text-center mt-4 small text-muted">
       이미 계정이 있으신가요?
       <button class="btn btn-link btn-sm p-0 fw-semibold" style="color:var(--accent)"
         @click="emit('go-login')">로그인</button>
@@ -263,50 +231,8 @@ async function submit() {
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 900; color: #f59e0b;
 }
-
-/* Step bar */
-.step-bar {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-}
-.step-dot-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-  position: relative;
-}
-.step-dot-wrap:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  width: 100%;
-  height: 2px;
-  background: var(--border);
-  z-index: 0;
-}
-.step-node {
-  width: 28px; height: 28px; border-radius: 50%;
-  border: 2px solid var(--border);
-  background: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700;
-  color: var(--text-muted);
-  position: relative; z-index: 1;
-  transition: all .2s;
-}
-.step-node.active { border-color: var(--primary); background: var(--primary); color: #fff; }
-.step-node.done { border-color: var(--success); background: var(--success); color: #fff; }
-.step-node-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: center; white-space: nowrap; }
-.step-line { display: none; }
-
-/* Form */
 .input-group-text { border-color: var(--border); }
 .form-control { border-color: var(--border); font-size: 13px; }
-
-/* Success icon */
 .success-icon {
   width: 64px; height: 64px; border-radius: 50%;
   background: linear-gradient(135deg, #10b981, #059669);
