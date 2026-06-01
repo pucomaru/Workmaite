@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 8000
 
 # uvicorn으로 FastAPI 실행, 0.0.0.0은 외부 접근 허용
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]# updated
