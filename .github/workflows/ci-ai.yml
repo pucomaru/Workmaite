@@ -34,7 +34,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./ai   # ai 폴더의 Dockerfile 사용
+          context: ./backend/ai
+          file: ./ai/Dockerfile   # ai 폴더의 Dockerfile 사용
           push: true
           tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:${{ env.IMAGE_TAG }}
 
