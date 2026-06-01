@@ -236,18 +236,25 @@ async function doCreateMeeting() {
       start_date: createForm.value.start_date || null, end_date: createForm.value.end_date || null,
       guidelines: createForm.value.guidelines || null, meeting_type: createForm.value.meeting_type || null,
     })
-    const membersSnapshot = [...createMembers.value]  // save before clearing
     for (const m of createMembers.value) {
       await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.userId, role: m.role })
     }
-    showCreateModal.value = false
     createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
     createMembers.value = []; createMemberSearch.value = ''; createMemberResults.value = []
     createConnectNodeId.value = ''
-    // 아카이브 재로드: SQLite 즉시 반영 후 Neo4j 동기화까지 대기(1s)
+    await meetingsStore.fetchMeetings()
     await refreshArchive()
+    await nextTick()
+    const g = buildGraphNodes()
+    if (g.nodes.length > 0) {
+      gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+    }
     setTimeout(refreshArchive, 1000)
-  } finally { creating.value = false }
+  } catch(e) { console.error(e) }
+  finally {
+    showCreateModal.value = false
+    creating.value = false
+  }
 }
 
 // ─── Agents ───────────────────────────────────────────────────
