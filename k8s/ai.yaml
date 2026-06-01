@@ -28,7 +28,7 @@ spec:
                 name: ai-secret
           env:
             - name: NEO4J_URL
-              value: "bolt://workmaite-neo4j:7687"
+              value: "http://workmaite-neo4j:7474"
             - name: DB_HOST
               value: "postgres-1-postgresql.postgres.svc.cluster.local"
           readinessProbe:
