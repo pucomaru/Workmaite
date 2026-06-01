@@ -2,6 +2,7 @@ import os
 import asyncio
 import base64
 import httpx
+import re
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
@@ -28,7 +29,11 @@ ALLOWED_REL_TYPES = {
 
 
 def _cypher_endpoint():
-    return f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit"
+    url = NEO4J_URL
+    if url.startswith(("bolt://", "neo4j://")):
+        url = re.sub(r"^bolt://|^neo4j://", "http://", url)
+        url = re.sub(r":7687(?=$|/)", ":7474", url)
+    return f"{url.rstrip('/')}/db/{NEO4J_DB}/tx/commit"
 
 
 def _auth_header():

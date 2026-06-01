@@ -1,5 +1,5 @@
 """Neo4j HTTP REST 클라이언트 — 모든 에이전트/라우터가 공유합니다."""
-import os, base64
+import os, base64, re
 import httpx
 from fastapi import HTTPException
 
@@ -10,7 +10,13 @@ NEO4J_DB       = os.getenv("NEO4J_DATABASE", "neo4j")
 
 
 def _cypher_endpoint() -> str:
-    return f"{NEO4J_URL}/db/{NEO4J_DB}/tx/commit"
+    # Support cases where NEO4J_URL is provided as a bolt:// or neo4j:// URI
+    url = NEO4J_URL
+    if url.startswith(("bolt://", "neo4j://")):
+        # convert bolt://host:7687 -> http://host:7474
+        url = re.sub(r"^bolt://|^neo4j://", "http://", url)
+        url = re.sub(r":7687(?=$|/)", ":7474", url)
+    return f"{url.rstrip('/')}/db/{NEO4J_DB}/tx/commit"
 
 
 def _auth_header() -> dict:
