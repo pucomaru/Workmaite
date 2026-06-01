@@ -251,11 +251,16 @@ async def get_archive(
                     "department": row.get("department") or "",
                 })
 
+    # 동일 Agenda에 담당 관계가 여러 개면 중복 row가 생기므로 id 기준으로 병합
+    agenda_map: dict[str, dict] = {}
     for row in agenda_rows:
         mg_id = row.get("meetingId")
-        if mg_id and mg_id in meetings_map:
-            meetings_map[mg_id]["tasks"].append({
-                "id": row["id"], "meetingId": mg_id,
+        ag_id = row.get("id")
+        if not mg_id or mg_id not in meetings_map or not ag_id:
+            continue
+        if ag_id not in agenda_map:
+            agenda_map[ag_id] = {
+                "id": ag_id, "meetingId": mg_id,
                 "content": row.get("content", ""),
                 "description": row.get("description", ""),
                 "category": row.get("category"),
@@ -263,9 +268,17 @@ async def get_archive(
                 "status": row.get("status", "pending"),
                 "due_date": row.get("due_date"),
                 "created_at": row.get("created_at"),
-                "assignee_name": row.get("assignee_name"),
+                "assignee_names": [],   # 담당자 여러 명 지원
                 "assignee_dept": row.get("assignee_dept", ""),
-            })
+            }
+        if row.get("assignee_name"):
+            names = agenda_map[ag_id]["assignee_names"]
+            if row["assignee_name"] not in names:
+                names.append(row["assignee_name"])
+    for ag in agenda_map.values():
+        # assignee_name: 첫 번째 담당자 (하위 호환), assignee_names: 전체 목록
+        ag["assignee_name"] = ag["assignee_names"][0] if ag["assignee_names"] else None
+        meetings_map[ag["meetingId"]]["tasks"].append(ag)
 
     seen_sessions: set[str] = set()
     for row in session_rows:

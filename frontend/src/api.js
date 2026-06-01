@@ -76,9 +76,32 @@ apiAI.interceptors.request.use(config => {
 
 apiAI.interceptors.response.use(
   res => res,
-  err => {
+  async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
       return Promise.reject(new Error('AI 서버에 연결할 수 없습니다.'))
+    }
+    if (err.response?.status === 401 && !err.config._retry) {
+      const refreshToken = sessionStorage.getItem('refreshToken')
+      if (refreshToken) {
+        err.config._retry = true
+        try {
+          const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
+          const newToken = data.data?.accessToken || data.accessToken
+          sessionStorage.setItem('token', newToken)
+          sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken)
+          err.config.headers.Authorization = `Bearer ${newToken}`
+          return apiAI(err.config)
+        } catch {
+          sessionStorage.removeItem('token')
+          sessionStorage.removeItem('refreshToken')
+          sessionStorage.removeItem('user')
+          window.location.href = '/landing'
+        }
+      } else {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('user')
+        window.location.href = '/landing'
+      }
     }
     return Promise.reject(err)
   }

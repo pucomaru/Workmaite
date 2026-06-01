@@ -590,14 +590,109 @@ function onGlobalMouseMove(e) {
   if (sidebarResizing) {
     sidebarW.value = Math.max(200, Math.min(480, srStartW + (e.clientX - srStartX)))
   }
+
+  if (floatDragging.value) {
+    floatDragPos.value = { x: e.clientX, y: e.clientY }
+    if (Math.hypot(e.clientX - floatDragStartX, e.clientY - floatDragStartY) > 5) floatDragMoved = true
+
+    if (graphViewRef.value) {
+      const anyNode   = graphViewRef.value.getNodeAtScreen(e.clientX, e.clientY)
+      const validTypes = FLOAT_VALID_TYPES[floatDragging.value] ?? []
+      const isValid   = anyNode && validTypes.includes(anyNode.type)
+
+      floatDragTarget      = isValid ? anyNode : null
+      floatDragNearInvalid = !!(anyNode && !isValid)
+
+      if (isValid) {
+        const pos = graphViewRef.value.getNodeScreenPos(anyNode.id)
+        if (pos) {
+          floatDragPreviewLine.value = { x1: pos.x, y1: pos.y, x2: e.clientX, y2: e.clientY }
+        }
+      } else {
+        floatDragPreviewLine.value = null
+      }
+    }
+  }
 }
+
 function onGlobalMouseUp() {
   sidebarResizing = false
+  if (floatDragging.value) _onFloatDragEnd()
 }
 
 // ─── Hover ────────────────────────────────────────────
 const hoverNode = ref(null)
 let hoverNodeIdx = -1
+
+// ─── Float button drag-to-node (mousedown 기반) ────────────────
+const floatDragging      = ref(null)         // null | 'meeting' | 'session' | 'doc'
+const floatDragPos       = ref({ x: 0, y: 0 }) // 뷰포트 좌표 (ghost 위치)
+const floatDragPreviewLine = ref(null)        // { x1,y1,x2,y2 } 뷰포트 좌표
+let floatDragTarget      = null              // gNode | null
+let floatDragNearInvalid = false
+let floatDragStartX = 0, floatDragStartY = 0
+let floatDragMoved  = false
+
+const FLOAT_VALID_TYPES = {
+  meeting: ['meeting_group'],
+  session: ['meeting_group'],
+  doc:     ['meeting_group', 'dept', 'agenda'],
+}
+
+function onFloatBtnMouseDown(type, e) {
+  floatDragging.value = type
+  floatDragPos.value  = { x: e.clientX, y: e.clientY }
+  floatDragStartX = e.clientX; floatDragStartY = e.clientY
+  floatDragMoved = false; floatDragTarget = null
+  floatDragNearInvalid = false; floatDragPreviewLine.value = null
+  document.body.style.cursor = 'grabbing'
+
+  function _capture() {
+    document.removeEventListener('mouseup', _capture, true)
+    if (floatDragging.value) _onFloatDragEnd()
+  }
+  document.addEventListener('mouseup', _capture, true)
+  e.preventDefault()
+}
+
+function _onFloatDragEnd() {
+  const type      = floatDragging.value
+  const target    = floatDragTarget
+  const moved     = floatDragMoved
+  const nearInvalid = floatDragNearInvalid
+
+  floatDragging.value = null; floatDragTarget = null
+  floatDragPreviewLine.value = null; floatDragNearInvalid = false; floatDragMoved = false
+  document.body.style.cursor = ''
+
+  if (!moved) return  // 클릭 → @click 핸들러가 처리
+
+  if (nearInvalid && !target) {
+    showMapToast('해당 노드에 연결할 수 없습니다.')
+    return
+  }
+
+  if (type === 'meeting') {
+    openCreateModal()
+  } else if (type === 'session') {
+    const mgId = target?.type === 'meeting_group' ? toSqliteId(target.id) : null
+    openSessionModal(mgId ? meetingGroups.value.find(g => toSqliteId(g.id) === mgId) : null)
+  } else if (type === 'doc') {
+    const ctx = {}
+    if (target?.type === 'agenda') {
+      ctx.connectNodeId = target.meetingGroupId || ''
+      ctx.relatedTodoId = target.neo4jId || target.data?.id || ''
+      ctx.agendaContent = target.data?.content || target.label || ''
+      ctx.meetingId     = target.data?.meetingId || toSqliteId(target.meetingGroupId)
+    } else if (target?.type === 'dept') {
+      ctx.connectNodeId = target.id
+      ctx.meetingId     = toSqliteId(target.meetingGroupId)
+    } else if (target?.type === 'meeting_group') {
+      ctx.meetingId = toSqliteId(target.id)
+    }
+    openUploadModal(ctx)
+  }
+}
 
 // ─── Detail sidebar ───────────────────────────────────────────
 const detailMeeting = ref(null)
@@ -1932,13 +2027,23 @@ function buildGraphNodes() {
         })
         // agenda -[OWNED_BY]→ meetingGroup
         edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
-        // person -[ASSIGNED_TO]→ agenda (담당 부서의 첫 번째 구성원)
+        // person -[담당]→ agenda: Neo4j assignee_names 우선, 없으면 부서 첫 구성원
+        const assigneeNames = task.assignee_names?.length ? task.assignee_names : (task.assignee_name ? [task.assignee_name] : [])
         const assigneeDept = task.assignee_dept || deptName
-        const assigneeMembers = membersByDept.get(assigneeDept) || []
-        if (assigneeMembers.length > 0) {
-          const personId = `person-${g.id || gi}-${assigneeMembers[0].userId || 0}`
-          const personIdx = nodes.findIndex(n => n.id === personId)
-          if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: '담당' })
+        if (assigneeNames.length > 0) {
+          // Neo4j에서 받은 실제 담당자 이름으로 노드 탐색
+          for (const aName of assigneeNames) {
+            const pIdx = nodes.findIndex(n => n.type === 'person' && n.groupIdx === gi && n.label === aName)
+            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
+          }
+        } else {
+          // 담당자 정보 없을 때만 부서 첫 번째 구성원으로 fallback
+          const fallbackMembers = membersByDept.get(assigneeDept) || []
+          if (fallbackMembers.length > 0) {
+            const personId = `person-${g.id || gi}-${fallbackMembers[0].userId || 0}`
+            const personIdx = nodes.findIndex(n => n.id === personId)
+            if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: '담당' })
+          }
         }
         agendaIdxByTodoId.set(String(task.id), agIdx)
       })
@@ -1961,17 +2066,13 @@ function buildGraphNodes() {
       })
     }
 
-    // ── Session 노드: HELD_BY meetingGroup, COVERS agenda ────
+    // ── Session 노드: HELD_BY meetingGroup ────────────────────
     const sessions = g.minutes || []
-    const aTotal = allAgendaIdxList.length
+    const sTotal = sessions.length
     sessions.forEach((m, mi) => {
-      const parentAgIdx = aTotal > 0 ? allAgendaIdxList[mi % aTotal] : mgIdx
-      const parentNode = nodes[parentAgIdx]
-      const pAng = parentNode ? Math.atan2(parentNode.z, parentNode.x) : ang
-      const sibCount = sessions.filter((_, j) => (aTotal > 0 ? allAgendaIdxList[j % aTotal] : mgIdx) === parentAgIdx).length
-      const sibIdx = sessions.slice(0, mi).filter((_, j) => (aTotal > 0 ? allAgendaIdxList[j % aTotal] : mgIdx) === parentAgIdx).length
-      const sFan = sibCount > 1 ? Math.min(0.22, 0.14) : 0
-      const sAng = pAng + (sibIdx - (sibCount - 1) / 2) * sFan
+      // 회의체 각도 기준으로 세션을 부채꼴 배치 (과제와 무관)
+      const sFan = sTotal > 1 ? Math.min(sectorWidth * 0.4, 0.5) / (sTotal - 1) : 0
+      const sAng = ang + (mi - (sTotal - 1) / 2) * sFan
       const sIdx = nodes.length
       nodes.push({
         id: `session-${g.id || gi}-${mi}`,
@@ -1980,10 +2081,9 @@ function buildGraphNodes() {
         groupIdx: gi, data: { ...m, participants: g.members || [] },
         neo4jId: m.id || null,
       })
-      // session -[HELD_BY]→ meetingGroup
+      // session -[개최]→ meetingGroup (실제 Neo4j 관계)
       edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
-      // session -[COVERS]→ agenda (순환 배분)
-      if (aTotal > 0) edges.push({ from: sIdx, to: allAgendaIdxList[mi % aTotal], rel: '도출' })
+      // 세션→과제 연결은 Neo4j에 실제 관계가 없으므로 생성하지 않음
 
       // ── Document 노드 (회의록): session -[PRODUCED]→ document
       const dIdx = nodes.length
@@ -3108,19 +3208,28 @@ const TYPES=['Draft','In Progress','Done','Pending']
 
         <!-- Graph floating action buttons (top-right of canvas) -->
         <div v-if="!loading && viewMode==='graph'" class="graph-float-btns">
-          <div class="float-btn-item" @click="openCreateModal" title="클릭해서 회의체 생성">
+          <div class="float-btn-item"
+            @click="openCreateModal"
+            @mousedown.prevent="onFloatBtnMouseDown('meeting', $event)"
+            title="클릭 또는 드래그해서 회의체 생성">
             <div class="float-node-preview meeting-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             </div>
             <span class="float-btn-label">회의체 생성</span>
           </div>
-          <div class="float-btn-item" @click="openSessionModal()" title="회의 생성">
+          <div class="float-btn-item"
+            @click="openSessionModal()"
+            @mousedown.prevent="onFloatBtnMouseDown('session', $event)"
+            title="클릭 또는 드래그해서 회의 생성">
             <div class="float-node-preview session-preview">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
             </div>
             <span class="float-btn-label">회의 생성</span>
           </div>
-          <div class="float-btn-item" @click="openUploadModal()" title="자료 업로드 및 노드 연결">
+          <div class="float-btn-item"
+            @click="openUploadModal()"
+            @mousedown.prevent="onFloatBtnMouseDown('doc', $event)"
+            title="클릭 또는 드래그해서 자료 업로드">
             <div class="float-node-preview doc-preview">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             </div>
@@ -3346,6 +3455,49 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </div>
         </div>
       </Transition>
+
+    <!-- ── Float drag ghost + SVG preview line (Teleported to body) ── -->
+    <Teleport to="body">
+      <div v-if="floatDragging" class="float-drag-ghost"
+        :style="{ left: (floatDragPos.x - 22) + 'px', top: (floatDragPos.y - 22) + 'px' }">
+        <div class="ghost-node"
+          :class="floatDragging === 'meeting' ? 'ghost-meeting' : floatDragging === 'session' ? 'ghost-session' : 'ghost-doc'">
+          <template v-if="floatDragging === 'meeting'">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+          </template>
+          <template v-else-if="floatDragging === 'session'">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
+          </template>
+          <template v-else>
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          </template>
+        </div>
+        <span class="ghost-label">{{ floatDragging === 'meeting' ? '회의체 생성' : floatDragging === 'session' ? '회의 생성' : '자료 업로드' }}</span>
+        <span v-if="floatDragPreviewLine" class="ghost-connect-hint">✓ 연결 가능</span>
+      </div>
+    </Teleport>
+
+    <!-- ── Float drag SVG preview line ── -->
+    <Teleport to="body">
+      <svg v-if="floatDragging && floatDragPreviewLine"
+        style="position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9998">
+        <defs>
+          <marker id="drag-arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+            <circle cx="3" cy="3" r="2.5" fill="rgba(52,211,153,0.9)"/>
+          </marker>
+        </defs>
+        <line
+          :x1="floatDragPreviewLine.x1" :y1="floatDragPreviewLine.y1"
+          :x2="floatDragPreviewLine.x2" :y2="floatDragPreviewLine.y2"
+          stroke="rgba(52,211,153,0.75)" stroke-width="2.5"
+          stroke-dasharray="9,5" stroke-linecap="round"
+          marker-end="url(#drag-arrow)"/>
+        <circle
+          :cx="floatDragPreviewLine.x1" :cy="floatDragPreviewLine.y1" r="10"
+          fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.6)"
+          stroke-width="2" stroke-dasharray="4,2"/>
+      </svg>
+    </Teleport>
 
     <!-- ── Create Meeting Modal ── -->
     <Teleport to="body">
@@ -4979,4 +5131,39 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .app-modal.dark .node-edit-name { color:#e2e8f0; }
 .app-modal.dark .node-edit-empty { color:#64748b; }
 .app-modal.dark .btn-add-member-open { border-color:rgba(96,165,250,.4);color:#60a5fa;background:rgba(96,165,250,.08); }
+
+/* ── Float drag ghost (Teleported to body, must be in non-scoped block) ── */
+.float-drag-ghost {
+  position: fixed; z-index: 9999; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transition: none;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,.6));
+}
+.float-drag-ghost .ghost-node {
+  display: flex; align-items: center; justify-content: center;
+  opacity: .9; transform: scale(1.12);
+}
+.float-drag-ghost .ghost-meeting {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.5) 100%);
+  border: 2px solid rgba(147,197,253,.8); color: #fff;
+}
+.float-drag-ghost .ghost-doc {
+  width: 44px; height: 34px; border-radius: 6px;
+  background: rgba(15,23,42,.9); border: 2px solid rgba(96,165,250,.8); color: #60a5fa;
+}
+.float-drag-ghost .ghost-session {
+  width: 44px; height: 32px; border-radius: 5px;
+  background: rgba(5,150,105,0.6); border: 2px solid rgba(52,211,153,.85); color: #6ee7b7;
+}
+.float-drag-ghost .ghost-label {
+  font-size: 10px; font-weight: 700; color: #fff;
+  text-shadow: 0 1px 5px rgba(0,0,0,.95); white-space: nowrap;
+}
+.float-drag-ghost .ghost-connect-hint {
+  font-size: 10px; font-weight: 700; color: #34d399;
+  text-shadow: 0 1px 4px rgba(0,0,0,.9); white-space: nowrap;
+  animation: ghost-pulse-hint .6s ease-in-out infinite alternate;
+}
+@keyframes ghost-pulse-hint { from { opacity: .6 } to { opacity: 1 } }
 </style>

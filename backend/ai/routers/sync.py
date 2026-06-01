@@ -18,13 +18,20 @@ import os
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Header, UploadFile, File, Form, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 import models
 from database import get_db
 from auth import get_current_user
+
+# 서버 간 내부 호출 인증 (Spring Boot → FastAPI)
+_INTERNAL_SECRET = os.getenv("INTERNAL_SECRET", "workmaite-internal-secret-2024")
+
+def verify_internal(x_internal_secret: Optional[str] = Header(None)):
+    if x_internal_secret != _INTERNAL_SECRET:
+        raise HTTPException(status_code=401, detail="Internal secret mismatch")
 from neo4j_sync import (
     sync_meeting,
     sync_session,
@@ -108,7 +115,7 @@ def get_sync_logs(
 @router.delete("/meeting/{meeting_id}/delete")
 async def delete_meeting_sync(
     meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
 ):
     """Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
     await delete_meeting(meeting_id=meeting_id)
@@ -121,7 +128,7 @@ async def delete_meeting_sync(
 async def delete_member_sync(
     meetingId: int,
     userId: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
 ):
     """Person → Meeting 멤버십 관계를 Neo4j에서 삭제합니다."""
     await delete_meeting_member(meeting_id=meetingId, user_id=userId)
@@ -133,7 +140,7 @@ async def delete_member_sync(
 @router.post("/meeting/{meeting_id}")
 async def sync_meeting_manual(
     meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
     """특정 Meeting을 Neo4j에 수동으로 동기화합니다."""
@@ -155,7 +162,7 @@ async def sync_meeting_manual(
 @router.post("/session/{session_id}")
 async def sync_session_manual(
     session_id: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
     """특정 Session을 Neo4j에 수동으로 동기화합니다."""
@@ -290,7 +297,7 @@ async def _run_sync_all() -> None:
 @router.post("/agenda/{agenda_id}")
 async def sync_agenda_manual(
     agenda_id: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
     """특정 Agenda를 Neo4j에 수동으로 동기화합니다."""
@@ -334,7 +341,7 @@ async def sync_minutes_manual(
 @router.post("/user/{user_id}")
 async def sync_user_manual(
     user_id: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
     """특정 User를 Neo4j에 수동으로 동기화합니다."""
@@ -358,7 +365,7 @@ async def sync_user_manual(
 async def sync_member_manual(
     meetingId: int,
     userId: int,
-    current_user: models.User = Depends(get_current_user),
+    _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
     """특정 MeetingMember 관계를 Neo4j에 수동으로 동기화합니다."""
