@@ -20,7 +20,7 @@ spec:
       containers:
         - name: workmaite-frontend
           # GitHub Actions에서 커밋 SHA로 태그를 동적으로 업데이트함
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-frontend:02101c3
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-frontend:d5d12a3
           imagePullPolicy: Always  # 같은 태그라도 항상 최신 이미지 pull
           ports:
             - containerPort: 80  # Nginx가 Vue 정적 파일 서빙하는 포트
