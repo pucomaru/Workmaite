@@ -2,6 +2,9 @@ package com.workmaite.global.sync;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -16,11 +19,20 @@ public class NeoSyncService {
 
     private final RestTemplate restTemplate;
     private final String aiUrl;
+    private final String internalSecret;
 
     public NeoSyncService(RestTemplate restTemplate,
-                          @Value("${ai.url:http://localhost:8000}") String aiUrl) {
+                          @Value("${ai.url:http://localhost:8000}") String aiUrl,
+                          @Value("${internal.secret:workmaite-internal-secret-2024}") String internalSecret) {
         this.restTemplate = restTemplate;
         this.aiUrl = aiUrl;
+        this.internalSecret = internalSecret;
+    }
+
+    private HttpEntity<Void> internalEntity() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Secret", internalSecret);
+        return new HttpEntity<>(headers);
     }
 
     @Async
@@ -60,7 +72,7 @@ public class NeoSyncService {
 
     private void call(String path, String label) {
         try {
-            restTemplate.postForEntity(aiUrl + path, null, Void.class);
+            restTemplate.exchange(aiUrl + path, HttpMethod.POST, internalEntity(), Void.class);
             log.debug("[NeoSync] synced {}", label);
         } catch (Exception e) {
             log.warn("[NeoSync] failed to sync {} — {}", label, e.getMessage());
@@ -69,8 +81,7 @@ public class NeoSyncService {
 
     private void callDelete(String path, String label) {
         try {
-            org.springframework.web.client.RequestCallback callback = restTemplate.acceptHeaderRequestCallback(Void.class);
-            restTemplate.execute(aiUrl + path, org.springframework.http.HttpMethod.DELETE, callback, null);
+            restTemplate.exchange(aiUrl + path, HttpMethod.DELETE, internalEntity(), Void.class);
             log.debug("[NeoSync] deleted {}", label);
         } catch (Exception e) {
             log.warn("[NeoSync] failed to delete {} — {}", label, e.getMessage());

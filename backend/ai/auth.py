@@ -1,5 +1,6 @@
 import os
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -9,6 +10,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import models
 from database import get_db
+
+logger = logging.getLogger(__name__)
 
 # SpringBoot와 동일한 시크릿 사용 (공유 인증)
 SECRET_KEY = os.getenv(
@@ -51,11 +54,14 @@ def get_current_user(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         sub = payload.get("sub")
         if sub is None:
+            logger.warning("[Auth] JWT에 sub 없음")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    except JWTError:
+    except JWTError as e:
+        logger.warning(f"[Auth] JWT 검증 실패: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     user = db.query(models.User).filter(models.User.id == int(sub)).first()
     if not user:
+        logger.warning(f"[Auth] 사용자 없음: sub={sub}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user

@@ -538,7 +538,36 @@ function zoomOut() { vpScale = Math.max(0.2,  vpScale / 1.25) }
 function resetView() {
   vpX = 0; vpY = 0; vpScale = 1; focusedIdx = null
 }
-defineExpose({ zoomIn, zoomOut, resetView, reloadGraph: buildSimulation })
+/** 뷰포트 좌표(px) → 가장 가까운 gNode 반환, 없으면 null */
+function getNodeAtScreen(sx, sy) {
+  if (!app) return null
+  const el = containerRef.value
+  const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0 }
+  const wx = ((sx - rect.left) - vpX) / vpScale
+  const wy = ((sy - rect.top)  - vpY) / vpScale
+  let best = null, bestDist = Infinity
+  for (const sn of simNodes) {
+    const r = getRadius(sn.type) + 24
+    const dx = sn.x - wx, dy = sn.y - wy
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist < r && dist < bestDist) { best = sn; bestDist = dist }
+  }
+  return best ? props.gNodes[best._idx] ?? null : null
+}
+
+/** gNode id → 뷰포트 기준 화면 좌표 {x, y} 반환 */
+function getNodeScreenPos(nodeId) {
+  if (!app || !containerRef.value) return null
+  const sn = simNodes.find(n => props.gNodes[n._idx]?.id === nodeId)
+  if (!sn) return null
+  const rect = containerRef.value.getBoundingClientRect()
+  return {
+    x: rect.left + sn.x * vpScale + vpX,
+    y: rect.top  + sn.y * vpScale + vpY,
+  }
+}
+
+defineExpose({ zoomIn, zoomOut, resetView, reloadGraph: buildSimulation, getNodeAtScreen, getNodeScreenPos })
 
 // ─── Helpers ─────────────────────────────────────────────────
 function hexToNum(hex) {
