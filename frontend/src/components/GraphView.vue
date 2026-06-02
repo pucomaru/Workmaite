@@ -471,8 +471,13 @@ function isNeighbor(a, b) {
 }
 
 // ─── Interaction ─────────────────────────────────────────────
+// PIXI v8 registers a global pointerup listener on globalThis for drag tracking.
+// Without this flag, any DOM element click (e.g. sidebar tabs) fires onBgUp and
+// emits 'bgClick', closing the sidebar unintentionally.
 let _downX = 0, _downY = 0, _didMove = false
+let _pointerDownOnCanvas = false
 function onBgDown(e) {
+  _pointerDownOnCanvas = true
   const p = e.global
   isPanning  = true
   panStartX  = p.x; panStartY  = p.y
@@ -488,6 +493,8 @@ function onBgMove(e) {
   vpY = panOrigY + (p.y - panStartY)
 }
 function onBgUp() {
+  if (!_pointerDownOnCanvas) return
+  _pointerDownOnCanvas = false
   isPanning = false
   if (!_didMove) {
     focusedIdx = null

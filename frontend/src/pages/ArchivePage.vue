@@ -278,7 +278,7 @@ const SUPERVISOR_EXTRACT = {
 const agentSidebarOpen = ref(false)
 const currentAgent = ref('supervisor')
 const agentInfo = computed(() => {
-  if (detailTab.value === 'task' && showExtractFlow.value && extractPhase.value !== 'context') {
+  if ((detailTab.value === 'task' || detailTab.value === 'extract') && showExtractFlow.value && extractPhase.value !== 'context') {
     return SUPERVISOR_EXTRACT
   }
   return SUPERVISOR
@@ -458,7 +458,9 @@ async function sendAgentMsg() {
   if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
 
   // 과제 탭 추출 결과 단계 → chat-extract 엔드포인트로 과제 목록 업데이트
-  const isExtractMode = detailTab.value === 'task' &&
+  // 'extract' 탭(runExtract 실행 후)과 'task' 탭(extractPhase=result) 모두 포함
+  const isExtractMode = (detailTab.value === 'extract' || detailTab.value === 'task') &&
+    showExtractFlow.value &&
     (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
     detailMeeting.value
 
@@ -475,15 +477,23 @@ async function sendAgentMsg() {
       const { data } = await apiAI.post('/api/agent/archive/chat-extract', {
         meeting_id: toSqliteId(detailMeeting.value.id),
         message: content,
-        chat_history: [{ agendas: extractResult.value }],
+        chat_history: [{ agendas: extractResult.value.map(({ title, bullets, department, priority }) => ({ title, bullets, department, priority })) }],
       })
       agentMsg.content = data.reply || '과제 목록을 업데이트했습니다.'
       if (data.agendas && data.agendas.length) {
-        extractResult.value = data.agendas.map(ag => ({
-          ...ag, _state: null, _editing: false,
-          _editTitle: ag.title,
-          _editBullets: (ag.bullets || []).join('\n')
-        }))
+        // 변경된 항목만 _state 리셋 — 승인/반려 상태 최대한 유지
+        const oldList = extractResult.value
+        extractResult.value = data.agendas.map((ag, i) => {
+          const old = oldList[i]
+          const unchanged = old &&
+            old.title === ag.title &&
+            JSON.stringify(old.bullets) === JSON.stringify(ag.bullets) &&
+            old.department === ag.department &&
+            old.priority === ag.priority
+          return unchanged
+            ? old  // 내용 동일 → 기존 _state 유지
+            : { ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: (ag.bullets || []).join('\n') }
+        })
       }
     } catch {
       agentMsg.content = '과제 업데이트 중 오류가 발생했습니다.'
@@ -532,7 +542,8 @@ async function sendAgentMsg() {
 }
 
 function isExtractModeActive() {
-  return detailTab.value === 'task' &&
+  return (detailTab.value === 'extract' || detailTab.value === 'task') &&
+    showExtractFlow.value &&
     (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
     !!detailMeeting.value
 }
@@ -801,48 +812,67 @@ const assignResult = ref([])
 const extractLoading = ref(false)
 const assignLoading = ref(false)
 
+// 추출 결과를 채팅 메시지 형식으로 포맷
+function _formatExtractForChat(agendas) {
+  if (!agendas.length) return '추출된 과제가 없습니다. 회의록이나 자료를 추가 후 다시 시도해주세요.'
+  const lines = [`${agendas.length}개 과제를 추출했습니다. 수정이 필요하면 말씀해 주세요.\n`]
+  agendas.forEach((ag, i) => {
+    lines.push(`**${i + 1}. ${ag.title}**`)
+    ;(ag.bullets || []).forEach(b => lines.push(`  • ${b}`))
+    if (ag.department) lines.push(`  담당: ${ag.department}`)
+    lines.push('')
+  })
+  return lines.join('\n').trim()
+}
+
 // 과제 탭에서 인라인으로 추출 실행
 async function runExtract() {
   if (!detailMeeting.value) return
-  // 추출 전용 인사말로 에이전트 채팅 초기화
+
+  const mgTitle = detailMeeting.value?.title || '회의체'
+
+  // 채팅 초기화 후 사용자 메시지 + 사고 과정 + 에이전트 응답 슬롯을 순서대로 추가
   allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
   agentSidebarOpen.value = true
   showExtractFlow.value = true
   extractPhase.value = 'result'
   detailTab.value = 'extract'
   extractLoading.value = true
+  agentLoading.value = true
   extractResult.value = []
 
-  // ── 사고 과정 주입 (비동기, 백엔드 API와 병렬) ──────────────────
-  const mgTitle = detailMeeting.value?.title || '회의체'
-  injectActionToAgent(
-    `"${mgTitle}" 회의록·자료에서 과제를 추출해줘`,
-    [
-      `Neo4j MATCH (mg:MeetingGroup {title:"${mgTitle}"}) 조회`,
-      `MATCH (mg)-[:ATTACHED_TO|PRODUCED]-(doc:Document) 문서 수집`,
-      `선택된 회의록 및 첨부 파일 텍스트 분석 중...`,
-      `Context Graph: 유사 Decision 노드 참조`,
-      `아젠다 후보 생성 중...`,
-    ],
-    `과제 추출이 완료되었습니다.\n추출된 과제를 검토하고, 수정이 필요하면 말씀해 주세요.`
-  )
+  allMessages.value['supervisor'].push({ role: 'user', content: `"${mgTitle}" 회의록·자료에서 과제를 추출해줘` })
+  const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
+  allMessages.value['supervisor'].push(planningMsg)
+  const agentMsg = reactive({ role: 'agent', content: '' })
+  allMessages.value['supervisor'].push(agentMsg)
+
+  await nextTick()
+  if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+
+  // 사고 과정 애니메이션과 API 호출을 병렬 실행
+  const planningSteps = [
+    `Neo4j MATCH (mg:MeetingGroup {title:"${mgTitle}"}) 조회`,
+    `MATCH (mg)-[:ATTACHED_TO|PRODUCED]-(doc:Document) 문서 수집`,
+    `선택된 회의록 및 첨부 파일 텍스트 분석 중...`,
+    `Context Graph: 유사 Decision 노드 참조`,
+    `아젠다 후보 생성 중...`,
+  ]
+  const planningPromise = _runPlanningSteps(planningMsg, planningSteps)
+
   try {
-    // multipart form 구성 (파일 직접 전송)
     const formData = new FormData()
-    formData.append('meeting_id', String(detailMeeting.value.id))
+    formData.append('meeting_id', String(toSqliteId(detailMeeting.value.id)))
     formData.append('selected_file_ids', JSON.stringify(
       selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
     ))
     formData.append('selected_similar_docs', JSON.stringify(selectedSimilarDocs.value))
-
-    // 새로 업로드된 파일 추가
     for (const file of uploadedCtxFiles.value) {
       formData.append('files', file)
     }
 
-    const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData)
+    await planningPromise
 
     if (data.agendas && data.agendas.length) {
       extractResult.value = data.agendas.map(ag => ({
@@ -852,17 +882,22 @@ async function runExtract() {
         _editTitle: ag.title,
         _editBullets: (ag.bullets || []).join('\n')
       }))
-    } else if (data.error) {
-      console.error('추출 오류:', data.error)
-      extractResult.value = []
+      // 실제 추출 결과를 채팅에 표시
+      agentMsg.content = _formatExtractForChat(extractResult.value)
     } else {
+      const errMsg = data.error ? `추출 중 오류: ${data.error}` : '추출된 과제가 없습니다. 회의록이나 자료를 선택 후 다시 시도해주세요.'
+      agentMsg.content = errMsg
       extractResult.value = []
     }
   } catch (e) {
-    console.error('extract error', e)
+    await planningPromise
+    agentMsg.content = '과제 추출 중 오류가 발생했습니다.'
     extractResult.value = []
   } finally {
     extractLoading.value = false
+    agentLoading.value = false
+    await nextTick()
+    if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
   }
 }
 
@@ -1304,7 +1339,12 @@ const ALL_REL_TYPES = Object.keys(REL_COLORS)
 const graphVersion = ref(0) // bump to force sidebar reactivity when gEdges mutate
 
 const currentNodeId = computed(() => {
-  if (detailMeeting.value) return `mg-${detailMeeting.value.id}`
+  if (detailMeeting.value) {
+    // gNodes의 mgNodeId 생성 로직과 동일하게 맞춤:
+    // g.id가 문자열이고 '-'를 포함하면 그대로, 아니면 "mg-{id}"
+    const rawId = detailMeeting.value.id
+    return (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
+  }
   return detailNode.value?.id || null
 })
 

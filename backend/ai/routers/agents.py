@@ -1077,7 +1077,7 @@ async def archive_chat_extract(
         print(f"[chat-extract RAW] {raw_text[:300]}")
 
         try:
-            match = _re.search(r'\{{[\s\S]*\}}', raw_text)
+            match = _re.search(r'\{[\s\S]*\}', raw_text)
             if match:
                 json_str = match.group(0)
                 open_count = json_str.count('{') - json_str.count('}')
