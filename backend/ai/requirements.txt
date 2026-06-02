@@ -19,3 +19,4 @@ python-docx>=1.1.0
 tiktoken>=0.7.0
 olefile>=0.47
 langgraph-checkpoint-sqlite
+openai-whisper
