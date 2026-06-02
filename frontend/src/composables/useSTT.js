@@ -1,62 +1,69 @@
-/**
- * useSTT — Web Speech API 기반 한국어 실시간 STT
- * - 최종 확정된 문장(isFinal)만 onResult 콜백으로 반환
- * - 마이크 off 시 중단, on 시 재시작
- */
+const CHUNK_MS = 4000
+
 export function useSTT({ onResult, getLang = null }) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!SpeechRecognition) return { start: () => {}, stop: () => {}, supported: false }
-
-  let recognition = null
+  let stream = null
   let active = false
+  let currentRecorder = null
 
-  function build() {
-    const r = new SpeechRecognition()
-    r.lang = typeof getLang === 'function' ? getLang() : 'ko-KR'
-    r.continuous = true
-    r.interimResults = false  // 최종 결과만
+  async function runLoop() {
+    while (active && stream) {
+      const chunks = []
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
 
-    r.onresult = (e) => {
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          const text = e.results[i][0].transcript.trim()
-          if (text) onResult(text)
-        }
+      const recorder = new MediaRecorder(stream, { mimeType })
+      currentRecorder = recorder
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data)
+      }
+
+      await new Promise(resolve => {
+        recorder.onstop = resolve
+        recorder.start()
+        setTimeout(() => {
+          if (recorder.state === 'recording') recorder.stop()
+        }, CHUNK_MS)
+      })
+
+      if (!active) break
+
+      const blob = new Blob(chunks, { type: mimeType })
+      if (blob.size < 500) continue
+
+      const lang = typeof getLang === 'function' ? getLang() : 'ko'
+      const formData = new FormData()
+      formData.append('audio', blob, 'audio.webm')
+      formData.append('lang', lang)
+
+      try {
+        const res = await fetch('/api/stt/transcribe', { method: 'POST', body: formData })
+        const data = await res.json()
+        if (data.text?.trim()) onResult(data.text.trim())
+      } catch (e) {
+        console.warn('[STT] 전송 실패', e)
       }
     }
-
-    r.onend = () => {
-      // 활성 상태면 자동 재시작 — 새 인스턴스 생성으로 중복 결과 방지
-      if (active) {
-        recognition = build()
-        try { recognition.start() } catch (_) {}
-      }
-    }
-
-    r.onerror = (e) => {
-      if (e.error === 'no-speech' || e.error === 'audio-capture') return
-      if (e.error === 'not-allowed') {
-        active = false
-        console.warn('[STT] 마이크 권한 없음')
-      }
-    }
-
-    return r
   }
 
-  function start() {
+  async function start() {
     if (active) return
     active = true
-    recognition = build()
-    try { recognition.start() } catch (_) {}
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      runLoop()
+    } catch (e) {
+      active = false
+      console.warn('[STT] 마이크 권한 없음', e)
+    }
   }
 
   function stop() {
     active = false
-    if (recognition) {
-      try { recognition.stop() } catch (_) {}
-      recognition = null
-    }
+    if (currentRecorder?.state === 'recording') currentRecorder.stop()
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
+    currentRecorder = null
   }
 
   return { start, stop, supported: true }
