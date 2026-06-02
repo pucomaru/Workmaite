@@ -191,21 +191,87 @@ async def upload_and_embed_file(
     agenda_content: Optional[str] = Form(None),
     file_label: Optional[str] = Form(None),
     doc_type: Optional[str] = Form("보고자료"),
+    mg_id: Optional[str] = Form(None),
     current_user: models.User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """
-    파일을 업로드하고 임베딩 파이프라인을 백그라운드에서 실행합니다.
-    - 텍스트 추출 → 청킹 → text-embedding-3-small → Neo4j VectorIndex
-    - Neo4j 저장 실패 시 agent_logs에 기록
+    파일을 업로드합니다.
+    - PostgreSQL report_reviews 즉시 저장
+    - Neo4j Document 노드 즉시 생성 (map 즉시 갱신 가능)
+    - 텍스트 임베딩은 백그라운드에서 처리
     """
-    # 파일 저장
+    import hashlib
+    from neo4j_sync import sync_document as _sync_doc
+
+    # 1. 파일 저장
     safe_name = file.filename.replace(" ", "_")
     dest = os.path.join(UPLOAD_DIR, safe_name)
     content = await file.read()
     with open(dest, "wb") as f:
         f.write(content)
 
-    # 백그라운드에서 임베딩 파이프라인 실행
+    logger.info(
+        f"[Sync/file] 수신: file={safe_name}, meeting_id={meeting_id!r}, "
+        f"mg_id={mg_id!r}, agenda_neo4j_id={agenda_neo4j_id!r}, "
+        f"file_label={file_label!r}, doc_type={doc_type!r}"
+    )
+
+    # 2. PostgreSQL report_reviews 저장
+    if meeting_id:
+        # report_reviews.file_type CHECK 제약: REPORT | PRESENTATION | MINUTES
+        doc_type_map = {"보고자료": "REPORT", "발제자료": "PRESENTATION", "회의록": "MINUTES"}
+        db_file_type = doc_type_map.get(doc_type or "", "REPORT")
+        try:
+            report = models.Report(
+                meeting_id=meeting_id,
+                uploader_id=current_user.id,
+                file_type=db_file_type,
+                file_name=file_label or safe_name,
+                file_path=dest,
+                status="SUBMITTED",
+            )
+            db.add(report)
+            db.commit()
+        except Exception as e:
+            logger.error(f"[Sync] report_reviews 저장 실패: meeting_id={meeting_id}, error={e}")
+            db.rollback()
+        else:
+            logger.info(f"[Sync] report_reviews 저장 성공: meeting_id={meeting_id}, file={safe_name}")
+
+    # 3. Neo4j Document 노드 즉시 생성 (map refresh가 문서를 즉시 보이게)
+    # - 먼저 Meeting 노드가 Neo4j에 존재하는지 보장 (없으면 첨부 관계 생성 불가)
+    if meeting_id:
+        try:
+            meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+            if meeting_obj:
+                await sync_meeting(
+                    meeting_id=meeting_obj.id,
+                    title=meeting_obj.title,
+                    purpose=meeting_obj.purpose,
+                    status=str(meeting_obj.status or "ACTIVE"),
+                    meeting_type=str(meeting_obj.type or ""),
+                )
+        except Exception as e:
+            logger.warning(f"[Sync] Meeting 노드 보장 실패 (무시): {e}")
+
+    file_hash = hashlib.md5(safe_name.encode()).hexdigest()[:8]
+    doc_id = f"doc-{file_hash}-{meeting_id or 'g'}"
+    try:
+        await _sync_doc(
+            doc_id=doc_id,
+            file_name=safe_name,
+            title=file_label or safe_name,
+            doc_type=doc_type or "보고자료",
+            meeting_id=meeting_id,
+            mg_id=mg_id,
+            agenda_neo4j_id=agenda_neo4j_id or None,
+            uploader_id=current_user.id,
+        )
+    except Exception as e:
+        logger.warning(f"[Sync] Document 즉시 생성 실패 (무시): {e}")
+
+    # 4. 백그라운드 임베딩 파이프라인
     background_tasks.add_task(
         _run_embed,
         file_path=dest,
@@ -217,14 +283,15 @@ async def upload_and_embed_file(
         agenda_content=agenda_content or None,
         file_label=file_label or None,
         doc_type=doc_type or "보고자료",
+        mg_id=mg_id,
     )
 
     return {
         "success": True,
         "message": f"{safe_name} 저장 완료. 임베딩이 백그라운드에서 처리됩니다.",
         "file_name": safe_name,
+        "doc_id": doc_id,
         "meeting_id": meeting_id,
-        "session_id": session_id,
     }
 
 
@@ -238,6 +305,7 @@ async def _run_embed(
     agenda_content: Optional[str] = None,
     file_label: Optional[str] = None,
     doc_type: str = "보고자료",
+    mg_id: Optional[str] = None,
 ):
     """BackgroundTask 래퍼 — 임베딩 파이프라인 실행."""
     try:
@@ -251,6 +319,7 @@ async def _run_embed(
             agenda_content=agenda_content,
             file_label=file_label,
             doc_type=doc_type,
+            mg_id=mg_id,
         )
         logger.info(f"[Sync] 파일 임베딩 완료: {result}")
     except Exception as e:

@@ -247,3 +247,23 @@ class HitlReview(Base):
     comment        = Column(Text, nullable=True)
     created_at     = Column(DateTime, default=datetime.utcnow)
     reviewed_at    = Column(DateTime, nullable=True)
+
+
+class Todo(Base):
+    """AI가 추출하고 사용자가 승인한 과제"""
+    __tablename__ = "todos"
+    id            = Column(BigInteger, primary_key=True, index=True)
+    meeting_id    = Column(BigInteger, ForeignKey("meetings.id"), nullable=False, index=True)
+    user_id       = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    agenda_id     = Column(BigInteger, nullable=True)
+    content       = Column(Text, nullable=False)
+    assignee_name = Column(String(255), nullable=True)
+    assignee_dept = Column(String(255), nullable=True)
+    how           = Column(Text, nullable=True)
+    why           = Column(Text, nullable=True)
+    priority      = Column(String(30), nullable=True)
+    tags          = Column(JSON, nullable=True)
+    due_date      = Column(DateTime, nullable=True)
+    status        = Column(String(20), nullable=False, default="pending")
+    source_type   = Column(String(30), nullable=False, default="meeting_minutes")
+    created_at    = Column(DateTime, default=datetime.utcnow)

@@ -34,8 +34,23 @@ logger = logging.getLogger(__name__)
 _RETRY_INTERVAL_SEC = int(os.getenv("NEO4J_RETRY_INTERVAL_SEC", "300"))
 
 
+async def _cleanup_stale_neo4j_nodes() -> None:
+    """잘못 생성된 Todo 노드 및 Agenda {id: 'todo-*'} 노드를 정리합니다."""
+    from neo4j_client import run_cypher as _run
+    try:
+        await _run(
+            "MATCH (n) WHERE n:Todo "
+            "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
+            "DETACH DELETE n"
+        )
+        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*) 노드 정리 완료")
+    except Exception as e:
+        logger.warning(f"[Cleanup] 노드 정리 실패 (무시): {e}")
+
+
 async def _startup_sync_task() -> None:
     """서버 시작 시 PostgreSQL → Neo4j 전체 동기화 (백그라운드, 1회)."""
+    await _cleanup_stale_neo4j_nodes()
     try:
         result = await sync_all_from_pg()
         logger.info(f"[StartupSync] 완료: {result}")
@@ -70,6 +85,7 @@ async def lifespan(app: FastAPI):
         models.TokenUsageLog.__table__,
         models.HitlReview.__table__,
         models.ArchiveCombined.__table__,
+        models.Todo.__table__,
     ]
     models.Base.metadata.create_all(bind=engine, tables=ai_only_tables, checkfirst=True)
     await init_vector_index()
@@ -108,6 +124,7 @@ app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
 app.include_router(meetings_router.router)
+app.include_router(meetings_router.ai_router)
 app.include_router(sessions_router.router)
 app.include_router(stt_router.router)
 

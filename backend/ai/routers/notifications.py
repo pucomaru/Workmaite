@@ -5,7 +5,7 @@ import models, schemas
 from database import get_db
 from auth import get_current_user
 
-router = APIRouter(prefix="/api/v1", tags=["notifications"])
+router = APIRouter(prefix="/api/ai", tags=["notifications"])
 
 
 @router.get("/notifications", response_model=List[schemas.NotificationOut])

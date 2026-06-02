@@ -327,74 +327,73 @@ async def sync_document(
     title: str,
     doc_type: str,
     meeting_id: int | None = None,
+    mg_id: str | None = None,
     agenda_neo4j_id: str | None = None,
     agenda_content: str | None = None,
     uploader_id: int | None = None,
 ) -> None:
     """
-    Document 노드를 Neo4j에 upsert하고 Meeting / Agenda와 연결합니다.
-    agenda_neo4j_id 가 주어지면 해당 Agenda 노드에 :ATTACHED_TO 관계를 추가합니다.
+    Document 노드를 Neo4j에 upsert하고 MeetingGroup / Meeting / Agenda와 연결합니다.
+    아카이브 쿼리가 인식하는 '첨부' 관계를 사용합니다.
     """
-    # Agenda 노드 upsert (드래그로 연결된 경우 — 내용 보장)
-    if agenda_neo4j_id and agenda_content:
-        ag_cypher = """
-        MERGE (ag:Agenda {id: $agenda_id})
-        ON CREATE SET ag.content = $content, ag.created_at = $now
-        ON MATCH  SET ag.content = $content
-        SET ag.updated_at = $now
-        WITH ag
-        OPTIONAL MATCH (m:Meeting {pg_id: $meeting_id})
-        FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
-            MERGE (ag)-[:OWNED_BY]->(m)
-        )
+    # 1. Document 노드 생성/갱신
+    await run_cypher(
         """
-        try:
-            await run_cypher(ag_cypher, {
-                "agenda_id": agenda_neo4j_id,
-                "content": agenda_content,
-                "meeting_id": meeting_id,
-                "now": datetime.utcnow().isoformat(),
-            })
-        except Exception as e:
-            logger.warning(f"[Neo4jSync] Agenda upsert 실패 (무시): {e}")
+        MERGE (d:Document {id: $doc_id})
+        SET d.file_name   = $file_name,
+            d.title       = $title,
+            d.doc_type    = $doc_type,
+            d.uploader_id = $uploader_id,
+            d.updated_at  = $updated_at
+        """,
+        {
+            "doc_id": doc_id,
+            "file_name": file_name,
+            "title": title,
+            "doc_type": doc_type,
+            "uploader_id": uploader_id,
+            "updated_at": datetime.utcnow().isoformat(),
+        },
+    )
 
-    # Document 노드 upsert + Meeting / Agenda 연결
-    cypher = """
-    MERGE (d:Document {id: $doc_id})
-    SET d.file_name   = $file_name,
-        d.title       = $title,
-        d.doc_type    = $doc_type,
-        d.uploader_id = $uploader_id,
-        d.updated_at  = $updated_at
-    WITH d
-    OPTIONAL MATCH (m:Meeting {pg_id: $meeting_id})
-    FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (d)-[:ATTACHED_TO]->(m)
-    )
-    WITH d
-    OPTIONAL MATCH (ag:Agenda)
-    WHERE $agenda_id IS NOT NULL
-      AND (ag.id = $agenda_id OR toString(ag.pg_id) = $agenda_id)
-    FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (d)-[:ATTACHED_TO]->(ag)
-    )
-    """
-    params = {
-        "doc_id": doc_id,
-        "file_name": file_name,
-        "title": title,
-        "doc_type": doc_type,
-        "uploader_id": uploader_id,
-        "meeting_id": meeting_id,
-        "agenda_id": agenda_neo4j_id,
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-    try:
-        await run_cypher(cypher, params)
-        logger.debug(f"[Neo4jSync] Document {doc_id} 저장 완료")
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Document {doc_id} 저장 실패: {e}")
-        _log_failure("sync_document", "document", doc_id, e, params)
+    # 2. MeetingGroup 연결 (mg_id = "mg-sqlite-N" 형식)
+    if mg_id:
+        try:
+            await run_cypher(
+                "MATCH (d:Document {id: $doc_id}), (mg:MeetingGroup {id: $mg_id}) "
+                "MERGE (d)-[:`첨부`]->(mg)",
+                {"doc_id": doc_id, "mg_id": mg_id},
+            )
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] Document-MeetingGroup 연결 실패 (무시): {e}")
+
+    # 3. Meeting 연결 (pg_id 기반 — MeetingGroup 없을 때 fallback)
+    if meeting_id:
+        try:
+            await run_cypher(
+                "MATCH (d:Document {id: $doc_id}), (m:Meeting {pg_id: $meeting_id}) "
+                "MERGE (d)-[:`첨부`]->(m)",
+                {"doc_id": doc_id, "meeting_id": meeting_id},
+            )
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] Document-Meeting 연결 실패 (무시): {e}")
+
+    # 4. Agenda 연결 (agenda_neo4j_id = toString(ag.pg_id) 또는 ag.id)
+    if agenda_neo4j_id:
+        try:
+            await run_cypher(
+                "MATCH (d:Document {id: $doc_id}) "
+                "OPTIONAL MATCH (ag:Agenda) "
+                "  WHERE ag.id = $agenda_id OR toString(ag.pg_id) = $agenda_id "
+                "FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END | "
+                "    MERGE (d)-[:`첨부`]->(ag) "
+                ") ",
+                {"doc_id": doc_id, "agenda_id": agenda_neo4j_id},
+            )
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] Document-Agenda 연결 실패 (무시): {e}")
+
+    logger.debug(f"[Neo4jSync] Document {doc_id} 저장 완료")
 
 
 # ─── DocumentChunk (파일 임베딩) 동기화 ──────────────────────────────────────
@@ -875,20 +874,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["agendas"] += 1
 
-        # Todos → Todo 노드 (models.Todo가 있을 때만)
-        if hasattr(models, "Todo"):
-            for t in db.query(models.Todo).all():
-                await sync_todo(
-                    todo_id=t.id,
-                    meeting_id=t.meeting_id,
-                    content=t.content,
-                    user_id=t.user_id,
-                    assignee_name=getattr(t, "assignee_name", None),
-                    status=str(t.status or "pending"),
-                    due_date=t.due_date.isoformat() if t.due_date else None,
-                    priority=str(getattr(t, "priority", None) or "normal"),
-                )
-                stats["todos"] += 1
+        # Todos: Neo4j Todo 노드 생성 불필요 — agendas 테이블을 통해 Agenda 노드로 관리됨
 
         # Minutes → Minutes 노드
         for mn in db.query(models.Minutes).all():

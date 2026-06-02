@@ -192,6 +192,7 @@ async def process_and_embed_file(
     agenda_content: str | None = None,
     file_label: str | None = None,
     doc_type: str = "보고자료",
+    mg_id: str | None = None,
 ) -> dict:
     """
     파일 전체 파이프라인을 실행합니다.
@@ -256,6 +257,7 @@ async def process_and_embed_file(
         title=file_label or file_name,
         doc_type=doc_type,
         meeting_id=meeting_id,
+        mg_id=mg_id,
         agenda_neo4j_id=agenda_neo4j_id,
         agenda_content=agenda_content,
         uploader_id=uploader_id,
