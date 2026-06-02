@@ -11,6 +11,34 @@ spec:
     - http:
         paths:
           # 경로 우선순위: 구체적인 경로를 앞에 배치해야 함
+          - path: /api/agent
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/neo4j
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/sync
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/chats
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
           - path: /api
             pathType: Prefix  # /api, /api/v1/... 등 하위 경로 전부 매칭 → Spring Boot
             backend:
