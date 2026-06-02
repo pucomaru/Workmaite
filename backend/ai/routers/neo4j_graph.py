@@ -212,6 +212,7 @@ async def get_archive(
                   AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
                   AND NOT doc.doc_type = '회의록'
                 OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
+                OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
                 RETURN
                     coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -219,7 +220,8 @@ async def get_archive(
                     doc.file_name AS file_name, doc.doc_type AS doc_type,
                     doc.author AS author, doc.file_url AS file_url,
                     coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
-                    coalesce(dept.name, '') AS department
+                    coalesce(dept.name, '') AS department,
+                    coalesce(ag.id, toString(ag.pg_id)) AS related_todo_id
                 """,
                 {"ids": mg_ids_list},
             ),
@@ -307,20 +309,29 @@ async def get_archive(
                 "doc_created_at": row.get("doc_created_at"),
             })
 
+    seen_report_ids: dict[str, set] = {}
     for row in report_rows:
         mg_id = row.get("meetingId")
-        if mg_id and mg_id in meetings_map:
-            meetings_map[mg_id]["reports"].append({
-                "id": row["id"], "meeting_id": mg_id,
-                "meeting_title": row.get("meetingTitle", ""),
-                "title": row.get("title", ""),
-                "file_name": row.get("file_name", ""),
-                "doc_type": row.get("doc_type", ""),
-                "author": row.get("author"),
-                "file_url": row.get("file_url"),
-                "submitted_at": row.get("submitted_at"),
-                "department": row.get("department", ""),
-            })
+        doc_id = row.get("id")
+        if not mg_id or mg_id not in meetings_map or not doc_id:
+            continue
+        if mg_id not in seen_report_ids:
+            seen_report_ids[mg_id] = set()
+        if doc_id in seen_report_ids[mg_id]:
+            continue
+        seen_report_ids[mg_id].add(doc_id)
+        meetings_map[mg_id]["reports"].append({
+            "id": doc_id, "meeting_id": mg_id,
+            "meeting_title": row.get("meetingTitle", ""),
+            "title": row.get("title", ""),
+            "file_name": row.get("file_name", ""),
+            "doc_type": row.get("doc_type", ""),
+            "author": row.get("author"),
+            "file_url": row.get("file_url"),
+            "submitted_at": row.get("submitted_at"),
+            "department": row.get("department", ""),
+            "related_todo_id": row.get("related_todo_id"),
+        })
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()

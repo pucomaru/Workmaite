@@ -74,6 +74,9 @@ apiAI.interceptors.request.use(config => {
   return config
 })
 
+// 동시 401 요청이 중복 refresh를 호출하지 않도록 단일 Promise로 공유
+let _aiRefreshPromise = null
+
 apiAI.interceptors.response.use(
   res => res,
   async err => {
@@ -82,23 +85,28 @@ apiAI.interceptors.response.use(
     }
     if (err.response?.status === 401 && !err.config._retry) {
       const refreshToken = sessionStorage.getItem('refreshToken')
-      if (refreshToken) {
-        err.config._retry = true
-        try {
-          const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
-          const newToken = data.data?.accessToken || data.accessToken
-          sessionStorage.setItem('token', newToken)
-          sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken)
-          err.config.headers.Authorization = `Bearer ${newToken}`
-          return apiAI(err.config)
-        } catch {
-          sessionStorage.removeItem('token')
-          sessionStorage.removeItem('refreshToken')
-          sessionStorage.removeItem('user')
-          window.location.href = '/landing'
-        }
-      } else {
+      if (!refreshToken) {
         sessionStorage.removeItem('token')
+        sessionStorage.removeItem('user')
+        window.location.href = '/landing'
+        return Promise.reject(err)
+      }
+      err.config._retry = true
+      try {
+        if (!_aiRefreshPromise) {
+          _aiRefreshPromise = axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
+            .finally(() => { _aiRefreshPromise = null })
+        }
+        const { data } = await _aiRefreshPromise
+        const newToken = data.data?.accessToken || data.accessToken
+        if (!newToken) throw new Error('refresh returned no token')
+        sessionStorage.setItem('token', newToken)
+        sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken || refreshToken)
+        err.config.headers.Authorization = `Bearer ${newToken}`
+        return apiAI(err.config)
+      } catch {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('refreshToken')
         sessionStorage.removeItem('user')
         window.location.href = '/landing'
       }

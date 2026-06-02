@@ -416,3 +416,31 @@ class CardNewsGenerateRequest(BaseModel):
     emphasis_points: Optional[str] = None
     chat_history: Optional[List[dict]] = []
     plan: Optional[dict] = None  # 확정된 기획안 (있으면 이 기획안으로 생성)
+
+
+# ── Todo ──────────────────────────────────────────────────────────────────────
+class TodoCreate(BaseModel):
+    content: str
+    assignee_name: Optional[str] = None
+    assignee_dept: Optional[str] = None
+    priority: Optional[str] = "normal"
+    status: Optional[str] = "pending"
+    source_type: Optional[str] = None
+    due_date: Optional[datetime] = None
+    mg_id: Optional[str] = None  # Neo4j MeetingGroup ID (그래프 동기화용)
+
+
+class TodoOut(BaseModel):
+    id: int
+    meeting_id: int
+    agenda_id: Optional[int] = None
+    content: str
+    assignee_name: Optional[str] = None
+    assignee_dept: Optional[str] = None
+    priority: str
+    status: str
+    source_type: Optional[str] = None
+    due_date: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

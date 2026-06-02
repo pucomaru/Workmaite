@@ -64,6 +64,9 @@ let simEdges = []   // { source, target, rel }
 let vpX = 0, vpY = 0, vpScale = 1
 let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0
 
+// smooth lerp target for search focus animation
+let _targetVpX = null, _targetVpY = null, _targetVpScale = null
+
 // focused node
 let focusedIdx = null
 
@@ -140,13 +143,15 @@ function destroyPixi() {
 }
 
 // ─── Simulation ───────────────────────────────────────────────
-function buildSimulation() {
+function buildSimulation(nodes, edges) {
   if (!app) return
   const w = app.screen.width, h = app.screen.height
+  const ns = nodes ?? props.gNodes
+  const es = edges ?? props.gEdges
 
   // Build sim nodes (preserve positions if possible)
   const prevPos = new Map(simNodes.map(n => [n._idx, { x: n.x, y: n.y }]))
-  simNodes = props.gNodes.map((n, i) => {
+  simNodes = ns.map((n, i) => {
     const prev = prevPos.get(i)
     return {
       _idx: i,
@@ -158,7 +163,7 @@ function buildSimulation() {
     }
   })
 
-  simEdges = props.gEdges.map(e => ({
+  simEdges = es.map(e => ({
     source: e.from,
     target: e.to,
     rel:    e.rel,
@@ -260,10 +265,10 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: 0x818cf8, width: 2.5, alpha: 0.9 })
   }
 
-  // Search hit pulse ring
+  // Search hit — yellow ring
   if (isSearch) {
-    gfx.circle(0, 0, r + 9)
-    gfx.stroke({ color: 0xfbbf24, width: 2.2, alpha: 0.85 })
+    gfx.circle(0, 0, r + 6)
+    gfx.stroke({ color: 0xfbbf24, width: 3, alpha: 1 })
   }
 
   // Main circle
@@ -350,6 +355,17 @@ function tick() {
 
   // Advance simulation one step
   sim.tick()
+
+  // Lerp viewport toward search focus target
+  if (_targetVpX !== null) {
+    vpX     += (_targetVpX     - vpX)     * 0.1
+    vpY     += (_targetVpY     - vpY)     * 0.1
+    vpScale += (_targetVpScale - vpScale) * 0.1
+    if (Math.abs(vpX - _targetVpX) < 0.5 && Math.abs(vpY - _targetVpY) < 0.5 && Math.abs(vpScale - _targetVpScale) < 0.001) {
+      vpX = _targetVpX; vpY = _targetVpY; vpScale = _targetVpScale
+      _targetVpX = null; _targetVpY = null; _targetVpScale = null
+    }
+  }
 
   const w = app.screen.width, h = app.screen.height
 
@@ -438,10 +454,13 @@ function tick() {
     obj.gfx.x  = sn.x;  obj.gfx.y  = sn.y
     obj.label.x = sn.x; obj.label.y = sn.y + obj.r + 3
 
-    // Fade non-focused
+    // Fade non-focused / non-search-hit
+    const hasSearchHits = props.searchHitMgIdxs?.length > 0
     const alphaVal = focusedIdx !== null
       ? (i === focusedIdx || isNeighbor(i, focusedIdx) ? 1.0 : 0.2)
-      : 1.0
+      : hasSearchHits
+        ? (props.searchHitMgIdxs.includes(i) ? 1.0 : 0.15)
+        : 1.0
     obj.gfx.alpha   = alphaVal
     obj.label.alpha = alphaVal * (sn.type === 'meeting_group' ? 0 : 0.9)  // MG label inside node
 
@@ -488,7 +507,10 @@ function onBgDown(e) {
 function onBgMove(e) {
   if (!isPanning) return
   const p = e.global
-  if (Math.abs(p.x - _downX) + Math.abs(p.y - _downY) > 4) _didMove = true
+  if (Math.abs(p.x - _downX) + Math.abs(p.y - _downY) > 4) {
+    _didMove = true
+    _targetVpX = null; _targetVpY = null; _targetVpScale = null
+  }
   vpX = panOrigX + (p.x - panStartX)
   vpY = panOrigY + (p.y - panStartY)
 }
@@ -529,6 +551,7 @@ function onNodeOut(idx) {
 
 function onWheel(e) {
   e.preventDefault()
+  _targetVpX = null; _targetVpY = null; _targetVpScale = null
   const rect = app.canvas.getBoundingClientRect()
   const mx = e.clientX - rect.left
   const my = e.clientY - rect.top
@@ -574,7 +597,40 @@ function getNodeScreenPos(nodeId) {
   }
 }
 
-defineExpose({ zoomIn, zoomOut, resetView, reloadGraph: buildSimulation, getNodeAtScreen, getNodeScreenPos })
+/** 검색 히트 노드들이 중앙으로 부드럽게 이동하도록 뷰포트 애니메이션 설정 */
+function focusSearchHits(hitIdxs) {
+  if (!hitIdxs || hitIdxs.length === 0) {
+    _targetVpX = null; _targetVpY = null; _targetVpScale = null
+    return
+  }
+  if (!app) return
+  const hitNodes = hitIdxs.map(i => simNodes[i]).filter(Boolean)
+  if (!hitNodes.length) return
+
+  const w = app.screen.width, h = app.screen.height
+
+  if (hitNodes.length === 1) {
+    const sn = hitNodes[0]
+    const s = Math.min(2.0, Math.max(1.2, vpScale))
+    _targetVpX     = w / 2 - sn.x * s
+    _targetVpY     = h / 2 - sn.y * s
+    _targetVpScale = s
+  } else {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const sn of hitNodes) {
+      minX = Math.min(minX, sn.x); maxX = Math.max(maxX, sn.x)
+      minY = Math.min(minY, sn.y); maxY = Math.max(maxY, sn.y)
+    }
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+    const pad = 160
+    const s = Math.max(0.3, Math.min(2.2, Math.min(w / (maxX - minX + pad), h / (maxY - minY + pad))))
+    _targetVpX     = w / 2 - cx * s
+    _targetVpY     = h / 2 - cy * s
+    _targetVpScale = s
+  }
+}
+
+defineExpose({ zoomIn, zoomOut, resetView, reloadGraph: buildSimulation, getNodeAtScreen, getNodeScreenPos, focusSearchHits })
 
 // ─── Helpers ─────────────────────────────────────────────────
 function hexToNum(hex) {

@@ -11,10 +11,15 @@ from neo4j_sync import (
     sync_meeting,
     sync_meeting_member,
     sync_user,
+    sync_agenda,
     delete_meeting,
     delete_meeting_member,
     update_meeting_member_role,
 )
+from neo4j_client import run_cypher
+import logging
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
@@ -421,3 +426,94 @@ def my_role(
     if not member:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     return {"role": member.role}
+
+
+# ── Todos (prefix: /api/ai — Vite 프록시 /api → FastAPI 라우팅 활용) ───────────
+ai_router = APIRouter(prefix="/api/ai", tags=["todos"])
+
+@ai_router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
+def get_todos(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(models.Todo).filter(
+        models.Todo.meeting_id == meeting_id
+    ).order_by(models.Todo.created_at).all()
+
+
+@ai_router.post("/meetings/{meeting_id}/todos", response_model=schemas.TodoOut)
+async def create_todo(
+    meeting_id: int,
+    body: schemas.TodoCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
+
+    # ── 1. todos 테이블 저장 ──────────────────────────────────────────
+    todo = models.Todo(
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+        agenda_id=None,  # will be set after agenda insert
+        content=body.content,
+        assignee_name=body.assignee_name,
+        assignee_dept=body.assignee_dept,
+        priority=body.priority or "normal",
+        status=body.status or "pending",
+        source_type=body.source_type or "meeting_minutes",
+        due_date=body.due_date,
+    )
+    db.add(todo)
+
+    # ── 2. agendas 테이블에도 저장 (그래프·아카이브 표시용) ──────────
+    agenda = models.Agenda(
+        meeting_id=meeting_id,
+        title=body.content,
+        content=body.content,
+        order_index=0,
+        status="ON_HOLD",
+        created_at=datetime.utcnow(),
+    )
+    db.add(agenda)
+    db.commit()
+    db.refresh(todo)
+    db.refresh(agenda)
+
+    # agenda_id 역참조 저장
+    todo.agenda_id = agenda.id
+    db.commit()
+    db.refresh(todo)
+
+    # ── 3. Neo4j Agenda 노드 동기화 (실패해도 무시) ──────────────────
+    try:
+        # Meeting 노드가 없으면 먼저 생성
+        await sync_meeting(
+            meeting.id, meeting.title,
+            meeting.purpose, str(meeting.status or "ACTIVE"), str(meeting.type or ""),
+        )
+        # agendas.id 기준 Agenda 노드 생성 → Meeting {pg_id} 연결
+        await sync_agenda(agenda.id, meeting_id, body.content, body.content, "ON_HOLD")
+
+        # MeetingGroup 노드에도 연결 (mg_id = "mg-sqlite-N" 형식)
+        mg_id = body.mg_id or ""
+        if mg_id:
+            await run_cypher(
+                "MATCH (ag:Agenda {pg_id: $pg_id}), (mg:MeetingGroup {id: $mg_id}) "
+                "MERGE (ag)-[:`관할`]->(mg)",
+                {"pg_id": agenda.id, "mg_id": mg_id},
+            )
+
+        # 담당자 Person 연결 (이름 기준)
+        if body.assignee_name:
+            await run_cypher(
+                "MATCH (ag:Agenda {pg_id: $pg_id}), (p:Person {name: $name}) "
+                "MERGE (p)-[:`담당`]->(ag)",
+                {"pg_id": agenda.id, "name": body.assignee_name},
+            )
+    except Exception as e:
+        _logger.warning(f"[Todo] Neo4j 동기화 실패 (agenda_id={agenda.id}): {e}")
+
+    return todo

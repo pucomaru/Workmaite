@@ -79,6 +79,28 @@ const graphViewRef = ref(null)  // GraphView (PIXI) 컴포넌트 ref
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
 
+function _recomputeSearchHits() {
+  const q = search.value
+  if (!q || !q.trim()) { searchHitMgIdxs.value = []; graphViewRef.value?.focusSearchHits([]); return }
+  const lower = q.toLowerCase()
+  const hits = []
+  gNodes.forEach((n, i) => {
+    const label = (n.label || '').toLowerCase()
+    if (label.includes(lower)) { hits.push(i); return }
+    if (n.type === 'meeting_group' && n.data) {
+      const g = n.data
+      const inMinutes = (g.minutes || []).some(m => (m.session_title || '').toLowerCase().includes(lower))
+      const inReports = (g.reports || []).some(r => (r.file_name || r.title || '').toLowerCase().includes(lower))
+      const inMembers = (g.members || []).some(m => (m.userName || m.name || '').toLowerCase().includes(lower))
+      if (inMinutes || inReports || inMembers) hits.push(i)
+    }
+  })
+  searchHitMgIdxs.value = hits
+  graphViewRef.value?.focusSearchHits(hits)
+}
+
+watch(search, _recomputeSearchHits)
+
 // ─── Node type visibility (eye toggle) ───────────────────────
 const hiddenNodeTypes = ref([])  // array of type keys: 'org-root'|'meeting_group'|'dept'|'agenda'|'session'|'file'
 function toggleNodeType(typeKey) {
@@ -248,6 +270,7 @@ async function doCreateMeeting() {
     const g = buildGraphNodes()
     if (g.nodes.length > 0) {
       gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+      graphViewRef.value?.reloadGraph(gNodes, gEdges)
     }
     setTimeout(refreshArchive, 1000)
   } catch(e) { console.error(e) }
@@ -994,7 +1017,7 @@ async function saveApprovedTasks() {
     const saved = []
     for (const t of approved) {
       try {
-        const { data } = await api.post(`/api/v1/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
+        const { data } = await apiAI.post(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
           content: t.content,
           assignee_name: t.assignee || null,
           assignee_dept: t.dept || null,
@@ -1002,6 +1025,7 @@ async function saveApprovedTasks() {
           status: t.status || 'pending',
           source_type: 'meeting_minutes',
           due_date: t.due || null,
+          mg_id: detailMeeting.value.id,
         })
         saved.push(data)
       } catch (e) {
@@ -1010,7 +1034,7 @@ async function saveApprovedTasks() {
     }
 
     // DB 저장 후 목록 새로고침
-    detailTodos.value = (await api.get(`/api/v1/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
 
     const total = detailTodos.value.length
     const done = detailTodos.value.filter(t => t.status === 'done').length
@@ -1175,7 +1199,7 @@ async function openDetail(groupData) {
   hoverNode.value = null
   detailTodos.value = []
   try {
-    detailTodos.value = (await api.get(`/api/v1/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
     // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
     if (!groupTodoRatio.value.has(groupData.id)) {
@@ -1236,7 +1260,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   const meetingId = id.match(/\d+$/)?.[0]
   if (!meetingId) return
   try {
-    uploadMeetingTodos.value = (await api.get(`/api/v1/meetings/${meetingId}/todos`)).data || []
+    uploadMeetingTodos.value = (await apiAI.get(`/api/ai/meetings/${meetingId}/todos`)).data || []
     if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
   } catch { uploadMeetingTodos.value = [] }
 })
@@ -1489,33 +1513,38 @@ const connectableNodes = computed(() => {
 
 // ─── Upload: connectable nodes (meeting_group / dept / agenda) ──────────────
 const deptConnectableNodes = computed(() => {
-  if (uploadForm.value.meetingId) {
-    const nodes = []
-    const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
-    if (mgNode) nodes.push({ id: mgNode.id, label: mgNode.label, typeLabel: '회의체', type: 'meeting_group' })
-    gNodes
-      .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
-      .forEach(n => nodes.push({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
-    gNodes
-      .filter(n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId)
-      .forEach(n => nodes.push({ id: n.id, label: n.label, typeLabel: '과제', type: 'agenda' }))
-    return nodes
-  }
   const seen = new Set()
+  // 회의체 선택 시: 해당 회의체에 연결된 dept 노드만
+  if (uploadForm.value.meetingId) {
+    return gNodes
+      .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
+      .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
+      .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+  }
+  // 회의체 미선택 시: 전체 dept 노드
   return gNodes
     .filter(n => n.type === 'dept')
     .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
     .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
 })
 
-// 선택된 회의체 노드에 연결된 과제들만 드롭다운에 표시
+// 선택된 회의체 노드에 연결된 과제들만 드롭다운에 표시 (맵 상 agenda 노드 기준)
 const 업로드회의체과제 = computed(() => {
   if (!uploadForm.value.meetingId) return []
-  // connectNodeId가 meeting_group 노드인 경우 해당 회의체의 과제
-  const mgNodeId = uploadForm.value.connectNodeId
-  const mgNode = gNodes.find(n => n.id === mgNodeId && n.type === 'meeting_group')
+  // 맵 상에서 해당 회의체에 연결된 agenda 노드 우선
+  const mapAgendas = gNodes.filter(
+    n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId
+  )
+  if (mapAgendas.length > 0) {
+    return mapAgendas.map(n => ({
+      id: n.neo4jId || n.id,
+      content: n.data?.content || n.label,  // 전체 내용 (맵은 12자 truncate)
+      agenda_id: n.data?.pg_id ?? null,
+    }))
+  }
+  // fallback: 맵에 없으면 meeting_group 노드의 tasks 또는 API 로드 데이터
+  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
   if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
-  // fallback: uploadMeetingTodos (API 로드)
   return uploadMeetingTodos.value
 })
 
@@ -1651,13 +1680,22 @@ function doAddFile() {
   if (!uploadForm.value.label.trim()) return
   const fromNode = gNodes.find(n => n.id === uploadForm.value.connectNodeId)
   const fromIdx = fromNode ? gNodes.indexOf(fromNode) : -1
-  const fromX = fromNode?.x||0, fromZ = fromNode?.z||0
-  const phi = Math.atan2(fromZ, fromX) + 0.28
-  const baseR = Math.sqrt(fromX*fromX+fromZ*fromZ)
   const fileNodeId = `file-new-${Date.now()}`
 
   // 연결 노드의 meeting_group을 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
+
+  // 연관 과제가 선택된 경우 agenda 노드에 연결, 아니면 부서 노드에 연결
+  const relTodoId = uploadForm.value.relatedTodoId
+  const agendaNode = relTodoId
+    ? gNodes.find(n => n.type === 'agenda' && (n.neo4jId === relTodoId || n.id === relTodoId))
+    : null
+  const anchorNode = agendaNode || fromNode  // 위치·엣지 기준 노드
+  const anchorIdx  = agendaNode ? gNodes.indexOf(agendaNode) : fromIdx
+
+  const anchorX = anchorNode?.x||0, anchorZ = anchorNode?.z||0
+  const phi   = Math.atan2(anchorZ, anchorX) + 0.28
+  const baseR = Math.sqrt(anchorX*anchorX+anchorZ*anchorZ)
 
   const newNode = {
     id: fileNodeId,
@@ -1669,13 +1707,13 @@ function doAddFile() {
     extractedAgendas: [],
     groupIdx: mgNode?.groupIdx,
     meetingGroupId: uploadForm.value.meetingId,
-    x: Math.cos(phi)*(baseR+90), y: (fromNode?.y||0)+42, z: Math.sin(phi)*(baseR+90)
+    x: Math.cos(phi)*(baseR+90), y: (anchorNode?.y||0)+42, z: Math.sin(phi)*(baseR+90)
   }
   gNodes.push(newNode)
   const fileIdx = gNodes.length - 1
-  const rel = autoRel(uploadForm.value.connectNodeId, 'file')
-  // 엣지 방향: file → connectNode (computeTreeLayout kids() 탐색 방향과 일치)
-  if (fromIdx >= 0) gEdges.push({ from: fileIdx, to: fromIdx, rel })
+  // agenda에 연결할 때는 '첨부', 부서에 연결할 때는 REL_MATRIX 기준
+  const rel = agendaNode ? '첨부' : autoRel(uploadForm.value.connectNodeId, 'file')
+  if (anchorIdx >= 0) gEdges.push({ from: fileIdx, to: anchorIdx, rel })
 
   // AI가 추천한 유관부서 자동 연결
   selectedRelDepts.value.forEach(deptName => {
@@ -1709,7 +1747,7 @@ function doAddFile() {
   })
 
   showUploadModal.value = false
-  initGraph()
+  graphViewRef.value?.reloadGraph(gNodes, gEdges)
 
   // 백엔드 업로드 + Neo4j 임베딩 동기화
   const file = uploadForm.value.file
@@ -1724,6 +1762,7 @@ function doAddFile() {
     // 과제 노드에 드래그한 경우 — Agenda / Document 노드 연결
     if (uploadForm.value.relatedTodoId) fd.append('agenda_neo4j_id', uploadForm.value.relatedTodoId)
     if (uploadForm.value.agendaContent) fd.append('agenda_content', uploadForm.value.agendaContent)
+    if (uploadForm.value.meetingId) fd.append('mg_id', uploadForm.value.meetingId)
     apiAI.post('/api/sync/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then(() => setTimeout(refreshArchive, 1200))
       .catch(e => console.warn('[doAddFile] sync/file 실패:', e))
@@ -2164,8 +2203,11 @@ function buildGraphNodes() {
         data: { ...rp, created_at: rp.submitted_at },
         neo4jId: rp.id || null,
       })
-      // document -[ATTACHED_TO]→ meetingGroup
-      edges.push({ from: rIdx, to: mgIdx, rel: '첨부' })
+      // document → agenda 연결 (과제 지정 시 해당 agenda, 아니면 첫 agenda, 없으면 meetingGroup)
+      const docToIdx = (relTodoId && agendaIdxByTodoId.has(relTodoId))
+        ? agendaIdxByTodoId.get(relTodoId)
+        : (allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx)
+      edges.push({ from: rIdx, to: docToIdx, rel: '첨부' })
     })
   })
 
@@ -2284,6 +2326,8 @@ async function refreshArchive() {
     const g = buildGraphNodes()
     if (g.nodes.length > 0) {
       gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+      _recomputeSearchHits()
+      graphViewRef.value?.reloadGraph(gNodes, gEdges)
     }
   } catch(e) { console.error('archive refresh error', e) }
 }
@@ -2294,6 +2338,7 @@ watch(() => meetingsStore.meetings.length, () => {
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+  graphViewRef.value?.reloadGraph(gNodes, gEdges)
 })
 
 // Neo4j 데이터 로드 완료 시 그래프 재빌드
@@ -2302,6 +2347,7 @@ watch(() => neo4jMeetings.value.length, () => {
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
+  graphViewRef.value?.reloadGraph(gNodes, gEdges)
 })
 
 
@@ -3704,7 +3750,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
               <select v-model="uploadForm.relatedTodoId" class="app-modal-input" :class="{ 'prefilled': uploadForm.relatedTodoId }"
                 :disabled="!uploadForm.meetingId" @change="prefilledCtx.relatedTodoId = false">
                 <option value="">{{ uploadForm.meetingId ? (업로드회의체과제.length ? '과제 선택...' : '연결된 과제가 없습니다') : '회의체를 먼저 선택하세요' }}</option>
-                <option v-for="t in 업로드회의체과제" :key="t.id" :value="t.id">{{ t.content }}</option>
+                <option v-for="t in 업로드회의체과제" :key="t.id" :value="String(t.agenda_id ?? t.id)">{{ t.content }}</option>
               </select>
             </div>
 
