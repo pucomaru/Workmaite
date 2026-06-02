@@ -6,6 +6,9 @@ WORKDIR /app
 # 의존성 파일 먼저 복사 (코드 변경 시 pip install 캐시 재사용 가능)
 COPY requirements.txt .
 
+# ffmpeg 설치 (openai-whisper 필수 의존성)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # --no-cache-dir: 캐시 저장 안 해서 이미지 크기 절약
 RUN pip install --no-cache-dir -r requirements.txt
 
