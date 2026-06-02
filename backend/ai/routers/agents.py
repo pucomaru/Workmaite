@@ -138,7 +138,7 @@ async def ara_generate_minutes(
     now = datetime.now().strftime("%Y년 %m월 %d일")
 
     async def stream():
-        async for chunk in ara.generate_minutes_stream(transcript, meeting_context, agenda_text, now):
+        async for chunk in minutes_agent.generate_minutes_stream(transcript, meeting_context, agenda_text, now):
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 

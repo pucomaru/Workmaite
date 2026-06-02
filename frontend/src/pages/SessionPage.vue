@@ -174,10 +174,6 @@ const stt = useSTT({
     const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     const entry = { time, text }
     transcriptLines.value.push(entry)
-    if (activeSession.value) {
-      const rec = getOrCreateRecord(activeSession.value.id)
-      rec.transcriptLines.push(entry)
-    }
     nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
   },
   getLang: () => transcriptLang.value === 'ko' ? 'ko-KR' : 'en-US',
@@ -254,7 +250,7 @@ async function generateMinutes() {
 
   try {
     await streamPost(
-      '/api/agent/ara/generate-minutes',
+      '/api/agent/minutes/generate-minutes',
       { meeting_id: activeSession.value?.meeting_id || 0, message: transcriptText, chat_history: [] },
       (chunk) => {
         minutesContent += chunk
