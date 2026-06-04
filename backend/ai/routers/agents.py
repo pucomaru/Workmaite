@@ -227,15 +227,7 @@ async def supervisor_chat(
             )
             user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
     except Exception:
-        pass  # Neo4j 불가 → SQLite fallback 사용
-
-    # SQLite 기반 소속 meeting_id 집합 (fallback)
-    user_sqlite_meeting_ids: set[int] = {
-        mm.meeting_id
-        for mm in db.query(models.MeetingMember).filter(
-            models.MeetingMember.user_id == current_user.id
-        ).all()
-    }
+        pass  # Neo4j 연결 실패 시 접근 권한 미확인
 
     async def stream():
         # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
@@ -253,8 +245,7 @@ async def supervisor_chat(
                     if user_allowed_mg_ids:
                         has_access = mid_neo4j in user_allowed_mg_ids
                     else:
-                        # Neo4j 조회 실패 시 SQLite 멤버십으로 확인
-                        has_access = data.meeting_id in user_sqlite_meeting_ids
+                        has_access = False
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
@@ -343,7 +334,7 @@ async def supervisor_chat(
         )
 
         def _enrich(base_ctx: str) -> str:
-            """사용자 범위 헤더 + SQLite 컨텍스트 + Neo4j 그래프 컨텍스트를 합칩니다."""
+            """사용자 범위 헤더 + Neo4j 그래프 컨텍스트를 합칩니다."""
             parts = [_user_scope_header, base_ctx]
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
@@ -643,7 +634,7 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
 
 
 def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
-    """SQLite 기반 조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
+    """조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
     if user_id is not None:
         allowed_ids = {
             mm.meeting_id

@@ -497,7 +497,7 @@ async def create_todo(
         # agendas.id 기준 Agenda 노드 생성 → Meeting {pg_id} 연결
         await sync_agenda(agenda.id, meeting_id, body.content, body.content, "ON_HOLD")
 
-        # MeetingGroup 노드에도 연결 (mg_id = "mg-sqlite-N" 형식)
+        # MeetingGroup 노드에도 연결
         mg_id = body.mg_id or ""
         if mg_id:
             await run_cypher(

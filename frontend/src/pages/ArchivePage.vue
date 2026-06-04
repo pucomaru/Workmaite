@@ -498,7 +498,7 @@ async function sendAgentMsg() {
     try {
       await _runPlanningSteps(planningMsg, extractSteps)
       const { data } = await apiAI.post('/api/agent/archive/chat-extract', {
-        meeting_id: toSqliteId(detailMeeting.value.id),
+        meeting_id: toNumericId(detailMeeting.value.id),
         message: content,
         chat_history: [{ agendas: extractResult.value.map(({ title, bullets, department, priority }) => ({ title, bullets, department, priority })) }],
       })
@@ -534,7 +534,7 @@ async function sendAgentMsg() {
   try {
     await streamPost(
       agentInfo.value.endpoint,
-      { meeting_id: toSqliteId(detailMeeting.value?.id), message: content, chat_history: history },
+      { meeting_id: toNumericId(detailMeeting.value?.id), message: content, chat_history: history },
       (chunk) => {
         agentMsg.content += chunk
         nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
@@ -716,20 +716,20 @@ function _onFloatDragEnd() {
   if (type === 'meeting') {
     openCreateModal()
   } else if (type === 'session') {
-    const mgId = target?.type === 'meeting_group' ? toSqliteId(target.id) : null
-    openSessionModal(mgId ? meetingGroups.value.find(g => toSqliteId(g.id) === mgId) : null)
+    const mgId = target?.type === 'meeting_group' ? toNumericId(target.id) : null
+    openSessionModal(mgId ? meetingGroups.value.find(g => toNumericId(g.id) === mgId) : null)
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
       ctx.connectNodeId = target.meetingGroupId || ''
       ctx.relatedTodoId = target.neo4jId || target.data?.id || ''
       ctx.agendaContent = target.data?.content || target.label || ''
-      ctx.meetingId     = target.data?.meetingId || toSqliteId(target.meetingGroupId)
+      ctx.meetingId     = target.data?.meetingId || toNumericId(target.meetingGroupId)
     } else if (target?.type === 'dept') {
       ctx.connectNodeId = target.id
-      ctx.meetingId     = toSqliteId(target.meetingGroupId)
+      ctx.meetingId     = toNumericId(target.meetingGroupId)
     } else if (target?.type === 'meeting_group') {
-      ctx.meetingId = toSqliteId(target.id)
+      ctx.meetingId = toNumericId(target.id)
     }
     openUploadModal(ctx)
   }
@@ -742,8 +742,8 @@ const detailTodos = ref([])
 const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
 const nodeDetailTab = ref('basic') // 'basic' | 'rel'
 
-/** Neo4j ID("mg-001") 또는 정수 ID를 SQLite 정수 ID로 변환 */
-function toSqliteId(id) {
+/** mg-001, mg-13 등 Neo4j/PG ID에서 정수 ID 추출 */
+function toNumericId(id) {
   if (!id && id !== 0) return 0
   if (typeof id === 'number') return id
   const m = String(id).match(/(\d+)$/)
@@ -885,7 +885,7 @@ async function runExtract() {
 
   try {
     const formData = new FormData()
-    formData.append('meeting_id', String(toSqliteId(detailMeeting.value.id)))
+    formData.append('meeting_id', String(toNumericId(detailMeeting.value.id)))
     formData.append('selected_file_ids', JSON.stringify(
       selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
     ))
@@ -934,7 +934,7 @@ async function openExtractModal() {
   extractResult.value = []
   try {
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', {
-      meeting_id: toSqliteId(detailMeeting.value.id),
+      meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
     extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: [...(ag.bullets||[])] }))
@@ -1017,7 +1017,7 @@ async function saveApprovedTasks() {
     const saved = []
     for (const t of approved) {
       try {
-        const { data } = await apiAI.post(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
+        const { data } = await apiAI.post(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`, {
           content: t.content,
           assignee_name: t.assignee || null,
           assignee_dept: t.dept || null,
@@ -1034,7 +1034,7 @@ async function saveApprovedTasks() {
     }
 
     // DB 저장 후 목록 새로고침
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`)).data || []
 
     const total = detailTodos.value.length
     const done = detailTodos.value.filter(t => t.status === 'done').length
@@ -1165,7 +1165,7 @@ const detailMyRole = computed(() =>
 )
 const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
 const isAnyAdmin = computed(() => {
-  // SQLite 기반 role 확인
+  // PostgreSQL 기반 role 확인
   if (Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')) return true
   // Neo4j 기반: meetings의 members 배열에서 현재 유저 role 확인
   const myEmail = currentPerson.value?.email || authStore.user?.employee_id
@@ -1199,7 +1199,7 @@ async function openDetail(groupData) {
   hoverNode.value = null
   detailTodos.value = []
   try {
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(groupData.id)}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
     // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
     if (!groupTodoRatio.value.has(groupData.id)) {
@@ -1256,7 +1256,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   uploadMeetingTodos.value = []
   uploadForm.value.relatedTodoId = ''
   if (!id) return
-  // node id가 'mg-13' 또는 'mg-sqlite-3' 형식이므로 숫자만 추출
+  // node id가 'mg-13' 형식이므로 숫자만 추출
   const meetingId = id.match(/\d+$/)?.[0]
   if (!meetingId) return
   try {
@@ -1271,7 +1271,6 @@ watch(() => uploadForm.value.connectNodeId, (nodeId) => {
   const node = gNodes.find(n => n.id === nodeId)
   if (node?.type === 'meeting_group') {
     const mgData = node.data
-    // SQLite id: 숫자이면 'mg-{id}', 아니면 Neo4j id
     const rawId = mgData?.id ?? nodeId
     uploadForm.value.meetingId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
   }
@@ -1429,12 +1428,10 @@ async function saveRelEdit() {
   graphVersion.value++
 }
 function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
-// Neo4j mg-003 / mg-sqlite-3 → SQLite 정수 ID 추출
-function _toSqliteId(id) {
+// Neo4j mg-003 → 정수 ID 추출
+function _toNumericId(id) {
   if (!id) return id
-  // 숫자만으로 이루어진 경우 그대로 반환
   if (/^\d+$/.test(String(id))) return id
-  // 끝에서 숫자만 추출: "mg-003" → "3", "mg-sqlite-3" → "3"
   const m = String(id).match(/\d+$/)
   return m ? Number(m[0]) : id
 }
@@ -1755,7 +1752,7 @@ function doAddFile() {
     const fd = new FormData()
     fd.append('file', file)
     const rawMgId = uploadForm.value.meetingId
-    const mgNumId = rawMgId ? _toSqliteId(rawMgId) : null
+    const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
     if (mgNumId) fd.append('meeting_id', String(mgNumId))
     if (uploadForm.value.label) fd.append('file_label', uploadForm.value.label)
     if (uploadForm.value.fileType) fd.append('doc_type', uploadForm.value.fileType)
@@ -1776,7 +1773,7 @@ const meetingGroups = computed(() => {
   // Neo4j 데이터가 있으면 우선 사용 (그래프 온톨로지 기반)
   if (neo4jMeetings.value.length > 0) return neo4jMeetings.value
 
-  // fallback: SQLite 기반 조합
+  // fallback: PostgreSQL 기반 조합
   const map = new Map()
   // 본인이 참여 중인 회의체만 포함
   meetingsStore.meetings
@@ -2003,11 +2000,10 @@ function buildGraphNodes() {
 
   data.forEach((g, gi) => {
     const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
-    // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, SQLite 정수이면 prefix 추가
+    // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, 정수이면 prefix 추가
     const rawId = g.id || gi
     const mgNodeId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
-    // Neo4j에 전달할 실제 ID (새 SQLite 회의체는 "mg-sqlite-{id}" 형식)
-    const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-sqlite-${rawId}`
+    const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
 
     // ── MeetingGroup 노드 ─────────────────────────────────────
     const mgIdx = nodes.length
@@ -2018,7 +2014,7 @@ function buildGraphNodes() {
     })
     // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
     // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
-    // (meetingRoles는 SQLite 기반이라 Neo4j와 불일치할 수 있음)
+    // (meetingRoles는 PostgreSQL 기반이라 Neo4j와 불일치할 수 있음)
     const myName = currentPerson.value?.name || authStore.user?.name
     const myEmail = currentPerson.value?.email || authStore.user?.employee_id
     const selfMember = g.members?.find(mb =>
