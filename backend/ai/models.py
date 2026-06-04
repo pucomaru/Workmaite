@@ -37,7 +37,7 @@ class Meeting(Base):
     end_date    = Column(DateTime, nullable=True)
     status      = Column(String(20), nullable=False, default="ACTIVE")  # ACTIVE|ENDED
     created_by  = Column(BigInteger, ForeignKey("users.id"), nullable=False)
-    created_at  = Column(DateTime, nullable=False)
+    created_at  = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class MeetingMember(Base):
@@ -47,7 +47,7 @@ class MeetingMember(Base):
     meeting_id = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
     user_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     role       = Column(String(20), nullable=False)   # admin | presenter
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", foreign_keys=[user_id])
 
@@ -62,7 +62,7 @@ class MeetingSession(Base):
     started_at   = Column(DateTime, nullable=True)
     ended_at     = Column(DateTime, nullable=True)
     status       = Column(String(20), nullable=False, default="SCHEDULED")  # SCHEDULED|ONGOING|ENDED
-    created_at   = Column(DateTime, nullable=False)
+    created_at   = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     minutes = relationship("Minutes", back_populates="session", uselist=False)
 
@@ -88,7 +88,7 @@ class Agenda(Base):
     content     = Column(Text, nullable=True)
     order_index = Column(Integer, nullable=False, default=0)
     status      = Column(String(20), nullable=False, default="ON_HOLD")  # ON_HOLD|IN_PROGRESS|DONE
-    created_at  = Column(DateTime)
+    created_at  = Column(DateTime, default=datetime.utcnow)
 
 
 class Report(Base):
