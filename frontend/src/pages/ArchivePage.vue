@@ -1772,9 +1772,20 @@ function doAddFile() {
 
 
 
+// PostgreSQL 기준 유효 ID 집합 — 삭제된 회의체를 Neo4j/fallback에서 제거하기 위해 사용
+function _isValidMeeting(mgId) {
+  if (!meetingsStore.meetings.length) return true  // 아직 로드 전이면 필터 안 함
+  const s = String(mgId)
+  const numId = s.startsWith('mg-sqlite-') ? parseInt(s.slice(10))
+              : s.startsWith('mg-')        ? parseInt(s.slice(3))
+              : parseInt(s)
+  return meetingsStore.meetings.some(m => m.id === numId)
+}
+
 const meetingGroups = computed(() => {
-  // Neo4j 데이터가 있으면 우선 사용 (그래프 온톨로지 기반)
-  if (neo4jMeetings.value.length > 0) return neo4jMeetings.value
+  // Neo4j 데이터가 있으면 우선 사용 — PostgreSQL에서 삭제된 항목 제외
+  if (neo4jMeetings.value.length > 0)
+    return neo4jMeetings.value.filter(mg => _isValidMeeting(mg.id))
 
   // fallback: PostgreSQL 기반 조합
   const map = new Map()
@@ -2341,8 +2352,21 @@ async function refreshArchive() {
 }
 
 // Rebuild graph when new meetings are created
-watch(() => meetingsStore.meetings.length, () => {
+watch(() => meetingsStore.meetings.length, (newLen, oldLen) => {
   if (loading.value) return  // 초기 로딩 중에는 무시 — finally에서 한 번만 빌드
+
+  // 회의체가 삭제된 경우: neo4jMeetings에서도 즉시 제거
+  if (newLen < oldLen && neo4jMeetings.value.length > 0) {
+    const currentIds = new Set(meetingsStore.meetings.map(m => m.id))
+    neo4jMeetings.value = neo4jMeetings.value.filter(mg => {
+      const s = String(mg.id)
+      const numId = s.startsWith('mg-sqlite-') ? parseInt(s.slice(10))
+                  : s.startsWith('mg-')        ? parseInt(s.slice(3))
+                  : parseInt(s)
+      return currentIds.has(numId)
+    })
+  }
+
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
