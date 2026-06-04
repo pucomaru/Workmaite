@@ -221,6 +221,7 @@ function rebuildNodeObjects() {
     const gfx = new PIXI.Graphics()
     gfx.eventMode = 'static'
     gfx.cursor = 'pointer'
+    gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
     gfx._nodeIdx = i
     gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i) })
     gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
@@ -237,9 +238,11 @@ function rebuildNodeObjects() {
         fontWeight: type === 'meeting_group' ? 'bold' : 'normal',
         fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
         align:      'center',
-      }
+      },
+      resolution: (window.devicePixelRatio || 1) * 3,
     })
     label.anchor.set(0.5, 0)
+    label.eventMode = 'none'  // labels must not intercept pointer events
     labelContainer.addChild(label)
 
     nodeObjs.set(i, { gfx, label, node: n, type, r, hovered: false, focused: false })
@@ -477,6 +480,9 @@ function tick() {
     } else {
       obj.label.anchor.set(0.5, 0)
     }
+    // Update text resolution to match zoom for crisp text at any scale
+    const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
+    if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
   })
 }
 
