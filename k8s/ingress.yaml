@@ -6,7 +6,7 @@ metadata:
   labels:
     app: workmaite
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: public-nginx  # 교육환경에서 제공하는 Nginx Ingress 클래스명
   tls:
