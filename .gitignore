@@ -82,4 +82,15 @@ docker-compose.override.yml
 *.tmp
 *.orig
 *.pdf
-**/.gradle/ AWSCLIV2.pkg
+**/.gradle/
+AWSCLIV2.pkg
+
+# Claude Code local config
+.claude/settings.local.json
+
+# Vite cache
+.vite/
+
+# AI uploaded files (runtime uploads, not source)
+backend/ai/uploads/*
+!backend/ai/uploads/.gitkeep
