@@ -15,6 +15,9 @@ COPY pyproject.toml uv.lock ./
 # 가상환경 없이 시스템에 직접 설치 (컨테이너 환경에 적합)
 RUN uv sync --frozen --no-dev --no-cache
 
+# Whisper 모델 미리 다운로드 (pod 시작 시 다운로드 불필요)
+RUN uv run python -c "import whisper; whisper.load_model('small')"
+
 # 전체 복사
 COPY . .
 
