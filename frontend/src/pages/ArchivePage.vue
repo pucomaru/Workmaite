@@ -2012,6 +2012,10 @@ function buildGraphNodes() {
   // dept name → neo4j id 룩업 맵
   const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
 
+  // 전역 중복 방지: 같은 부서·사람은 하나의 노드만 생성
+  const globalDeptMap    = new Map()  // deptName → nodeIdx
+  const globalPersonMap  = new Map()  // userId   → { nodeIdx, depts: Set<deptName> }
+
   data.forEach((g, gi) => {
     const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
     // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, 정수이면 prefix 추가
@@ -2054,37 +2058,59 @@ function buildGraphNodes() {
 
     depts.forEach((deptName, di) => {
       const dAng = ang + (di - (dCount - 1) / 2) * deptFan
-      const deptIdx = nodes.length
+
+      // ── Dept 노드: 이미 생성된 부서면 재사용 ──────────────────
+      let deptIdx
+      if (globalDeptMap.has(deptName)) {
+        deptIdx = globalDeptMap.get(deptName)
+      } else {
+        deptIdx = nodes.length
+        deptIdxMap.set(deptName, deptIdx)
+        nodes.push({
+          id: `dept-${deptName}`, label: deptName, type: 'dept',
+          x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
+          members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
+          neo4jId: deptIdByName.get(deptName) || null, ended: isEnded,
+        })
+        globalDeptMap.set(deptName, deptIdx)
+      }
       deptIdxMap.set(deptName, deptIdx)
-      nodes.push({
-        id: `dept-${g.id || gi}-${deptName}`, label: deptName, type: 'dept',
-        x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
-        members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
-        neo4jId: deptIdByName.get(deptName) || null, ended: isEnded,
-      })
-      // dept -[PARTICIPATES_IN]→ meetingGroup
+      // dept -[PARTICIPATES_IN]→ meetingGroup (회의체마다 엣지는 새로 추가)
       edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
 
-      // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
+      // ── Person 노드: 이미 생성된 사람이면 재사용 ──────────────
       const deptMembers = membersByDept.get(deptName) || []
       const visibleMembers = deptMembers.filter(mb =>
         mb.email !== myEmail && (mb.userName || mb.name) !== myName
       )
       const pCount = visibleMembers.length
       visibleMembers.forEach((mb, pi) => {
-        const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
-        const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
-        const pIdx = nodes.length
         const pName = mb.userName || mb.name || '?'
-        nodes.push({
-          id: `person-${g.id || gi}-${mb.userId || pi}`, label: pName, type: 'person',
-          x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
-          groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
-          neo4jId: mb.userId || null, ended: isEnded,
-        })
-        // person -[BELONGS_TO]→ dept
-        edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
-        // person -[ADMIN_OF or MEMBER_OF]→ meetingGroup
+        const personKey = String(mb.userId || `${pName}-${mb.email || pi}`)
+
+        let pIdx
+        if (globalPersonMap.has(personKey)) {
+          const existing = globalPersonMap.get(personKey)
+          pIdx = existing.nodeIdx
+          // 같은 부서→사람 소속 엣지는 한 번만
+          if (!existing.depts.has(deptName)) {
+            existing.depts.add(deptName)
+            edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
+          }
+        } else {
+          const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
+          const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
+          pIdx = nodes.length
+          nodes.push({
+            id: `person-${personKey}`, label: pName, type: 'person',
+            x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
+            groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
+            neo4jId: mb.userId || null, ended: isEnded,
+          })
+          globalPersonMap.set(personKey, { nodeIdx: pIdx, depts: new Set([deptName]) })
+          edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
+        }
+        // person -[구성원/간사]→ meetingGroup (회의체마다 엣지는 새로 추가)
         const memberRel = mb.role === 'admin' ? '간사' : '구성원'
         edges.push({ from: pIdx, to: mgIdx, rel: memberRel })
       })
@@ -3278,10 +3304,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
           <!-- 나: graph에서만 표시 (constellation에선 org-root 노드 없음) -->
           <div v-if="viewMode==='graph'" class="legend-onto-item" style="cursor:default">
-            <svg width="13" height="13" viewBox="0 0 13 13" style="flex-shrink:0">
-              <circle cx="6.5" cy="6.5" r="6" fill="#1f2937" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
-              <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.88)"/>
-              <path d="M3.5 10.5 C3.5 8.5 5 7.8 6.5 7.8 C8 7.8 9.5 8.5 9.5 10.5" fill="rgba(255,255,255,0.88)"/>
+            <svg width="13" height="13" viewBox="-1 -1 15 15" style="flex-shrink:0">
+              <circle cx="6.5" cy="6.5" r="5.5" fill="#f472b6" stroke="#0f172a" stroke-width="2"/>
+              <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.92)"/>
+              <path d="M3.5 10.5 C3.5 8.5 5 7.8 6.5 7.8 C8 7.8 9.5 8.5 9.5 10.5" fill="rgba(255,255,255,0.92)"/>
             </svg>
             나
           </div>

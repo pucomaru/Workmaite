@@ -3,7 +3,7 @@ import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import * as PIXI from 'pixi.js'
 import {
   forceSimulation, forceLink, forceManyBody, forceCenter,
-  forceCollide, forceX, forceY,
+  forceCollide, forceX, forceY, forceRadial,
 } from 'd3-force'
 
 // ─── Props / Emits ────────────────────────────────────────────
@@ -24,7 +24,7 @@ const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
 // ─── Constants ────────────────────────────────────────────────
 const NODE_COLORS = {
-  'org-root':      0x1f2937,
+  'org-root':      0xf472b6,
   'meeting_group': 0x3b82f6,
   'agenda':        0xf59e0b,
   'session':       0xf97316,
@@ -172,13 +172,16 @@ function buildSimulation(nodes, edges) {
 
   if (sim) sim.stop()
 
-  // Strength per node type
+  // Strength per node type — org-root는 자유롭게 이동
   const chargeStr = (d) => {
-    if (d.type === 'meeting_group') return -600
+    if (d.type === 'meeting_group') return -800
     if (d.type === 'dept')         return -300
-    if (d.type === 'org-root')     return -400
-    return -180
+    if (d.type === 'org-root')     return -200
+    return -160
   }
+
+  // 회의체를 캔버스 중앙 기준 링 위에 고르게 배치
+  const mgRadius = Math.min(w, h) * 0.30
 
   sim = forceSimulation(simNodes)
     .force('link', forceLink(simEdges)
@@ -187,17 +190,20 @@ function buildSimulation(nodes, edges) {
         const src = simNodes[d.source._idx ?? d.source]
         const tgt = simNodes[d.target._idx ?? d.target]
         if (!src || !tgt) return 120
-        if (src.type === 'meeting_group' || tgt.type === 'meeting_group') return 140
+        if (src.type === 'meeting_group' || tgt.type === 'meeting_group') return 160
         return 90
       })
-      .strength(0.4)
+      .strength(0.35)
     )
     .force('charge',  forceManyBody().strength(chargeStr))
-    .force('center',  forceCenter(w / 2, h / 2).strength(0.05))
-    .force('collide', forceCollide(d => getRadius(d.type) + 12).strength(0.7))
-    .force('x', forceX(w / 2).strength(0.04))
-    .force('y', forceY(h / 2).strength(0.04))
-    .alphaDecay(0.015)
+    .force('center',  forceCenter(w / 2, h / 2).strength(0.02))
+    .force('collide', forceCollide(d => getRadius(d.type) + 14).strength(0.8))
+    // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
+    .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
+      .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
+    .force('x', forceX(w / 2).strength(0.01))
+    .force('y', forceY(h / 2).strength(0.01))
+    .alphaDecay(0.012)
     .on('tick', () => {}) // handled in PIXI ticker
 
   rebuildNodeObjects()
@@ -281,6 +287,12 @@ function drawNode(obj, sn) {
     gfx.fill({ color: hubColor, alpha: urgency === 'critical' ? 0.95 : 0.88 })
   } else {
     gfx.fill({ color: NODE_COLORS[type] ?? 0x60a5fa, alpha: 1 })
+  }
+
+  // '나' 노드 — 검정 테두리로 구분
+  if (type === 'org-root' && !isFocus && !obj.focused && !obj.hovered) {
+    gfx.circle(0, 0, r)
+    gfx.stroke({ color: 0x0f172a, width: 2.5, alpha: 0.9 })
   }
 
   // Focus / hover ring
