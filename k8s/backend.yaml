@@ -23,6 +23,9 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: r2-secret
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: "prod"

@@ -626,15 +626,19 @@ async def retry_failed_syncs(max_retries: int = 3) -> dict:
                     result["skipped"] += len(group_list)
                     continue
 
-                file_path = os.path.join(UPLOAD_DIR, source_file)
-                if not os.path.exists(file_path):
-                    logger.warning(f"[Retry] 파일 없음: {file_path}, 재시도 건너뜀")
-                    for l in group_list:
-                        l.retry_count = max_retries  # 파일 없으면 더 이상 재시도 안 함
-                        l.updated_at = datetime.utcnow()
-                    db.commit()
-                    result["skipped"] += len(group_list)
-                    continue
+                from r2_storage import is_r2_url as _is_r2
+                if _is_r2(source_file):
+                    file_path = source_file  # R2 URL — process_and_embed_file가 직접 다운로드
+                else:
+                    file_path = os.path.join(UPLOAD_DIR, source_file)
+                    if not os.path.exists(file_path):
+                        logger.warning(f"[Retry] 파일 없음: {file_path}, 재시도 건너뜀")
+                        for l in group_list:
+                            l.retry_count = max_retries
+                            l.updated_at = datetime.utcnow()
+                        db.commit()
+                        result["skipped"] += len(group_list)
+                        continue
 
                 first_payload = group_list[0].payload or {}
                 meta_raw = first_payload.get("metadata", "{}")

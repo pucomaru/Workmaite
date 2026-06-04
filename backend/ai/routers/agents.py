@@ -862,9 +862,15 @@ async def archive_extract_agendas(
     for fid in selected_ids:
         try:
             report = db.query(models.Report).filter(models.Report.id == int(fid)).first()
-            if report and report.file_path and _os.path.exists(report.file_path):
-                with open(report.file_path, "rb") as f:
-                    raw = f.read()
+            raw = None
+            if report and report.file_path:
+                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
+                if _is_r2(report.file_path):
+                    raw = _r2_dl(_r2_key(report.file_path))
+                elif _os.path.exists(report.file_path):
+                    with open(report.file_path, "rb") as f:
+                        raw = f.read()
+            if report and raw:
                 text = _extract_text_from_file(raw, report.file_name or "")
                 if text.strip():
                     file_texts.append(f"[보고서: {report.file_name}]\n{text[:4000]}")

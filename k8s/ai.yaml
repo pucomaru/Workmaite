@@ -26,6 +26,8 @@ spec:
           envFrom:
             - secretRef:
                 name: ai-secret
+            - secretRef:
+                name: r2-secret
           env:
             - name: NEO4J_URL
               value: "http://workmaite-neo4j:7474"

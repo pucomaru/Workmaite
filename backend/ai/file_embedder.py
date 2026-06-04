@@ -15,12 +15,14 @@ import asyncio
 import hashlib
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from openai import AsyncOpenAI
 
 from neo4j_sync import sync_document_chunk, sync_document
+from r2_storage import is_r2_url, url_to_key, download_bytes as r2_download_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +47,31 @@ EMBED_DIM      = 1536  # text-embedding-3-small 차원
 
 # ─── 텍스트 추출 ─────────────────────────────────────────────────────────────
 
+def _download_to_tempfile(r2_url: str, suffix: str) -> str:
+    """R2 URL에서 파일을 다운로드하여 임시 파일 경로를 반환합니다."""
+    data = r2_download_bytes(url_to_key(r2_url))
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(data)
+        tmp.flush()
+        return tmp.name
+    finally:
+        tmp.close()
+
+
 def extract_text(file_path: str) -> str:
-    """파일 경로에서 텍스트를 추출합니다."""
+    """파일 경로 또는 R2 URL에서 텍스트를 추출합니다."""
+    if is_r2_url(file_path):
+        suffix = Path(file_path.split("?")[0]).suffix.lower() or ".bin"
+        tmp_path = _download_to_tempfile(file_path, suffix)
+        try:
+            return extract_text(tmp_path)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
     path = Path(file_path)
     suffix = path.suffix.lower()
 
@@ -225,13 +250,16 @@ async def process_and_embed_file(
     failed = 0
     file_hash = hashlib.md5(file_name.encode()).hexdigest()[:8]
 
+    # source_file에 R2 URL을 저장해 retry 시 재다운로드 가능하게 함
+    source_ref = file_path if is_r2_url(file_path) else file_name
+
     tasks = []
     for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         chunk_id = f"{file_hash}-{meeting_id or 'g'}-{session_id or 's'}-{idx}"
         tasks.append(
             sync_document_chunk(
                 chunk_id=chunk_id,
-                source_file=file_name,
+                source_file=source_ref,
                 meeting_id=meeting_id,
                 session_id=session_id,
                 chunk_index=idx,
