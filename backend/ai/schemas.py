@@ -370,7 +370,7 @@ class ReportReviewRequest(BaseModel):
     chat_history: Optional[List[dict]] = []
 
 
-class HyeanStatusRequest(BaseModel):
+class ReportStatusRequest(BaseModel):
     meeting_id: int
     user_role: str
 

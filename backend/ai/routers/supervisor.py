@@ -91,14 +91,14 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     return "\n".join(lines)
 
 
-# ─── 아라 Agent ───────────────────────────────
+# ─── Minutes Agent ───────────────────────────────
 @router.post("/minutes/sessions-chat", summary="Minutes Sessions Chat")
 async def ara_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """회의 탭 전용 아라: 전체/특정 세션 요약·질의응답."""
+    """회의 탭 전용: 전체/특정 세션 요약·질의응답."""
     # 전체 세션 목록 + 회의록 수집
     sessions = (
         db.query(models.MeetingSession)
@@ -179,10 +179,10 @@ async def ara_generate_minutes(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── report_agent (구 혜안) ───────────────────────────────
+# ─── Report Agent ───────────────────────────────
 @router.post("/report/status", summary="Report Status")
-async def hyean_status(
-    data: schemas.HyeanStatusRequest,
+async def report_status(
+    data: schemas.ReportStatusRequest,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -275,7 +275,15 @@ async def supervisor_chat(
             )
             user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
     except Exception:
-        pass  # Neo4j 연결 실패 시 접근 권한 미확인
+        pass  # Neo4j 불가 → SQLite fallback 사용
+
+    # SQLite 기반 소속 meeting_id 집합 (fallback)
+    user_sqlite_meeting_ids: set[int] = {
+        mm.meeting_id
+        for mm in db.query(models.MeetingMember).filter(
+            models.MeetingMember.user_id == current_user.id
+        ).all()
+    }
 
     async def stream():
         # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
@@ -293,7 +301,8 @@ async def supervisor_chat(
                     if user_allowed_mg_ids:
                         has_access = mid_neo4j in user_allowed_mg_ids
                     else:
-                        has_access = False
+                        # Neo4j 조회 실패 시 SQLite 멤버십으로 확인
+                        has_access = data.meeting_id in user_sqlite_meeting_ids
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
@@ -382,7 +391,7 @@ async def supervisor_chat(
         )
 
         def _enrich(base_ctx: str) -> str:
-            """사용자 범위 헤더 + Neo4j 그래프 컨텍스트를 합칩니다."""
+            """사용자 범위 헤더 + SQLite 컨텍스트 + Neo4j 그래프 컨텍스트를 합칩니다."""
             parts = [_user_scope_header, base_ctx]
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
@@ -572,7 +581,7 @@ async def supervisor_chat(
 
 
 @router.post("/report/chat", summary="Report Chat")
-async def hyean_chat(
+async def report_chat(
     data: schemas.AgentChatRequest,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
@@ -585,26 +594,26 @@ async def hyean_chat(
     user_role = member.role if member else "presenter"
 
     # 현재 사용자 접근 범위 확인
-    is_admin_hyean = (
+    is_admin_report = (
         current_user.position in ("대표", "CEO", "임원")
     )
-    hyean_person_id: str | None = None
+    report_person_id: str | None = None
     try:
         p_rows = await run_cypher(
             "MATCH (p:Person) WHERE p.email = $email OR p.name = $name RETURN p.id AS pid LIMIT 1",
             {"email": current_user.email or "", "name": current_user.name or ""},
         )
         if p_rows:
-            hyean_person_id = p_rows[0]["pid"]
+            report_person_id = p_rows[0]["pid"]
     except Exception:
         pass
 
     meeting_status = await _build_neo4j_meeting_status(
-        person_id=None if is_admin_hyean else hyean_person_id
+        person_id=None if is_admin_report else report_person_id
     )
     if not meeting_status:
         meeting_status = _build_all_meetings_status(
-            db, user_id=None if is_admin_hyean else current_user.id
+            db, user_id=None if is_admin_report else current_user.id
         )
     if data.meeting_id:
         meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
@@ -852,7 +861,7 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
 
 
 def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
-    """조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
+    """SQLite 기반 조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
     if user_id is not None:
         allowed_ids = {
             mm.meeting_id
@@ -920,7 +929,7 @@ def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
 
 
 async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
-    """Neo4j에서 조직 현황 구성 — hyean의 primary 소스.
+    """Neo4j에서 조직 현황 구성 — report_agent의 primary 소스.
     person_id가 주어지면 해당 Person이 소속된 회의체만 반환."""
     try:
         if person_id:
@@ -1080,15 +1089,9 @@ async def archive_extract_agendas(
     for fid in selected_ids:
         try:
             report = db.query(models.Report).filter(models.Report.id == int(fid)).first()
-            raw = None
-            if report and report.file_path:
-                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
-                if _is_r2(report.file_path):
-                    raw = _r2_dl(_r2_key(report.file_path))
-                elif _os.path.exists(report.file_path):
-                    with open(report.file_path, "rb") as f:
-                        raw = f.read()
-            if report and raw:
+            if report and report.file_path and _os.path.exists(report.file_path):
+                with open(report.file_path, "rb") as f:
+                    raw = f.read()
                 text = _extract_text_from_file(raw, report.file_name or "")
                 if text.strip():
                     file_texts.append(f"[보고서: {report.file_name}]\n{text[:4000]}")

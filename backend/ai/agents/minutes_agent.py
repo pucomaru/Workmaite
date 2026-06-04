@@ -306,7 +306,7 @@ async def generate_minutes_stream(
     if not now:
         now = _dt.now().strftime("%Y년 %m월 %d일")
 
-    system_prompt = f"""당신은 전문 회의록 작성 AI 아라(Ara)입니다.
+    system_prompt = f"""당신은 전문 회의록 작성 AI 워크메이트입니다.
 제공된 STT 대화 기록을 분석해 실무에서 바로 활용 가능한 고품질 회의록을 작성합니다.
 
 회의 정보:

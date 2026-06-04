@@ -387,7 +387,7 @@ async def status_stream(
     user_name: str = "",
     meeting_context: str = "",
 ) -> AsyncGenerator[str, None]:
-    """회의체 현황 스트리밍 — 기존 hyean_status/hyean_chat 엔드포인트 호환용."""
+    """회의체 현황 스트리밍."""
     import json as _json
     status_text = _json.dumps(meeting_status, ensure_ascii=False, indent=2)
     user_label = f"{user_name}님" if user_name else "담당자"
