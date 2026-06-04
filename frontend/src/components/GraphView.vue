@@ -3,7 +3,7 @@ import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import * as PIXI from 'pixi.js'
 import {
   forceSimulation, forceLink, forceManyBody, forceCenter,
-  forceCollide, forceX, forceY,
+  forceCollide, forceX, forceY, forceRadial,
 } from 'd3-force'
 
 // ─── Props / Emits ────────────────────────────────────────────
@@ -24,7 +24,7 @@ const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
 // ─── Constants ────────────────────────────────────────────────
 const NODE_COLORS = {
-  'org-root':      0x1f2937,
+  'org-root':      0xf472b6,
   'meeting_group': 0x3b82f6,
   'agenda':        0xf59e0b,
   'session':       0xf97316,
@@ -154,9 +154,10 @@ function buildSimulation(nodes, edges) {
   simNodes = ns.map((n, i) => {
     const prev = prevPos.get(i)
     return {
-      _idx: i,
-      id:   n.id,
-      type: n.id === 'org-root' ? 'org-root' : n.type,
+      _idx:  i,
+      id:    n.id,
+      type:  n.id === 'org-root' ? 'org-root' : n.type,
+      ended: n.ended ?? false,
       x:    prev ? prev.x : w / 2 + (Math.random() - 0.5) * 200,
       y:    prev ? prev.y : h / 2 + (Math.random() - 0.5) * 200,
       vx: 0, vy: 0,
@@ -171,13 +172,16 @@ function buildSimulation(nodes, edges) {
 
   if (sim) sim.stop()
 
-  // Strength per node type
+  // Strength per node type — org-root는 자유롭게 이동
   const chargeStr = (d) => {
-    if (d.type === 'meeting_group') return -600
+    if (d.type === 'meeting_group') return -800
     if (d.type === 'dept')         return -300
-    if (d.type === 'org-root')     return -400
-    return -180
+    if (d.type === 'org-root')     return -200
+    return -160
   }
+
+  // 회의체를 캔버스 중앙 기준 링 위에 고르게 배치
+  const mgRadius = Math.min(w, h) * 0.30
 
   sim = forceSimulation(simNodes)
     .force('link', forceLink(simEdges)
@@ -186,17 +190,20 @@ function buildSimulation(nodes, edges) {
         const src = simNodes[d.source._idx ?? d.source]
         const tgt = simNodes[d.target._idx ?? d.target]
         if (!src || !tgt) return 120
-        if (src.type === 'meeting_group' || tgt.type === 'meeting_group') return 140
+        if (src.type === 'meeting_group' || tgt.type === 'meeting_group') return 160
         return 90
       })
-      .strength(0.4)
+      .strength(0.35)
     )
     .force('charge',  forceManyBody().strength(chargeStr))
-    .force('center',  forceCenter(w / 2, h / 2).strength(0.05))
-    .force('collide', forceCollide(d => getRadius(d.type) + 12).strength(0.7))
-    .force('x', forceX(w / 2).strength(0.04))
-    .force('y', forceY(h / 2).strength(0.04))
-    .alphaDecay(0.015)
+    .force('center',  forceCenter(w / 2, h / 2).strength(0.02))
+    .force('collide', forceCollide(d => getRadius(d.type) + 14).strength(0.8))
+    // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
+    .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
+      .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
+    .force('x', forceX(w / 2).strength(0.01))
+    .force('y', forceY(h / 2).strength(0.01))
+    .alphaDecay(0.012)
     .on('tick', () => {}) // handled in PIXI ticker
 
   rebuildNodeObjects()
@@ -221,6 +228,7 @@ function rebuildNodeObjects() {
     const gfx = new PIXI.Graphics()
     gfx.eventMode = 'static'
     gfx.cursor = 'pointer'
+    gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
     gfx._nodeIdx = i
     gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i) })
     gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
@@ -237,9 +245,11 @@ function rebuildNodeObjects() {
         fontWeight: type === 'meeting_group' ? 'bold' : 'normal',
         fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
         align:      'center',
-      }
+      },
+      resolution: (window.devicePixelRatio || 1) * 3,
     })
     label.anchor.set(0.5, 0)
+    label.eventMode = 'none'  // labels must not intercept pointer events
     labelContainer.addChild(label)
 
     nodeObjs.set(i, { gfx, label, node: n, type, r, hovered: false, focused: false })
@@ -277,6 +287,12 @@ function drawNode(obj, sn) {
     gfx.fill({ color: hubColor, alpha: urgency === 'critical' ? 0.95 : 0.88 })
   } else {
     gfx.fill({ color: NODE_COLORS[type] ?? 0x60a5fa, alpha: 1 })
+  }
+
+  // '나' 노드 — 검정 테두리로 구분
+  if (type === 'org-root' && !isFocus && !obj.focused && !obj.hovered) {
+    gfx.circle(0, 0, r)
+    gfx.stroke({ color: 0x0f172a, width: 2.5, alpha: 0.9 })
   }
 
   // Focus / hover ring
@@ -396,10 +412,11 @@ function tick() {
     const relColor = hexToNum(props.relColors[e.rel] || '#60a5fa')
     const isHlEdge = props.queryHlEdgeIdxs?.has(ei)
     const isFocEdge = focusedIdx !== null && (si === focusedIdx || ti === focusedIdx)
+    const endedEdge = props.gNodes[si]?.ended || props.gNodes[ti]?.ended
 
-    const alpha = focusedIdx !== null
+    const alpha = (focusedIdx !== null
       ? (isFocEdge ? 0.85 : 0.12)
-      : 0.35
+      : 0.35) * (endedEdge ? 0.45 : 1.0)
 
     // dx/dy for arrow
     const dx = tn.x - sn.x, dy = tn.y - sn.y
@@ -461,8 +478,9 @@ function tick() {
       : hasSearchHits
         ? (props.searchHitMgIdxs.includes(i) ? 1.0 : 0.15)
         : 1.0
-    obj.gfx.alpha   = alphaVal
-    obj.label.alpha = alphaVal * (sn.type === 'meeting_group' ? 0 : 0.9)  // MG label inside node
+    const endedDim = sn.ended ? 0.45 : 1.0
+    obj.gfx.alpha   = alphaVal * endedDim
+    obj.label.alpha = alphaVal * endedDim * (sn.type === 'meeting_group' ? 0 : 0.9)
 
     // Redraw
     obj.focused = (i === focusedIdx)
@@ -472,11 +490,14 @@ function tick() {
     if (sn.type === 'meeting_group') {
       obj.label.y = sn.y   // center vertically
       obj.label.anchor.set(0.5, 0.5)
-      obj.label.alpha = alphaVal * 0.95
+      obj.label.alpha = alphaVal * endedDim * 0.95
       obj.label.style.fill = props.nightMode ? 0xffffff : 0x1e3a8a
     } else {
       obj.label.anchor.set(0.5, 0)
     }
+    // Update text resolution to match zoom for crisp text at any scale
+    const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
+    if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
   })
 }
 

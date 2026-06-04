@@ -1,62 +1,52 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: workmaite-ai
+  name: workmaite-ai-agent
   namespace: skala3-finalproj-class2-team9
   labels:
-    app: workmaite-ai
+    app: workmaite-ai-agent
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: workmaite-ai
+      app: workmaite-ai-agent
   template:
     metadata:
       labels:
-        app: workmaite-ai
+        app: workmaite-ai-agent
     spec:
       imagePullSecrets:
         - name: harbor-secret
       containers:
-        - name: workmaite-ai
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:d967859
+        - name: workmaite-ai-agent
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai-agent:cicd-pipeline
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
-          envFrom:
-            - secretRef:
-                name: ai-secret
-            - secretRef:
-                name: r2-secret
-          env:
-            - name: NEO4J_URL
-              value: "http://workmaite-neo4j:7474"
-            - name: DB_HOST
-              value: "postgres-1-postgresql.postgres.svc.cluster.local"
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 120
+            initialDelaySeconds: 15
             periodSeconds: 20
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: workmaite-ai
+  name: workmaite-ai-agent
   namespace: skala3-finalproj-class2-team9
   labels:
-    app: workmaite-ai
+    app: workmaite-ai-agent
 spec:
   type: ClusterIP
   selector:
-    app: workmaite-ai
+    app: workmaite-ai-agent
   ports:
     - name: http
       port: 8000

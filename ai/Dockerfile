@@ -1,16 +1,22 @@
 # 베이스 이미지: Python 3.11 경량 버전
 FROM python:3.11-slim
 
-WORKDIR /app
+# uv 설치
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# 의존성 파일 먼저 복사 (코드 변경 시 pip install 캐시 재사용 가능)
-COPY requirements.txt .
+WORKDIR /app
 
 # ffmpeg 설치 (openai-whisper 필수 의존성)
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
-# --no-cache-dir: 캐시 저장 안 해서 이미지 크기 절약
-RUN pip install --no-cache-dir -r requirements.txt
+# 의존성 파일 먼저 복사 (코드 변경 시 캐시 재사용 가능)
+COPY pyproject.toml uv.lock ./
+
+# 가상환경 없이 시스템에 직접 설치 (컨테이너 환경에 적합)
+RUN uv sync --frozen --no-dev --no-cache
+
+# Whisper 모델 미리 다운로드 (pod 시작 시 다운로드 불필요)
+RUN uv run python -c "import whisper; whisper.load_model('small')"
 
 # 전체 복사
 COPY . .
@@ -18,4 +24,4 @@ COPY . .
 EXPOSE 8000
 
 # uvicorn으로 FastAPI 실행, 0.0.0.0은 외부 접근 허용
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

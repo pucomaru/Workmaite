@@ -75,7 +75,7 @@ async def get_archive(
 
     # ── Postgres: 현재 유저의 소속 meeting_id 목록 (빠른 단순 조회) ──
     pg_meeting_ids = {
-        f"mg-sqlite-{row.meeting_id}"
+        f"mg-{row.meeting_id}"
         for row in db.query(models.MeetingMember.meeting_id)
                      .filter(models.MeetingMember.user_id == current_user.id)
                      .all()
@@ -100,7 +100,7 @@ async def get_archive(
                 MATCH (p:Person)-[:`간사`|`구성원`]->(mg)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
                   AND (mg:MeetingGroup OR mg:Meeting)
-                RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id
+                RETURN mg.id AS mg_id
                 """,
                 {"pid": person_id},
             )
@@ -147,11 +147,11 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (mg) WHERE (mg:MeetingGroup OR mg:Meeting)
-                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                  AND mg.id IN $ids
                 OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
-                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id,
+                    mg.id AS mg_id,
                     coalesce(mg.title, '') AS title,
                     coalesce(mg.meeting_type, mg.type) AS meeting_type,
                     coalesce(mg.status, 'active') AS status,
@@ -167,11 +167,11 @@ async def get_archive(
                 """
                 MATCH (ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:MeetingGroup OR mg:Meeting)
-                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                  AND mg.id IN $ids
                 OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
-                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    mg.id AS meetingId,
                     coalesce(ag.id, toString(ag.pg_id)) AS id,
                     coalesce(ag.title, ag.content) AS content,
                     ag.description AS description, ag.category AS category,
@@ -186,10 +186,10 @@ async def get_archive(
                 """
                 MATCH (s:Session)-[:`개최`|`소속`]->(mg)
                 WHERE (mg:MeetingGroup OR mg:Meeting)
-                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                  AND mg.id IN $ids
                 OPTIONAL MATCH (s)-[:`산출`]->(doc:Document)
                 RETURN
-                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
                     coalesce(s.id, toString(s.pg_id)) AS id,
                     s.title AS session_title,
@@ -209,12 +209,12 @@ async def get_archive(
                 """
                 MATCH (doc:Document)-[:`첨부`]->(mg)
                 WHERE (mg:MeetingGroup OR mg:Meeting)
-                  AND coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) IN $ids
+                  AND mg.id IN $ids
                   AND NOT doc.doc_type = '회의록'
                 OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
                 OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
                 RETURN
-                    coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS meetingId,
+                    mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
                     doc.id AS id, doc.title AS title,
                     doc.file_name AS file_name, doc.doc_type AS doc_type,
@@ -336,10 +336,10 @@ async def get_archive(
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
     if missing_pg_ids:
-        raw_ids = [int(mid.replace("mg-sqlite-", "")) for mid in missing_pg_ids if mid.replace("mg-sqlite-", "").isdigit()]
+        raw_ids = [int(mid.replace("mg-", "")) for mid in missing_pg_ids if mid.replace("mg-", "").isdigit()]
         pg_meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(raw_ids)).all()
         for m in pg_meetings:
-            sid = f"mg-sqlite-{m.id}"
+            sid = f"mg-{m.id}"
             members_db = (
                 db.query(models.MeetingMember, models.User)
                 .join(models.User, models.User.id == models.MeetingMember.user_id)

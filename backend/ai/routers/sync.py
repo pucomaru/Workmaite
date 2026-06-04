@@ -46,12 +46,10 @@ from neo4j_sync import (
     vector_search,
 )
 from file_embedder import process_and_embed_file, embed_query
+from r2_storage import upload_bytes, get_content_type, is_r2_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["sync"])
-
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # ─── 재시도 트리거 ────────────────────────────────────────────────────────────
@@ -204,20 +202,19 @@ async def upload_and_embed_file(
     import hashlib
     from neo4j_sync import sync_document as _sync_doc
 
-    # 1. 파일 저장
+    # 1. R2에 파일 업로드
     safe_name = file.filename.replace(" ", "_")
-    dest = os.path.join(UPLOAD_DIR, safe_name)
     content = await file.read()
-    with open(dest, "wb") as f:
-        f.write(content)
+    r2_key = f"files/{meeting_id or 'general'}/{safe_name}"
+    r2_url = upload_bytes(content, r2_key, get_content_type(safe_name))
 
     logger.info(
         f"[Sync/file] 수신: file={safe_name}, meeting_id={meeting_id!r}, "
         f"mg_id={mg_id!r}, agenda_neo4j_id={agenda_neo4j_id!r}, "
-        f"file_label={file_label!r}, doc_type={doc_type!r}"
+        f"file_label={file_label!r}, doc_type={doc_type!r}, r2_url={r2_url}"
     )
 
-    # 2. PostgreSQL report_reviews 저장
+    # 2. PostgreSQL report_reviews 저장 (file_path = R2 URL)
     if meeting_id:
         # report_reviews.file_type CHECK 제약: REPORT | PRESENTATION | MINUTES
         doc_type_map = {"보고자료": "REPORT", "발제자료": "PRESENTATION", "회의록": "MINUTES"}
@@ -228,7 +225,7 @@ async def upload_and_embed_file(
                 uploader_id=current_user.id,
                 file_type=db_file_type,
                 file_name=file_label or safe_name,
-                file_path=dest,
+                file_path=r2_url,
                 status="SUBMITTED",
             )
             db.add(report)
@@ -274,7 +271,7 @@ async def upload_and_embed_file(
     # 4. 백그라운드 임베딩 파이프라인
     background_tasks.add_task(
         _run_embed,
-        file_path=dest,
+        file_path=r2_url,
         file_name=safe_name,
         meeting_id=meeting_id,
         session_id=session_id,

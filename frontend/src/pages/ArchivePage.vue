@@ -220,7 +220,10 @@ const creatingSession = ref(false)
 
 function openCreateModal() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
-  createMembers.value = []
+  const me = authStore.user
+  createMembers.value = me
+    ? [{ userId: me.id, name: me.name, email: me.email || me.employee_id || '', role: 'admin' }]
+    : []
   showCreateModal.value = true; agentSidebarOpen.value = false
 }
 
@@ -498,7 +501,7 @@ async function sendAgentMsg() {
     try {
       await _runPlanningSteps(planningMsg, extractSteps)
       const { data } = await apiAI.post('/api/agent/archive/chat-extract', {
-        meeting_id: toSqliteId(detailMeeting.value.id),
+        meeting_id: toNumericId(detailMeeting.value.id),
         message: content,
         chat_history: [{ agendas: extractResult.value.map(({ title, bullets, department, priority }) => ({ title, bullets, department, priority })) }],
       })
@@ -534,7 +537,7 @@ async function sendAgentMsg() {
   try {
     await streamPost(
       agentInfo.value.endpoint,
-      { meeting_id: toSqliteId(detailMeeting.value?.id), message: content, chat_history: history },
+      { meeting_id: toNumericId(detailMeeting.value?.id), message: content, chat_history: history },
       (chunk) => {
         agentMsg.content += chunk
         nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
@@ -716,20 +719,20 @@ function _onFloatDragEnd() {
   if (type === 'meeting') {
     openCreateModal()
   } else if (type === 'session') {
-    const mgId = target?.type === 'meeting_group' ? toSqliteId(target.id) : null
-    openSessionModal(mgId ? meetingGroups.value.find(g => toSqliteId(g.id) === mgId) : null)
+    const mgId = target?.type === 'meeting_group' ? toNumericId(target.id) : null
+    openSessionModal(mgId ? meetingGroups.value.find(g => toNumericId(g.id) === mgId) : null)
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
       ctx.connectNodeId = target.meetingGroupId || ''
       ctx.relatedTodoId = target.neo4jId || target.data?.id || ''
       ctx.agendaContent = target.data?.content || target.label || ''
-      ctx.meetingId     = target.data?.meetingId || toSqliteId(target.meetingGroupId)
+      ctx.meetingId     = target.data?.meetingId || toNumericId(target.meetingGroupId)
     } else if (target?.type === 'dept') {
       ctx.connectNodeId = target.id
-      ctx.meetingId     = toSqliteId(target.meetingGroupId)
+      ctx.meetingId     = toNumericId(target.meetingGroupId)
     } else if (target?.type === 'meeting_group') {
-      ctx.meetingId = toSqliteId(target.id)
+      ctx.meetingId = toNumericId(target.id)
     }
     openUploadModal(ctx)
   }
@@ -742,8 +745,8 @@ const detailTodos = ref([])
 const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
 const nodeDetailTab = ref('basic') // 'basic' | 'rel'
 
-/** Neo4j ID("mg-001") 또는 정수 ID를 SQLite 정수 ID로 변환 */
-function toSqliteId(id) {
+/** mg-001, mg-13 등 Neo4j/PG ID에서 정수 ID 추출 */
+function toNumericId(id) {
   if (!id && id !== 0) return 0
   if (typeof id === 'number') return id
   const m = String(id).match(/(\d+)$/)
@@ -885,7 +888,7 @@ async function runExtract() {
 
   try {
     const formData = new FormData()
-    formData.append('meeting_id', String(toSqliteId(detailMeeting.value.id)))
+    formData.append('meeting_id', String(toNumericId(detailMeeting.value.id)))
     formData.append('selected_file_ids', JSON.stringify(
       selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
     ))
@@ -934,7 +937,7 @@ async function openExtractModal() {
   extractResult.value = []
   try {
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', {
-      meeting_id: toSqliteId(detailMeeting.value.id),
+      meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
     extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: [...(ag.bullets||[])] }))
@@ -1017,7 +1020,7 @@ async function saveApprovedTasks() {
     const saved = []
     for (const t of approved) {
       try {
-        const { data } = await apiAI.post(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`, {
+        const { data } = await apiAI.post(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`, {
           content: t.content,
           assignee_name: t.assignee || null,
           assignee_dept: t.dept || null,
@@ -1034,7 +1037,7 @@ async function saveApprovedTasks() {
     }
 
     // DB 저장 후 목록 새로고침
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(detailMeeting.value.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`)).data || []
 
     const total = detailTodos.value.length
     const done = detailTodos.value.filter(t => t.status === 'done').length
@@ -1165,7 +1168,7 @@ const detailMyRole = computed(() =>
 )
 const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
 const isAnyAdmin = computed(() => {
-  // SQLite 기반 role 확인
+  // PostgreSQL 기반 role 확인
   if (Object.values(meetingsStore.meetingRoles).some(r => r === 'admin')) return true
   // Neo4j 기반: meetings의 members 배열에서 현재 유저 role 확인
   const myEmail = currentPerson.value?.email || authStore.user?.employee_id
@@ -1199,7 +1202,7 @@ async function openDetail(groupData) {
   hoverNode.value = null
   detailTodos.value = []
   try {
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toSqliteId(groupData.id)}/todos`)).data || []
+    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(groupData.id)}/todos`)).data || []
     // ratio는 승인 후 saveApprovedTasks에서 설정됨.
     // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
     if (!groupTodoRatio.value.has(groupData.id)) {
@@ -1256,7 +1259,7 @@ watch(() => uploadForm.value.meetingId, async (id) => {
   uploadMeetingTodos.value = []
   uploadForm.value.relatedTodoId = ''
   if (!id) return
-  // node id가 'mg-13' 또는 'mg-sqlite-3' 형식이므로 숫자만 추출
+  // node id가 'mg-13' 형식이므로 숫자만 추출
   const meetingId = id.match(/\d+$/)?.[0]
   if (!meetingId) return
   try {
@@ -1271,7 +1274,6 @@ watch(() => uploadForm.value.connectNodeId, (nodeId) => {
   const node = gNodes.find(n => n.id === nodeId)
   if (node?.type === 'meeting_group') {
     const mgData = node.data
-    // SQLite id: 숫자이면 'mg-{id}', 아니면 Neo4j id
     const rawId = mgData?.id ?? nodeId
     uploadForm.value.meetingId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
   }
@@ -1429,12 +1431,10 @@ async function saveRelEdit() {
   graphVersion.value++
 }
 function cancelRelEdit() { relEditIdx.value = null; relEditRel.value = '' }
-// Neo4j mg-003 / mg-sqlite-3 → SQLite 정수 ID 추출
-function _toSqliteId(id) {
+// Neo4j mg-003 → 정수 ID 추출
+function _toNumericId(id) {
   if (!id) return id
-  // 숫자만으로 이루어진 경우 그대로 반환
   if (/^\d+$/.test(String(id))) return id
-  // 끝에서 숫자만 추출: "mg-003" → "3", "mg-sqlite-3" → "3"
   const m = String(id).match(/\d+$/)
   return m ? Number(m[0]) : id
 }
@@ -1755,7 +1755,7 @@ function doAddFile() {
     const fd = new FormData()
     fd.append('file', file)
     const rawMgId = uploadForm.value.meetingId
-    const mgNumId = rawMgId ? _toSqliteId(rawMgId) : null
+    const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
     if (mgNumId) fd.append('meeting_id', String(mgNumId))
     if (uploadForm.value.label) fd.append('file_label', uploadForm.value.label)
     if (uploadForm.value.fileType) fd.append('doc_type', uploadForm.value.fileType)
@@ -1772,17 +1772,28 @@ function doAddFile() {
 
 
 
-const meetingGroups = computed(() => {
-  // Neo4j 데이터가 있으면 우선 사용 (그래프 온톨로지 기반)
-  if (neo4jMeetings.value.length > 0) return neo4jMeetings.value
+// PostgreSQL 기준 유효 ID 집합 — 삭제된 회의체를 Neo4j/fallback에서 제거하기 위해 사용
+function _isValidMeeting(mgId) {
+  if (!meetingsStore.meetings.length) return true  // 아직 로드 전이면 필터 안 함
+  const s = String(mgId)
+  const numId = s.startsWith('mg-sqlite-') ? parseInt(s.slice(10))
+              : s.startsWith('mg-')        ? parseInt(s.slice(3))
+              : parseInt(s)
+  return meetingsStore.meetings.some(m => m.id === numId)
+}
 
-  // fallback: SQLite 기반 조합
+const meetingGroups = computed(() => {
+  // Neo4j 데이터가 있으면 우선 사용 — PostgreSQL에서 삭제된 항목 제외
+  if (neo4jMeetings.value.length > 0)
+    return neo4jMeetings.value.filter(mg => _isValidMeeting(mg.id))
+
+  // fallback: PostgreSQL 기반 조합
   const map = new Map()
   // 본인이 참여 중인 회의체만 포함
   meetingsStore.meetings
     .filter(m => meetingsStore.meetingRoles[m.id] != null)
     .forEach(m => {
-    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [], tasks: [] })
+    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, status: m.status || 'active', minutes: [], reports: [], members: [], tasks: [] })
   })
   // Add minutes & reports
   minutes.value.forEach(m => {
@@ -2001,24 +2012,28 @@ function buildGraphNodes() {
   // dept name → neo4j id 룩업 맵
   const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
 
+  // 전역 중복 방지: 같은 부서·사람은 하나의 노드만 생성
+  const globalDeptMap    = new Map()  // deptName → nodeIdx
+  const globalPersonMap  = new Map()  // userId   → { nodeIdx, depts: Set<deptName> }
+
   data.forEach((g, gi) => {
     const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
-    // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, SQLite 정수이면 prefix 추가
+    // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, 정수이면 prefix 추가
     const rawId = g.id || gi
     const mgNodeId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
-    // Neo4j에 전달할 실제 ID (새 SQLite 회의체는 "mg-sqlite-{id}" 형식)
-    const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-sqlite-${rawId}`
+    const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
 
     // ── MeetingGroup 노드 ─────────────────────────────────────
     const mgIdx = nodes.length
+    const isEnded = g.status === 'ended'
     nodes.push({
       id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'meeting_group',
       x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
-      data: g, groupIdx: gi, neo4jId,
+      data: g, groupIdx: gi, neo4jId, ended: isEnded,
     })
     // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
     // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
-    // (meetingRoles는 SQLite 기반이라 Neo4j와 불일치할 수 있음)
+    // (meetingRoles는 PostgreSQL 기반이라 Neo4j와 불일치할 수 있음)
     const myName = currentPerson.value?.name || authStore.user?.name
     const myEmail = currentPerson.value?.email || authStore.user?.employee_id
     const selfMember = g.members?.find(mb =>
@@ -2043,34 +2058,59 @@ function buildGraphNodes() {
 
     depts.forEach((deptName, di) => {
       const dAng = ang + (di - (dCount - 1) / 2) * deptFan
-      const deptIdx = nodes.length
+
+      // ── Dept 노드: 이미 생성된 부서면 재사용 ──────────────────
+      let deptIdx
+      if (globalDeptMap.has(deptName)) {
+        deptIdx = globalDeptMap.get(deptName)
+      } else {
+        deptIdx = nodes.length
+        deptIdxMap.set(deptName, deptIdx)
+        nodes.push({
+          id: `dept-${deptName}`, label: deptName, type: 'dept',
+          x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
+          members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
+          neo4jId: deptIdByName.get(deptName) || null, ended: isEnded,
+        })
+        globalDeptMap.set(deptName, deptIdx)
+      }
       deptIdxMap.set(deptName, deptIdx)
-      nodes.push({
-        id: `dept-${g.id || gi}-${deptName}`, label: deptName, type: 'dept',
-        x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
-        members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
-        neo4jId: deptIdByName.get(deptName) || null,
-      })
-      // dept -[PARTICIPATES_IN]→ meetingGroup
+      // dept -[PARTICIPATES_IN]→ meetingGroup (회의체마다 엣지는 새로 추가)
       edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
 
-      // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
+      // ── Person 노드: 이미 생성된 사람이면 재사용 ──────────────
       const deptMembers = membersByDept.get(deptName) || []
-      const pCount = deptMembers.length
-      deptMembers.forEach((mb, pi) => {
-        const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
-        const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
-        const pIdx = nodes.length
+      const visibleMembers = deptMembers.filter(mb =>
+        mb.email !== myEmail && (mb.userName || mb.name) !== myName
+      )
+      const pCount = visibleMembers.length
+      visibleMembers.forEach((mb, pi) => {
         const pName = mb.userName || mb.name || '?'
-        nodes.push({
-          id: `person-${g.id || gi}-${mb.userId || pi}`, label: pName, type: 'person',
-          x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
-          groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
-          neo4jId: mb.userId || null,
-        })
-        // person -[BELONGS_TO]→ dept
-        edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
-        // person -[ADMIN_OF or MEMBER_OF]→ meetingGroup
+        const personKey = String(mb.userId || `${pName}-${mb.email || pi}`)
+
+        let pIdx
+        if (globalPersonMap.has(personKey)) {
+          const existing = globalPersonMap.get(personKey)
+          pIdx = existing.nodeIdx
+          // 같은 부서→사람 소속 엣지는 한 번만
+          if (!existing.depts.has(deptName)) {
+            existing.depts.add(deptName)
+            edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
+          }
+        } else {
+          const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
+          const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
+          pIdx = nodes.length
+          nodes.push({
+            id: `person-${personKey}`, label: pName, type: 'person',
+            x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
+            groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
+            neo4jId: mb.userId || null, ended: isEnded,
+          })
+          globalPersonMap.set(personKey, { nodeIdx: pIdx, depts: new Set([deptName]) })
+          edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
+        }
+        // person -[구성원/간사]→ meetingGroup (회의체마다 엣지는 새로 추가)
         const memberRel = mb.role === 'admin' ? '간사' : '구성원'
         edges.push({ from: pIdx, to: mgIdx, rel: memberRel })
       })
@@ -2109,7 +2149,7 @@ function buildGraphNodes() {
           id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
           groupIdx: gi, data: task, meetingGroupId: mgNodeId,
-          neo4jId: task.id || null,
+          neo4jId: task.id || null, ended: isEnded,
         })
         // agenda -[OWNED_BY]→ meetingGroup
         edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
@@ -2145,7 +2185,7 @@ function buildGraphNodes() {
         nodes.push({
           id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
-          groupIdx: gi, data: task, meetingGroupId: mgNodeId
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId, ended: isEnded,
         })
         edges.push({ from: mgIdx, to: agIdx, rel: '관할' })
         agendaIdxByTodoId.set(String(task.id), agIdx)
@@ -2165,7 +2205,7 @@ function buildGraphNodes() {
         label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
         x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
         groupIdx: gi, data: { ...m, participants: g.members || [] },
-        neo4jId: m.id || null,
+        neo4jId: m.id || null, ended: isEnded,
       })
       // session -[개최]→ meetingGroup (실제 Neo4j 관계)
       edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
@@ -2183,7 +2223,8 @@ function buildGraphNodes() {
           author: m.doc_author,
           created_at: m.doc_created_at || m.ended_at || m.date,
           file_name: m.file_name,
-        }
+        },
+        ended: isEnded,
       })
       edges.push({ from: sIdx, to: dIdx, rel: '산출' })
     })
@@ -2314,6 +2355,7 @@ onBeforeUnmount(()=>{
 async function refreshArchive() {
   try {
     const res = await apiAI.get('/api/neo4j/archive')
+    neo4jError.value = ''
     currentPerson.value = res?.data?.current_person || null
     currentOrg.value    = res?.data?.org || null
     neo4jMeetings.value = res?.data?.meetings || []
@@ -2329,12 +2371,28 @@ async function refreshArchive() {
       _recomputeSearchHits()
       graphViewRef.value?.reloadGraph(gNodes, gEdges)
     }
-  } catch(e) { console.error('archive refresh error', e) }
+  } catch(e) {
+    console.error('archive refresh error', e)
+    neo4jError.value = 'Neo4j 그래프 DB에 연결할 수 없습니다.'
+  }
 }
 
 // Rebuild graph when new meetings are created
-watch(() => meetingsStore.meetings.length, () => {
+watch(() => meetingsStore.meetings.length, (newLen, oldLen) => {
   if (loading.value) return  // 초기 로딩 중에는 무시 — finally에서 한 번만 빌드
+
+  // 회의체가 삭제된 경우: neo4jMeetings에서도 즉시 제거
+  if (newLen < oldLen && neo4jMeetings.value.length > 0) {
+    const currentIds = new Set(meetingsStore.meetings.map(m => m.id))
+    neo4jMeetings.value = neo4jMeetings.value.filter(mg => {
+      const s = String(mg.id)
+      const numId = s.startsWith('mg-sqlite-') ? parseInt(s.slice(10))
+                  : s.startsWith('mg-')        ? parseInt(s.slice(3))
+                  : parseInt(s)
+      return currentIds.has(numId)
+    })
+  }
+
   const g = buildGraphNodes()
   if (g.nodes.length === 0 && gNodes.length > 0) return  // 빈 데이터로 기존 그래프 지우지 않음
   gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges)
@@ -3202,8 +3260,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </template>
         </div>
         <!-- Graph view (PIXI.js force-directed) -->
+        <div v-if="!loading && viewMode==='graph' && neo4jError" class="neo4j-error-overlay">
+          <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#f87171;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          <div class="neo4j-error-title">그래프 연결 실패</div>
+          <div class="neo4j-error-msg">{{ neo4jError }}</div>
+          <button class="neo4j-error-retry" @click="refreshArchive">다시 시도</button>
+        </div>
         <GraphView
-          v-if="!loading && viewMode==='graph'"
+          v-if="!loading && viewMode==='graph' && !neo4jError"
           ref="graphViewRef"
           class="archive-canvas"
           :gNodes="gNodes"
@@ -3240,10 +3304,10 @@ const TYPES=['Draft','In Progress','Done','Pending']
           :style="{ left: (detailOpen ? sidebarW + 12 : 12) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
           <!-- 나: graph에서만 표시 (constellation에선 org-root 노드 없음) -->
           <div v-if="viewMode==='graph'" class="legend-onto-item" style="cursor:default">
-            <svg width="13" height="13" viewBox="0 0 13 13" style="flex-shrink:0">
-              <circle cx="6.5" cy="6.5" r="6" fill="#1f2937" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
-              <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.88)"/>
-              <path d="M3.5 10.5 C3.5 8.5 5 7.8 6.5 7.8 C8 7.8 9.5 8.5 9.5 10.5" fill="rgba(255,255,255,0.88)"/>
+            <svg width="13" height="13" viewBox="-1 -1 15 15" style="flex-shrink:0">
+              <circle cx="6.5" cy="6.5" r="5.5" fill="#f472b6" stroke="#0f172a" stroke-width="2"/>
+              <circle cx="6.5" cy="4.8" r="1.4" fill="rgba(255,255,255,0.92)"/>
+              <path d="M3.5 10.5 C3.5 8.5 5 7.8 6.5 7.8 C8 7.8 9.5 8.5 9.5 10.5" fill="rgba(255,255,255,0.92)"/>
             </svg>
             나
           </div>
@@ -3636,7 +3700,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <div class="app-modal-field">
               <label>멤버 초대</label>
-              <MemberInvite v-model="createMembers" />
+              <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
             </div>
           </div>
           <div class="app-modal-footer">
@@ -4414,6 +4478,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .map-toast-fade-enter-from,.map-toast-fade-leave-to { opacity:0;transform:translateX(-50%) translateY(-6px); }
 .archive-canvas { width:100%;height:100%;cursor:grab;display:block; }
 .archive-canvas:active { cursor:grabbing; }
+.neo4j-error-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; background: rgba(15,23,42,0.72); backdrop-filter: blur(4px);
+}
+.neo4j-error-title { font-size: 15px; font-weight: 600; color: #f87171; }
+.neo4j-error-msg   { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+.neo4j-error-retry {
+  padding: 6px 20px; border-radius: 8px; border: 1px solid #3b82f6;
+  background: transparent; color: #60a5fa; font-size: 12px; cursor: pointer;
+}
+.neo4j-error-retry:hover { background: rgba(59,130,246,0.12); }
 .graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#475569;font-size:13px; }
 .graph-loading-spinner { width:28px;height:28px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .8s linear infinite; }
 

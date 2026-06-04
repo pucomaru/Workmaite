@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 # ── User ──────────────────────────────────────────────────────────────────────
@@ -46,7 +46,8 @@ class MeetingCreate(BaseModel):
 
 
 class MeetingMemberAdd(BaseModel):
-    user_id: int
+    model_config = ConfigDict(populate_by_name=True)
+    user_id: int = Field(alias='userId')
     role: str  # admin | presenter
 
 

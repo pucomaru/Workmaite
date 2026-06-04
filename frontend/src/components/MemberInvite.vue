@@ -4,7 +4,8 @@ import api from '../api'
 
 // modelValue: [{ userId, name, email, role }]
 const props = defineProps({
-  modelValue: { type: Array, default: () => [] }
+  modelValue:   { type: Array,  default: () => [] },
+  lockedUserId: { type: Number, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -78,16 +79,17 @@ function updateRole(idx, role) {
       <div v-for="(mb, idx) in modelValue" :key="mb.userId" class="mi-member-row">
         <div class="mi-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
         <div class="mi-info">
-          <span class="mi-name">{{ mb.name }}</span>
+          <span class="mi-name">{{ mb.name }}<span v-if="mb.userId === lockedUserId" class="mi-me-badge">나</span></span>
           <span class="mi-email">{{ mb.email }}</span>
         </div>
         <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="mi-role-select">
           <option value="admin">간사</option>
           <option value="member">참여자</option>
         </select>
-        <button class="mi-remove" @click="remove(idx)">
+        <button v-if="mb.userId !== lockedUserId" class="mi-remove" @click="remove(idx)">
           <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
+        <span v-else class="mi-remove-placeholder"></span>
       </div>
     </div>
   </div>
@@ -115,4 +117,6 @@ function updateRole(idx, role) {
 .mi-role-select { font-size:11px;border:1px solid var(--border, #e2e8f0);border-radius:5px;padding:2px 4px;background:#fff;color:#475569;cursor:pointer;outline:none; }
 .mi-remove { background:none;border:none;cursor:pointer;color:#94a3b8;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .15s; }
 .mi-remove:hover { color:#ef4444; }
+.mi-remove-placeholder { width:20px;flex-shrink:0; }
+.mi-me-badge { margin-left:5px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:#dbeafe;color:#1d4ed8;vertical-align:middle; }
 </style>

@@ -12,7 +12,7 @@ from neo4j_sync import (
     sync_meeting_member,
     sync_user,
     sync_agenda,
-    delete_meeting,
+    delete_meeting as neo4j_delete_meeting,
     delete_meeting_member,
     update_meeting_member_role,
 )
@@ -58,8 +58,8 @@ def list_meetings(
             "id": m.id, "title": m.title, "purpose": m.purpose,
             "start_date": m.start_date, "end_date": m.end_date,
             "status": m.status, "guidelines": m.guidelines,
-            "meeting_type": m.meeting_type,
-            "parent_id": m.parent_id,
+            "meeting_type": m.type,
+            "parent_id": None,
             "created_by": m.created_by, "created_at": m.created_at,
             "my_role": role,
         })
@@ -78,15 +78,12 @@ async def create_meeting(
         purpose=data.purpose,
         start_date=data.start_date,
         end_date=data.end_date,
-        meeting_type=data.meeting_type,
         created_by=current_user.id,
     )
     db.add(meeting)
     db.flush()
     member = models.MeetingMember(meeting_id=meeting.id, user_id=current_user.id, role="admin")
     db.add(member)
-    loop = models.MeetingLoop(meeting_id=meeting.id, loop_number=1)
-    db.add(loop)
     db.commit()
     db.refresh(meeting)
 
@@ -162,7 +159,7 @@ async def update_meeting(
     if "start_date" in data: meeting.start_date = data["start_date"]
     if "end_date" in data:   meeting.end_date = data["end_date"]
     if "guidelines" in data: meeting.guidelines = data["guidelines"]
-    if "meeting_type" in data: meeting.meeting_type = data["meeting_type"]
+    if "meeting_type" in data: meeting.type = data["meeting_type"]
     db.commit()
     db.refresh(meeting)
 
@@ -326,11 +323,10 @@ async def delete_meeting(
     if not member or member.role != "admin":
         raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
 
-    # 연관 데이터 삭제
+    # 연관 세션 조회 (meeting_id 직접 필터)
     session_ids = [
-        s.id for s in db.query(models.MeetingSession.id)
-        .join(models.MeetingLoop, models.MeetingSession.loop_id == models.MeetingLoop.id)
-        .filter(models.MeetingLoop.meeting_id == meeting_id).all()
+        s.id for s in db.query(models.MeetingSession)
+        .filter(models.MeetingSession.meeting_id == meeting_id).all()
     ]
     if session_ids:
         db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
@@ -340,7 +336,6 @@ async def delete_meeting(
         ).delete(synchronize_session=False)
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
-    db.query(models.MeetingLoop).filter(models.MeetingLoop.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).delete(synchronize_session=False)
@@ -349,8 +344,8 @@ async def delete_meeting(
     db.delete(meeting)
     db.commit()
 
-    # Neo4j 동기화 (백그라운드): :Meeting {pg_id} DETACH DELETE
-    background_tasks.add_task(delete_meeting, meeting_id=meeting_id)
+    # Neo4j 동기화 (백그라운드)
+    background_tasks.add_task(neo4j_delete_meeting, meeting_id=meeting_id)
     return {"ok": True}
 
 
@@ -497,7 +492,7 @@ async def create_todo(
         # agendas.id 기준 Agenda 노드 생성 → Meeting {pg_id} 연결
         await sync_agenda(agenda.id, meeting_id, body.content, body.content, "ON_HOLD")
 
-        # MeetingGroup 노드에도 연결 (mg_id = "mg-sqlite-N" 형식)
+        # MeetingGroup 노드에도 연결
         mg_id = body.mg_id or ""
         if mg_id:
             await run_cypher(
