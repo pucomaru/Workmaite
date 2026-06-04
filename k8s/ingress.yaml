@@ -5,10 +5,17 @@ metadata:
   namespace: skala3-finalproj-class2-team9
   labels:
     app: workmaite
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: public-nginx  # 교육환경에서 제공하는 Nginx Ingress 클래스명
+  tls:
+  - hosts:
+    - workmaite.project.skala-ai.com
+    secretName: workmaite-tls
   rules:
-    - http:
+    - host: workmaite.project.skala-ai.com
+      http:
         paths:
           # 경로 우선순위: 구체적인 경로를 앞에 배치해야 함
           - path: /api/agent
