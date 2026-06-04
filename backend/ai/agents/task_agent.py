@@ -272,13 +272,34 @@ async def start_extraction_review(
     return {"status": "error", "proposed": None}
 
 
-async def confirm_extraction_review(thread_id: str, approved: bool) -> dict:
-    """[HITL Step 2] interrupt() 지점 재개. approved=True면 추출 결과 반환."""
+async def confirm_extraction_review(
+    thread_id: str,
+    approved: bool,
+    meeting_id: int = None,  # HITL Approve 시 Neo4j 저장에 사용할 회의체 ID
+) -> dict:
+    """[HITL Step 2] interrupt() 지점 재개. approved=True면 추출 결과를 반환하고 Knowledge Base에 저장."""
     config = {"configurable": {"thread_id": thread_id}}
     result = await _extraction_graph.ainvoke(
         Command(resume={"approved": approved}),
         config,
     )
     if approved:
-        return {"status": "confirmed", "extraction": result.get("proposed")}
+        extraction = result.get("proposed")
+
+        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 각 Todo를 Neo4j KnowledgeTask 노드로 저장
+        if extraction:
+            try:
+                from agents import knowledge_agent as _ka
+                for todo in extraction.get("todos", []):
+                    if todo.get("content"):
+                        await _ka.store_task(
+                            content=todo["content"],
+                            department=todo.get("department"),
+                            due_date=todo.get("due_date"),
+                            meeting_id=meeting_id,
+                        )
+            except Exception:
+                pass
+
+        return {"status": "confirmed", "extraction": extraction}
     return {"status": "rejected"}

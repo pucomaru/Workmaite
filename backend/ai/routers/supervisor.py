@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -9,8 +9,34 @@ from auth import get_current_user
 from agents import task_agent, knowledge_agent, minutes_agent, report_agent
 from datetime import datetime
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
+
+# ─── Knowledge Base 요청 스키마 ───────────────────────────────
+class _StoreMinutesReq(BaseModel):
+    """POST /knowledge/store-minutes 요청 바디."""
+    meeting_id: int
+    session_id: Optional[int] = None
+    title: str
+    content: str
+
+
+class _StoreTaskReq(BaseModel):
+    """POST /knowledge/store-task 요청 바디."""
+    content: str
+    department: Optional[str] = None
+    due_date: Optional[str] = None
+    meeting_id: Optional[int] = None
+
+
+class _StoreReportReq(BaseModel):
+    """POST /knowledge/store-report 요청 바디."""
+    title: str
+    content: str
+    meeting_id: Optional[int] = None
+    score: Optional[int] = None
 
 
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
@@ -137,8 +163,16 @@ async def ara_generate_minutes(
     agenda_text = "\n".join([f"- {a.content} ({a.status})" for a in agendas]) or "없음"
     now = datetime.now().strftime("%Y년 %m월 %d일")
 
+    # Knowledge Base 저장 시 사용할 회의록 타이틀 구성
+    meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first() if data.meeting_id else None
+    minutes_title = f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"
+
     async def stream():
-        async for chunk in minutes_agent.generate_minutes_stream(transcript, meeting_context, agenda_text, now):
+        async for chunk in minutes_agent.generate_minutes_stream(
+            transcript, meeting_context, agenda_text, now,
+            meeting_id=data.meeting_id,  # 스트리밍 완료 후 Knowledge Base 자동 저장용
+            title=minutes_title,
+        ):
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -181,6 +215,16 @@ async def supervisor_chat(
     msg = data.message or ""
     msg_lower = msg.lower()
 
+    # 1단계 — B 유형 질문 감지 (기존 라우팅 앞에 추가): 현황 조회/인사/일반 질문
+    _SUPERVISOR_DIRECT_KWS = [
+        # 현황/조회 관련 키워드
+        '현황', '멤버', '목록', '조회', '구성원', '상태', '진행 상황', '진척도',
+        '어떻게 됐', '어떻게 되', '얼마나', '몇 개', '몇개', '회의 목록', '누가 있',
+        # 인사 및 일반 질문 키워드
+        '안녕', '반가워', '도와줘', '뭘 할 수 있', '뭐 할 수 있', '누구야', '뭐야',
+    ]
+    _is_supervisor_direct = any(kw in msg_lower for kw in _SUPERVISOR_DIRECT_KWS)
+
     # ── 인텐트 분류 (키워드 기반, 추후 LLM 분류로 교체 가능) ──────────────
     if any(kw in msg_lower for kw in [
         '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
@@ -199,6 +243,10 @@ async def supervisor_chat(
         _route = 'report_agent'
     else:
         _route = 'report_agent'
+
+    # B 유형이면 기존 라우팅 결과를 Supervisor 직접 처리로 덮어씀
+    if _is_supervisor_direct:
+        _route = 'supervisor_direct'
 
     knowledge = _get_knowledge(db, data.meeting_id)
     background_tasks.add_task(
@@ -349,6 +397,118 @@ async def supervisor_chat(
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
+        # ── Supervisor 직접 처리 (B 유형: 현황 조회/인사/일반 질문) ──────────
+        if _route == 'supervisor_direct':
+            yield f"data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+
+            # 2단계: Knowledge Base 벡터 검색 — 회의록/과제/보고서 유사 문서 조회
+            _kb_results: list[dict] = []
+            try:
+                # 회의록 벡터 검색 (상위 3건)
+                _minutes_hits = await knowledge_agent.search_knowledge(msg, node_type="Minutes", k=3)
+                for _r in _minutes_hits:
+                    if _r.get("title") or _r.get("content"):
+                        _kb_results.append({
+                            "type": "회의록",
+                            "title": _r.get("title", "회의록"),
+                            "content": _r.get("content", "")[:400],
+                        })
+                # 과제 벡터 검색 (상위 3건)
+                _task_hits = await knowledge_agent.search_knowledge(msg, node_type="KnowledgeTask", k=3)
+                for _r in _task_hits:
+                    if _r.get("content"):
+                        _kb_results.append({
+                            "type": "과제",
+                            "title": _r.get("title") or _r.get("content", "")[:40],
+                            "content": _r.get("content", "")[:300],
+                        })
+                # 보고서 벡터 검색 (상위 2건)
+                _report_hits = await knowledge_agent.search_knowledge(msg, node_type="KnowledgeReport", k=2)
+                for _r in _report_hits:
+                    if _r.get("title") or _r.get("content"):
+                        _kb_results.append({
+                            "type": "보고서",
+                            "title": _r.get("title", "보고서"),
+                            "content": _r.get("content", "")[:300],
+                        })
+            except Exception:
+                pass  # Neo4j 조회 실패 시 컨텍스트 없이 응답 생성 (fallback)
+
+            if _kb_results:
+                yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+
+            yield f"data: [PLANNING] 답변 생성 중...\n\n"
+
+            # 3단계: 사용자 친화적 응답 생성용 컨텍스트 구성
+            # 기술적 노드/관계 정보 제외, 문서명/회의록명 기반 근거만 포함
+            _ctx_parts: list[str] = [_user_scope_header]
+            if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
+                _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
+            if _kb_results:
+                _kb_lines = [
+                    f"- [{_r['type']}] {_r['title']}: {_r['content'][:200]}"
+                    for _r in _kb_results
+                ]
+                _ctx_parts.append("[Knowledge Base 관련 자료]\n" + "\n".join(_kb_lines))
+            _full_ctx = "\n\n".join(_ctx_parts)
+
+            # Supervisor 시스템 프롬프트 — 사용자 친화적 근거 포함 답변 형식 지시
+            _sup_system = """당신은 회의체 운영 AI 워크메이트입니다.
+제공된 컨텍스트를 바탕으로 사용자 질문에 명확하고 친근하게 답변하세요.
+
+[답변 원칙]
+1. 기술적 용어 절대 사용 금지 — "KnowledgeTask 노드", "MERGE", "pg_id", "neo4j" 등 금지
+2. 참조 근거는 사용자가 이해할 수 있는 언어로 표시
+   좋은 예: "3차 SUPEX 회의록 기준", "운영팀 제출 보고서"
+   나쁜 예: "KnowledgeTask 노드 5개", "Meeting {pg_id:3}"
+3. 현황이 있으면 📊, 참고 자료가 있으면 📎, 확인 필요 사항은 ⚠️ 이모지 사용
+4. 관련 자료가 없으면 "아직 등록된 자료가 없습니다"라고 솔직하게 안내
+5. 정중하고 친근한 비서 말투 ('~드립니다', '~하세요')
+6. 이상/누락 발견 시 자연스러운 언어로 추가 여부를 제안
+
+[응답 형식 — 해당 섹션만 포함]
+📊 현황
+[자연스러운 현황 설명]
+
+📎 참고한 자료 (자료 있을 시)
+- [문서명/회의록명/보고서명]
+
+⚠️ 확인이 필요해요 (이상/누락 발견 시)
+[자연스러운 설명 및 추가 여부 제안]"""
+
+            _sup_human = f"""사용자 질문: {msg}
+
+{_full_ctx}
+
+위 정보를 바탕으로 답변해 주세요."""
+
+            # LLM 스트리밍 응답 생성 및 전달
+            from langchain_openai import ChatOpenAI as _SupLLM
+            from langchain_core.messages import SystemMessage as _SupSys, HumanMessage as _SupHuman
+            _sup_llm = _SupLLM(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                temperature=0.2,
+                api_key=os.getenv("OPENAI_API_KEY"),
+                streaming=True,
+            )
+            _sup_collected: list[str] = []
+            async for _sup_chunk in _sup_llm.astream([_SupSys(content=_sup_system), _SupHuman(content=_sup_human)]):
+                if _sup_chunk.content:
+                    _sup_collected.append(_sup_chunk.content)
+                    yield f"data: {_sup_chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+
+            # 4단계: 답변에 언급된 회의체/자료명 하이라이팅 처리
+            if hl_candidates and _sup_collected:
+                import json as _sup_json
+                _sup_full = "".join(_sup_collected)
+                _sup_matched = [c for c in hl_candidates if c and c in _sup_full]
+                if _sup_matched:
+                    yield f"data: [HIGHLIGHT] {_sup_json.dumps(_sup_matched, ensure_ascii=False)}\n\n"
+
+            yield "data: [DONE]\n\n"
+            return  # 기존 서브에이전트 라우팅 건너뜀 (B 유형 처리 완료)
+
+        # ── 기존 서브에이전트 라우팅 (A 유형, 변경 금지) ───────────────────
         if _route == 'task_agent':
             previous_minutes = _get_previous_minutes(db, data.meeting_id)
             departments = _get_member_departments(db, data.meeting_id)
@@ -475,6 +635,64 @@ async def hyean_chat(
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+# ─── knowledge_agent 엔드포인트 ───────────────────────────────
+@router.post("/knowledge/store-minutes", summary="Knowledge Store Minutes")
+async def knowledge_store_minutes(
+    data: _StoreMinutesReq,
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """승인된 회의록을 Neo4j Knowledge Base의 Minutes 노드에 저장."""
+    try:
+        # knowledge_agent.store_minutes()로 Minutes 노드 생성 및 벡터 임베딩 인덱싱
+        result = await knowledge_agent.store_minutes(
+            title=data.title,
+            content=data.content,
+            meeting_id=data.meeting_id,
+            session_id=data.session_id,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/store-task", summary="Knowledge Store Task")
+async def knowledge_store_task(
+    data: _StoreTaskReq,
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """승인된 과제를 Neo4j Knowledge Base의 KnowledgeTask 노드에 저장."""
+    try:
+        # knowledge_agent.store_task()로 KnowledgeTask 노드 생성 및 부서/회의체 관계 연결
+        result = await knowledge_agent.store_task(
+            content=data.content,
+            department=data.department,
+            due_date=data.due_date,
+            meeting_id=data.meeting_id,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/store-report", summary="Knowledge Store Report")
+async def knowledge_store_report(
+    data: _StoreReportReq,
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """승인된 보고서 검토 결과를 Neo4j Knowledge Base의 KnowledgeReport 노드에 저장."""
+    try:
+        # knowledge_agent.store_report()로 KnowledgeReport 노드 생성 및 벡터 임베딩 인덱싱
+        result = await knowledge_agent.store_report(
+            title=data.title,
+            content=data.content,
+            meeting_id=data.meeting_id,
+            score=data.score,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 
 # ─── Helpers ─────────────────────────────────

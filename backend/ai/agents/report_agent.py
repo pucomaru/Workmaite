@@ -344,15 +344,36 @@ async def start_report_review(
     return {"status": "error", "proposed": None}
 
 
-async def confirm_report_review(thread_id: str, approved: bool) -> dict:
-    """[HITL Step 2] interrupt() 지점 재개. approved=True면 검토 결과 반환."""
+async def confirm_report_review(
+    thread_id: str,
+    approved: bool,
+    title: str = "",       # HITL Approve 시 Neo4j 저장에 사용할 보고서 제목
+    content: str = "",     # HITL Approve 시 Neo4j 저장에 사용할 보고서 원문
+    meeting_id: int = None,  # HITL Approve 시 Neo4j 저장에 사용할 회의체 ID
+) -> dict:
+    """[HITL Step 2] interrupt() 지점 재개. approved=True면 검토 결과를 반환하고 Knowledge Base에 저장."""
     config = {"configurable": {"thread_id": thread_id}}
     result = await _review_graph.ainvoke(
         Command(resume={"approved": approved}),
         config,
     )
     if approved:
-        return {"status": "confirmed", "review": result.get("proposed_review")}
+        review = result.get("proposed_review")
+
+        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 보고서를 Neo4j KnowledgeReport 노드로 저장
+        if review and content:
+            try:
+                from agents import knowledge_agent as _ka
+                await _ka.store_report(
+                    title=title or "보고서",
+                    content=content,
+                    meeting_id=meeting_id,
+                    score=review.get("score"),
+                )
+            except Exception:
+                pass
+
+        return {"status": "confirmed", "review": review}
     return {"status": "rejected"}
 
 

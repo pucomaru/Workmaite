@@ -174,7 +174,7 @@ async def store_task(
         },
     )
 
-    # 부서 노드와 연결
+    # 부서 노드와 연결: (KnowledgeTask)-[:ASSIGNED_TO_DEPT]->(Department)
     if department:
         try:
             await run_cypher(
@@ -182,6 +182,18 @@ async def store_task(
                    MERGE (d:Department {name: $dept})
                    MERGE (t)-[:ASSIGNED_TO_DEPT]->(d)""",
                 {"tid": node_id, "dept": department},
+            )
+        except Exception:
+            pass
+
+    # 회의체 노드와 연결: (KnowledgeTask)-[:BELONGS_TO]->(Meeting)
+    if meeting_id:
+        try:
+            await run_cypher(
+                """MATCH (t:KnowledgeTask {id: $tid})
+                   MATCH (mg:Meeting {pg_id: $pg_id})
+                   MERGE (t)-[:BELONGS_TO]->(mg)""",
+                {"tid": node_id, "pg_id": meeting_id},
             )
         except Exception:
             pass
