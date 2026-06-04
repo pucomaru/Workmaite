@@ -64,6 +64,13 @@ let simEdges = []   // { source, target, rel }
 let vpX = 0, vpY = 0, vpScale = 1
 let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0
 
+// dirty flag — sim이 움직이거나 인터랙션이 발생했을 때만 리드로우
+let _simDirty = true
+
+// node drag state
+let _draggingIdx = null
+let _didNodeDrag = false
+
 // smooth lerp target for search focus animation
 let _targetVpX = null, _targetVpY = null, _targetVpScale = null
 
@@ -203,8 +210,8 @@ function buildSimulation(nodes, edges) {
       .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
     .force('x', forceX(w / 2).strength(0.01))
     .force('y', forceY(h / 2).strength(0.01))
-    .alphaDecay(0.012)
-    .on('tick', () => {}) // handled in PIXI ticker
+    .alphaDecay(0.04)
+    .on('tick', () => { _simDirty = true }) // handled in PIXI ticker
 
   rebuildNodeObjects()
 }
@@ -230,7 +237,7 @@ function rebuildNodeObjects() {
     gfx.cursor = 'pointer'
     gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
     gfx._nodeIdx = i
-    gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i) })
+    gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i, e) })
     gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
     gfx.on('pointerover', ()  => { onNodeOver(i) })
     gfx.on('pointerout',  ()  => { onNodeOut(i) })
@@ -367,10 +374,17 @@ function drawIcon(gfx, type, r) {
 let _hlPulse = 0
 function tick() {
   if (!app || !sim) return
-  _hlPulse += 0.05
 
-  // Advance simulation one step
-  sim.tick()
+  // 하이라이트 펄스는 항상 증가 (hl 중일 때만 실제로 사용됨)
+  const hasHl = props.queryHlIdxs?.size > 0 || props.queryHlEdgeIdxs?.size > 0
+  if (hasHl) { _hlPulse += 0.05; _simDirty = true }
+
+  // viewport lerp 진행 중이면 dirty
+  if (_targetVpX !== null) _simDirty = true
+
+  // 리드로우가 필요 없으면 skip
+  if (!_simDirty) return
+  _simDirty = false
 
   // Lerp viewport toward search focus target
   if (_targetVpX !== null) {
@@ -390,7 +404,8 @@ function tick() {
     layer.x = vpX; layer.y = vpY
     layer.scale.set(vpScale)
   }
-  app.stage.hitArea = new PIXI.Rectangle(-vpX / vpScale, -vpY / vpScale, w / vpScale, h / vpScale)
+  // stage hitArea는 항상 스크린 좌표 — 월드 좌표로 변환하면 고배율 시 클릭 무효 버그 발생
+  app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
 
   // ── Draw edges ────────────────────────────────────────────
   edgeLayer.clear()
@@ -432,14 +447,11 @@ function tick() {
       hlLayer.stroke({ color: 0x8b5cf6, width: 7, alpha: 0.55 * pulse, cap: 'round' })
     }
 
-    // Edge line (slight curve)
-    const bow = Math.min(len * 0.15, 30)
-    const cpx = (sn.x + tn.x) / 2 - uy * bow
-    const cpy = (sn.y + tn.y) / 2 + ux * bow
+    // Edge line (straight)
     const sr = getRadius(typeof e.source === 'object' ? e.source.type : (props.gNodes[si]?.type ?? 'file')) + 3
     const sx2 = sn.x + ux * sr, sy2 = sn.y + uy * sr
 
-    edgeLayer.moveTo(sx2, sy2).quadraticCurveTo(cpx, cpy, ex, ey)
+    edgeLayer.moveTo(sx2, sy2).lineTo(ex, ey)
     edgeLayer.stroke({ color: relColor, width: isFocEdge ? 1.8 : 0.9, alpha })
 
     // Arrowhead
@@ -447,14 +459,6 @@ function tick() {
     const px2 = -uy * as * 0.44, py2 = ux * as * 0.44
     edgeLayer.poly([ex, ey, ex - ux * as + px2, ey - uy * as + py2, ex - ux * as - px2, ey - uy * as - py2])
     edgeLayer.fill({ color: relColor, alpha })
-
-    // Edge label (only when focused or zoomed in)
-    if (e.rel && (isFocEdge || vpScale > 1.4) && len > 40) {
-      const lx = (sn.x + tn.x) / 2 - uy * 8
-      const ly = (sn.y + tn.y) / 2 + ux * 8
-      edgeLayer.moveTo(lx - 1, ly)  // placeholder — text drawn in DOM
-      // We'll draw rel label as Text below using a separate pass
-    }
   })
 
   // ── Draw nodes ───────────────────────────────────────────
@@ -526,16 +530,36 @@ function onBgDown(e) {
   _didMove   = false
 }
 function onBgMove(e) {
-  if (!isPanning) return
   const p = e.global
+  if (_draggingIdx !== null) {
+    if (Math.abs(p.x - _downX) + Math.abs(p.y - _downY) > 4) {
+      _didNodeDrag = true
+      _targetVpX = null; _targetVpY = null; _targetVpScale = null
+    }
+    const wx = (p.x - vpX) / vpScale
+    const wy = (p.y - vpY) / vpScale
+    const sn = simNodes[_draggingIdx]
+    if (sn) { sn.fx = wx; sn.fy = wy; sn.x = wx; sn.y = wy; _simDirty = true }
+    return
+  }
+  if (!isPanning) return
   if (Math.abs(p.x - _downX) + Math.abs(p.y - _downY) > 4) {
     _didMove = true
     _targetVpX = null; _targetVpY = null; _targetVpScale = null
   }
   vpX = panOrigX + (p.x - panStartX)
   vpY = panOrigY + (p.y - panStartY)
+  _simDirty = true
 }
 function onBgUp() {
+  if (_draggingIdx !== null) {
+    const sn = simNodes[_draggingIdx]
+    if (sn) { sn.fx = null; sn.fy = null }
+    sim?.alphaTarget(0)
+    _draggingIdx = null
+    _didNodeDrag = false
+    return
+  }
   if (!_pointerDownOnCanvas) return
   _pointerDownOnCanvas = false
   isPanning = false
@@ -546,28 +570,38 @@ function onBgUp() {
 }
 
 let _nodeDownTime = 0
-function onNodeDown(idx) {
+function onNodeDown(idx, e) {
   _nodeDownTime = Date.now()
-  isPanning = false  // don't pan when clicking node
+  isPanning = false
+  _draggingIdx = idx
+  _didNodeDrag = false
+  if (e?.global) { _downX = e.global.x; _downY = e.global.y }
+  const sn = simNodes[idx]
+  if (sn) { sn.fx = sn.x; sn.fy = sn.y; sim?.alphaTarget(0.3).restart() }
 }
 function onNodeUp(idx) {
-  if (Date.now() - _nodeDownTime < 300) {
+  const sn = simNodes[idx]
+  if (_didNodeDrag) {
+    if (sn) { sn.fx = null; sn.fy = null }
+    sim?.alphaTarget(0)
+  } else if (Date.now() - _nodeDownTime < 300) {
     if (focusedIdx === idx) {
       focusedIdx = null
     } else {
       focusedIdx = idx
-      // Pin node
-      const sn = simNodes[idx]
       if (sn) { sn.fx = sn.x; sn.fy = sn.y; setTimeout(() => { if(sn){ sn.fx=null; sn.fy=null } }, 1200) }
     }
+    _simDirty = true
     emit('nodeClick', props.gNodes[idx], idx)
   }
+  _draggingIdx = null
+  _didNodeDrag = false
 }
 function onNodeOver(idx) {
-  const obj = nodeObjs.get(idx); if (obj) obj.hovered = true
+  const obj = nodeObjs.get(idx); if (obj) { obj.hovered = true; _simDirty = true }
 }
 function onNodeOut(idx) {
-  const obj = nodeObjs.get(idx); if (obj) obj.hovered = false
+  const obj = nodeObjs.get(idx); if (obj) { obj.hovered = false; _simDirty = true }
 }
 
 function onWheel(e) {
@@ -577,17 +611,18 @@ function onWheel(e) {
   const mx = e.clientX - rect.left
   const my = e.clientY - rect.top
   const factor = e.deltaY < 0 ? 1.12 : 0.89
-  const newScale = Math.max(0.2, Math.min(6, vpScale * factor))
+  const newScale = Math.max(0.2, Math.min(3, vpScale * factor))
   vpX = mx - (mx - vpX) * (newScale / vpScale)
   vpY = my - (my - vpY) * (newScale / vpScale)
   vpScale = newScale
+  _simDirty = true
 }
 
 // ─── Exposed controls ─────────────────────────────────────────
-function zoomIn()  { vpScale = Math.min(6,   vpScale * 1.25) }
-function zoomOut() { vpScale = Math.max(0.2,  vpScale / 1.25) }
+function zoomIn()  { vpScale = Math.min(3,   vpScale * 1.25); _simDirty = true }
+function zoomOut() { vpScale = Math.max(0.2,  vpScale / 1.25); _simDirty = true }
 function resetView() {
-  vpX = 0; vpY = 0; vpScale = 1; focusedIdx = null
+  vpX = 0; vpY = 0; vpScale = 1; focusedIdx = null; _simDirty = true
 }
 /** 뷰포트 좌표(px) → 가장 가까운 gNode 반환, 없으면 null */
 function getNodeAtScreen(sx, sy) {
