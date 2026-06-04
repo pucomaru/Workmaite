@@ -1,6 +1,13 @@
 const CHUNK_MS = 4000
 
-export function useSTT({ onResult, getLang = null }) {
+/**
+ * @param {Object} opts
+ * @param {(text: string) => void}              opts.onResult      - 발화자 구분 없을 때 호출 (fallback)
+ * @param {(segments: Array) => void}           [opts.onSegments]  - 발화자 구분 세그먼트 배열 콜백
+ * @param {() => string}                        [opts.getLang]     - 언어 코드 반환 함수 ('ko' | 'en')
+ * @param {() => number|null}                   [opts.getSessionId]- 세션 ID 반환 함수 (DB 저장용)
+ */
+export function useSTT({ onResult, onSegments = null, getLang = null, getSessionId = null }) {
   let stream = null
   let active = false
   let currentRecorder = null
@@ -32,15 +39,26 @@ export function useSTT({ onResult, getLang = null }) {
       const blob = new Blob(chunks, { type: mimeType })
       if (blob.size < 500) continue
 
-      const lang = typeof getLang === 'function' ? getLang() : 'ko'
+      // lang 정규화: ko-KR → ko, en-US → en
+      const rawLang = typeof getLang === 'function' ? getLang() : 'ko'
+      const lang = rawLang.split('-')[0].toLowerCase()
+
       const formData = new FormData()
       formData.append('audio', blob, 'audio.webm')
       formData.append('lang', lang)
 
+      const sessionId = typeof getSessionId === 'function' ? getSessionId() : null
+      if (sessionId) formData.append('session_id', String(sessionId))
+
       try {
         const res = await fetch('/api/stt/transcribe', { method: 'POST', body: formData })
         const data = await res.json()
-        if (data.text?.trim()) onResult(data.text.trim())
+
+        if (data.segments?.length && typeof onSegments === 'function') {
+          onSegments(data.segments)
+        } else if (data.text?.trim()) {
+          onResult(data.text.trim())
+        }
       } catch (e) {
         console.warn('[STT] 전송 실패', e)
       }
@@ -56,6 +74,7 @@ export function useSTT({ onResult, getLang = null }) {
     } catch (e) {
       active = false
       console.warn('[STT] 마이크 권한 없음', e)
+      throw e  // 호출부에서 마이크 오류 감지 가능하도록
     }
   }
 
@@ -66,5 +85,6 @@ export function useSTT({ onResult, getLang = null }) {
     currentRecorder = null
   }
 
-  return { start, stop, supported: true }
+  return { start, stop, supported: !!navigator.mediaDevices?.getUserMedia }
 }
+

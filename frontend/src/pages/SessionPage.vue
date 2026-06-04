@@ -161,6 +161,7 @@ const showPopover = ref(null)
 const micSensitivity = ref(70)
 const noiseReduction = ref(true)
 const transcriptLang = ref('ko')
+const micError = ref('')
 
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
@@ -169,23 +170,47 @@ function getOrCreateRecord(id) {
   return sessionRecords.value.get(id)
 }
 
+// 스피커 레이블 스타일 맵핑 (A, B, C, ... → 색상)
+const SPEAKER_COLORS = ['#60a5fa','#f59e0b','#34d399','#f472b6','#a78bfa','#fb923c']
+function speakerColor(label) {
+  const idx = label?.charCodeAt(0) - 65  // 'A'=0, 'B'=1, ...
+  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length] ?? '#94a3b8'
+}
+
+function _pushLine(time, text, speaker = null) {
+  const entry = { time, text, speaker }
+  transcriptLines.value.push(entry)
+  if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
+  nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
+}
+
 const stt = useSTT({
   onResult: (text) => {
     const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    const entry = { time, text }
-    transcriptLines.value.push(entry)
-    nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
+    _pushLine(time, text, null)
   },
-  getLang: () => transcriptLang.value === 'ko' ? 'ko-KR' : 'en-US',
+  onSegments: (segments) => {
+    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    segments.forEach(seg => {
+      if (seg.text?.trim()) _pushLine(time, seg.text.trim(), seg.speaker)
+    })
+  },
+  getLang: () => transcriptLang.value,
+  getSessionId: () => activeSession.value?.id ?? null,
 })
 
 function toggleRecording() {
+  micError.value = ''
   if (recordingState.value === 'idle') {
-    recordingState.value = 'recording'; stt.start()
+    stt.start()
+      .then(() => { recordingState.value = 'recording' })
+      .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
     recordingState.value = 'paused'; stt.stop(); fetchTranscriptSummary()
   } else {
-    recordingState.value = 'recording'; stt.start()
+    stt.start()
+      .then(() => { recordingState.value = 'recording' })
+      .catch(() => { micError.value = '마이크 권한이 필요합니다.' })
   }
 }
 
@@ -577,6 +602,7 @@ onMounted(() => {
             </div>
             <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
               <span class="tline-time">{{ line.time }}</span>
+              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
               <span class="tline-text">{{ line.text }}</span>
             </div>
           </template>
@@ -588,6 +614,7 @@ onMounted(() => {
             </div>
             <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
               <span class="tline-time">{{ line.time }}</span>
+              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
               <span class="tline-text">{{ line.text }}</span>
             </div>
           </template>
@@ -691,6 +718,7 @@ onMounted(() => {
             <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
           <div class="ctrl-group-right">
+            <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
             <button class="ctrl-minutes" :disabled="generatingMinutes" @click.stop="generateMinutes">
               <i class="bi bi-stars"></i> 회의록 생성
             </button>
@@ -917,9 +945,15 @@ onMounted(() => {
 .sp-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted); }
 
 /* Transcript lines */
-.tline { display:flex;gap:10px;align-items:baseline;padding:3px 0; }
+.tline { display:flex;gap:8px;align-items:baseline;padding:3px 0; }
 .tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:monospace; }
+.tline-speaker {
+  font-size:10px;font-weight:700;flex-shrink:0;
+  padding:1px 5px;border-radius:4px;border:1px solid;
+  letter-spacing:.03em;font-family:monospace;
+}
 .tline-text { font-size:13px;color:#1e293b;line-height:1.5; }
+.mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
 .ts-summary-box { background:#fafafa;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;overflow:hidden; }
