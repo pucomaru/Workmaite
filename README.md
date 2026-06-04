@@ -149,24 +149,31 @@ pip install -r requirements.txt
 `backend/ai/.env` 파일을 만들고 아래 내용을 채웁니다:
 
 ```env
-# OpenAI
-OPENAI_API_KEY=sk-...
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_PROJECT=
 
-# JWT (SpringBoot와 동일한 값 사용)
-JWT_SECRET=workmaite-shared-secret-key-2024-very-secure-at-least-32chars
+OPENAI_MODEL=
+OPENAI_EMBEDDING_MODEL=
+OPENAI_TEMPERATURE=0.1
+OPENAI_API_KEY=
 
-# PostgreSQL (로컬 port-forward 기준)
+# Neo4j (kubectl port-forward svc/workmaite-neo4j 7474:7474 7687:7687)
+NEO4J_URL=http://localhost:7474
+NEO4J_USER=
+NEO4J_PASSWORD=
+NEO4J_DATABASE=
+
+
+JWT_SECRET=
+
+# PostgreSQL (kubectl port-forward svc/postgres-1-postgresql 5432:5432 -n postgres)
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=sk-team-9
-DB_USER=team9
-DB_PASSWORD=team9postgres1234
-
-# Neo4j
-NEO4J_URL=http://localhost:7474
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=neo4j
-NEO4J_DATABASE=neo4j
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
 ```
 
 #### 서버 실행
