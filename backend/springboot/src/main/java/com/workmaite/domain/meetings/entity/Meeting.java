@@ -48,7 +48,7 @@ public class Meeting {
     private LocalDateTime endDate;
 
     // active | ended
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = MeetingStatusConverter.class)
     @Column(length = 20, nullable = false)
     private MeetingStatus status;
 
