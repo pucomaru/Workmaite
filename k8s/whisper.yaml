@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-whisper
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-whisper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workmaite-whisper
+  template:
+    metadata:
+      labels:
+        app: workmaite-whisper
+    spec:
+      containers:
+        - name: whisper
+          image: onerahmet/openai-whisper-asr-webservice:latest
+          ports:
+            - containerPort: 9000
+          env:
+            - name: ASR_MODEL
+              value: "small"
+            - name: ASR_ENGINE
+              value: "faster_whisper"
+          resources:
+            requests:
+              memory: "3Gi"
+              cpu: "1"
+            limits:
+              memory: "5Gi"
+              cpu: "2"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9000
+            initialDelaySeconds: 120
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workmaite-whisper
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-whisper
+spec:
+  type: ClusterIP
+  selector:
+    app: workmaite-whisper
+  ports:
+    - port: 9000
+      targetPort: 9000
