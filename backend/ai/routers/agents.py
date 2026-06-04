@@ -212,6 +212,13 @@ async def supervisor_chat(
     is_admin = (
         current_user.position in ("대표", "CEO", "임원")
     )
+    # PostgreSQL 기반 소속 meeting_id 집합 (Neo4j 불일치 시 폴백)
+    pg_meeting_ids: set[int] = {
+        row.meeting_id
+        for row in db.query(models.MeetingMember.meeting_id)
+            .filter(models.MeetingMember.user_id == current_user.id)
+            .all()
+    }
     try:
         p_rows = await run_cypher(
             "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
@@ -221,13 +228,14 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
-                "RETURN mg.id AS mg_id",
+                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg) "
+                "WHERE mg:MeetingGroup OR mg:Meeting "
+                "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id",
                 {"pid": user_person_id},
             )
             user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
     except Exception:
-        pass  # Neo4j 연결 실패 시 접근 권한 미확인
+        pass  # Neo4j 연결 실패 시 PostgreSQL 폴백으로만 확인
 
     async def stream():
         # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
@@ -238,14 +246,15 @@ async def supervisor_chat(
             yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
 
             if data.meeting_id:
-                mid_neo4j = f"mg-{int(data.meeting_id):03d}"
+                mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
 
-                # ── 접근 권한 확인 ──
+                # ── 접근 권한 확인 (Neo4j 우선, PostgreSQL 폴백) ──
                 if not is_admin:
                     if user_allowed_mg_ids:
                         has_access = mid_neo4j in user_allowed_mg_ids
                     else:
-                        has_access = False
+                        # Neo4j 데이터 없을 때 PostgreSQL 소속 여부로 판단
+                        has_access = int(data.meeting_id) in pg_meeting_ids
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"

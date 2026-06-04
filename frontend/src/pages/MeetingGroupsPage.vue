@@ -115,8 +115,10 @@ async function submitCreate() {
       guidelines: createForm.value.guidelines || null,
       meeting_type: createForm.value.meeting_type || null,
     })
+    const myId = authStore.user?.id
     for (const mb of createMembers.value) {
-      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+      if (mb.userId === myId) continue  // 생성 시 서버가 자동으로 admin 추가
+      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
     showCreate.value = false
   } catch (e) { alert(e.response?.data?.detail || '생성 실패') }

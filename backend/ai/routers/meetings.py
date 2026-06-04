@@ -337,8 +337,8 @@ async def delete_meeting(
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
@@ -423,8 +423,50 @@ def my_role(
     return {"role": member.role}
 
 
-# ── Todos (prefix: /api/ai — Vite 프록시 /api → FastAPI 라우팅 활용) ───────────
-ai_router = APIRouter(prefix="/api/ai", tags=["todos"])
+# ── /api/ai prefix 라우터 (Ingress: /api/ai → FastAPI) ───────────────────────
+ai_router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@ai_router.delete("/meetings/{meeting_id}")
+async def ai_delete_meeting(
+    meeting_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Not found")
+    member = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id == meeting_id,
+        models.MeetingMember.user_id == current_user.id,
+    ).first()
+    if not member or member.role != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
+
+    # 연관 세션 → 분 → 채팅 순으로 cascade 삭제
+    session_ids = [
+        s.id for s in db.query(models.MeetingSession)
+        .filter(models.MeetingSession.meeting_id == meeting_id).all()
+    ]
+    if session_ids:
+        db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.ChatMessage).filter(
+            models.ChatMessage.context_type == "room",
+            models.ChatMessage.context_id.in_(session_ids),
+        ).delete(synchronize_session=False)
+        db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
+
+    db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
+    db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.delete(meeting)
+    db.commit()
+
+    background_tasks.add_task(neo4j_delete_meeting, meeting_id=meeting_id)
+    return {"ok": True}
 
 @ai_router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
 def get_todos(

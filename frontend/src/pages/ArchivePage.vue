@@ -261,8 +261,10 @@ async function doCreateMeeting() {
       start_date: createForm.value.start_date || null, end_date: createForm.value.end_date || null,
       guidelines: createForm.value.guidelines || null, meeting_type: createForm.value.meeting_type || null,
     })
+    const myId = authStore.user?.id
     for (const m of createMembers.value) {
-      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.userId, role: m.role })
+      if (m.userId === myId) continue  // 생성 시 서버가 자동으로 admin 추가
+      await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.userId, role: m.role })
     }
     createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
     createMembers.value = []; createMemberSearch.value = ''; createMemberResults.value = []
