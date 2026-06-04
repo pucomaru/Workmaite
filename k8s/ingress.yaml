@@ -7,6 +7,8 @@ metadata:
     app: workmaite
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: public-nginx  # 교육환경에서 제공하는 Nginx Ingress 클래스명
   tls:
@@ -18,6 +20,20 @@ spec:
       http:
         paths:
           # 경로 우선순위: 구체적인 경로를 앞에 배치해야 함
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/ai
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
           - path: /api/agent
             pathType: Prefix
             backend:
