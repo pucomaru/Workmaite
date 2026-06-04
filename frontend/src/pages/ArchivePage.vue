@@ -220,7 +220,10 @@ const creatingSession = ref(false)
 
 function openCreateModal() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
-  createMembers.value = []
+  const me = authStore.user
+  createMembers.value = me
+    ? [{ userId: me.id, name: me.name, email: me.email || me.employee_id || '', role: 'admin' }]
+    : []
   showCreateModal.value = true; agentSidebarOpen.value = false
 }
 
@@ -1779,7 +1782,7 @@ const meetingGroups = computed(() => {
   meetingsStore.meetings
     .filter(m => meetingsStore.meetingRoles[m.id] != null)
     .forEach(m => {
-    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, minutes: [], reports: [], members: [], tasks: [] })
+    map.set(m.id, { id: m.id, title: m.title, meeting_type: m.meeting_type || null, status: m.status || 'active', minutes: [], reports: [], members: [], tasks: [] })
   })
   // Add minutes & reports
   minutes.value.forEach(m => {
@@ -2007,10 +2010,11 @@ function buildGraphNodes() {
 
     // ── MeetingGroup 노드 ─────────────────────────────────────
     const mgIdx = nodes.length
+    const isEnded = g.status === 'ended'
     nodes.push({
       id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'meeting_group',
       x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
-      data: g, groupIdx: gi, neo4jId,
+      data: g, groupIdx: gi, neo4jId, ended: isEnded,
     })
     // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
     // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
@@ -2045,15 +2049,18 @@ function buildGraphNodes() {
         id: `dept-${g.id || gi}-${deptName}`, label: deptName, type: 'dept',
         x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
         members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
-        neo4jId: deptIdByName.get(deptName) || null,
+        neo4jId: deptIdByName.get(deptName) || null, ended: isEnded,
       })
       // dept -[PARTICIPATES_IN]→ meetingGroup
       edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
 
       // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
       const deptMembers = membersByDept.get(deptName) || []
-      const pCount = deptMembers.length
-      deptMembers.forEach((mb, pi) => {
+      const visibleMembers = deptMembers.filter(mb =>
+        mb.email !== myEmail && (mb.userName || mb.name) !== myName
+      )
+      const pCount = visibleMembers.length
+      visibleMembers.forEach((mb, pi) => {
         const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
         const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
         const pIdx = nodes.length
@@ -2062,7 +2069,7 @@ function buildGraphNodes() {
           id: `person-${g.id || gi}-${mb.userId || pi}`, label: pName, type: 'person',
           x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
           groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
-          neo4jId: mb.userId || null,
+          neo4jId: mb.userId || null, ended: isEnded,
         })
         // person -[BELONGS_TO]→ dept
         edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
@@ -2105,7 +2112,7 @@ function buildGraphNodes() {
           id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
           groupIdx: gi, data: task, meetingGroupId: mgNodeId,
-          neo4jId: task.id || null,
+          neo4jId: task.id || null, ended: isEnded,
         })
         // agenda -[OWNED_BY]→ meetingGroup
         edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
@@ -2141,7 +2148,7 @@ function buildGraphNodes() {
         nodes.push({
           id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
           x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
-          groupIdx: gi, data: task, meetingGroupId: mgNodeId
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId, ended: isEnded,
         })
         edges.push({ from: mgIdx, to: agIdx, rel: '관할' })
         agendaIdxByTodoId.set(String(task.id), agIdx)
@@ -2161,7 +2168,7 @@ function buildGraphNodes() {
         label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
         x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
         groupIdx: gi, data: { ...m, participants: g.members || [] },
-        neo4jId: m.id || null,
+        neo4jId: m.id || null, ended: isEnded,
       })
       // session -[개최]→ meetingGroup (실제 Neo4j 관계)
       edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
@@ -2179,7 +2186,8 @@ function buildGraphNodes() {
           author: m.doc_author,
           created_at: m.doc_created_at || m.ended_at || m.date,
           file_name: m.file_name,
-        }
+        },
+        ended: isEnded,
       })
       edges.push({ from: sIdx, to: dIdx, rel: '산출' })
     })
@@ -3642,7 +3650,7 @@ const TYPES=['Draft','In Progress','Done','Pending']
             </div>
             <div class="app-modal-field">
               <label>멤버 초대</label>
-              <MemberInvite v-model="createMembers" />
+              <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
             </div>
           </div>
           <div class="app-modal-footer">

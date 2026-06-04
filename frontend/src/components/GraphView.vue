@@ -154,9 +154,10 @@ function buildSimulation(nodes, edges) {
   simNodes = ns.map((n, i) => {
     const prev = prevPos.get(i)
     return {
-      _idx: i,
-      id:   n.id,
-      type: n.id === 'org-root' ? 'org-root' : n.type,
+      _idx:  i,
+      id:    n.id,
+      type:  n.id === 'org-root' ? 'org-root' : n.type,
+      ended: n.ended ?? false,
       x:    prev ? prev.x : w / 2 + (Math.random() - 0.5) * 200,
       y:    prev ? prev.y : h / 2 + (Math.random() - 0.5) * 200,
       vx: 0, vy: 0,
@@ -399,10 +400,11 @@ function tick() {
     const relColor = hexToNum(props.relColors[e.rel] || '#60a5fa')
     const isHlEdge = props.queryHlEdgeIdxs?.has(ei)
     const isFocEdge = focusedIdx !== null && (si === focusedIdx || ti === focusedIdx)
+    const endedEdge = props.gNodes[si]?.ended || props.gNodes[ti]?.ended
 
-    const alpha = focusedIdx !== null
+    const alpha = (focusedIdx !== null
       ? (isFocEdge ? 0.85 : 0.12)
-      : 0.35
+      : 0.35) * (endedEdge ? 0.45 : 1.0)
 
     // dx/dy for arrow
     const dx = tn.x - sn.x, dy = tn.y - sn.y
@@ -464,8 +466,9 @@ function tick() {
       : hasSearchHits
         ? (props.searchHitMgIdxs.includes(i) ? 1.0 : 0.15)
         : 1.0
-    obj.gfx.alpha   = alphaVal
-    obj.label.alpha = alphaVal * (sn.type === 'meeting_group' ? 0 : 0.9)  // MG label inside node
+    const endedDim = sn.ended ? 0.45 : 1.0
+    obj.gfx.alpha   = alphaVal * endedDim
+    obj.label.alpha = alphaVal * endedDim * (sn.type === 'meeting_group' ? 0 : 0.9)
 
     // Redraw
     obj.focused = (i === focusedIdx)
@@ -475,7 +478,7 @@ function tick() {
     if (sn.type === 'meeting_group') {
       obj.label.y = sn.y   // center vertically
       obj.label.anchor.set(0.5, 0.5)
-      obj.label.alpha = alphaVal * 0.95
+      obj.label.alpha = alphaVal * endedDim * 0.95
       obj.label.style.fill = props.nightMode ? 0xffffff : 0x1e3a8a
     } else {
       obj.label.anchor.set(0.5, 0)

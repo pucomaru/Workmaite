@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
 import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
@@ -19,6 +20,7 @@ const mgColumns = [
 
 const meetingsStore = useMeetingsStore()
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 const nightMode = computed(() => themeStore.nightMode)
 
 const search = ref('')
@@ -94,7 +96,10 @@ const createMembers = ref([])  // { userId, name, email, role }
 
 function openCreate() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
-  createMembers.value = []
+  const me = authStore.user
+  createMembers.value = me
+    ? [{ userId: me.id, name: me.name, email: me.email || me.employee_id || '', role: 'admin' }]
+    : []
   showCreate.value = true
 }
 
@@ -221,7 +226,10 @@ async function saveSettings() {
     const res = await api.get(`/api/v1/meetings/${meeting.id}/members`)
     membersCache.value[meeting.id] = res.data
     settingsModal.value = null
-  } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    alert(typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : '저장 실패')
+  }
   finally { savingSettings.value = false }
 }
 
@@ -386,7 +394,7 @@ onMounted(async () => {
             </div>
             <div class="app-modal-field">
               <label>멤버 초대</label>
-              <MemberInvite v-model="createMembers" />
+              <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
             </div>
           </div>
           <div class="app-modal-footer">
