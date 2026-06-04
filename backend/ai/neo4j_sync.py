@@ -356,7 +356,7 @@ async def sync_document(
         },
     )
 
-    # 2. MeetingGroup 연결 (mg_id = "mg-sqlite-N" 형식)
+    # 2. MeetingGroup 연결
     if mg_id:
         try:
             await run_cypher(
