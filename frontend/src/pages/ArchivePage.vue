@@ -2310,6 +2310,7 @@ onBeforeUnmount(()=>{
 async function refreshArchive() {
   try {
     const res = await apiAI.get('/api/neo4j/archive')
+    neo4jError.value = ''
     currentPerson.value = res?.data?.current_person || null
     currentOrg.value    = res?.data?.org || null
     neo4jMeetings.value = res?.data?.meetings || []
@@ -2325,7 +2326,10 @@ async function refreshArchive() {
       _recomputeSearchHits()
       graphViewRef.value?.reloadGraph(gNodes, gEdges)
     }
-  } catch(e) { console.error('archive refresh error', e) }
+  } catch(e) {
+    console.error('archive refresh error', e)
+    neo4jError.value = 'Neo4j 그래프 DB에 연결할 수 없습니다.'
+  }
 }
 
 // Rebuild graph when new meetings are created
@@ -3198,8 +3202,14 @@ const TYPES=['Draft','In Progress','Done','Pending']
           </template>
         </div>
         <!-- Graph view (PIXI.js force-directed) -->
+        <div v-if="!loading && viewMode==='graph' && neo4jError" class="neo4j-error-overlay">
+          <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#f87171;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          <div class="neo4j-error-title">그래프 연결 실패</div>
+          <div class="neo4j-error-msg">{{ neo4jError }}</div>
+          <button class="neo4j-error-retry" @click="refreshArchive">다시 시도</button>
+        </div>
         <GraphView
-          v-if="!loading && viewMode==='graph'"
+          v-if="!loading && viewMode==='graph' && !neo4jError"
           ref="graphViewRef"
           class="archive-canvas"
           :gNodes="gNodes"
@@ -4410,6 +4420,18 @@ const TYPES=['Draft','In Progress','Done','Pending']
 .map-toast-fade-enter-from,.map-toast-fade-leave-to { opacity:0;transform:translateX(-50%) translateY(-6px); }
 .archive-canvas { width:100%;height:100%;cursor:grab;display:block; }
 .archive-canvas:active { cursor:grabbing; }
+.neo4j-error-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; background: rgba(15,23,42,0.72); backdrop-filter: blur(4px);
+}
+.neo4j-error-title { font-size: 15px; font-weight: 600; color: #f87171; }
+.neo4j-error-msg   { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+.neo4j-error-retry {
+  padding: 6px 20px; border-radius: 8px; border: 1px solid #3b82f6;
+  background: transparent; color: #60a5fa; font-size: 12px; cursor: pointer;
+}
+.neo4j-error-retry:hover { background: rgba(59,130,246,0.12); }
 .graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#475569;font-size:13px; }
 .graph-loading-spinner { width:28px;height:28px;border:2px solid rgba(96,165,250,.2);border-top-color:#60a5fa;border-radius:50%;animation:spin .8s linear infinite; }
 
