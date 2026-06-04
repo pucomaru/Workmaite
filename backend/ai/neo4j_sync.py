@@ -34,7 +34,10 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import SessionLocal
 from neo4j_client import run_cypher
-from file_embedder import embed_query, EMBED_DIM
+
+# file_embedder는 순환 임포트 방지를 위해 각 함수 내에서 지연 임포트합니다.
+# (file_embedder → neo4j_sync → file_embedder 순환 참조 차단)
+EMBED_DIM = 1536  # text-embedding-3-small 고정값
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 logger = logging.getLogger(__name__)
@@ -61,10 +64,10 @@ async def init_vector_index() -> None:
         OPTIONS {{ indexConfig: {{ `vector.dimensions`: $dim, `vector.similarity_function`: 'cosine' }} }}
         """
         try:
-            await run_cypher(cypher, {{"dim": EMBED_DIM}})
+            await run_cypher(cypher, {"dim": EMBED_DIM})
             logger.info(f"[Neo4jSync] VectorIndex '{index_name}' 초기화 완료")
         except Exception as e:
-            logger.warning(f"[Neo4jSync] VectorIndex '{index_name}' 초기화 실패 (무시): {{e}}")
+            logger.warning(f"[Neo4jSync] VectorIndex '{index_name}' 초기화 실패 (무시): {e}")
 
 
 async def _embed(text: str) -> list[float] | None:
@@ -73,6 +76,7 @@ async def _embed(text: str) -> list[float] | None:
     if not text:
         return None
     try:
+        from file_embedder import embed_query  # 지연 임포트 (순환 참조 방지)
         return await embed_query(text)
     except Exception as e:
         logger.warning(f"[Neo4jSync] 임베딩 실패 (무시): {e}")
@@ -205,8 +209,10 @@ async def sync_user(
     """Person 노드를 upsert하고 Department / Organization 노드와 연결합니다."""
     p_id = f"p-{user_id}"
     cypher = """
-    MERGE (p:Person {id: $id})
+    MERGE (p:Person {email: $email})
+    ON CREATE SET p.id = $id
     SET p.pg_id      = $pg_id,
+        p.id         = $id,
         p.name       = $name,
         p.email      = $email,
         p.department = $department,
@@ -719,6 +725,7 @@ async def vector_search_node(
                          f"가능한 값: {list(_NODE_SEARCH_CONFIG.keys())}")
 
     index_name, return_props = _NODE_SEARCH_CONFIG[node_label]
+    from file_embedder import embed_query  # 지연 임포트 (순환 참조 방지)
     query_emb = await embed_query(query_text)
     return_clause = ", ".join(f"n.{p} AS {p}" for p in return_props)
 
