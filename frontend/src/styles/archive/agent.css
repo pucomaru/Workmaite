@@ -158,3 +158,6 @@
 .refresh-map-btn { padding:5px 8px !important; }
 .refresh-icon { display:block;transition:transform .6s ease; }
 .refresh-map-btn:hover .refresh-icon { transform:rotate(180deg); }
+.refresh-map-btn:disabled { cursor:progress; }
+.refresh-map-btn.analyzing { animation:ai-pulse 1.6s ease-out infinite; border-radius:8px; }
+.refresh-map-btn.analyzing .refresh-icon { animation:spin .9s linear infinite; transform:none; }

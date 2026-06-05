@@ -490,7 +490,7 @@ const {
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='agenda'?'아젠다':'회의', file:'문서', person:'구성원', org:'조직', decision:'의사결정' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
