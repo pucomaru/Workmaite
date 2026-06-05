@@ -275,7 +275,7 @@ async def confirm_report_review(
 
         if review and content:
             try:
-                from agents import knowledge_agent as _ka
+                from agents import knowledge_manager as _ka
                 await _ka.store_report(
                     title=title or "보고서",
                     content=content,

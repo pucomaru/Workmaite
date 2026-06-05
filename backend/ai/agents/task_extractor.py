@@ -243,7 +243,7 @@ async def confirm_extraction_review(
 
         if extraction:
             try:
-                from agents import knowledge_agent as _ka
+                from agents import knowledge_manager as _ka
                 for todo in extraction.get("todos", []):
                     if todo.get("content"):
                         await _ka.store_task(

@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
-from agents import task_agent, knowledge_agent, minutes_agent, report_agent
+from agents import (
+    task_extractor as task_agent,
+    knowledge_manager as knowledge_agent,
+    minutes_generator as minutes_agent,
+    report_reviewer as report_agent,
+)
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 from pydantic import BaseModel
 import logging
