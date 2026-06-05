@@ -641,6 +641,8 @@ async function openAssignModal() {
       _editStatus: 'pending',
       _editPriority: a.priority || 'normal',
       _state: null,
+      _reason: '',
+      _showReason: false,
     }))
   }
   assignLoading.value = false
@@ -668,7 +670,7 @@ function rejectAssignItem(i) {
   assignResult.value.splice(i, 1)
 }
 function addAssignItem() {
-  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editDept: '', _editStatus: 'pending', _editPriority: 'normal', _state: null })
+  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editDept: '', _editStatus: 'pending', _editPriority: 'normal', _state: null, _reason: '', _showReason: false })
 }
 async function saveApprovedTasks() {
   const approved = assignResult.value.filter(t => t._state === 'approved')
@@ -1888,6 +1890,20 @@ provide('archiveSidebar', {
         </button>
       </div>
 
+      <button class="agent-header-btn refresh-map-btn" @click="refreshArchive" title="관계도 새로고침">
+        <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+          <defs>
+            <linearGradient id="refreshGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#93c5fd"/>
+              <stop offset="100%" stop-color="#818cf8"/>
+            </linearGradient>
+          </defs>
+          <path d="M4.5 12a7.5 7.5 0 0 1 12.52-5.59l1.48-1.98" stroke="url(#refreshGrad)" stroke-width="2" stroke-linecap="round"/>
+          <path d="M19.5 12a7.5 7.5 0 0 1-12.52 5.59L5.5 19.57" stroke="url(#refreshGrad)" stroke-width="2" stroke-linecap="round"/>
+          <polyline points="18.5,4.43 18.5,7.43 15.5,7.43" stroke="url(#refreshGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <polyline points="5.5,19.57 5.5,16.57 8.5,16.57" stroke="url(#refreshGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <button class="agent-header-btn" :class="{ active: agentSidebarOpen }" @click="agentSidebarOpen=!agentSidebarOpen" title="AI 에이전트">
         <svg class="ai-btn-icon" viewBox="0 0 40 22" xmlns="http://www.w3.org/2000/svg">
           <defs>

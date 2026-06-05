@@ -154,3 +154,7 @@
 .agent-send-btn:disabled { opacity:.4;cursor:not-allowed; }
 
 .req { color:#ef4444; }
+
+.refresh-map-btn { padding:5px 8px !important; }
+.refresh-icon { display:block;transition:transform .6s ease; }
+.refresh-map-btn:hover .refresh-icon { transform:rotate(180deg); }

@@ -371,3 +371,8 @@
 .dept-count { color:#475569;text-align:right;white-space:nowrap; }
 .detail-action-row { display:flex;gap:7px;padding:12px 0; }
 
+
+.dei-reason-wrap { padding:4px 0 2px;width:100%; }
+.dei-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;outline:none;resize:none;font-family:inherit;transition:border-color .15s; }
+.dei-reason-input:focus { border-color:rgba(99,102,241,.4); }
+.dei-reason-input::placeholder { color:rgba(148,163,184,.45);font-style:italic; }

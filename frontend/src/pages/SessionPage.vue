@@ -301,6 +301,8 @@ async function generateMinutes() {
         agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
         wmLoading.value = false
         generatingMinutes.value = false
+        // 다음 회의 안건 자동 추출
+        extractNextAgendas()
       }
     )
   } catch {
@@ -356,6 +358,71 @@ function downloadWord() {
 
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
+
+// ── 다음 회의 안건 승인/반려 블록 ─────────────────────────────
+const nextAgendaItems = ref([])
+const showNextAgendaBlock = ref(false)
+const nextAgendaExtracting = ref(false)
+
+async function extractNextAgendas() {
+  if (!generatedMinutes.value?.content_summary) return
+  nextAgendaExtracting.value = true
+  showNextAgendaBlock.value = true
+  try {
+    const { data } = await apiAI.post('/api/agent/extract-next-agendas', {
+      minutes_content: generatedMinutes.value.content_summary,
+      meeting_id: activeSession.value?.meeting_id || selectedMeeting.value?.id || 0,
+    })
+    const items = data?.agendas || []
+    nextAgendaItems.value = items.map(a => ({
+      title: a.title || a.content || '',
+      dept: a.dept || a.assignee_dept || '',
+      _state: null,
+      _reason: '',
+      _showReason: false,
+      _editing: false,
+      _editTitle: a.title || a.content || '',
+      _editDept: a.dept || a.assignee_dept || '',
+    }))
+    if (!nextAgendaItems.value.length) {
+      nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    }
+  } catch {
+    nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+  } finally {
+    nextAgendaExtracting.value = false
+  }
+}
+
+function toggleNextAgendaState(i, state) {
+  const item = nextAgendaItems.value[i]
+  item._state = item._state === state ? null : state
+  item._showReason = item._state !== null
+}
+
+function addNextAgendaItem() {
+  nextAgendaItems.value.push({ title: '', dept: '', _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '' })
+}
+
+function saveNextAgendaEdit(i) {
+  const item = nextAgendaItems.value[i]
+  item.title = item._editTitle
+  item.dept = item._editDept
+  item._editing = false
+}
+
+async function saveApprovedNextAgendas() {
+  const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
+  if (!approved.length) return
+  try {
+    await apiAI.post(`/api/v1/meetings/${activeSession.value?.meeting_id || selectedMeeting.value?.id || 0}/agendas/batch`, {
+      agendas: approved.map(a => ({ title: a.title, dept: a.dept, reason: a._reason })),
+    })
+    nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
+  } catch (e) {
+    alert('저장에 실패했습니다.')
+  }
+}
 
 async function saveMinutesToDB() {
   if (!activeSession.value || !generatedMinutes.value?.content_summary) return
@@ -658,6 +725,82 @@ onMounted(() => {
 
               </template>
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
+
+              <!-- ── 다음 회의 안건 승인/반려 블록 ── -->
+              <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
+                <div class="nab-header">
+                  <div class="nab-title-row">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
+                    <span>다음 회의 안건</span>
+                    <span class="nab-badge">회의록 기반 AI 추출</span>
+                  </div>
+                  <p class="nab-desc">회의록에서 추출한 안건을 검토하고 승인/반려해 주세요.</p>
+                </div>
+
+                <div v-if="nextAgendaExtracting" class="nab-loading">
+                  <div class="nab-spinner"></div><span>안건 추출 중...</span>
+                </div>
+                <template v-else-if="nextAgendaItems.length">
+                  <div class="nab-list">
+                    <div v-for="(item, i) in nextAgendaItems" :key="i"
+                      class="nab-item"
+                      :class="{ 'nab-approved': item._state==='approved', 'nab-rejected': item._state==='rejected', 'nab-saved': item._state==='saved' }">
+                      <template v-if="!item._editing">
+                        <div class="nab-item-body">
+                          <div class="nab-item-title">{{ item.title }}</div>
+                          <div v-if="item.dept" class="nab-item-dept">{{ item.dept }}</div>
+                        </div>
+                        <div class="nab-item-actions">
+                          <button class="nab-btn nab-btn-edit" @click="item._editing=true; item._editTitle=item.title; item._editDept=item.dept">
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button class="nab-btn" :class="item._state==='approved'||item._state==='saved' ? 'nab-btn-approved' : 'nab-btn-approve'" @click="toggleNextAgendaState(i,'approved')">
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                          </button>
+                          <button class="nab-btn" :class="item._state==='rejected' ? 'nab-btn-rejected' : 'nab-btn-reject'" @click="toggleNextAgendaState(i,'rejected')">
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div class="nab-item-body nab-item-edit">
+                          <input class="nab-input" v-model="item._editTitle" placeholder="안건 내용" />
+                          <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
+                        </div>
+                        <div class="nab-item-actions">
+                          <button class="nab-btn nab-btn-approved" @click="saveNextAgendaEdit(i)">
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                          </button>
+                          <button class="nab-btn nab-btn-reject" @click="item._editing=false">
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        </div>
+                      </template>
+                      <!-- 사유 입력 -->
+                      <div v-if="item._showReason && !item._editing" class="nab-reason-wrap">
+                        <textarea
+                          v-model="item._reason"
+                          class="nab-reason-input"
+                          :placeholder="item._state==='approved' ? '승인 사유 (선택 · 서비스 품질 개선에 도움이 됩니다)' : '반려 사유 (선택 · 서비스 품질 개선에 도움이 됩니다)'"
+                          rows="2"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="nab-footer">
+                    <button class="nab-add-btn" @click="addNextAgendaItem">
+                      <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 안건 직접 추가
+                    </button>
+                    <div class="nab-footer-right">
+                      <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
+                      <button class="nab-save-btn" :disabled="!nextAgendaItems.filter(a=>a._state==='approved').length" @click="saveApprovedNextAgendas">
+                        승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건 저장
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
 
             </div>
 
@@ -1140,4 +1283,41 @@ onMounted(() => {
 .mbar-btn.regen:hover { background:#eef2ff; }
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
+
+/* ── 다음 회의 안건 블록 ── */
+.next-agenda-block { margin:16px 0 8px;border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow:hidden; }
+.nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
+.nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#818cf8;margin-bottom:4px; }
+.nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.15);color:#818cf8; }
+.nab-desc { font-size:11px;color:#64748b;margin:0; }
+.nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:#64748b; }
+.nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
+.nab-item { background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.07);border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
+.nab-item.nab-approved { border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04); }
+.nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
+.nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
+.nab-item-body { flex:1;min-width:0; }
+.nab-item-title { font-size:12px;color:#e2e8f0;font-weight:500; }
+.nab-item-dept { font-size:11px;color:#64748b;margin-top:2px; }
+.nab-item-edit { display:flex;flex-direction:column; }
+.nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:#e2e8f0;outline:none; }
+.nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
+.nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
+.nab-btn-edit { background:rgba(255,255,255,.06);color:#94a3b8; }
+.nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
+.nab-btn-approved { background:#22c55e;color:#fff; }
+.nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
+.nab-btn-rejected { background:#ef4444;color:#fff; }
+.nab-reason-wrap { width:100%;padding-top:4px; }
+.nab-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
+.nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
+.nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
+.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid rgba(255,255,255,.05); }
+.nab-footer-right { display:flex;align-items:center;gap:8px; }
+.nab-count { font-size:11px;color:#64748b; }
+.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
+.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer;transition:opacity .15s; }
+.nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>
