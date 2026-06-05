@@ -230,7 +230,7 @@ async def ara_generate_minutes(
     transcript = data.message or ""
     meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
-    agenda_text = "\n".join([f"- {a.content} ({a.status})" for a in agendas]) or "없음"
+    agenda_text = "\n".join([f"- {a.title} ({a.status})" for a in agendas]) or "없음"
     now = datetime.now().strftime("%Y년 %m월 %d일")
     meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first() if data.meeting_id else None
     minutes_title = f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"

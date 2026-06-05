@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import SttSegment
-from r2_storage import upload_bytes, get_content_type
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stt", tags=["stt"])
@@ -42,13 +41,6 @@ async def transcribe(
 
     # lang 정규화: ko-KR → ko, en-US → en
     lang_code = lang.split("-")[0].lower() if lang else "ko"
-
-    # ── R2 업로드 ─────────────────────────────────────────────
-    audio_url = None
-    try:
-        audio_url = upload_bytes(data, f"audio/{filename}", get_content_type(filename))
-    except Exception:
-        pass
 
     # ── OpenAI Diarize 시도 ──────────────────────────────────
     segments: list[dict] = []
@@ -112,4 +104,4 @@ async def transcribe(
             logger.warning(f"[STT] DB 저장 실패: {dbe}")
             db.rollback()
 
-    return {"text": full_text, "segments": segments, "audio_url": audio_url}
+    return {"text": full_text, "segments": segments}
