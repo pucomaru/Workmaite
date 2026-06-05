@@ -19,8 +19,6 @@ class User(Base):
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
 
-    notifications = relationship("Notification", back_populates="user")
-
 
 class Meeting(Base):
     __tablename__ = "meetings"
@@ -192,16 +190,3 @@ class HitlReview(Base):
     reviewed_at    = Column(DateTime, nullable=True)
     created_at     = Column(DateTime, default=datetime.utcnow)
 
-
-class Notification(Base):
-    __tablename__ = "notifications"
-    id         = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type       = Column(String(50))
-    message    = Column(Text)
-    is_read    = Column(Boolean, default=False)
-    ref_id     = Column(Integer, nullable=True)
-    ref_type   = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="notifications")

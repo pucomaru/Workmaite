@@ -17,7 +17,7 @@ NEO4J_USER = os.environ["NEO4J_USER"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
-ALLOWED_LABELS = {"MeetingGroup", "Person", "Department", "Agenda", "Document", "Session"}
+ALLOWED_LABELS = {"Meetings", "User", "Department", "Agenda", "Report", "Minutes", "Session", "Company"}
 ALLOWED_REL_TYPES = {
     "소속", "참여", "간사", "구성원", "포함",
     "관할", "담당", "첨부", "제출",
@@ -94,18 +94,18 @@ async def get_archive(
                      .all()
     }
 
-    # ── Step 1+2: Person 조회 / org / dept — 동시에 시작 ─────────
-    # Person 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
-    # Person 은 별도 태스크로 먼저 쏘고 org/dept 와 concurrently 대기한다.
+    # ── Step 1+2: User 조회 / org / dept — 동시에 시작 ─────────
+    # User 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
+    # User 는 별도 태스크로 먼저 쏘고 org/dept 와 concurrently 대기한다.
     try:
         person_rows, org_rows, dept_rows = await asyncio.gather(
             _run_cypher(
-                "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
+                "MATCH (p:User) WHERE p.email = $email OR p.name = $name "
                 "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
                 {"email": user_email, "name": user_name},
             ),
             _run_cypher(
-                "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
+                "MATCH (o:Company) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
             ),
             _run_cypher(
                 "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
@@ -120,9 +120,9 @@ async def get_archive(
             person_id = person_rows[0]["pid"]
             allowed_rows = await _run_cypher(
                 """
-                MATCH (p:Person)-[:`간사`|`구성원`]->(mg)
+                MATCH (p:User)-[:`간사`|`구성원`]->(mg)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
-                  AND (mg:MeetingGroup OR mg:Meeting)
+                  AND (mg:Meetings OR mg:Meeting_session)
                 RETURN mg.id AS mg_id
                 """,
                 {"pid": person_id},
@@ -158,9 +158,9 @@ async def get_archive(
         mg_rows, agenda_rows, session_rows, report_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mg) WHERE (mg:MeetingGroup OR mg:Meeting)
+                MATCH (mg) WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
-                OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
+                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`]->(mg)
                 OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,
@@ -178,9 +178,9 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting)
+                WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
-                OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
+                OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
                 OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
                 RETURN
                     mg.id AS meetingId,
@@ -197,9 +197,9 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (s:Session)-[:`개최`|`소속`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting)
+                WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
-                OPTIONAL MATCH (s)-[:`산출`]->(doc:Document)
+                OPTIONAL MATCH (s)-[:`산출`]->(doc) WHERE doc:Report OR doc:Minutes
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -219,10 +219,9 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (doc:Document)-[:`첨부`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting)
+                MATCH (doc:Report)-[:`첨부`]->(mg)
+                WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
-                  AND NOT doc.doc_type = '회의록'
                 OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
                 OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
                 RETURN
@@ -352,7 +351,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (mn:Minutes)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 MATCH (mn)-[:`생성`]->(s:Session)
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -363,7 +362,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (s:Session)-[:`다룸멌`]->(ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -373,7 +372,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (s:Session)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -548,7 +547,7 @@ async def update_relationship(data: dict):
 
 @router.post("/meeting-groups")
 async def create_meeting_group(data: dict):
-    """MeetingGroup 노드 생성 및 Organization에 연결"""
+    """Meetings 노드 생성 및 Company에 연결"""
     mg_id = data.get("id", "")
     title = data.get("title", "")
     meeting_type = data.get("meeting_type", "")
@@ -559,7 +558,7 @@ async def create_meeting_group(data: dict):
     try:
         await _run_cypher(
             """
-            MERGE (mg:MeetingGroup {id: $id})
+            MERGE (mg:Meetings {id: $id})
             SET mg.title = $title, mg.meeting_type = $meeting_type,
                 mg.description = $description, mg.status = 'active'
             """,
@@ -567,14 +566,14 @@ async def create_meeting_group(data: dict):
         )
         if org_id:
             await _run_cypher(
-                "MATCH (mg:MeetingGroup {id: $mg_id}), (o:Organization {id: $org_id}) MERGE (mg)-[:`포함`]->(o)",
+                "MATCH (mg:Meetings {id: $mg_id}), (o:Company {id: $org_id}) MERGE (mg)-[:`포함`]->(o)",
                 {"mg_id": mg_id, "org_id": org_id},
             )
         if creator_email or creator_name:
             await _run_cypher(
                 """
-                MATCH (mg:MeetingGroup {id: $mg_id})
-                MATCH (p:Person) WHERE p.email = $email OR p.name = $name
+                MATCH (mg:Meetings {id: $mg_id})
+                MATCH (p:User) WHERE p.email = $email OR p.name = $name
                 MERGE (p)-[:`간사`]->(mg)
                 """,
                 {"mg_id": mg_id, "email": creator_email, "name": creator_name},
@@ -588,14 +587,14 @@ async def create_meeting_group(data: dict):
 
 @router.put("/meeting-groups/{mg_id}")
 async def update_meeting_group(mg_id: str, data: dict):
-    """MeetingGroup 노드 속성 수정"""
+    """Meetings 노드 속성 수정"""
     fields = {k: v for k, v in data.items() if k in ("title", "purpose", "guidelines", "status", "meeting_type")}
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"mg.{k} = ${k}" for k in fields)
     try:
         await _run_cypher(
-            f"MATCH (mg:MeetingGroup {{id: $mg_id}}) SET {set_clause}",
+            f"MATCH (mg:Meetings {{id: $mg_id}}) SET {set_clause}",
             {"mg_id": mg_id, **fields},
         )
     except HTTPException:
@@ -607,10 +606,10 @@ async def update_meeting_group(mg_id: str, data: dict):
 
 @router.delete("/meeting-groups/{mg_id}")
 async def delete_meeting_group(mg_id: str):
-    """MeetingGroup 노드 및 연결 관계 삭제"""
+    """Meetings 노드 및 연결 관계 삭제"""
     try:
         await _run_cypher(
-            "MATCH (mg:MeetingGroup {id: $mg_id}) DETACH DELETE mg",
+            "MATCH (mg:Meetings {id: $mg_id}) DETACH DELETE mg",
             {"mg_id": mg_id},
         )
     except HTTPException:
@@ -622,7 +621,7 @@ async def delete_meeting_group(mg_id: str):
 
 @router.post("/meeting-groups/{mg_id}/members")
 async def add_member_to_group(mg_id: str, data: dict):
-    """Person → MeetingGroup 멤버 관계 추가"""
+    """User → Meetings 멤버 관계 추가"""
     person_name = data.get("name", "")
     person_email = data.get("email", "")
     role = data.get("role", "member")  # admin | member
@@ -630,8 +629,8 @@ async def add_member_to_group(mg_id: str, data: dict):
     try:
         await _run_cypher(
             f"""
-            MATCH (mg:MeetingGroup {{id: $mg_id}})
-            MATCH (p:Person) WHERE p.email = $email OR p.name = $name
+            MATCH (mg:Meetings {{id: $mg_id}})
+            MATCH (p:User) WHERE p.email = $email OR p.name = $name
             MERGE (p)-[:`{rel}`]->(mg)
             """,
             {"mg_id": mg_id, "email": person_email, "name": person_name},
@@ -645,13 +644,13 @@ async def add_member_to_group(mg_id: str, data: dict):
 
 @router.delete("/meeting-groups/{mg_id}/members")
 async def remove_member_from_group(mg_id: str, data: dict):
-    """Person → MeetingGroup 멤버 관계 삭제"""
+    """User → Meetings 멤버 관계 삭제"""
     person_name = data.get("name", "")
     person_email = data.get("email", "")
     try:
         await _run_cypher(
             """
-            MATCH (p:Person)-[r:`간사`|`구성원`]->(mg:MeetingGroup {id: $mg_id})
+            MATCH (p:User)-[r:`간사`|`구성원`]->(mg:Meetings {id: $mg_id})
             WHERE p.email = $email OR p.name = $name
             DELETE r
             """,
@@ -666,7 +665,7 @@ async def remove_member_from_group(mg_id: str, data: dict):
 
 @router.post("/sessions")
 async def create_session_node(data: dict):
-    """Session 노드 생성 및 MeetingGroup에 연결"""
+    """Session 노드 생성 및 Meetings에 연결"""
     s_id = data.get("id", "")
     title = data.get("title", "")
     session_number = data.get("session_number", 1)
@@ -687,7 +686,7 @@ async def create_session_node(data: dict):
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (s:Session {id: $s_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (s)-[:`개최`]->(mg)",
+                "MATCH (s:Session {id: $s_id}), (mg:Meetings {id: $mg_id}) MERGE (s)-[:`개최`]->(mg)",
                 {"s_id": s_id, "mg_id": mg_id},
             )
     except HTTPException:
@@ -699,7 +698,7 @@ async def create_session_node(data: dict):
 
 @router.post("/agendas")
 async def create_agenda_node(data: dict):
-    """Agenda 노드 생성 및 MeetingGroup에 연결"""
+    """Agenda 노드 생성 및 Meetings에 연결"""
     ag_id = data.get("id", "")
     content = data.get("content", "")
     category = data.get("category", "")
@@ -722,12 +721,12 @@ async def create_agenda_node(data: dict):
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (ag:Agenda {id: $ag_id}), (mg:MeetingGroup {id: $mg_id}) MERGE (ag)-[:`관할`]->(mg)",
+                "MATCH (ag:Agenda {id: $ag_id}), (mg:Meetings {id: $mg_id}) MERGE (ag)-[:`관할`]->(mg)",
                 {"ag_id": ag_id, "mg_id": mg_id},
             )
         if assignee_name:
             await _run_cypher(
-                "MATCH (ag:Agenda {id: $ag_id}), (p:Person {name: $name}) MERGE (p)-[:`담당`]->(ag)",
+                "MATCH (ag:Agenda {id: $ag_id}), (p:User {name: $name}) MERGE (p)-[:`담당`]->(ag)",
                 {"ag_id": ag_id, "name": assignee_name},
             )
     except HTTPException:

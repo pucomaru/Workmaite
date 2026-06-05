@@ -18,7 +18,6 @@ _DROP_ORDER = [
     "token_usage_logs",
     "agent_logs",
     "chat_messages",
-    "notifications",
     "archives_combined",
     "minutes",
     "stt_segments",

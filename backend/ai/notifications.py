@@ -1,21 +1,10 @@
-from sqlalchemy.orm import Session
-import models
-
-
 def create_notification(
-    db: Session,
+    db,
     user_id: int,
     type: str,
     message: str,
     ref_id: int = None,
     ref_type: str = None,
 ):
-    notif = models.Notification(
-        user_id=user_id,
-        type=type,
-        message=message,
-        ref_id=ref_id,
-        ref_type=ref_type,
-    )
-    db.add(notif)
-    return notif
+    """notifications 테이블이 제거되어 no-op으로 대체."""
+    pass

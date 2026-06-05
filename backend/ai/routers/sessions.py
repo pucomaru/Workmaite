@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db
 from auth import get_current_user
-from notifications import create_notification
-from neo4j_sync import sync_session, delete_session, sync_minutes
+from neo4j_sync import sync_session, delete_session
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
@@ -60,20 +59,6 @@ async def create_session(
     )
     db.add(session)
     db.flush()
-
-    members = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id
-    ).all()
-    for m in members:
-        if m.user_id != current_user.id:
-            create_notification(
-                db,
-                user_id=m.user_id,
-                type="session_created",
-                message=f"'{meeting.title}' 회의 세션이 생성되었습니다.",
-                ref_id=session.id,
-                ref_type="session",
-            )
 
     db.commit()
     db.refresh(session)
