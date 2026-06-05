@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -83,7 +83,7 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
     return await embeddings.aembed_query(text[:2000])
 
 
@@ -174,7 +174,7 @@ async def store_task(
         },
     )
 
-    # 부서 노드와 연결
+    # 부서 노드와 연결: (KnowledgeTask)-[:ASSIGNED_TO_DEPT]->(Department)
     if department:
         try:
             await run_cypher(
@@ -182,6 +182,18 @@ async def store_task(
                    MERGE (d:Department {name: $dept})
                    MERGE (t)-[:ASSIGNED_TO_DEPT]->(d)""",
                 {"tid": node_id, "dept": department},
+            )
+        except Exception:
+            pass
+
+    # 회의체 노드와 연결: (KnowledgeTask)-[:BELONGS_TO]->(Meeting)
+    if meeting_id:
+        try:
+            await run_cypher(
+                """MATCH (t:KnowledgeTask {id: $tid})
+                   MATCH (mg:Meeting {pg_id: $pg_id})
+                   MERGE (t)-[:BELONGS_TO]->(mg)""",
+                {"tid": node_id, "pg_id": meeting_id},
             )
         except Exception:
             pass

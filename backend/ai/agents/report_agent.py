@@ -11,7 +11,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -129,7 +129,7 @@ _chat_graph = _build_chat_graph()
 # ── HITL 보고서 검토 그래프 ──────────────────────────────────────────────
 async def _review_propose_node(state: ReportReviewState) -> dict:
     """보고서 분석 → 검토/개선안 제안 → interrupt()로 사용자 확인 대기."""
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
     system = _build_system_with_knowledge(state.get("knowledge", []))
 
     prompt = f"""다음 발제자료를 12대 필수요소 기준으로 검토하세요.
@@ -301,7 +301,7 @@ async def review_report(
 [발제자료 내용]
 {report_content[:4000]}"""
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=prompt)])
     text = response.content
     match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -344,15 +344,36 @@ async def start_report_review(
     return {"status": "error", "proposed": None}
 
 
-async def confirm_report_review(thread_id: str, approved: bool) -> dict:
-    """[HITL Step 2] interrupt() 지점 재개. approved=True면 검토 결과 반환."""
+async def confirm_report_review(
+    thread_id: str,
+    approved: bool,
+    title: str = "",       # HITL Approve 시 Neo4j 저장에 사용할 보고서 제목
+    content: str = "",     # HITL Approve 시 Neo4j 저장에 사용할 보고서 원문
+    meeting_id: int = None,  # HITL Approve 시 Neo4j 저장에 사용할 회의체 ID
+) -> dict:
+    """[HITL Step 2] interrupt() 지점 재개. approved=True면 검토 결과를 반환하고 Knowledge Base에 저장."""
     config = {"configurable": {"thread_id": thread_id}}
     result = await _review_graph.ainvoke(
         Command(resume={"approved": approved}),
         config,
     )
     if approved:
-        return {"status": "confirmed", "review": result.get("proposed_review")}
+        review = result.get("proposed_review")
+
+        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 보고서를 Neo4j KnowledgeReport 노드로 저장
+        if review and content:
+            try:
+                from agents import knowledge_agent as _ka
+                await _ka.store_report(
+                    title=title or "보고서",
+                    content=content,
+                    meeting_id=meeting_id,
+                    score=review.get("score"),
+                )
+            except Exception:
+                pass
+
+        return {"status": "confirmed", "review": review}
     return {"status": "rejected"}
 
 

@@ -1,8 +1,8 @@
 import os
-import tempfile
 import logging
 from typing import Optional
 
+import httpx
 import openai
 from fastapi import APIRouter, UploadFile, File, Form, Depends
 from sqlalchemy.orm import Session
@@ -14,23 +14,9 @@ from r2_storage import upload_bytes, get_content_type
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stt", tags=["stt"])
 
-# ── Whisper 로컬 모델 (fallback) ──────────────────────────────
-_whisper_model = None
-
-def _get_whisper():
-    global _whisper_model
-    if _whisper_model is None:
-        try:
-            import whisper
-            model_name = os.getenv("WHISPER_MODEL", "tiny")
-            _whisper_model = whisper.load_model(model_name)
-        except Exception as e:
-            logger.warning(f"[STT] 로컬 Whisper 로드 실패: {e}")
-    return _whisper_model
-
 
 def _openai_client():
-    return openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 @router.post("/transcribe")
@@ -93,23 +79,22 @@ async def transcribe(
     except Exception as e:
         logger.warning(f"[STT] OpenAI diarize 실패 → 로컬 Whisper 시도: {e}")
 
-    # ── Whisper fallback ──────────────────────────────────────
+    # ── Whisper pod fallback ──────────────────────────────────
     if not used_openai:
-        tmp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(data); tmp_path = tmp.name
-            model = _get_whisper()
-            if model:
-                wresult   = model.transcribe(tmp_path, language=lang_code)
-                full_text = wresult["text"].strip()
+            whisper_url = os.environ["WHISPER_URL"]
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{whisper_url}/asr",
+                    params={"language": lang_code, "output": "json"},
+                    files={"audio_file": (filename, data, "audio/webm")},
+                )
+                resp.raise_for_status()
+                result    = resp.json()
+                full_text = result.get("text", "").strip()
                 segments  = [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
         except Exception as we:
-            logger.error(f"[STT] Whisper 실패: {we}")
-        finally:
-            if tmp_path:
-                try: os.unlink(tmp_path)
-                except Exception: pass
+            logger.error(f"[STT] Whisper pod 호출 실패: {we}")
 
     # ── DB 저장 (session_id 있을 때만) ────────────────────────
     if session_id and segments:

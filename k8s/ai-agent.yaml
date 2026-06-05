@@ -21,6 +21,13 @@ spec:
         - name: workmaite-ai-agent
           image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai-agent:cicd-pipeline
           imagePullPolicy: Always
+          env:
+            - name: NEO4J_URL
+              value: "http://workmaite-neo4j:7474"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "skala-2-team9"
           ports:
             - containerPort: 8000
           readinessProbe:

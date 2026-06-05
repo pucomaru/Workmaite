@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -54,7 +54,7 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
     """Neo4j 내장 벡터 검색으로 유사 회의록을 조회합니다 (Cypher 기반)."""
     try:
         from neo4j_client import run_cypher
-        embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+        embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
         query_vec = await embeddings.aembed_query(text[:500])
 
         rows = await run_cypher(
@@ -165,6 +165,8 @@ async def generate_minutes(
     participants: list = None,
     agendas: list = None,
     todos: list = None,
+    meeting_id: int = None,   # Neo4j Knowledge Base 저장용 회의체 ID
+    session_id: int = None,   # Neo4j Knowledge Base 저장용 세션 ID
 ) -> tuple:
     """
     회의록 5대 필수요소를 포함한 구조적 회의록 생성.
@@ -274,6 +276,20 @@ async def generate_minutes(
             except Exception:
                 pass
 
+    # HITL Approve 시 Knowledge Base 자동 저장 - 회의록 생성 완료 후 Neo4j에 Minutes 노드 저장
+    if meeting_id and md_part:
+        try:
+            from agents import knowledge_agent as _ka
+            _title = session_info.get("title", "회의록") if session_info else "회의록"
+            await _ka.store_minutes(
+                title=_title,
+                content=md_part,
+                meeting_id=meeting_id,
+                session_id=session_id,
+            )
+        except Exception:
+            pass
+
     return md_part, json_part
 
 
@@ -282,6 +298,9 @@ async def generate_minutes_stream(
     meeting_context: str = "",
     agenda_text: str = "없음",
     now: str = "",
+    meeting_id: int = None,   # Neo4j Knowledge Base 저장용 회의체 ID
+    session_id: int = None,   # Neo4j Knowledge Base 저장용 세션 ID
+    title: str = "",          # Neo4j 저장 시 사용할 회의록 타이틀
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
@@ -341,6 +360,21 @@ async def generate_minutes_stream(
 (이번 논의에서 도출된 다음 회의 주제)"""
 
     llm = _make_llm(temperature=0.2)
+    collected_parts: List[str] = []  # 스트리밍 완료 후 Knowledge Base 저장을 위한 전체 텍스트 수집
     async for chunk in llm.astream([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]):
         if chunk.content:
+            collected_parts.append(chunk.content)
             yield chunk.content
+
+    # HITL Approve 시 Knowledge Base 자동 저장 - 스트리밍 완료 후 Neo4j에 Minutes 노드 저장
+    if meeting_id and collected_parts:
+        try:
+            from agents import knowledge_agent as _ka
+            await _ka.store_minutes(
+                title=title or f"회의록 ({now})",
+                content="".join(collected_parts),
+                meeting_id=meeting_id,
+                session_id=session_id,
+            )
+        except Exception:
+            pass

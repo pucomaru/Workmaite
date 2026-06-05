@@ -5,7 +5,7 @@ on:
     branches:
       - develop          # develop 브랜치 push 시 실행
     paths:
-      - 'ai/**'          # ai 폴더 변경 시에만 실행
+      - 'backend/ai/**'  # backend/ai 폴더 변경 시에만 실행
 
 jobs:
   build-and-push:
@@ -54,3 +54,20 @@ jobs:
           git commit -m "ci: update ai image tag to ${{ env.IMAGE_TAG }}"
           git pull --rebase origin develop
           git push origin develop
+
+      # 7. 오래된 Harbor 이미지 삭제 (최신 5개 유지)
+      - name: Delete old Harbor images
+        continue-on-error: true
+        run: |
+          REPO="workmaite-ai"
+          PROJECT="skala26a-ai2"
+          REGISTRY="amdp-registry.skala-ai.com"
+          DIGESTS=$(curl -s -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts?page_size=100&sort=-push_time" \
+            | jq -r '.[5:] | .[].digest')
+          for DIGEST in $DIGESTS; do
+            ENCODED=$(echo "$DIGEST" | sed 's/:/%3A/g')
+            curl -s -X DELETE -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+              "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts/${ENCODED}"
+            echo "Deleted: $DIGEST"
+          done

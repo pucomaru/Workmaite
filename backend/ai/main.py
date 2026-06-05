@@ -21,7 +21,7 @@ import models
 from websocket_manager import manager
 from auth import get_current_user
 
-from routers import notifications, agents, chat_history, neo4j_graph, sync as sync_router
+from routers import notifications, supervisor, chat_history, neo4j_graph, sync as sync_router
 from routers import auth as auth_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
@@ -31,7 +31,7 @@ from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 logger = logging.getLogger(__name__)
 
 # Neo4j 재시도 주기 (초). 환경변수로 조정 가능.
-_RETRY_INTERVAL_SEC = int(os.getenv("NEO4J_RETRY_INTERVAL_SEC", "300"))
+_RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:
@@ -119,7 +119,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # 라우터
 app.include_router(auth_router.router)
 app.include_router(notifications.router)
-app.include_router(agents.router)
+app.include_router(supervisor.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)

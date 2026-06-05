@@ -12,10 +12,10 @@ from database import get_db
 
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
-NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
-NEO4J_DB = os.getenv("NEO4J_DATABASE", "neo4j")
+NEO4J_URL = os.environ["NEO4J_URL"]
+NEO4J_USER = os.environ["NEO4J_USER"]
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
+NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
 ALLOWED_LABELS = {"MeetingGroup", "Person", "Department", "Agenda", "Document", "Session"}
 ALLOWED_REL_TYPES = {
@@ -45,23 +45,36 @@ def _auth_header():
     }
 
 
+# ── 공유 커넥션 풀 (요청마다 TCP 재연결 방지) ─────────────────
+_http_client: httpx.AsyncClient | None = None
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=10.0,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _http_client
+
+
 async def _run_cypher(statement: str, parameters: dict | None = None) -> list[dict]:
     stmt_obj: dict = {"statement": statement}
     if parameters:
         stmt_obj["parameters"] = parameters
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            _cypher_endpoint(),
-            json={"statements": [stmt_obj]},
-            headers=_auth_header(),
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        if body.get("errors"):
-            raise HTTPException(status_code=500, detail=body["errors"])
-        result = body["results"][0] if body.get("results") else {"columns": [], "data": []}
-        columns = result["columns"]
-        return [dict(zip(columns, row["row"])) for row in result["data"]]
+    client = _get_http_client()
+    resp = await client.post(
+        _cypher_endpoint(),
+        json={"statements": [stmt_obj]},
+        headers=_auth_header(),
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if body.get("errors"):
+        raise HTTPException(status_code=500, detail=body["errors"])
+    result = body["results"][0] if body.get("results") else {"columns": [], "data": []}
+    columns = result["columns"]
+    return [dict(zip(columns, row["row"])) for row in result["data"]]
 
 
 @router.get("/archive")
@@ -81,21 +94,31 @@ async def get_archive(
                      .all()
     }
 
-    # ── Step 1: 현재 사용자의 Neo4j Person 조회 ──────────────────
+    # ── Step 1+2: Person 조회 / org / dept — 동시에 시작 ─────────
+    # Person 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
+    # Person 은 별도 태스크로 먼저 쏘고 org/dept 와 concurrently 대기한다.
     try:
-        person_rows = await _run_cypher(
-            "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
-            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
-            {"email": user_email, "name": user_name},
+        person_rows, org_rows, dept_rows = await asyncio.gather(
+            _run_cypher(
+                "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
+                "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
+                {"email": user_email, "name": user_name},
+            ),
+            _run_cypher(
+                "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
+            ),
+            _run_cypher(
+                "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
+            ),
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
 
-    # ── Step 2: 소속 회의체 ID + org/dept 메타 — 병렬 조회 ───────
+    # ── Step 2: 소속 회의체 ID 조회 ──────────────────────────────
     try:
         if person_rows:
             person_id = person_rows[0]["pid"]
-            allowed_task = _run_cypher(
+            allowed_rows = await _run_cypher(
                 """
                 MATCH (p:Person)-[:`간사`|`구성원`]->(mg)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
@@ -106,18 +129,7 @@ async def get_archive(
             )
         else:
             person_id = None
-            async def _no_meetings(): return []
-            allowed_task = _no_meetings()
-
-        allowed_rows, org_rows, dept_rows = await asyncio.gather(
-            allowed_task,
-            _run_cypher(
-                "MATCH (o:Organization) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
-            ),
-            _run_cypher(
-                "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
-            ),
-        )
+            allowed_rows = []
     except HTTPException:
         raise
     except Exception as e:
@@ -149,7 +161,7 @@ async def get_archive(
                 MATCH (mg) WHERE (mg:MeetingGroup OR mg:Meeting)
                   AND mg.id IN $ids
                 OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg)
-                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
+                OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,
                     coalesce(mg.title, '') AS title,
@@ -169,7 +181,7 @@ async def get_archive(
                 WHERE (mg:MeetingGroup OR mg:Meeting)
                   AND mg.id IN $ids
                 OPTIONAL MATCH (p:Person)-[:`담당`]->(ag)
-                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
+                OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(ag.id, toString(ag.pg_id)) AS id,
