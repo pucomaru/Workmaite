@@ -52,13 +52,13 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   async function createMeeting(payload) {
-    const { data } = await apiAI.post('/api/v1/meetings', payload)
+    const { data } = await api.post('/api/v1/meetings', payload)
     meetings.value.unshift(data)
     return data
   }
 
   async function updateTitle(meetingId, title) {
-    const { data } = await apiAI.patch(`/api/v1/meetings/${meetingId}`, { title })
+    const { data } = await api.patch(`/api/v1/meetings/${meetingId}`, { title })
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = data
     const idx = meetings.value.findIndex(m => m.id === meetingId)
     if (idx !== -1) meetings.value[idx] = data
@@ -66,7 +66,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   async function terminateMeeting(meetingId) {
-    const { data } = await apiAI.patch(`/api/v1/meetings/${meetingId}`, { status: 'ended' })
+    const { data } = await api.patch(`/api/v1/meetings/${meetingId}`, { status: 'ended' })
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = data
     const idx = meetings.value.findIndex(m => m.id === meetingId)
     if (idx !== -1) meetings.value[idx] = data
@@ -74,7 +74,8 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   async function deleteMeeting(meetingId) {
-    await apiAI.delete(`/api/v1/meetings/${meetingId}`)
+    // /api/ai → FastAPI (Ingress 규칙), /api/v1 → Spring Boot (DELETE 없음)
+    await apiAI.delete(`/api/ai/meetings/${meetingId}`)
     meetings.value = meetings.value.filter(m => m.id !== meetingId)
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = null
   }
@@ -86,12 +87,12 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   async function updateMemberRole(meetingId, memberId, role) {
-    await apiAI.patch(`/api/v1/meetings/${meetingId}/members/${memberId}`, { role })
+    await api.patch(`/api/v1/meetings/${meetingId}/members/${memberId}`, { role })
     await fetchMembers(meetingId)
   }
 
   async function removeMember(meetingId, memberId) {
-    await apiAI.delete(`/api/v1/meetings/${meetingId}/members/${memberId}`)
+    await api.delete(`/api/v1/meetings/${meetingId}/members/${memberId}`)
     currentMembers.value = currentMembers.value.filter(m => m.id !== memberId)
   }
 
