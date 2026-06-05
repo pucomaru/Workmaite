@@ -44,10 +44,13 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
       // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
       // (meetingRoles는 PostgreSQL 기반이라 Neo4j와 불일치할 수 있음)
+      const myId = authStore.user?.id
       const myName = currentPerson.value?.name || authStore.user?.name
-      const myEmail = currentPerson.value?.email || authStore.user?.employee_id
+      const myEmail = currentPerson.value?.email || authStore.user?.email || authStore.user?.employee_id
       const selfMember = g.members?.find(mb =>
-        mb.email === myEmail || mb.userName === myName
+        (myId != null && mb.userId != null && String(mb.userId) === String(myId)) ||
+        (myEmail && mb.email && mb.email === myEmail) ||
+        (myName && (mb.userName === myName || mb.name === myName))
       )
       const selfRole = selfMember?.role ?? meetingsStore.meetingRoles?.[g.id]
       const selfRel = selfRole === 'admin' ? '간사' : '구성원'
@@ -81,8 +84,13 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         // dept -[PARTICIPATES_IN]→ meetingGroup
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
 
-        // ── Person 노드: BELONGS_TO dept, ADMIN_OF/MEMBER_OF meetingGroup ─
-        const deptMembers = membersByDept.get(deptName) || []
+        // ── Person 노드: 로그인 사용자는 org-root로 이미 표시 → 제외 ─
+        const deptMembers = (membersByDept.get(deptName) || []).filter(mb => {
+          if (myId != null && mb.userId != null && String(mb.userId) === String(myId)) return false
+          if (myEmail && mb.email && mb.email === myEmail) return false
+          if (myName && (mb.userName === myName || mb.name === myName)) return false
+          return true
+        })
         const pCount = deptMembers.length
         deptMembers.forEach((mb, pi) => {
           const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
