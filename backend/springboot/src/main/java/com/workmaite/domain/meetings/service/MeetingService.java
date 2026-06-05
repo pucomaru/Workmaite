@@ -38,8 +38,8 @@ public class MeetingService {
     @Transactional
     public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
         Meeting meeting = Meeting.create(
-                request.getTitle(), request.getPurpose(), request.getGuidelines(),
-                request.getPriority(), request.getType(),
+                request.getTitle(), request.getDescription(), request.getGuidelines(),
+                request.getType(),
                 request.getStartDateTime(), request.getEndDateTime(),
                 requesterId
         );
@@ -53,7 +53,7 @@ public class MeetingService {
 
     public List<MeetingResponse> getMeetings(Long userId, String keyword) {
         List<Meeting> all = (keyword != null && !keyword.isBlank())
-                ? meetingRepository.findByTitleContainingIgnoreCaseOrPurposeContainingIgnoreCase(keyword, keyword)
+                ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword)
                 : meetingRepository.findByUserId(userId);
 
         // Build role map for this user
@@ -114,8 +114,8 @@ public class MeetingService {
         checkSecretaryPermission(meetingId, requesterId);
         Meeting meeting = findMeetingOrThrow(meetingId);
         meeting.update(
-                request.getTitle(), request.getPurpose(), request.getGuidelines(),
-                request.getPriority(), request.getType(),
+                request.getTitle(), request.getDescription(), request.getGuidelines(),
+                request.getType(),
                 request.getStartDateTime(), request.getEndDateTime(), request.getStatus()
         );
         neoSyncService.syncMeeting(meetingId);

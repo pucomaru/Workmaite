@@ -1,7 +1,6 @@
 package com.workmaite.domain.meetings.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
-import com.workmaite.domain.meetings.entity.MeetingPriority;
 import com.workmaite.domain.meetings.entity.MeetingStatus;
 import com.workmaite.domain.meetings.entity.MeetingType;
 import lombok.Getter;
@@ -15,9 +14,8 @@ import java.time.LocalDateTime;
 public class MeetingUpdateRequest {
 
     private String title;
-    private String purpose;
+    private String description;
     private String guidelines;
-    private MeetingPriority priority;
 
     @JsonAlias({"meeting_type"})
     private MeetingType type;
