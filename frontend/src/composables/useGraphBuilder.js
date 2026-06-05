@@ -269,6 +269,13 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         if (srcIdx != null && dstIdx != null) edges.push({ from: srcIdx, to: dstIdx, rel: '도출' })
       })
 
+      // ── Session→Agenda 다룸 연결 (회의가 직접 담당하는 안건) ──
+      ;(g.session_agendas || []).forEach(sa => {
+        const sIdx  = sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
+        const agIdx = sa.agenda_id  != null ? agendaIdxByTodoId.get(String(sa.agenda_id)) : undefined
+        if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '다룸' })
+      })
+
       // ── 이월(carry-forward): 다음 회차 -[도출]→ 미해결 안건 (안건→회의 폐곡선) ──
       ;(g.derivations || []).forEach(d => {
         const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined

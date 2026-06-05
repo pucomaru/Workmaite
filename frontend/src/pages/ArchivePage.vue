@@ -956,7 +956,8 @@ const REL_COLORS = {
   '담당':   '#34d399',  // person → agenda
   '관할':   '#6abba5',  // agenda → meetingGroup
   '개최':   '#c9a870',  // session → meetingGroup
-  '도출':   '#f472b6',  // session → agenda
+  '도출':   '#f472b6',  // session → agenda (캐리포워드 · 미니츠→안건)
+  '다룸멌': '#6ee7b7',  // session → agenda (직접 담당 안건)
   '산출':   '#a8a5a2',  // session → document
   '첨부':   '#fb923c',  // document → meetingGroup
   '근거':   '#38bdf8',  // decision → session
@@ -990,7 +991,7 @@ const REL_MATRIX = {
   'file→agenda':                 '참조',
   // ── Session ────────────────────────────────────────────────
   'session→meeting_group':       '개최',
-  'session→agenda':              '도출',
+  'session→agenda':              '다룸멌',
   'session→file':                '산출',
   'session→session':             '후속',
   // ── Decision ───────────────────────────────────────────────

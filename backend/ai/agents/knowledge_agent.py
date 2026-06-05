@@ -1,5 +1,3 @@
-# 지식 정제 Agent - 승인된 회의록·과제·보고서를 Neo4j에 저장하고 Knowledge Base를 자동 업데이트
-# 벡터 인덱싱: Neo4j 5.19 내장 벡터 검색 사용 (Cypher 기반, pgvector 미사용)
 import os, json, re, uuid
 from datetime import datetime
 from typing import AsyncGenerator, List, Optional, Annotated
@@ -10,6 +8,12 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
+
+from routers.prompts import (
+    KNOWLEDGE_SYSTEM,
+    RELATIONSHIP_SUMMARY_SYSTEM,
+    relationship_summary_human,
+)
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -39,36 +43,14 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     )
 
 
-SYSTEM_PROMPT = """당신은 조직 지식 관리 전문 AI KnowledgeAgent입니다.
-- 승인된 회의록·과제·보고서를 Neo4j Knowledge Base에 정제·저장합니다
-- 조직의 패턴과 암묵지를 분석해 인사이트를 제공합니다
-- 지식 그래프에서 연관 정보를 검색하고 요약합니다
-한국어로 응답합니다."""
-
-
 # ── Neo4j 벡터 인덱스 관리 ─────────────────────────────────────────────────
 async def ensure_vector_indexes() -> None:
     """Neo4j 5.19 내장 벡터 인덱스가 없으면 Cypher로 생성합니다."""
     from neo4j_client import run_cypher
 
     index_queries = [
-        # 회의록 벡터 인덱스
         """CREATE VECTOR INDEX minutes_embedding_index IF NOT EXISTS
            FOR (m:Minutes) ON (m.embedding)
-           OPTIONS {indexConfig: {
-             `vector.dimensions`: 1536,
-             `vector.similarity_function`: 'cosine'
-           }}""",
-        # 과제 벡터 인덱스
-        """CREATE VECTOR INDEX task_embedding_index IF NOT EXISTS
-           FOR (t:KnowledgeTask) ON (t.embedding)
-           OPTIONS {indexConfig: {
-             `vector.dimensions`: 1536,
-             `vector.similarity_function`: 'cosine'
-           }}""",
-        # 보고서 벡터 인덱스
-        """CREATE VECTOR INDEX report_embedding_index IF NOT EXISTS
-           FOR (r:KnowledgeReport) ON (r.embedding)
            OPTIONS {indexConfig: {
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
@@ -94,7 +76,6 @@ async def store_minutes(
     meeting_id: int,
     session_id: int = None,
 ) -> dict:
-    """승인된 회의록을 Neo4j에 저장하고 벡터 임베딩을 인덱싱합니다."""
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
@@ -123,7 +104,6 @@ async def store_minutes(
         },
     )
 
-    # 회의체와 연결
     if meeting_id:
         try:
             await run_cypher(
@@ -138,126 +118,11 @@ async def store_minutes(
     return {"id": node_id, "status": "stored", "node_type": "Minutes"}
 
 
-async def store_task(
-    content: str,
-    department: str = None,
-    due_date: str = None,
-    meeting_id: int = None,
-) -> dict:
-    """승인된 과제를 Neo4j에 저장하고 벡터 임베딩을 인덱싱합니다."""
-    from neo4j_client import run_cypher
-
-    await ensure_vector_indexes()
-    node_id = f"task-{uuid.uuid4().hex[:8]}"
-    embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
-
-    await run_cypher(
-        """MERGE (t:KnowledgeTask {id: $id})
-           SET t.content = $content,
-               t.department = $department,
-               t.due_date = $due_date,
-               t.meeting_id = $meeting_id,
-               t.status = 'pending',
-               t.created_at = $created_at
-           WITH t
-           CALL db.create.setNodeVectorProperty(t, 'embedding', $embedding)
-           RETURN t.id AS id""",
-        {
-            "id": node_id,
-            "content": content,
-            "department": department,
-            "due_date": due_date,
-            "meeting_id": meeting_id,
-            "created_at": created_at,
-            "embedding": embedding,
-        },
-    )
-
-    # 부서 노드와 연결: (KnowledgeTask)-[:ASSIGNED_TO_DEPT]->(Department)
-    if department:
-        try:
-            await run_cypher(
-                """MATCH (t:KnowledgeTask {id: $tid})
-                   MERGE (d:Department {name: $dept})
-                   MERGE (t)-[:ASSIGNED_TO_DEPT]->(d)""",
-                {"tid": node_id, "dept": department},
-            )
-        except Exception:
-            pass
-
-    # 회의체 노드와 연결: (KnowledgeTask)-[:BELONGS_TO]->(Meeting)
-    if meeting_id:
-        try:
-            await run_cypher(
-                """MATCH (t:KnowledgeTask {id: $tid})
-                   MATCH (mg:Meeting {pg_id: $pg_id})
-                   MERGE (t)-[:BELONGS_TO]->(mg)""",
-                {"tid": node_id, "pg_id": meeting_id},
-            )
-        except Exception:
-            pass
-
-    return {"id": node_id, "status": "stored", "node_type": "KnowledgeTask"}
-
-
-async def store_report(
-    title: str,
-    content: str,
-    meeting_id: int = None,
-    score: int = None,
-) -> dict:
-    """승인된 보고서 검토 결과를 Neo4j에 저장하고 벡터 임베딩을 인덱싱합니다."""
-    from neo4j_client import run_cypher
-
-    await ensure_vector_indexes()
-    node_id = f"report-{uuid.uuid4().hex[:8]}"
-    embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
-
-    await run_cypher(
-        """MERGE (r:KnowledgeReport {id: $id})
-           SET r.title = $title,
-               r.content = $content,
-               r.meeting_id = $meeting_id,
-               r.score = $score,
-               r.created_at = $created_at
-           WITH r
-           CALL db.create.setNodeVectorProperty(r, 'embedding', $embedding)
-           RETURN r.id AS id""",
-        {
-            "id": node_id,
-            "title": title,
-            "content": content[:8000],
-            "meeting_id": meeting_id,
-            "score": score,
-            "created_at": created_at,
-            "embedding": embedding,
-        },
-    )
-
-    if meeting_id:
-        try:
-            await run_cypher(
-                """MATCH (r:KnowledgeReport {id: $rid})
-                   MATCH (mg:Meeting {pg_id: $pg_id})
-                   MERGE (r)-[:BELONGS_TO]->(mg)""",
-                {"rid": node_id, "pg_id": meeting_id},
-            )
-        except Exception:
-            pass
-
-    return {"id": node_id, "status": "stored", "node_type": "KnowledgeReport"}
-
-
 async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -> List[dict]:
-    """Neo4j 벡터 검색으로 유사 지식을 조회합니다 (Cypher 기반)."""
     from neo4j_client import run_cypher
 
     index_map = {
         "Minutes": "minutes_embedding_index",
-        "KnowledgeTask": "task_embedding_index",
-        "KnowledgeReport": "report_embedding_index",
     }
     index_name = index_map.get(node_type, "minutes_embedding_index")
     embedding = await _embed(query)
@@ -293,7 +158,7 @@ async def _chat_node(state: KnowledgeState) -> dict:
     knowledge = state.get("knowledge", [])
     meeting_context = state.get("meeting_context", "")
 
-    system = SYSTEM_PROMPT
+    system = KNOWLEDGE_SYSTEM
     if meeting_context:
         system += f"\n\n[회의체 맥락]\n{meeting_context}"
     if knowledge:
@@ -344,30 +209,10 @@ async def chat_stream(
 
 
 # ── 지식 그래프 관리(재구성) ──────────────────────────────────────────────────
-# [KnowledgeAgent 역할 = 관리]
-# Supervisor가 "분석"하여 발굴한 잠재 연결·구조 공백을 받아, Neo4j 그래프를
-# 실제로 재구성(관리)합니다. 발굴·분석은 Supervisor가, 변경·관리는 KnowledgeAgent가 담당.
-#   ① 회의 간 의미 유사 안건 → `관련` 지식 링크 생성 (유사도 점수 기록)
-#   ② 문서 ↔ 안건 적합 → `참조` 링크 생성
-#   ③ 고아 문서 → 임베딩으로 가장 적합한 안건 탐색 후 `첨부` 자동 연결
-#   ④ 소속 무결성(baseline) 보정
-_ORPHAN_ATTACH_THRESHOLD = 0.78  # 고아 문서 자동 연결 임계값 (cosine)
+_ORPHAN_ATTACH_THRESHOLD = 0.78
 
 
 async def reconcile_graph(analysis: dict) -> dict:
-    """[관리 역할] Supervisor가 분석한 잠재 연결·구조 공백을 Neo4j에 실제 반영합니다.
-
-    Args:
-        analysis: Supervisor `_analyze_graph()` 결과
-            { "semantic": {"agenda_links":[...], "doc_links":[...]},
-              "structural": {"orphan_documents":[...], ...},
-              "membership": {"issues":[...]}, "counts": {...} }
-
-    Returns:
-        { "actions":  [ {kind, detail, evidence, highlight}, ... ],
-          "stats":    {related_agendas, doc_refs, doc_attached, membership_fixed},
-          "advisories": {ownerless_agendas, minuteless_sessions, isolated_persons} }
-    """
     from neo4j_client import run_cypher
 
     sem    = analysis.get("semantic", {})
@@ -379,8 +224,7 @@ async def reconcile_graph(analysis: dict) -> dict:
              "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0}
     ts = datetime.utcnow().isoformat()
 
-    # ⓪ 구조 골격 — 같은 회의체 세션 시간순 '후속' 체인 (1차→2차→3차)
-    # Supervisor가 시간순으로 정렬해 넘긴 '끊긴 회차' 쌍을 이어 회의 흐름을 복원합니다.
+    # ⓪ 세션 시간순 '후속' 체인
     for chain in struct.get("session_chains", []):
         mg_title = chain.get("mg", "")
         for pair in chain.get("missing", []):
@@ -406,10 +250,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             except Exception:
                 pass
 
-    # ① 회의 생명주기 — Minutes → Agenda 브릿지 (임베딩 기반)
-    # Supervisor가 넘긴 '미연결 회의록' 본문을 임베딩해
-    # 같은 회의체 안건 중 의미상 가까운 것에 Minutes-[도출]->Agenda 관계를 생성.
-    # Decision 노드 없이 회의→회의록→안건→다음 회의 순환을 닫습니다.
+    # ① 회의 생명주기 — Minutes → Agenda 브릿지
     for gap in struct.get("lifecycle_gaps", []):
         mid = gap.get("minutes_pg_id")
         sid = gap.get("session_id")
@@ -422,13 +263,15 @@ async def reconcile_graph(analysis: dict) -> dict:
             rows = await run_cypher(
                 "MATCH (mn:Minutes {pg_id:$mid})-[:`생성`]->(s:Session {id:$sid})"
                 "-[:`소속`|`개최`]->(mg:MeetingGroup) "
-                "WITH mn, mg "
+                "WITH mn, s, mg "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 5, $emb) YIELD node AS ag, score "
                 "WHERE score >= 0.72 "
-                "WITH mn, mg, ag, score "
+                "WITH mn, s, mg, ag, score "
                 "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
                 "SET r.score=score, r.kind='minutes_agenda', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
+                "MERGE (s)-[r2:`다룸멌`]->(ag) "
+                "SET r2.score=score, r2.kind='session_agenda', r2.discovered_by='knowledge_agent', r2.discovered_at=$ts "
                 "RETURN ag.title AS title, score",
                 {"sid": sid, "emb": emb, "mid": mid, "ts": ts},
             )
@@ -444,7 +287,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         except Exception:
             pass
 
-    # ①-b 이월(carry-forward) — 미해결 안건을 각 회의체의 최신 회차에 `도출`로 연결 (안건→다음 회의)
+    # ①-b 이월(carry-forward)
     try:
         cf = await run_cypher(
             "MATCH (s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup)<-[:`관할`]-(ag:Agenda) "
@@ -515,7 +358,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         except Exception:
             pass
 
-    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 `첨부` 자동 연결
+    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 `첨부`
     for doc in struct.get("orphan_documents", []):
         if not doc.get("emb") or not doc.get("id"):
             continue
@@ -592,14 +435,12 @@ async def reconcile_graph(analysis: dict) -> dict:
 
 
 async def summarize_relationship_analysis(report: dict) -> AsyncGenerator[str, None]:
-    """[관리 역할] Supervisor 분석 → KnowledgeAgent 재구성 결과를 근거와 함께 보고합니다."""
     stats     = report.get("stats", {})
     actions   = report.get("actions", [])
     advisories = report.get("advisories", {})
     counts    = report.get("counts", {})
     findings  = report.get("findings", {})
 
-    # 실제 적용된 재구성 내역 (근거 포함)
     act_lines = []
     for a in actions[:40]:
         tag = {"session_chain": "🧵 회차 연결", "lifecycle": "🔄 생명주기", "related": "🔗 회의 간 연결",
@@ -608,7 +449,6 @@ async def summarize_relationship_analysis(report: dict) -> AsyncGenerator[str, N
         act_lines.append(f"- {tag} | {a.get('detail','')} — {a.get('evidence','')}")
     act_block = "\n".join(act_lines) if act_lines else "(이번에 새로 만든 연결 없음)"
 
-    # 자동으로 고칠 수 없어 사용자 확인이 필요한 공백
     adv_lines = []
     own = advisories.get("ownerless_agendas", [])
     if own:
@@ -623,50 +463,10 @@ async def summarize_relationship_analysis(report: dict) -> AsyncGenerator[str, N
         adv_lines.append(f"- 어떤 활동에도 연결되지 않은 구성원 {len(iso)}명: {sample}{' 외' if len(iso) > 5 else ''}")
     adv_block = "\n".join(adv_lines) if adv_lines else "(없음)"
 
-    system = (
-        "당신은 조직의 지식 그래프를 책임지는 KnowledgeAgent입니다. "
-        "Supervisor가 '분석'해 넘긴 결과를, 당신이 직접 그래프에 '재구성'한 결과를 사용자에게 보고합니다.\n"
-        "[작성 원칙]\n"
-        "1. 기술 용어(Cypher, 노드, 임베딩 차원 등) 금지 — '회의 흐름', '의미 유사도', '회의 간 연결' 같은 업무 언어 사용\n"
-        "2. 보고 우선순위: ① 가장 기본인 '회의 흐름'(같은 회의체 1차→2차→3차 세션 연결), "
-        "② '회의 생명주기'(회의록이 안건과 이어졌는지 — 회의→회의록→안건→다음 회의)를 다루고, "
-        "그다음 ③ 회의 경계를 넘는 의미 기반 연결을 설명하세요\n"
-        "3. 핵심은 '흩어져 있던 회의 지식을 어떻게 이어 붙였는지'입니다. 단순 정합성 점검처럼 보고하지 말 것\n"
-        "4. 다음 순서로 간결하게:\n"
-        "   📊 분석 요약 (무엇을 훑었고 무엇을 발견했는지)\n"
-        "   🧵 회의 흐름 복원 (세션 시간순 연결)\n"
-        "   🔄 회의 생명주기 복원 (회의록이 안건과 이어졌는지 확인·연결)\n"
-        "   🔗 회의 간 새 지식 연결 (실제 사례와 유사도를 근거로)\n"
-        "   ⚠️ 사용자 확인이 필요한 공백 (자동으로 메울 수 없는 부분)\n"
-        "   ✅ 결과 한 줄 요약\n"
-        "5. 발견·연결이 하나도 없으면 '이미 충분히 연결돼 있다'고 안내\n"
-        "6. 정중하고 명확한 비서 말투"
-    )
-    human = (
-        f"[Supervisor 분석 범위]\n"
-        f"- 회의 {counts.get('meetings',0)}개 · 세션 {counts.get('sessions',0)}개 · "
-        f"안건 {counts.get('agendas',0)}개 · 문서 {counts.get('documents',0)}개 · 구성원 {counts.get('persons',0)}명\n\n"
-        f"[Supervisor 발굴 결과]\n"
-        f"- 끊긴 회의 흐름(세션 미연결): {findings.get('session_missing',0)}건 "
-        f"(회의체 {findings.get('session_groups',0)}곳)\n"
-        f"- 회의록→안건 미연결: {findings.get('lifecycle_gaps',0)}건\n"
-        f"- 회의 간 잠재 연관 안건: {findings.get('agenda_links',0)}쌍\n"
-        f"- 미연결 문서-안건 적합쌍: {findings.get('doc_links',0)}건\n"
-        f"- 담당자 없는 안건: {findings.get('ownerless',0)}건 / 고아 문서: {findings.get('orphans',0)}건\n\n"
-        f"[KnowledgeAgent 재구성 통계]\n"
-        f"- 회의 흐름(세션) '후속' 연결: {stats.get('session_links',0)}건\n"
-        f"- 회의록→안건 연결(생명주기): {stats.get('lifecycle_links',0)}건\n"
-        f"- 미해결 안건 다음 회차 이월: {stats.get('carry_links',0)}건\n"
-        f"- 회의 간 '관련' 링크 생성: {stats.get('related_agendas',0)}건\n"
-        f"- 문서 '참조' 링크 생성: {stats.get('doc_refs',0)}건\n"
-        f"- 고아 문서 자동 편입: {stats.get('doc_attached',0)}건\n"
-        f"- 소속 무결성 보정: {stats.get('membership_fixed',0)}건\n\n"
-        f"[재구성 상세 내역 및 근거]\n{act_block}\n\n"
-        f"[사용자 확인 필요 — 자동 보완 불가]\n{adv_block}\n\n"
-        "위 결과를 사용자에게 보고해 주세요."
-    )
-
     llm = _make_llm(temperature=0.2)
-    async for chunk in llm.astream([SystemMessage(content=system), HumanMessage(content=human)]):
+    async for chunk in llm.astream([
+        SystemMessage(content=RELATIONSHIP_SUMMARY_SYSTEM),
+        HumanMessage(content=relationship_summary_human(counts, findings, stats, act_block, adv_block)),
+    ]):
         if chunk.content:
             yield chunk.content

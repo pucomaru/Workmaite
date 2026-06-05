@@ -1,5 +1,3 @@
-# 회의록 작성 Agent - STT 변환 결과를 입력받아 회의록 생성
-# Knowledge Base (Neo4j 벡터 검색)에서 유사 회의록을 조회해 프롬프트에 주입
 import os, uuid, re as _re, json as _json
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
@@ -9,6 +7,8 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
+
+from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -42,16 +42,8 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
     )
 
 
-SYSTEM_PROMPT = """당신은 회의록 작성 전문 AI MinutesAgent입니다.
-- STT 변환 텍스트를 분석해 구조적 회의록을 생성합니다
-- 이전 유사 회의록을 참고해 일관성 있는 형식을 유지합니다
-- 결정 사항, 액션 아이템, 참석자 정보를 명확히 기록합니다
-한국어로 응답합니다."""
-
-
 # ── Neo4j 벡터 검색 (유사 회의록) ────────────────────────────────────────
 async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
-    """Neo4j 내장 벡터 검색으로 유사 회의록을 조회합니다 (Cypher 기반)."""
     try:
         from neo4j_client import run_cypher
         embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
@@ -107,7 +99,7 @@ async def _chat_node(state: MinutesState) -> dict:
         state.get("current_agendas", []),
         state.get("meeting_context", ""),
     )
-    system_msgs: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+    system_msgs: List[BaseMessage] = [SystemMessage(content=MINUTES_SYSTEM)]
     if context:
         system_msgs += [
             HumanMessage(content=context),
@@ -165,14 +157,12 @@ async def generate_minutes(
     participants: list = None,
     agendas: list = None,
     todos: list = None,
-    meeting_id: int = None,   # Neo4j Knowledge Base 저장용 회의체 ID
-    session_id: int = None,   # Neo4j Knowledge Base 저장용 세션 ID
+    meeting_id: int = None,
+    session_id: int = None,
 ) -> tuple:
     """
     회의록 5대 필수요소를 포함한 구조적 회의록 생성.
-    Neo4j 벡터 검색으로 유사 회의록을 조회해 프롬프트에 주입합니다.
     Returns: (markdown_summary: str, structured: dict)
-    structured keys: attendees, decisions, action_items, tbd_items, next_meeting_note
     """
     if not raw_transcript or len(raw_transcript.strip()) < 5:
         empty = {
@@ -259,7 +249,7 @@ async def generate_minutes(
 ```"""
 
     llm = _make_llm(temperature=0.2)
-    response = await llm.ainvoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)])
+    response = await llm.ainvoke([SystemMessage(content=MINUTES_SYSTEM), HumanMessage(content=prompt)])
     full_text = response.content
 
     md_part = full_text
@@ -276,7 +266,6 @@ async def generate_minutes(
             except Exception:
                 pass
 
-    # HITL Approve 시 Knowledge Base 자동 저장 - 회의록 생성 완료 후 Neo4j에 Minutes 노드 저장
     if meeting_id and md_part:
         try:
             from agents import knowledge_agent as _ka
@@ -298,75 +287,24 @@ async def generate_minutes_stream(
     meeting_context: str = "",
     agenda_text: str = "없음",
     now: str = "",
-    meeting_id: int = None,   # Neo4j Knowledge Base 저장용 회의체 ID
-    session_id: int = None,   # Neo4j Knowledge Base 저장용 세션 ID
-    title: str = "",          # Neo4j 저장 시 사용할 회의록 타이틀
+    meeting_id: int = None,
+    session_id: int = None,
+    title: str = "",
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
         now = _dt.now().strftime("%Y년 %m월 %d일")
 
-    system_prompt = f"""당신은 전문 회의록 작성 AI 아라(Ara)입니다.
-제공된 STT 대화 기록을 분석해 실무에서 바로 활용 가능한 고품질 회의록을 작성합니다.
-
-회의 정보:
-{meeting_context}
-
-등록된 안건:
-{agenda_text}
-
-회의록 작성 원칙:
-1. 발언 내용을 그대로 옮기지 말고, 핵심 의미를 추출해 재구성하세요.
-2. 발언자별 주요 발언을 정확히 귀속시키세요.
-3. 결정 사항은 "~로 결정", "~하기로 합의" 등 명확한 표현을 사용하세요.
-4. 액션 아이템은 반드시 담당자, 내용, 기한을 포함하세요.
-5. 수치, 날짜, 고유명사는 정확하게 기재하세요.
-6. 아래 형식을 반드시 따르세요."""
-
-    user_prompt = f"""다음 STT 대화 기록으로 회의록을 작성해주세요.
-
----
-{transcript}
----
-
-아래 형식으로 작성하세요:
-
-# 회의록
-
-**일시:** {now}
-**참석자:** (대화 기록에서 발언자 추출)
-
----
-
-## 1. 회의 목적 및 배경
-(이 회의가 왜 열렸는지, 무엇을 논의하기 위한 자리인지 2-3문장으로)
-
-## 2. 안건별 주요 논의
-(각 주제마다 소제목(###)을 붙이고, 누가 말했냐가 아닌 어떤 내용이 논의됐고 어떤 방향으로 흘렀는지 흐름 중심으로 서술. 핵심 수치나 쟁점은 bullet point로 강조)
-
-## 3. 결정 사항
-(회의에서 확정된 내용. 각 항목에 결정 배경도 한 줄 포함)
-- **[결정 내용]** - 배경: ~
-
-## 4. 액션 아이템
-(담당자가 해야 할 일)
-| 담당자 | 내용 | 기한 |
-|--------|------|------|
-
-## 5. 보류 및 추가 검토 사항
-(이번 회의에서 결론 내지 못한 항목)
-
-## 6. 다음 회의 안건
-(이번 논의에서 도출된 다음 회의 주제)"""
-
     llm = _make_llm(temperature=0.2)
-    collected_parts: List[str] = []  # 스트리밍 완료 후 Knowledge Base 저장을 위한 전체 텍스트 수집
-    async for chunk in llm.astream([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]):
+    collected_parts: List[str] = []
+    async for chunk in llm.astream([
+        SystemMessage(content=generate_minutes_system(meeting_context, agenda_text)),
+        HumanMessage(content=generate_minutes_human(transcript, now)),
+    ]):
         if chunk.content:
             collected_parts.append(chunk.content)
             yield chunk.content
 
-    # HITL Approve 시 Knowledge Base 자동 저장 - 스트리밍 완료 후 Neo4j에 Minutes 노드 저장
     if meeting_id and collected_parts:
         try:
             from agents import knowledge_agent as _ka
