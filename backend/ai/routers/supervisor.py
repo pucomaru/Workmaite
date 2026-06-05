@@ -39,6 +39,19 @@ class _StoreReportReq(BaseModel):
     score: Optional[int] = None
 
 
+class _ProposeRelationshipsReq(BaseModel):
+    """POST /knowledge/propose-relationships 요청 바디."""
+    meeting_id: int
+    node_types: Optional[List[str]] = None  # None이면 Agenda·AIJudgment·Minutes 전체
+
+
+class _ConfirmRelationshipsReq(BaseModel):
+    """POST /knowledge/confirm-relationships 요청 바디."""
+    proposal_id: str
+    approved: bool
+    reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
+
+
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     """AI 에이전트 활동을 agent_logs에 기록."""
     if not meeting_id:
@@ -413,8 +426,8 @@ async def supervisor_chat(
                             "title": _r.get("title", "회의록"),
                             "content": _r.get("content", "")[:400],
                         })
-                # 과제 벡터 검색 (상위 3건)
-                _task_hits = await knowledge_agent.search_knowledge(msg, node_type="KnowledgeTask", k=3)
+                # 과제(Agenda) 벡터 검색 (상위 3건) — PM 스키마 노드명
+                _task_hits = await knowledge_agent.search_knowledge(msg, node_type="Agenda", k=3)
                 for _r in _task_hits:
                     if _r.get("content"):
                         _kb_results.append({
@@ -422,8 +435,8 @@ async def supervisor_chat(
                             "title": _r.get("title") or _r.get("content", "")[:40],
                             "content": _r.get("content", "")[:300],
                         })
-                # 보고서 벡터 검색 (상위 2건)
-                _report_hits = await knowledge_agent.search_knowledge(msg, node_type="KnowledgeReport", k=2)
+                # AI 보고서 검토(AIJudgment) 벡터 검색 (상위 2건) — PM 스키마 노드명
+                _report_hits = await knowledge_agent.search_knowledge(msg, node_type="AIJudgment", k=2)
                 for _r in _report_hits:
                     if _r.get("title") or _r.get("content"):
                         _kb_results.append({
@@ -641,7 +654,7 @@ async def report_chat(
 @router.post("/knowledge/store-minutes", summary="Knowledge Store Minutes")
 async def knowledge_store_minutes(
     data: _StoreMinutesReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """승인된 회의록을 Neo4j Knowledge Base의 Minutes 노드에 저장."""
     try:
@@ -660,7 +673,7 @@ async def knowledge_store_minutes(
 @router.post("/knowledge/store-task", summary="Knowledge Store Task")
 async def knowledge_store_task(
     data: _StoreTaskReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """승인된 과제를 Neo4j Knowledge Base의 KnowledgeTask 노드에 저장."""
     try:
@@ -679,16 +692,49 @@ async def knowledge_store_task(
 @router.post("/knowledge/store-report", summary="Knowledge Store Report")
 async def knowledge_store_report(
     data: _StoreReportReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
-    """승인된 보고서 검토 결과를 Neo4j Knowledge Base의 KnowledgeReport 노드에 저장."""
+    """승인된 보고서 검토 결과를 Neo4j AIJudgment 노드에 저장."""
     try:
-        # knowledge_agent.store_report()로 KnowledgeReport 노드 생성 및 벡터 임베딩 인덱싱
+        # knowledge_agent.store_report()로 AIJudgment 노드 생성 및 벡터 임베딩 인덱싱
         result = await knowledge_agent.store_report(
             title=data.title,
             content=data.content,
             meeting_id=data.meeting_id,
             score=data.score,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/propose-relationships", summary="Knowledge Propose Relationships")
+async def knowledge_propose_relationships(
+    data: _ProposeRelationshipsReq,
+    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """Neo4j 노드 간 연결 관계를 LLM이 분석해 제안. proposal_id를 반환."""
+    try:
+        result = await knowledge_agent.propose_relationships(
+            meeting_id=data.meeting_id,
+            node_types=data.node_types,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships")
+async def knowledge_confirm_relationships(
+    data: _ConfirmRelationshipsReq,
+    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """제안된 관계를 승인(Neo4j MERGE) 또는 반려(HumanJudgment 노드 생성)."""
+    try:
+        result = await knowledge_agent.confirm_relationships(
+            proposal_id=data.proposal_id,
+            approved=data.approved,
+            reject_reason=data.reject_reason,
         )
         return result
     except Exception as e:

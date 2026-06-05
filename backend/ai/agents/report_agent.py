@@ -360,7 +360,7 @@ async def confirm_report_review(
     if approved:
         review = result.get("proposed_review")
 
-        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 보고서를 Neo4j KnowledgeReport 노드로 저장
+        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 보고서를 Neo4j AIJudgment 노드로 저장
         if review and content:
             try:
                 from agents import knowledge_agent as _ka

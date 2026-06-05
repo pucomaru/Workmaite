@@ -286,7 +286,7 @@ async def confirm_extraction_review(
     if approved:
         extraction = result.get("proposed")
 
-        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 각 Todo를 Neo4j KnowledgeTask 노드로 저장
+        # HITL Approve 시 Knowledge Base 자동 저장 - 승인된 각 Todo를 Neo4j Agenda 노드로 저장
         if extraction:
             try:
                 from agents import knowledge_agent as _ka
