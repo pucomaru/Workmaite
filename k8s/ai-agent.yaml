@@ -21,6 +21,9 @@ spec:
         - name: workmaite-ai-agent
           image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai-agent:cicd-pipeline
           imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: ai-secret
           ports:
             - containerPort: 8000
           readinessProbe:
