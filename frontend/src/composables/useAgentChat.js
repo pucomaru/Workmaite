@@ -354,6 +354,57 @@ export function useAgentChat({
     }
   }
 
+  // ─── 관계도 분석·재구성 워크플로우 ────────────────────────────
+  // Supervisor가 임베딩 기반으로 회의 간 잠재 연결·구조 공백을 '분석'하고,
+  // Knowledge agent가 발굴된 지식 연결을 그래프에 '재구성'한 뒤 근거를 보고합니다.
+  // 실시간 [PLANNING] 스텝을 수신하며, 완료 시 onComplete(그래프 새로고침)를 호출합니다.
+  async function runRelationshipAnalysis(onComplete) {
+    if (agentLoading.value) return
+    if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; initAgentGreeting() }
+    await nextTick()
+
+    allMessages.value['supervisor'].push({
+      role: 'user',
+      content: '회의별로 흩어진 지식을 분석해서 연관된 안건·문서를 서로 연결해줘',
+    })
+    const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
+    allMessages.value['supervisor'].push(planningMsg)
+    const agentMsg = reactive({ role: 'agent', content: '' })
+    allMessages.value['supervisor'].push(agentMsg)
+    agentLoading.value = true
+    await nextTick()
+    if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+
+    try {
+      await streamPost(
+        '/api/agent/knowledge/analyze-relationships',
+        {},
+        (chunk) => {
+          agentMsg.content += chunk
+          nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+        },
+        () => {
+          planningMsg.done = true
+          agentLoading.value = false
+          onQueryClear()
+          setTimeout(() => { planningMsg.open = false }, 1500)
+          // 재설정된 관계를 그래프에 반영
+          onComplete?.()
+        },
+        (step) => {
+          planningMsg.steps.push(step)
+          onQueryHighlight(step)
+          nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+        },
+        (labels) => { onLabelsHighlight(labels) },
+      )
+    } catch {
+      agentMsg.content = '관계도 분석 중 오류가 발생했습니다.'
+      planningMsg.done = true; planningMsg.open = false
+      agentLoading.value = false
+    }
+  }
+
   return {
     SUPERVISOR, SUPERVISOR_EXTRACT,
     agentSidebarOpen, currentAgent, agentInfo,
@@ -364,6 +415,6 @@ export function useAgentChat({
     onAgentInput, selectAtItem, removeMentionCtx, initAgentGreeting,
     switchAgent, clearAgentChat, sendAgentMsg, isExtractModeActive,
     onAgentKeydown, onAgentFileSelected, agentAutoResize,
-    _runPlanningSteps, injectActionToAgent,
+    _runPlanningSteps, injectActionToAgent, runRelationshipAnalysis,
   }
 }

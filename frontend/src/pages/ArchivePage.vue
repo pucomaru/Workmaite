@@ -1503,9 +1503,22 @@ const agentChat = useAgentChat({
 const {
   SUPERVISOR_EXTRACT, agentSidebarOpen,
   allMessages, agentLoading, agentMessagesEl,
-  _runPlanningSteps, initAgentGreeting, injectActionToAgent,
+  _runPlanningSteps, initAgentGreeting, injectActionToAgent, runRelationshipAnalysis,
 } = agentChat
 provide('agentSidebar', agentChat)
+
+// ─── 관계도 분석·재설정 (Supervisor → Knowledge agent) ─────────
+// 새로고침 버튼 클릭 시 AI가 Neo4j 소속 관계를 분석/재설정하고 근거를 보고합니다.
+const analyzingRelations = ref(false)
+async function analyzeRelationships() {
+  if (analyzingRelations.value) return
+  analyzingRelations.value = true
+  try {
+    await runRelationshipAnalysis(async () => { await refreshArchive() })
+  } finally {
+    analyzingRelations.value = false
+  }
+}
 
 // ─── Stats computed ──────────────────────────────────────────
 const statsData = computed(() => {
@@ -1890,7 +1903,10 @@ provide('archiveSidebar', {
         </button>
       </div>
 
-      <button class="agent-header-btn refresh-map-btn" @click="refreshArchive" title="관계도 새로고침">
+      <button class="agent-header-btn refresh-map-btn" :class="{ analyzing: analyzingRelations }"
+        :disabled="analyzingRelations"
+        @click="analyzeRelationships"
+        title="관계도 새로고침 — AI가 소속 관계를 분석·재설정하고 근거를 알려드립니다">
         <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
           <defs>
             <linearGradient id="refreshGrad" x1="0%" y1="0%" x2="100%" y2="100%">

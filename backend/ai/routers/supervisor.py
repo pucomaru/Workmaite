@@ -10,6 +10,9 @@ from agents import task_agent, knowledge_agent, minutes_agent, report_agent
 from datetime import datetime
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
 
@@ -320,13 +323,9 @@ async def supervisor_chat(
                     count = len(neo4j_ctx["agendas"])
                     yield f"data: [PLANNING] 아젠다 {count}건 분석\n\n"
 
-                if neo4j_ctx.get("decisions"):
-                    count = len(neo4j_ctx["decisions"])
-                    yield f"data: [PLANNING] 의사결정 사항 {count}건 확인\n\n"
-
                 neo4j_ctx_str = graph_context_to_str(neo4j_ctx)
 
-                # HL 후보 수집: 회의체/아젠다/세션/의사결정 레이블
+                # HL 후보 수집: 회의체/아젠다/세션 레이블
                 if neo4j_ctx.get("meeting", {}).get("title"):
                     hl_candidates.append(neo4j_ctx["meeting"]["title"])
                 for ag in neo4j_ctx.get("agendas", []):
@@ -574,6 +573,394 @@ async def supervisor_chat(
             matched = [c for c in hl_candidates if c and c in full_text]
             if matched:
                 yield f"data: [HIGHLIGHT] {_json.dumps(matched, ensure_ascii=False)}\n\n"
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+# ─── Supervisor 그래프 분석 역할 ──────────────────────────────────────────────
+# [Supervisor 역할 = 분석]
+# 지식 그래프를 읽기 전용으로 '심층 분석'합니다. 단순 무결성 점검을 넘어,
+# 노드 임베딩(안건/문서)을 활용해 아직 그래프에 없는 '잠재 연결'을 발굴하고,
+# 지식이 끊긴 '구조 공백'을 찾아냅니다. 실제 그래프 변경(관리)은 하지 않고,
+# 분석 결과만 반환하여 KnowledgeAgent가 재구성할 수 있도록 넘깁니다.
+
+# 잠재 연결 발굴 임계값 (cosine similarity, text-embedding-3-small 기준)
+_AGENDA_LINK_THRESHOLD = 0.80   # 회의 간 유사 안건 → `관련`
+_DOC_LINK_THRESHOLD    = 0.78   # 문서 ↔ 안건 적합도 → `참조`/`첨부`
+
+
+async def _count_nodes(label: str) -> int:
+    try:
+        r = await run_cypher(f"MATCH (n:{label}) RETURN count(n) AS c")
+        return r[0]["c"] if r else 0
+    except Exception:
+        return 0
+
+
+async def _analyze_graph() -> dict:
+    """[분석 역할] 지식 그래프를 읽기 전용으로 심층 분석합니다.
+
+    분석 차원:
+      ⓪ 구조 골격(backbone) — 같은 회의체 세션의 시간순 흐름
+         · session_chains : 1차→2차→3차 회차가 `후속`으로 이어졌는지 (가장 기본 골격)
+      ① 잠재 연결(semantic) — 임베딩 기반으로 *아직 연결되지 않은* 의미적 관계 발굴
+         · agenda_links : 회의(MeetingGroup)가 다른 두 안건이 의미상 유사 → `관련` 후보
+         · doc_links    : 문서가 특정 안건과 의미상 적합하나 미연결 → `참조` 후보
+      ② 구조 공백(structural) — 지식이 끊긴 노드 탐지
+         · ownerless_agendas  : 담당자(`담당`) 없는 안건
+         · orphan_documents   : 어떤 회의/안건에도 `첨부`되지 않은 문서
+         · minuteless_sessions: 회의록(`생성`)이 없는 세션
+         · isolated_persons   : 어떤 관계도 없는 고립 인물
+      ③ 소속 무결성(membership) — '미지정' 유발 baseline 점검
+
+    Returns: 위 분석 결과 + counts
+    """
+    semantic   = {"agenda_links": [], "doc_links": []}
+    structural = {"session_chains": [], "lifecycle_gaps": [], "ownerless_agendas": [],
+                  "orphan_documents": [], "minuteless_sessions": [], "isolated_persons": []}
+    membership = {"issues": []}
+
+    counts = {
+        "agendas":   await _count_nodes("Agenda"),
+        "documents": await _count_nodes("Document"),
+        "meetings":  await _count_nodes("MeetingGroup"),
+        "persons":   await _count_nodes("Person"),
+        "sessions":  await _count_nodes("Session"),
+    }
+
+    # ⓪ 구조 골격 — 같은 회의체 세션의 시간순 체인(1차→2차→3차) 점검
+    # 의미 분석에 앞서, 가장 기본인 '회의 흐름'(세션 순서)이 이어져 있는지 먼저 본다.
+    try:
+        ch_rows = await run_cypher(
+            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup) "
+            "WITH mg, s ORDER BY CASE WHEN coalesce(s.scheduled_at,'')='' THEN 1 ELSE 0 END, "
+            "     s.scheduled_at, s.id "
+            "WITH mg, collect({id:s.id, title:coalesce(s.title,'')}) AS sess "
+            "WHERE size(sess) >= 2 "
+            "RETURN mg.id AS mg_id, coalesce(mg.title,'') AS mg_title, sess AS ordered"
+        )
+        existing_followups: set = set()
+        try:
+            ex_rows = await run_cypher(
+                "MATCH (a:Session)-[:`후속`]->(b:Session) RETURN a.id AS a, b.id AS b"
+            )
+            existing_followups = {(r.get("a"), r.get("b")) for r in ex_rows}
+        except Exception:
+            pass
+        for r in ch_rows:
+            ordered = r.get("ordered", []) or []
+            missing = []
+            for i in range(len(ordered) - 1):
+                a, b = ordered[i], ordered[i + 1]
+                if (a.get("id"), b.get("id")) not in existing_followups:
+                    missing.append({
+                        "a_id": a.get("id"), "a_title": a.get("title", ""),
+                        "b_id": b.get("id"), "b_title": b.get("title", ""),
+                    })
+            if missing:
+                structural["session_chains"].append({
+                    "mg": r.get("mg_title", ""), "count": len(ordered), "missing": missing,
+                })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 세션 체인 분석 실패(무시): {e}")
+
+    # ⓪-b 회의 생명주기 공백 — 회의록(요약 본문)은 있으나 안건과 미연결된 세션
+    # 회의→회의록→안건 흐름이 끊긴 지점. KnowledgeAgent가 임베딩으로 안건을 연결해 이을 수 있도록 넘긴다.
+    try:
+        lg_rows = await run_cypher(
+            "MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup) "
+            "WHERE coalesce(mn.content_summary,'') <> '' AND NOT (mn)-[:`도출`]->(:Agenda) "
+            "OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg) "
+            "WITH mn, s, mg, collect(DISTINCT {id: coalesce(ag.id, toString(ag.pg_id)), title: ag.title})[..25] AS ags "
+            "RETURN mn.pg_id AS minutes_pg_id, s.id AS session_id, coalesce(s.title,'') AS session_title, "
+            "       coalesce(mg.title,'') AS mg, left(mn.content_summary, 1800) AS content, ags AS agendas "
+            "LIMIT 10"
+        )
+        for r in lg_rows:
+            structural["lifecycle_gaps"].append({
+                "minutes_pg_id": r.get("minutes_pg_id"),
+                "session_id": r.get("session_id"),
+                "session_title": r.get("session_title", ""),
+                "mg": r.get("mg", ""),
+                "content": r.get("content", ""),
+                "agendas": [a for a in (r.get("agendas") or []) if a.get("title")],
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 생명주기 공백 분석 실패(무시): {e}")
+
+    # ① 잠재 연결 — 회의 간 의미 유사 안건쌍 (임베딩 기반)
+    try:
+        rows = await run_cypher(
+            "MATCH (a:Agenda)-[:`관할`]->(mga:MeetingGroup) "
+            "WHERE a.embedding IS NOT NULL "
+            "CALL db.index.vector.queryNodes('agendaEmbedding', 5, a.embedding) "
+            "YIELD node, score "
+            "WITH a, mga, node, score "
+            "WHERE a.id < node.id AND score >= $th AND node.embedding IS NOT NULL "
+            "MATCH (node)-[:`관할`]->(mgb:MeetingGroup) "
+            "WHERE mgb.id <> mga.id AND NOT (a)-[:`관련`]-(node) "
+            "RETURN a.id AS a_id, a.title AS a_title, mga.title AS a_mg, "
+            "       node.id AS b_id, node.title AS b_title, mgb.title AS b_mg, score "
+            "ORDER BY score DESC LIMIT 30",
+            {"th": _AGENDA_LINK_THRESHOLD},
+        )
+        for r in rows:
+            semantic["agenda_links"].append({
+                "a_id": r.get("a_id"), "a_title": r.get("a_title", "?"), "a_mg": r.get("a_mg", ""),
+                "b_id": r.get("b_id"), "b_title": r.get("b_title", "?"), "b_mg": r.get("b_mg", ""),
+                "score": float(r.get("score") or 0.0),
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 안건 유사도 분석 실패(무시): {e}")
+
+    # ① 잠재 연결 — 문서 ↔ 안건 적합도 (미연결 참조 후보)
+    try:
+        rows = await run_cypher(
+            "MATCH (d:Document) WHERE d.embedding IS NOT NULL "
+            "CALL db.index.vector.queryNodes('agendaEmbedding', 3, d.embedding) "
+            "YIELD node, score "
+            "WITH d, node, score "
+            "WHERE score >= $th AND NOT (d)-[:`첨부`]->(node) AND NOT (d)-[:`참조`]->(node) "
+            "RETURN d.id AS doc_id, coalesce(d.title, d.file_name) AS doc_title, "
+            "       node.id AS ag_id, node.title AS ag_title, score "
+            "ORDER BY score DESC LIMIT 30",
+            {"th": _DOC_LINK_THRESHOLD},
+        )
+        for r in rows:
+            semantic["doc_links"].append({
+                "doc_id": r.get("doc_id"), "doc_title": r.get("doc_title", "?"),
+                "ag_id": r.get("ag_id"), "ag_title": r.get("ag_title", "?"),
+                "score": float(r.get("score") or 0.0),
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 문서-안건 적합도 분석 실패(무시): {e}")
+
+    # ② 구조 공백 — 담당자 없는 안건
+    try:
+        rows = await run_cypher(
+            "MATCH (ag:Agenda) WHERE NOT (:Person)-[:`담당`]->(ag) "
+            "OPTIONAL MATCH (ag)-[:`관할`]->(mg:MeetingGroup) "
+            "RETURN ag.id AS id, ag.title AS title, mg.title AS mg LIMIT 50"
+        )
+        structural["ownerless_agendas"] = [
+            {"id": r.get("id"), "title": r.get("title", "?"), "mg": r.get("mg", "")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 고아 문서 (어디에도 첨부되지 않음, 임베딩 보유 여부 포함)
+    try:
+        rows = await run_cypher(
+            "MATCH (d:Document) WHERE NOT (d)-[:`첨부`]->() "
+            "RETURN d.id AS id, coalesce(d.title, d.file_name) AS title, "
+            "       (d.embedding IS NOT NULL) AS emb LIMIT 50"
+        )
+        structural["orphan_documents"] = [
+            {"id": r.get("id"), "title": r.get("title", "?"), "emb": bool(r.get("emb"))} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 회의록 없는 세션
+    try:
+        rows = await run_cypher(
+            "MATCH (s:Session) WHERE NOT (:Minutes)-[:`생성`]->(s) "
+            "OPTIONAL MATCH (s)-[:`소속`]->(mg:MeetingGroup) "
+            "RETURN s.id AS id, mg.title AS mg LIMIT 50"
+        )
+        structural["minuteless_sessions"] = [
+            {"id": r.get("id"), "mg": r.get("mg", "")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 고립 인물 (관계 전무)
+    try:
+        rows = await run_cypher(
+            "MATCH (p:Person) WHERE NOT (p)--() RETURN p.id AS id, p.name AS name LIMIT 50"
+        )
+        structural["isolated_persons"] = [
+            {"id": r.get("id"), "name": r.get("name", "?")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ③ 소속 무결성 baseline — '미지정' 유발 누락/구버전/불일치
+    try:
+        rows = await run_cypher(
+            "MATCH (p:Person)-[:`소속부서`]->(d:Department) "
+            "RETURN p.id AS pid, p.name AS name, d.name AS dept"
+        )
+        for r in rows:
+            membership["issues"].append({
+                "type": "legacy", "pid": r.get("pid"), "person": r.get("name", "?"),
+                "dept": r.get("dept", ""), "current": r.get("dept", ""),
+            })
+    except Exception:
+        pass
+    try:
+        rows = await run_cypher(
+            "MATCH (p:Person) WHERE coalesce(p.department, '') <> '' "
+            "  AND NOT (p)-[:`소속`]->(:Department) "
+            "RETURN p.id AS pid, p.name AS name, p.department AS dept"
+        )
+        for r in rows:
+            membership["issues"].append({
+                "type": "missing", "pid": r.get("pid"), "person": r.get("name", "?"),
+                "dept": r.get("dept", ""), "current": None,
+            })
+    except Exception:
+        pass
+    try:
+        rows = await run_cypher(
+            "MATCH (p:Person)-[:`소속`]->(d:Department) "
+            "WHERE coalesce(p.department, '') <> '' AND d.name <> p.department "
+            "RETURN p.id AS pid, p.name AS name, p.department AS dept, d.name AS wrong"
+        )
+        for r in rows:
+            membership["issues"].append({
+                "type": "mismatch", "pid": r.get("pid"), "person": r.get("name", "?"),
+                "dept": r.get("dept", ""), "current": r.get("wrong", ""),
+            })
+    except Exception:
+        pass
+
+    return {"semantic": semantic, "structural": structural,
+            "membership": membership, "counts": counts}
+
+
+@router.post("/knowledge/analyze-relationships")
+async def analyze_relationships_stream(
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """관계도 새로고침 — 역할 분리 워크플로우.
+      • Supervisor: 지식 그래프를 '심층 분석' — 임베딩 기반 잠재 연결 발굴 + 구조 공백 탐지 (읽기 전용)
+      • KnowledgeAgent: 발굴된 연결을 '관리' — 회의 간 지식 링크 생성·고아 문서 자동 연결 (그래프 변경)
+    분석·재구성 근거를 스트리밍으로 보고합니다."""
+
+    background_tasks.add_task(
+        _log_activity, 0, "워크메이트[supervisor→knowledge]",
+        "관계도 분석·재구성", f"요청자: {current_user.name}"
+    )
+
+    async def stream():
+        try:
+            # ══ 1단계. Supervisor: 지식 그래프 심층 분석 ══════════════
+            yield "data: [PLANNING] Supervisor: 지식 그래프 전체 스캔 — 안건·문서·세션·구성원\n\n"
+
+            analysis = await _analyze_graph()
+            sem    = analysis["semantic"]
+            struct = analysis["structural"]
+            member = analysis["membership"]
+            counts = analysis["counts"]
+
+            chains    = struct.get("session_chains", [])
+            lifecycle = struct.get("lifecycle_gaps", [])
+            ag_links  = sem["agenda_links"]
+            doc_links = sem["doc_links"]
+            ownerless = struct["ownerless_agendas"]
+            orphans   = struct["orphan_documents"]
+            embeddable_orphans = [d for d in orphans if d.get("emb")]
+            missing_seq = sum(len(c["missing"]) for c in chains)
+            lifecycle_n = len(lifecycle)
+
+            yield (f"data: [PLANNING] Supervisor: 회의 {counts['meetings']}개 · 세션 "
+                   f"{counts['sessions']}개 · 안건 {counts['agendas']}개 · 문서 {counts['documents']}개 인덱싱 완료\n\n")
+            # ── 가장 기본 골격: 회의 흐름(세션 1차→2차→3차) ──
+            yield "data: [PLANNING] Supervisor: 회의 흐름 점검 — 같은 회의체의 세션이 시간순으로 이어졌는지 확인 중...\n\n"
+            if missing_seq:
+                _c = chains[0]
+                yield (f"data: [PLANNING] Supervisor: 끊긴 회의 흐름 {missing_seq}건 발견 "
+                       f"— 예: '{_c['mg']}'의 {_c['count']}개 회차가 미연결\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의 흐름은 모두 시간순으로 연결돼 있음\n\n"
+            # ── 회의 생명주기: 회의→회의록→안건 ──
+            yield "data: [PLANNING] Supervisor: 회의 생명주기 점검 — 회의록이 안건과 이어졌는지 확인 중...\n\n"
+            if lifecycle_n:
+                yield (f"data: [PLANNING] Supervisor: 회의록→안건 미연결 {lifecycle_n}건 발견 "
+                       f"— 회의에서 다뤄진 안건이 아직 연결되지 않음\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의록과 안건 흐름이 정상\n\n"
+            # ── 의미 기반 잠재 연결 ──
+            yield "data: [PLANNING] Supervisor: 안건 임베딩으로 회의 간 의미 유사도 분석 중...\n\n"
+            if ag_links:
+                _top = ag_links[0]
+                yield (f"data: [PLANNING] Supervisor: 회의 간 잠재 연관 안건 {len(ag_links)}쌍 발굴 "
+                       f"— 최고 유사도 {_top['score']*100:.0f}% ([{_top['a_title']}]↔[{_top['b_title']}])\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의 간 신규 연관 안건 없음\n\n"
+            yield "data: [PLANNING] Supervisor: 문서-안건 적합도 분석 — 미연결 참조 탐색 중...\n\n"
+            if doc_links:
+                yield f"data: [PLANNING] Supervisor: 안건과 의미상 맞닿은 미연결 문서 {len(doc_links)}건 발굴\n\n"
+            yield (f"data: [PLANNING] Supervisor: 구조 공백 점검 — 담당자 없는 안건 {len(ownerless)}건 · "
+                   f"고아 문서 {len(orphans)}건\n\n")
+            if member["issues"]:
+                yield f"data: [PLANNING] Supervisor: 소속 무결성 이상 {len(member['issues'])}건 (베이스라인)\n\n"
+
+            # ══ 2단계. KnowledgeAgent: 발굴 결과를 그래프에 반영 ══════
+            actionable = (missing_seq + lifecycle_n + len(ag_links) + len(doc_links) +
+                          len(embeddable_orphans) + len(member["issues"]))
+            if actionable == 0:
+                yield "data: [PLANNING] Supervisor: 신규 연결·보완 대상 없음 — 그래프가 충분히 연결돼 있습니다\n\n"
+                result = {"actions": [], "stats": {"session_links": 0, "lifecycle_links": 0,
+                          "carry_links": 0, "related_agendas": 0, "doc_refs": 0,
+                          "doc_attached": 0, "membership_fixed": 0},
+                          "advisories": {"ownerless_agendas": ownerless,
+                                         "minuteless_sessions": struct["minuteless_sessions"],
+                                         "isolated_persons": struct["isolated_persons"]}}
+            else:
+                yield "data: [PLANNING] KnowledgeAgent에 위임 — 발굴된 연결을 그래프에 반영 시작\n\n"
+                result = await knowledge_agent.reconcile_graph(analysis)
+                stats = result["stats"]
+                if stats.get("session_links"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 끊긴 회의 흐름 {stats['session_links']}건을 시간순 '후속'으로 연결\n\n"
+                if stats.get("lifecycle_links"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 회의록을 관련 안건 {stats['lifecycle_links']}개와 연결 (회의→회의록→안건)\n\n"
+                if stats.get("carry_links"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 미해결 안건 {stats['carry_links']}건을 다음 회차로 이월 (안건→회의)\n\n"
+                if stats.get("related_agendas"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 회의 간 '관련' 지식 링크 {stats['related_agendas']}건 생성\n\n"
+                if stats.get("doc_refs"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 문서 '참조' 링크 {stats['doc_refs']}건 생성\n\n"
+                if stats.get("doc_attached"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 고아 문서 {stats['doc_attached']}건을 적합 안건에 자동 연결\n\n"
+                if stats.get("membership_fixed"):
+                    yield f"data: [PLANNING] KnowledgeAgent: 소속 무결성 {stats['membership_fixed']}건 보정\n\n"
+                yield "data: [PLANNING] KnowledgeAgent: 재구성 근거 리포트 작성 중...\n\n"
+
+            # 새로 연결된 노드(안건·문서·세션)를 그래프 하이라이트 후보로 전송
+            import json as _rel_json
+            _hl = set()
+            for l in ag_links:
+                _hl.add(l.get("a_title")); _hl.add(l.get("b_title"))
+            for l in doc_links:
+                _hl.add(l.get("ag_title"))
+            for g in lifecycle:
+                _hl.add(g.get("session_title"))
+            for a in result.get("actions", []):
+                if a.get("highlight"):
+                    _hl.add(a["highlight"])
+            _hl.discard(None); _hl.discard("")
+            if _hl:
+                yield f"data: [HIGHLIGHT] {_rel_json.dumps(list(_hl), ensure_ascii=False)}\n\n"
+
+            # ══ 3단계. KnowledgeAgent: 근거 리포트 스트리밍 ═══════════
+            report = {**result, "counts": counts,
+                      "findings": {"session_missing": missing_seq, "session_groups": len(chains),
+                                   "lifecycle_gaps": lifecycle_n,
+                                   "agenda_links": len(ag_links), "doc_links": len(doc_links),
+                                   "ownerless": len(ownerless), "orphans": len(orphans),
+                                   "examples": ag_links[:5], "doc_examples": doc_links[:5],
+                                   "chain_examples": chains[:3]}}
+            async for chunk in knowledge_agent.summarize_relationship_analysis(report):
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+
+        except Exception as e:
+            yield f"data: 관계도 분석 중 오류가 발생했습니다: {str(e)}\n\n"
 
         yield "data: [DONE]\n\n"
 
