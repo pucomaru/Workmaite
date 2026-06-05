@@ -73,7 +73,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
             mg_rows = await run_cypher(
                 """MATCH (m:Meeting {pg_id: $pg_id})
                    RETURN m.pg_id AS neo_id, m.title AS title,
-                          m.purpose AS purpose, m.status AS status LIMIT 1""",
+                          coalesce(m.description, m.purpose, '') AS purpose, m.status AS status LIMIT 1""",
                 {"pg_id": pg_id},
             )
             if mg_rows:

@@ -167,7 +167,7 @@ async def get_archive(
                     coalesce(mg.title, '') AS title,
                     coalesce(mg.meeting_type, mg.type) AS meeting_type,
                     coalesce(mg.status, 'active') AS status,
-                    mg.purpose AS purpose,
+                    coalesce(mg.description, mg.purpose, '') AS purpose,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
                     p.position AS position, type(rel) AS role, d.name AS department
@@ -423,7 +423,7 @@ async def get_archive(
                 "title": m.title,
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
-                "purpose": m.purpose,
+                "description": m.description,
                 "members": [
                     {
                         "meetingId": sid, "userId": f"user-{u.id}",
@@ -552,7 +552,7 @@ async def create_meeting_group(data: dict):
     mg_id = data.get("id", "")
     title = data.get("title", "")
     meeting_type = data.get("meeting_type", "")
-    purpose = data.get("purpose", "")
+    description = data.get("description", data.get("purpose", ""))
     org_id = data.get("org_id", "")
     creator_name = data.get("creator_name", "")
     creator_email = data.get("creator_email", "")
@@ -561,9 +561,9 @@ async def create_meeting_group(data: dict):
             """
             MERGE (mg:MeetingGroup {id: $id})
             SET mg.title = $title, mg.meeting_type = $meeting_type,
-                mg.purpose = $purpose, mg.status = 'active'
+                mg.description = $description, mg.status = 'active'
             """,
-            {"id": mg_id, "title": title, "meeting_type": meeting_type, "purpose": purpose},
+            {"id": mg_id, "title": title, "meeting_type": meeting_type, "description": description},
         )
         if org_id:
             await _run_cypher(
