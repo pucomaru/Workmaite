@@ -14,7 +14,7 @@ from database import get_db
 logger = logging.getLogger(__name__)
 
 # SpringBoot와 동일한 시크릿 사용
-SECRET_KEY = os.getenv("JWT_SECRET")
+SECRET_KEY = os.environ["JWT_SECRET"]
 ALGORITHM = "HS256"
 
 bearer_scheme = HTTPBearer()

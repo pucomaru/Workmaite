@@ -12,10 +12,10 @@ from database import get_db
 
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
-NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j")
-NEO4J_DB = os.getenv("NEO4J_DATABASE", "neo4j")
+NEO4J_URL = os.environ["NEO4J_URL"]
+NEO4J_USER = os.environ["NEO4J_USER"]
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
+NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
 ALLOWED_LABELS = {"MeetingGroup", "Person", "Department", "Agenda", "Document", "Session"}
 ALLOWED_REL_TYPES = {

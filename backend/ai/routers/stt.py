@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/stt", tags=["stt"])
 
 
 def _openai_client():
-    return openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
 @router.post("/transcribe")
@@ -82,7 +82,7 @@ async def transcribe(
     # ── Whisper pod fallback ──────────────────────────────────
     if not used_openai:
         try:
-            whisper_url = os.getenv("WHISPER_URL", "http://workmaite-whisper:9000")
+            whisper_url = os.environ["WHISPER_URL"]
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
                     f"{whisper_url}/asr",

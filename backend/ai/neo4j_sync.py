@@ -39,7 +39,7 @@ from neo4j_client import run_cypher
 # (file_embedder → neo4j_sync → file_embedder 순환 참조 차단)
 EMBED_DIM = 1536  # text-embedding-3-small 고정값
 
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+UPLOAD_DIR = os.environ["UPLOAD_DIR"]
 logger = logging.getLogger(__name__)
 
 # ─── VectorIndex 초기화 ───────────────────────────────────────────────────────

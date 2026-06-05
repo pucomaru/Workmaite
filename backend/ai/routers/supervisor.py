@@ -477,9 +477,9 @@ async def supervisor_chat(
             from langchain_openai import ChatOpenAI as _SupLLM
             from langchain_core.messages import SystemMessage as _SupSys, HumanMessage as _SupHuman
             _sup_llm = _SupLLM(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                model=os.environ["OPENAI_MODEL", "gpt-4o-mini"],
                 temperature=0.2,
-                api_key=os.getenv("OPENAI_API_KEY"),
+                api_key=os.environ["OPENAI_API_KEY"],
                 streaming=True,
             )
             _sup_collected: list[str] = []
@@ -1141,9 +1141,9 @@ async def archive_extract_agendas(
     from langchain_core.messages import SystemMessage, HumanMessage
 
     llm = ChatOpenAI(
-        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=_os.environ["OPENAI_MODEL", "gpt-4o-mini"],
         temperature=0.15,
-        api_key=_os.getenv("OPENAI_API_KEY"),
+        api_key=_os.environ["OPENAI_API_KEY"],
     )
 
     dept_list = ", ".join(departments) if departments else "정보 없음"
@@ -1248,9 +1248,9 @@ async def archive_chat_extract(
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
     llm = ChatOpenAI(
-        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=_os.environ["OPENAI_MODEL", "gpt-4o-mini"],
         temperature=0.15,
-        api_key=_os.getenv("OPENAI_API_KEY"),
+        api_key=_os.environ["OPENAI_API_KEY"],
     )
 
     current_agendas_text = _json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
@@ -1359,9 +1359,9 @@ async def analyze_archive_file(
     ) if knowledge_items else "없음"
 
     llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=os.environ["OPENAI_MODEL", "gpt-4o-mini"],
         temperature=0.2,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
     )
 
     system_msg = SystemMessage(content="""당신은 조직 온톨로지·지식 관리 전문 AI입니다.

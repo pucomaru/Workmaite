@@ -27,7 +27,7 @@ from database import get_db
 from auth import get_current_user
 
 # 서버 간 내부 호출 인증 (Spring Boot → FastAPI)
-_INTERNAL_SECRET = os.getenv("INTERNAL_SECRET", "workmaite-internal-secret-2024")
+_INTERNAL_SECRET = os.environ["INTERNAL_SECRET", "workmaite-internal-secret-2024"]
 
 def verify_internal(x_internal_secret: Optional[str] = Header(None)):
     if x_internal_secret != _INTERNAL_SECRET:

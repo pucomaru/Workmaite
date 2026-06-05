@@ -11,7 +11,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -129,7 +129,7 @@ _chat_graph = _build_chat_graph()
 # ── HITL 보고서 검토 그래프 ──────────────────────────────────────────────
 async def _review_propose_node(state: ReportReviewState) -> dict:
     """보고서 분석 → 검토/개선안 제안 → interrupt()로 사용자 확인 대기."""
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
     system = _build_system_with_knowledge(state.get("knowledge", []))
 
     prompt = f"""다음 발제자료를 12대 필수요소 기준으로 검토하세요.
@@ -301,7 +301,7 @@ async def review_report(
 [발제자료 내용]
 {report_content[:4000]}"""
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=prompt)])
     text = response.content
     match = re.search(r'\{.*\}', text, re.DOTALL)

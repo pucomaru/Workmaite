@@ -31,7 +31,7 @@ from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 logger = logging.getLogger(__name__)
 
 # Neo4j 재시도 주기 (초). 환경변수로 조정 가능.
-_RETRY_INTERVAL_SEC = int(os.getenv("NEO4J_RETRY_INTERVAL_SEC", "300"))
+_RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:

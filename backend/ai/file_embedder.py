@@ -32,16 +32,13 @@ def _get_openai() -> AsyncOpenAI:
     """Lazy initialization — .env 로드 후 최초 호출 시 클라이언트 생성."""
     global _openai
     if _openai is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.")
-        _openai = AsyncOpenAI(api_key=api_key)
+        _openai = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
     return _openai
 
 # 청킹 설정 (token 수 기준)
-CHUNK_TOKENS   = int(os.getenv("EMBED_CHUNK_TOKENS",   "400"))
-CHUNK_OVERLAP  = int(os.getenv("EMBED_CHUNK_OVERLAP",  "80"))
-EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-small")
+CHUNK_TOKENS   = int(os.environ["EMBED_CHUNK_TOKENS"])
+CHUNK_OVERLAP  = int(os.environ["EMBED_CHUNK_OVERLAP"])
+EMBED_MODEL    = os.environ["EMBED_MODEL"]
 EMBED_DIM      = 1536  # text-embedding-3-small 차원
 
 
