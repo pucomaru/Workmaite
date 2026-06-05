@@ -108,7 +108,7 @@ async def store_minutes(
         try:
             await run_cypher(
                 """MATCH (m:Minutes {id: $mid})
-                   MATCH (mg:Meeting {pg_id: $pg_id})
+                   MATCH (mg:Meeting_session {pg_id: $pg_id})
                    MERGE (m)-[:BELONGS_TO]->(mg)""",
                 {"mid": node_id, "pg_id": meeting_id},
             )
@@ -221,7 +221,8 @@ async def reconcile_graph(analysis: dict) -> dict:
 
     actions: List[dict] = []
     stats = {"session_links": 0, "lifecycle_links": 0, "carry_links": 0,
-             "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0}
+             "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
+             "pruned_links": 0}
     ts = datetime.utcnow().isoformat()
 
     # ⓪ 세션 시간순 '후속' 체인
@@ -262,7 +263,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             emb = await _embed(content[:2000])
             rows = await run_cypher(
                 "MATCH (mn:Minutes {pg_id:$mid})-[:`생성`]->(s:Session {id:$sid})"
-                "-[:`소속`|`개최`]->(mg:MeetingGroup) "
+                "-[:`소속`|`개최`]->(mg:Meetings) "
                 "WITH mn, s, mg "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 5, $emb) YIELD node AS ag, score "
                 "WHERE score >= 0.72 "
@@ -290,7 +291,7 @@ async def reconcile_graph(analysis: dict) -> dict:
     # ①-b 이월(carry-forward)
     try:
         cf = await run_cypher(
-            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup)<-[:`관할`]-(ag:Agenda) "
+            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
             "WHERE coalesce(ag.status,'') IN ['ON_HOLD','IN_PROGRESS'] AND coalesce(s.scheduled_at,'')<>'' "
             "WITH ag, s ORDER BY s.scheduled_at DESC "
             "WITH ag, collect(s)[0] AS latest "
@@ -342,7 +343,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             continue
         try:
             await run_cypher(
-                "MATCH (d:Document {id:$d}), (a:Agenda {id:$a}) "
+                "MATCH (d {id:$d}), (a:Agenda {id:$a}) WHERE d:Report OR d:Minutes "
                 "MERGE (d)-[r:`참조`]->(a) "
                 "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
                 {"d": d_id, "a": ag_id, "score": round(link.get("score", 0.0), 4), "ts": ts},
@@ -364,7 +365,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             continue
         try:
             rows = await run_cypher(
-                "MATCH (d:Document {id:$id}) WHERE d.embedding IS NOT NULL "
+                "MATCH (d {id:$id}) WHERE (d:Report OR d:Minutes) AND d.embedding IS NOT NULL "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 1, d.embedding) "
                 "YIELD node, score "
                 "WITH d, node, score WHERE score >= $th "
@@ -397,29 +398,87 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             if itype == "legacy":
                 await run_cypher(
-                    "MATCH (p:Person {id:$pid})-[r:`소속부서`]->(d:Department) "
+                    "MATCH (p:User {id:$pid})-[r:`소속부서`]->(d:Department) "
                     "MERGE (p)-[:`소속`]->(d) DELETE r", {"pid": pid})
                 actions.append({"kind": "membership", "detail": f"{name} → {dept}",
                                 "evidence": "구버전 소속 관계를 표준 형식으로 정리했습니다.",
                                 "highlight": name})
             elif itype == "missing":
                 await run_cypher(
-                    "MATCH (p:Person {id:$pid}) MERGE (d:Department {name:$dept}) "
+                    "MATCH (p:User {id:$pid}) MERGE (d:Department {name:$dept}) "
                     "MERGE (p)-[:`소속`]->(d)", {"pid": pid, "dept": dept})
                 actions.append({"kind": "membership", "detail": f"{name} → {dept}",
                                 "evidence": f"누락된 '{dept}' 소속 연결을 복구했습니다('미지정' 해소).",
                                 "highlight": name})
             elif itype == "mismatch":
                 await run_cypher(
-                    "MATCH (p:Person {id:$pid})-[r:`소속`]->(d:Department) "
+                    "MATCH (p:User {id:$pid})-[r:`소속`]->(d:Department) "
                     "WHERE d.name <> $dept DELETE r", {"pid": pid, "dept": dept})
                 await run_cypher(
-                    "MATCH (p:Person {id:$pid}) MERGE (d:Department {name:$dept}) "
+                    "MATCH (p:User {id:$pid}) MERGE (d:Department {name:$dept}) "
                     "MERGE (p)-[:`소속`]->(d)", {"pid": pid, "dept": dept})
                 actions.append({"kind": "membership", "detail": f"{name} → {dept}",
                                 "evidence": f"프로필과 다르게 '{current}'로 연결됐던 소속을 '{dept}'로 교정했습니다.",
                                 "highlight": name})
             stats["membership_fixed"] += 1
+        except Exception:
+            pass
+
+    # ① 불필요한 연결 정제 — stale/weak 자동 생성 관계 제거
+    for link in struct.get("stale_links", []):
+        kind    = link.get("kind")
+        from_id = link.get("from_id")
+        to_id   = link.get("to_id")
+        rel     = link.get("rel", "")
+        if not from_id or not to_id or not rel:
+            continue
+        try:
+            if kind == "stale_carry":
+                # 완료된 안건에 달린 이월(carry_forward) 관계 제거
+                await run_cypher(
+                    "MATCH (a:Session {id:$fid})-[r:`도출`]->(b:Agenda {id:$tid}) "
+                    "WHERE r.kind = 'carry_forward' DELETE r",
+                    {"fid": from_id, "tid": to_id},
+                )
+            elif kind == "stale_lifecycle":
+                # 완료된 안건에 달린 Minutes 도출 관계 제거
+                await run_cypher(
+                    "MATCH (a:Minutes)-[r:`도출`]->(b:Agenda {id:$tid}) "
+                    "WHERE r.kind = 'minutes_agenda' DELETE r",
+                    {"tid": to_id},
+                )
+            elif kind == "weak_related":
+                await run_cypher(
+                    "MATCH (a:Agenda {id:$fid})-[r:`관련`]-(b:Agenda {id:$tid}) "
+                    "WHERE r.discovered_by = 'knowledge_agent' DELETE r",
+                    {"fid": from_id, "tid": to_id},
+                )
+            elif kind == "weak_ref":
+                await run_cypher(
+                    "MATCH (a {id:$fid})-[r:`참조`]->(b:Agenda {id:$tid}) "
+                    "WHERE (a:Report OR a:Minutes) AND r.discovered_by = 'knowledge_agent' DELETE r",
+                    {"fid": from_id, "tid": to_id},
+                )
+            elif kind == "weak_attach":
+                await run_cypher(
+                    "MATCH (a {id:$fid})-[r:`첨부`]->(b:Agenda {id:$tid}) "
+                    "WHERE (a:Report OR a:Minutes) AND r.auto_linked = true DELETE r",
+                    {"fid": from_id, "tid": to_id},
+                )
+            evidence = {
+                "stale_carry":     "완료된 안건에 달린 이월 관계를 정리했습니다.",
+                "stale_lifecycle": "완료된 안건과 연결된 회의록 도출 관계를 정리했습니다.",
+                "weak_related":    f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '관련' 링크를 지웠습니다.",
+                "weak_ref":        f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '참조' 링크를 지웠습니다.",
+                "weak_attach":     f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '첨부' 링크를 지웠습니다.",
+            }.get(kind, "불필요한 연결을 제거했습니다.")
+            actions.append({
+                "kind": "pruned",
+                "detail": link.get("label", "?"),
+                "evidence": evidence,
+                "highlight": None,
+            })
+            stats["pruned_links"] += 1
         except Exception:
             pass
 
