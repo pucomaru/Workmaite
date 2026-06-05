@@ -1,3 +1,3 @@
-from agents import minutes_agent, task_agent, report_agent, knowledge_agent
+from agents import minutes_generator, task_extractor, report_reviewer, knowledge_manager
 
-__all__ = ["minutes_agent", "task_agent", "report_agent", "knowledge_agent"]
+__all__ = ["minutes_generator", "task_extractor", "report_reviewer", "knowledge_manager"]

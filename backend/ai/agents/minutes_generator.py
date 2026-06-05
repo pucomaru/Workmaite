@@ -268,7 +268,7 @@ async def generate_minutes(
 
     if meeting_id and md_part:
         try:
-            from agents import knowledge_agent as _ka
+            from agents import knowledge_manager as _ka
             _title = session_info.get("title", "회의록") if session_info else "회의록"
             await _ka.store_minutes(
                 title=_title,
@@ -307,7 +307,7 @@ async def generate_minutes_stream(
 
     if meeting_id and collected_parts:
         try:
-            from agents import knowledge_agent as _ka
+            from agents import knowledge_manager as _ka
             await _ka.store_minutes(
                 title=title or f"회의록 ({now})",
                 content="".join(collected_parts),
