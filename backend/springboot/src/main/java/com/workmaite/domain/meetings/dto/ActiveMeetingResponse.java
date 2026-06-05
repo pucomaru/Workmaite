@@ -1,7 +1,6 @@
 package com.workmaite.domain.meetings.dto;
 
 import com.workmaite.domain.meetings.entity.Meeting;
-import com.workmaite.domain.meetings.entity.MeetingPriority;
 import com.workmaite.domain.meetings.entity.MeetingType;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,7 +13,6 @@ public class ActiveMeetingResponse {
 
     private Long meetingId;
     private String title;
-    private MeetingPriority priority;
     private MeetingType type;
     private LocalDateTime endDate;
     private String adminName;
@@ -23,7 +21,6 @@ public class ActiveMeetingResponse {
         return ActiveMeetingResponse.builder()
                 .meetingId(meeting.getId())
                 .title(meeting.getTitle())
-                .priority(meeting.getPriority())
                 .type(meeting.getType())
                 .endDate(meeting.getEndDate())
                 .adminName(adminName)

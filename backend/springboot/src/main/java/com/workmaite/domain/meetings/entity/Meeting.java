@@ -9,9 +9,6 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
-/**
- * 회의체 엔티티 - meetings 테이블 매핑
- */
 @Entity
 @Table(name = "meetings")
 @Getter
@@ -27,14 +24,10 @@ public class Meeting {
     private String title;
 
     @Column(columnDefinition = "TEXT")
-    private String purpose;
+    private String description;
 
     @Column(columnDefinition = "TEXT")
     private String guidelines;
-
-    @Enumerated(EnumType.STRING)
-    @Column(length = 20, nullable = false)
-    private MeetingPriority priority;
 
     // weekly | monthly | quarterly
     @Enumerated(EnumType.STRING)
@@ -52,7 +45,6 @@ public class Meeting {
     @Column(length = 20, nullable = false)
     private MeetingStatus status;
 
-    // 회의체 생성자 (users.id FK)
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
 
@@ -60,15 +52,14 @@ public class Meeting {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    public static Meeting create(String title, String purpose, String guidelines,
-                                 MeetingPriority priority, MeetingType type,
+    public static Meeting create(String title, String description, String guidelines,
+                                 MeetingType type,
                                  LocalDateTime startDate, LocalDateTime endDate,
                                  Long createdBy) {
         Meeting meeting = new Meeting();
         meeting.title = title;
-        meeting.purpose = purpose;
+        meeting.description = description;
         meeting.guidelines = guidelines;
-        meeting.priority = (priority != null) ? priority : MeetingPriority.NORMAL;
         meeting.type = type;
         meeting.startDate = startDate;
         meeting.endDate = endDate;
@@ -77,15 +68,13 @@ public class Meeting {
         return meeting;
     }
 
-    // null 필드는 변경하지 않음 (PATCH 방식)
-    public void update(String title, String purpose, String guidelines,
-                       MeetingPriority priority, MeetingType type,
+    public void update(String title, String description, String guidelines,
+                       MeetingType type,
                        LocalDateTime startDate, LocalDateTime endDate,
                        MeetingStatus status) {
         if (title != null) this.title = title;
-        if (purpose != null) this.purpose = purpose;
+        if (description != null) this.description = description;
         if (guidelines != null) this.guidelines = guidelines;
-        if (priority != null) this.priority = priority;
         if (type != null) this.type = type;
         if (startDate != null) this.startDate = startDate;
         if (endDate != null) this.endDate = endDate;

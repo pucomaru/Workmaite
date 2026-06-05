@@ -52,6 +52,19 @@ class _StoreReportReq(BaseModel):
     score: Optional[int] = None
 
 
+class _ProposeRelationshipsReq(BaseModel):
+    """POST /knowledge/propose-relationships 요청 바디."""
+    meeting_id: int
+    node_types: Optional[List[str]] = None  # None이면 Agenda·AIJudgment·Minutes 전체
+
+
+class _ConfirmRelationshipsReq(BaseModel):
+    """POST /knowledge/confirm-relationships 요청 바디."""
+    proposal_id: str
+    approved: bool
+    reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     if not meeting_id:
@@ -230,7 +243,7 @@ async def ara_generate_minutes(
     transcript = data.message or ""
     meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
-    agenda_text = "\n".join([f"- {a.content} ({a.status})" for a in agendas]) or "없음"
+    agenda_text = "\n".join([f"- {a.title} ({a.status})" for a in agendas]) or "없음"
     now = datetime.now().strftime("%Y년 %m월 %d일")
     meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first() if data.meeting_id else None
     minutes_title = f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"
@@ -992,6 +1005,39 @@ async def knowledge_store_report(
             title=data.title, content=data.content,
             meeting_id=data.meeting_id, score=data.score,
         )
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/propose-relationships", summary="Knowledge Propose Relationships")
+async def knowledge_propose_relationships(
+    data: _ProposeRelationshipsReq,
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """Neo4j 노드 간 연결 관계를 LLM이 분석해 제안. proposal_id를 반환."""
+    try:
+        result = await knowledge_agent.propose_relationships(
+            meeting_id=data.meeting_id,
+            node_types=data.node_types,
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.post("/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships")
+async def knowledge_confirm_relationships(
+    data: _ConfirmRelationshipsReq,
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+):
+    """제안된 관계를 승인(Neo4j MERGE) 또는 반려(HumanJudgment 노드 생성)."""
+    try:
+        result = await knowledge_agent.confirm_relationships(
+            proposal_id=data.proposal_id,
+            approved=data.approved,
+            reject_reason=data.reject_reason,
+        )
+        return result
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
