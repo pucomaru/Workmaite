@@ -68,7 +68,7 @@ async function submit() {
 
     <!-- Header -->
     <div class="popup-header mb-3">
-      <img src="../assets/workmaite-logo.svg" class="popup-logo-img" alt="Workma!te" />
+      <img src="../assets/workmaite-logo-black.svg" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <!-- ── STEP 1: 회원가입 폼 ──────────────────────── -->
@@ -224,7 +224,7 @@ async function submit() {
 .popup-inner { padding: 32px 36px 28px; }
 .popup-header { display: flex; align-items: center; }
 .popup-logo-img {
-  height: 40px; width: auto;
+  height: 30px; width: auto; display: block; margin: 0 auto;
 }
 .input-group-text { border-color: var(--border); }
 .form-control { border-color: var(--border); font-size: 13px; }

@@ -26,10 +26,13 @@ function buildGraph() {
   const nodes = []
   // Center hub nodes (meeting nodes)
   const hubs = [
+    { label: '경영전략', type: 'hub' },
     { label: '전략기획', type: 'hub' },
-    { label: '운영위원회', type: 'hub' },
-    { label: '개발팀', type: 'hub' },
-    { label: '마케팅', type: 'hub' },
+    { label: '회의록', type: 'hub' },
+    { label: '의사결정', type: 'hub' },
+    { label: '아젠다', type: 'hub' },
+    { label: '조직', type: 'hub' },
+    { label: '보고서', type: 'hub' },
   ]
   hubs.forEach((h, i) => {
     const phi = (i / hubs.length) * Math.PI * 2
@@ -228,9 +231,8 @@ const features = [
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark landing-nav">
       <div class="container">
-        <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-          <div class="brand-icon">W</div>
-          <span class="fw-bold fs-5">workma<span class="brand-accent">!</span>te</span>
+        <a class="navbar-brand" href="#">
+          <img src="../assets/workmaite-logo-white.svg" class="nav-logo-img" alt="Workma!te" />
         </a>
         <div class="ms-auto d-flex gap-2">
           <button class="btn btn-outline-light btn-sm px-3" @click="openLogin">로그인</button>
@@ -249,7 +251,9 @@ const features = [
           <div class="hint-pulse"></div>
           <span>클릭하여 서비스 소개 보기</span>
         </div>
-        <div class="graph-brand">workma<span class="brand-accent">!</span>te</div>
+        <div class="graph-brand">
+          <img src="../assets/workmaite-logo-white.svg" class="graph-logo-img" alt="Workma!te" />
+        </div>
         <p class="graph-tagline">회의 지식이 연결되는 공간</p>
       </div>
     </section>
@@ -371,14 +375,7 @@ const features = [
   position: sticky; top: 0; z-index: 100;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
-.brand-icon {
-  width: 32px; height: 32px;
-  background: #f59e0b;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 900; font-size: 16px; color: var(--primary);
-}
-.brand-accent { color: #f59e0b; }
+.nav-logo-img { height: 26px; width: auto; }
 
 /* ── 3D Graph Hero ── */
 .graph-hero {
@@ -406,11 +403,14 @@ const features = [
 }
 .graph-overlay.faded { opacity: 0; }
 .graph-brand {
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
-  font-weight: 900;
-  color: #fff;
-  letter-spacing: -0.02em;
-  text-shadow: 0 0 40px rgba(96,165,250,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.graph-logo-img {
+  height: clamp(3rem, 6vw, 5rem);
+  width: auto;
+  filter: drop-shadow(0 0 30px rgba(96,165,250,0.6));
 }
 .graph-tagline {
   font-size: 1.1rem;

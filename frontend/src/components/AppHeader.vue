@@ -183,7 +183,7 @@ async function saveProfileSettings() {
   <header class="header">
     <div class="header-left">
       <router-link to="/" class="logo">
-        <img src="../assets/workmaite-logo.svg" class="logo-img" alt="Workma!te"/>
+        <img src="../assets/workmaite-logo-white.svg" class="logo-img" alt="Workma!te"/>
       </router-link>
 
       <!-- 회의체 제목 영역 -->
@@ -495,7 +495,7 @@ async function saveProfileSettings() {
 .center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
 .center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
 .logo { display: flex; align-items: center; color: #fff; margin-left: 6px; flex-shrink: 0; }
-.logo-img { height: 30px; width: auto; }
+.logo-img { height: 20px; width: auto; }
 .header-divider { width: 1px; height: 18px; background: rgba(255,255,255,.25); margin: 0 4px; flex-shrink: 0; }
 .meeting-title-inline {
   color: rgba(255,255,255,.85);
