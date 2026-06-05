@@ -232,7 +232,7 @@ const features = [
     <nav class="navbar navbar-expand-lg navbar-dark landing-nav">
       <div class="container">
         <a class="navbar-brand" href="#">
-          <img src="../assets/workmaite-logo-white.svg" class="nav-logo-img" alt="Workma!te" />
+          <img src="../assets/workmaite-logo-white.png" class="nav-logo-img" alt="Workma!te" />
         </a>
         <div class="ms-auto d-flex gap-2">
           <button class="btn btn-outline-light btn-sm px-3" @click="openLogin">로그인</button>
@@ -252,9 +252,9 @@ const features = [
           <span>클릭하여 서비스 소개 보기</span>
         </div>
         <div class="graph-brand">
-          <img src="../assets/workmaite-logo-white.svg" class="graph-logo-img" alt="Workma!te" />
+          <img src="../assets/workmaite-logo-white.png" class="graph-logo-img" alt="Workma!te" />
         </div>
-        <p class="graph-tagline">회의 지식이 연결되는 공간</p>
+        <p class="graph-tagline">AI Archive Link Platform</p>
       </div>
     </section>
 
@@ -263,7 +263,7 @@ const features = [
       <div class="container text-center">
         <div class="hero-badge mb-3">
           <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
-            <i class="bi bi-stars me-1"></i>AI 기반 회의 운영 플랫폼
+            <i class="bi bi-stars me-1"></i>AI Archive Link Platform
           </span>
         </div>
         <h1 class="hero-title mb-4">
@@ -327,7 +327,7 @@ const features = [
     <section class="cta-section text-center py-6">
       <div class="container">
         <h2 class="fw-bold fs-2 text-white mb-3">지금 바로 시작하세요</h2>
-        <p class="text-white-50 mb-4 fs-6">무료로 가입하고 AI가 이끄는 스마트한 회의를 경험해보세요</p>
+        <p class="text-white-50 mb-4 fs-6">AI가 이끄는 스마트한 회의를 경험해보세요</p>
         <button class="btn btn-warning btn-lg fw-bold px-5 py-3" @click="openRegister">
           회원가입 <i class="bi bi-arrow-right ms-1"></i>
         </button>
@@ -375,7 +375,7 @@ const features = [
   position: sticky; top: 0; z-index: 100;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
-.nav-logo-img { height: 26px; width: auto; }
+.nav-logo-img { height: 15px; width: auto; }
 
 /* ── 3D Graph Hero ── */
 .graph-hero {

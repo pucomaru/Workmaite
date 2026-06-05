@@ -6,7 +6,6 @@ import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
-from notifications import create_notification
 from neo4j_sync import (
     sync_meeting,
     sync_meeting_member,
@@ -211,12 +210,6 @@ async def add_member(
     db.add(member)
     db.flush()
 
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    create_notification(
-        db, user_id=data.user_id, type="meeting_invite",
-        message=f"'{meeting.title}' 회의체에 초대되었습니다.",
-        ref_id=meeting_id, ref_type="meeting",
-    )
     db.commit()
 
     # Neo4j 동기화 (백그라운드): Person 노드 보장 후 관계 생성
@@ -335,7 +328,6 @@ async def delete_meeting(
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
@@ -459,7 +451,6 @@ async def ai_delete_meeting(
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()

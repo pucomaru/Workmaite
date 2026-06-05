@@ -2,31 +2,17 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
 
-function formatTime(ts) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const now = new Date()
-  const diff = Math.floor((now - d) / 1000)
-  if (diff < 60) return '방금 전'
-  if (diff < 3600) return `${Math.floor(diff / 60)}분 전`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`
-  return d.toLocaleDateString('ko-KR')
-}
-
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const notifStore = useNotificationsStore()
 const meetingsStore = useMeetingsStore()
 
 const themeStore = useThemeStore()
 
-const showNotif = ref(false)
 const showProfile = ref(false)
 
 // ── 회의체 제목 인라인 편집 (관리자) ─────────────────────────────
@@ -118,13 +104,6 @@ watch(
   { immediate: true }
 )
 
-function handleNotifClick(n) {
-  notifStore.markRead(n.id)
-  showNotif.value = false
-  if (n.ref_type === 'meeting' && n.ref_id) router.push('/meeting-groups')
-  if (n.ref_type === 'session' && n.ref_id) router.push('/meeting-groups')
-}
-
 function logout() {
   auth.logout()
   router.push('/landing')
@@ -183,7 +162,7 @@ async function saveProfileSettings() {
   <header class="header">
     <div class="header-left">
       <router-link to="/" class="logo">
-        <img src="../assets/workmaite-logo-white.svg" class="logo-img" alt="Workma!te"/>
+        <img src="../assets/workmaite-logo-white.png" class="logo-img" alt="Workma!te"/>
       </router-link>
 
       <!-- 회의체 제목 영역 -->
@@ -262,35 +241,6 @@ async function saveProfileSettings() {
         <svg v-if="themeStore.nightMode" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
         <svg v-else width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
       </button>
-
-      <!-- 알림 -->
-      <div class="notif-wrap">
-        <button class="btn-ghost btn-icon" @click="showNotif = !showNotif">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-          </svg>
-          <span v-if="notifStore.unreadCount" class="notif-badge">{{ notifStore.unreadCount }}</span>
-        </button>
-        <div v-if="showNotif" class="notif-dropdown">
-          <div class="notif-header">
-            <span>알림</span>
-            <button class="btn-ghost btn-sm" @click="notifStore.markAllRead(); showNotif=false">전체 읽음</button>
-          </div>
-          <div class="notif-list">
-            <div v-if="!notifStore.notifications.length" class="notif-empty">알림이 없습니다</div>
-            <div
-              v-for="n in notifStore.notifications"
-              :key="n.id"
-              class="notif-item"
-              :class="{ unread: !n.is_read }"
-              @click="handleNotifClick(n)"
-            >
-              <span class="notif-msg">{{ n.message }}</span>
-              <span class="notif-time">{{ formatTime(n.created_at) }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div class="profile-wrap" v-if="auth.user">
         <button class="btn-ghost profile-btn" @click="showProfile = !showProfile">
@@ -371,8 +321,8 @@ async function saveProfileSettings() {
       </div>
     </div>
 
-    <div v-if="showNotif || showProfile || showMemberMgmt" class="backdrop"
-      @click="showNotif=false; showProfile=false; showMemberMgmt=false" />
+    <div v-if="showProfile || showMemberMgmt" class="backdrop"
+      @click="showProfile=false; showMemberMgmt=false" />
 
     <!-- 개인설정 모달 -->
     <Teleport to="body">
@@ -495,7 +445,7 @@ async function saveProfileSettings() {
 .center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
 .center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
 .logo { display: flex; align-items: center; color: #fff; margin-left: 6px; flex-shrink: 0; }
-.logo-img { height: 20px; width: auto; }
+.logo-img { height: 15px; width: auto; }
 .header-divider { width: 1px; height: 18px; background: rgba(255,255,255,.25); margin: 0 4px; flex-shrink: 0; }
 .meeting-title-inline {
   color: rgba(255,255,255,.85);
@@ -591,8 +541,8 @@ async function saveProfileSettings() {
 .notif-msg { font-size: 13px; line-height: 1.4; }
 .notif-time { font-size: 11px; color: var(--text-muted); }
 .profile-wrap { position: relative; }
-.profile-btn { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.9); padding: 4px 8px; border-radius: 6px; }
-.profile-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.profile-btn { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.9) !important; padding: 4px 8px; border-radius: 6px; }
+.profile-btn:hover { background: rgba(255,255,255,.12) !important; color: rgba(255,255,255,.9) !important; }
 .avatar { width: 26px; height: 26px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; }
 .avatar-lg { width: 36px; height: 36px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: #fff; flex-shrink: 0; }
 .profile-dropdown { position: absolute; top: calc(100% + 8px); right: 0; width: 220px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: 200; padding: 16px; display: flex; flex-direction: column; gap: 12px; }

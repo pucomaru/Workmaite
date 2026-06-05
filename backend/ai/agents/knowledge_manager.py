@@ -8,6 +8,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 # ── State ─────────────────────────────────────────────────────────────────
 class KnowledgeState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    remaining_steps: RemainingSteps
     knowledge: List[dict]
     meeting_context: str
 
@@ -492,7 +494,7 @@ def _build_graph():
         model=_make_llm(),
         tools=KNOWLEDGE_TOOLS,
         state_schema=KnowledgeState,
-        state_modifier=_knowledge_state_modifier,
+        prompt=_knowledge_state_modifier,
     )
 
 _graph = _build_graph()

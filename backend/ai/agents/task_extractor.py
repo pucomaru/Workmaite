@@ -7,6 +7,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 # ── State ─────────────────────────────────────────────────────────────────
 class TaskState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    remaining_steps: RemainingSteps
     departments: List[str]
     knowledge: List[dict]
     meeting_context: str
@@ -141,7 +143,7 @@ def _build_chat_graph():
         model=llm,
         tools=TASK_TOOLS,
         state_schema=TaskState,
-        state_modifier=_task_state_modifier,
+        prompt=_task_state_modifier,
     )
 
 

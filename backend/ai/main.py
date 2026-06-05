@@ -19,7 +19,7 @@ from database import get_db
 from websocket_manager import manager
 from auth import get_current_user
 
-from routers import notifications, supervisor, chat_history, neo4j_graph, sync as sync_router
+from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
 from routers import auth as auth_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
@@ -99,7 +99,6 @@ app.add_middleware(
 
 # 라우터
 app.include_router(auth_router.router)
-app.include_router(notifications.router)
 app.include_router(supervisor.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
@@ -119,16 +118,6 @@ async def ws_meeting_agenda(meeting_id: int, websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect_meeting(meeting_id, websocket)
-
-
-@app.websocket("/ws/notifications/{user_id}")
-async def ws_notifications(user_id: int, websocket: WebSocket):
-    await manager.connect_user(user_id, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect_user(user_id)
 
 
 @app.websocket("/ws/sessions/{session_id}/minutes")
