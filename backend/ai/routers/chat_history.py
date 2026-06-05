@@ -39,12 +39,12 @@ def get_chat_history(
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
 
+    thread_id = f"{context_type}-{context_id}"
     messages = (
         db.query(models.ChatMessage)
         .filter(
             models.ChatMessage.user_id == current_user.id,
-            models.ChatMessage.context_type == context_type,
-            models.ChatMessage.context_id == context_id,
+            models.ChatMessage.thread_id == thread_id,
         )
         .order_by(models.ChatMessage.created_at)
         .all()
@@ -67,9 +67,9 @@ def save_message(
         raise HTTPException(status_code=400, detail="role은 'user' 또는 'agent'여야 합니다")
 
     msg = models.ChatMessage(
+        thread_id=f"{context_type}-{context_id}",
         user_id=current_user.id,
         context_type=context_type,
-        context_id=context_id,
         role=body.role,
         content=body.content,
     )
@@ -90,12 +90,12 @@ def clear_chat_history(
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
 
+    thread_id = f"{context_type}-{context_id}"
     deleted = (
         db.query(models.ChatMessage)
         .filter(
             models.ChatMessage.user_id == current_user.id,
-            models.ChatMessage.context_type == context_type,
-            models.ChatMessage.context_id == context_id,
+            models.ChatMessage.thread_id == thread_id,
         )
         .delete()
     )

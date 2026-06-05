@@ -38,7 +38,7 @@ class Token(BaseModel):
 # Meeting
 class MeetingCreate(BaseModel):
     title: str
-    purpose: Optional[str] = None
+    description: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     meeting_type: Optional[str] = None
@@ -54,9 +54,9 @@ class MeetingMemberAdd(BaseModel):
 class MeetingOut(BaseModel):
     id: int
     title: str
-    purpose: Optional[str]
-    start_date: Optional[datetime]
-    end_date: Optional[datetime]
+    description: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     status: str
     guidelines: Optional[str] = None
     meeting_type: Optional[str] = None
@@ -226,14 +226,7 @@ class MinutesOut(BaseModel):
     id: int
     session_id: int
     recorder_id: Optional[int] = None
-    content_raw: Optional[str] = None
     content_summary: Optional[str] = None
-    # 5대 필수요소 (DB 컬럼 미존재 → 추후 마이그레이션 시 활성화)
-    attendees_json: Optional[Any] = None
-    decisions_json: Optional[Any] = None
-    action_items_json: Optional[Any] = None
-    tbd_items_json: Optional[Any] = None
-    next_meeting_note: Optional[str] = None
     generated_at: datetime
 
     model_config = {"from_attributes": True}

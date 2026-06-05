@@ -77,6 +77,8 @@
 .detail-extract-item { display:flex;align-items:flex-start;gap:7px;padding:9px 10px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06);transition:border-color .18s; }
 .detail-extract-item.ei-approved { border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.06); }
 .detail-extract-item.ei-rejected { border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.04);opacity:.6; }
+/* 사유 칸이 아래에 붙을 때 아이템 하단 radius 제거 */
+.detail-extract-item:has(+ .dei-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
 .dei-num { font-size:10px;font-weight:700;color:#475569;min-width:16px;margin-top:2px; }
 .dei-body { flex:1;min-width:0; }
 .dei-title { font-size:12px;font-weight:600;color:#e2e8f0;line-height:1.4; }
@@ -372,7 +374,12 @@
 .detail-action-row { display:flex;gap:7px;padding:12px 0; }
 
 
-.dei-reason-wrap { padding:4px 0 2px;width:100%; }
-.dei-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;outline:none;resize:none;font-family:inherit;transition:border-color .15s; }
-.dei-reason-input:focus { border-color:rgba(99,102,241,.4); }
-.dei-reason-input::placeholder { color:rgba(148,163,184,.45);font-style:italic; }
+.dei-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid rgba(255,255,255,.06);border-top:none;border-radius:0 0 7px 7px;background:rgba(255,255,255,.02); }
+.drb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
+.drb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
+.drb-label { font-size:10px;font-weight:600;color:#475569;letter-spacing:.03em; }
+.drb-approved .drb-label { color:rgba(52,211,153,.7); }
+.drb-rejected .drb-label { color:rgba(248,113,113,.7); }
+.dei-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;outline:none;resize:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
+.dei-reason-input:focus { border-color:rgba(99,102,241,.35); }
+.dei-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }

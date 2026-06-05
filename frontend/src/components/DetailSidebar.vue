@@ -321,51 +321,54 @@ const {
                     <div v-else-if="!assignResult.length" class="detail-log-empty">배정된 과제가 없습니다.</div>
                     <template v-else>
                       <div class="detail-extract-list">
-                        <div v-for="(t, i) in assignResult" :key="i" class="detail-extract-item" :class="{ 'ei-approved': t._state==='approved', 'ei-rejected': t._state==='rejected' }">
-                          <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
-                          <div class="dei-body">
-                            <template v-if="!t._editing">
-                              <div class="dei-title" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</div>
-                              <div class="dei-meta-row">
-                                <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
-                                <span v-if="t.status && t.status !== 'pending'" class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
-                                <span class="dei-assignee">{{ t.assignee }} · {{ t.dept }}</span>
-                              </div>
-                            </template>
-                            <template v-else>
-                              <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" style="margin-bottom:4px" />
-                              <div class="dei-edit-row">
-                                <select class="app-select dei-app-select" v-model="t._editDept">
-                                  <option value="">담당부서 선택</option>
-                                  <option v-for="d in assignDeptOptions" :key="d" :value="d">{{ d }}</option>
-                                </select>
-                                <select class="app-select dei-app-select" v-model="t._editPriority">
-                                  <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
-                                </select>
-                              </div>
-                            </template>
+                        <template v-for="(t, i) in assignResult" :key="i">
+                          <div class="detail-extract-item" :class="{ 'ei-approved': t._state==='approved', 'ei-rejected': t._state==='rejected' }">
+                            <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
+                            <div class="dei-body">
+                              <template v-if="!t._editing">
+                                <div class="dei-title" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</div>
+                                <div class="dei-meta-row">
+                                  <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
+                                  <span v-if="t.status && t.status !== 'pending'" class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
+                                  <span class="dei-assignee">{{ t.assignee }} · {{ t.dept }}</span>
+                                </div>
+                              </template>
+                              <template v-else>
+                                <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" style="margin-bottom:4px" />
+                                <div class="dei-edit-row">
+                                  <select class="app-select dei-app-select" v-model="t._editDept">
+                                    <option value="">담당부서 선택</option>
+                                    <option v-for="d in assignDeptOptions" :key="d" :value="d">{{ d }}</option>
+                                  </select>
+                                  <select class="app-select dei-app-select" v-model="t._editPriority">
+                                    <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
+                                  </select>
+                                </div>
+                              </template>
+                            </div>
+                            <div class="dei-actions">
+                              <template v-if="!t._editing">
+                                <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'; t._showReason = t._state === 'approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="t._state = t._state==='rejected' ? null : 'rejected'; t._showReason = t._state === 'rejected'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                              </template>
+                              <template v-else>
+                                <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                              </template>
+                            </div>
                           </div>
-                          <!-- 사유 입력란 (승인/반려 후 선택적으로 표시) -->
-                          <div v-if="t._showReason && !t._editing" class="dei-reason-wrap">
+                          <!-- 사유 입력란: 블록 아래 별도 표시 -->
+                          <div v-if="t._showReason && !t._editing" class="dei-reason-below" :class="t._state==='approved' ? 'drb-approved' : 'drb-rejected'">
+                            <span class="drb-label">{{ t._state==='approved' ? '✓ 승인 사유' : '✗ 반려 사유' }}</span>
                             <textarea
                               v-model="t._reason"
                               class="dei-reason-input"
-                              :placeholder="t._state==='approved' ? '승인 사유를 남겨주세요 (선택, 서비스 품질 개선에 도움이 됩니다)' : '반려 사유를 남겨주세요 (선택, 서비스 품질 개선에 도움이 됩니다)'"
+                              :placeholder="t._state==='approved' ? '승인 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)' : '반려 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)'"
                               rows="2"
                             />
                           </div>
-                          <div class="dei-actions">
-                            <template v-if="!t._editing">
-                              <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                              <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'; t._showReason = t._state === 'approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                              <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="t._state = t._state==='rejected' ? null : 'rejected'; t._showReason = t._state === 'rejected'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                            </template>
-                            <template v-else>
-                              <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                              <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                            </template>
-                          </div>
-                        </div>
+                        </template>
                       </div>
                       <button class="gm-add-btn" style="margin-top:6px" @click="addAssignItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가</button>
                       <div class="detail-extract-footer detail-extract-footer--col">

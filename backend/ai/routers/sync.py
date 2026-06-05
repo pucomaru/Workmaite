@@ -71,42 +71,6 @@ async def trigger_retry(
     }
 
 
-# ─── 실패 로그 조회 ───────────────────────────────────────────────────────────
-
-@router.get("/logs")
-def get_sync_logs(
-    status: Optional[str] = None,
-    operation: Optional[str] = None,
-    limit: int = 50,
-    current_user: models.User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """agent_logs 조회. status(failed/recovered), operation으로 필터링."""
-    query = db.query(models.AgentLog)
-    if status:
-        query = query.filter(models.AgentLog.status == status)
-    if operation:
-        query = query.filter(models.AgentLog.operation == operation)
-    logs = (
-        query.order_by(models.AgentLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "id": l.id,
-            "operation": l.operation,
-            "entity_type": l.entity_type,
-            "entity_id": l.entity_id,
-            "status": l.status,
-            "error_detail": l.error_detail,
-            "retry_count": l.retry_count,
-            "created_at": l.created_at.isoformat() if l.created_at else None,
-            "updated_at": l.updated_at.isoformat() if l.updated_at else None,
-        }
-        for l in logs
-    ]
-
 
 # ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
 
@@ -148,7 +112,7 @@ async def sync_meeting_manual(
     await sync_meeting(
         meeting_id=meeting.id,
         title=meeting.title,
-        purpose=meeting.purpose,
+        description=meeting.description,
         status=str(meeting.status or "ACTIVE"),
         meeting_type=str(meeting.type or ""),
     )
@@ -214,27 +178,24 @@ async def upload_and_embed_file(
         f"file_label={file_label!r}, doc_type={doc_type!r}, r2_url={r2_url}"
     )
 
-    # 2. PostgreSQL report_reviews 저장 (file_path = R2 URL)
+    # 2. PostgreSQL reports 저장 (file_path = R2 URL)
     if meeting_id:
-        # report_reviews.file_type CHECK 제약: REPORT | PRESENTATION | MINUTES
-        doc_type_map = {"보고자료": "REPORT", "발제자료": "PRESENTATION", "회의록": "MINUTES"}
-        db_file_type = doc_type_map.get(doc_type or "", "REPORT")
         try:
             report = models.Report(
                 meeting_id=meeting_id,
-                uploader_id=current_user.id,
-                file_type=db_file_type,
+                upload_id=current_user.id,
                 file_name=file_label or safe_name,
                 file_path=r2_url,
-                status="SUBMITTED",
+                human_status="pending",
+                submitter_department=current_user.department or "",
             )
             db.add(report)
             db.commit()
         except Exception as e:
-            logger.error(f"[Sync] report_reviews 저장 실패: meeting_id={meeting_id}, error={e}")
+            logger.error(f"[Sync] reports 저장 실패: meeting_id={meeting_id}, error={e}")
             db.rollback()
         else:
-            logger.info(f"[Sync] report_reviews 저장 성공: meeting_id={meeting_id}, file={safe_name}")
+            logger.info(f"[Sync] reports 저장 성공: meeting_id={meeting_id}, file={safe_name}")
 
     # 3. Neo4j Document 노드 즉시 생성 (map refresh가 문서를 즉시 보이게)
     # - 먼저 Meeting 노드가 Neo4j에 존재하는지 보장 (없으면 첨부 관계 생성 불가)
@@ -245,7 +206,7 @@ async def upload_and_embed_file(
                 await sync_meeting(
                     meeting_id=meeting_obj.id,
                     title=meeting_obj.title,
-                    purpose=meeting_obj.purpose,
+                    description=meeting_obj.description,
                     status=str(meeting_obj.status or "ACTIVE"),
                     meeting_type=str(meeting_obj.type or ""),
                 )
@@ -374,9 +335,9 @@ async def sync_agenda_manual(
         agenda_id=agenda.id,
         meeting_id=agenda.meeting_id,
         title=agenda.title or "",
-        content=agenda.content,
+        content=None,
         status=str(agenda.status or "ON_HOLD"),
-        order_index=agenda.order_index or 0,
+        order_index=0,
         assignee_id=agenda.assignee_id,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}

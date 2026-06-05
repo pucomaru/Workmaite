@@ -86,8 +86,8 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     if not meeting:
         return ""
     lines = [f"회의체 이름: {meeting.title}"]
-    if meeting.purpose:
-        lines.append(f"회의 목적: {meeting.purpose}")
+    if meeting.description:
+        lines.append(f"회의 목적: {meeting.description}")
     members = db.query(models.MeetingMember).filter(
         models.MeetingMember.meeting_id == meeting_id
     ).all()
@@ -815,31 +815,12 @@ def _save_extracted(db: Session, meeting_id: int, result: dict):
         agenda = models.Agenda(
             meeting_id=meeting_id,
             title=raw[:255],
-            content=raw if len(raw) > 255 else None,
-            order_index=existing_count + idx + 1,
         )
         db.add(agenda)
         db.flush()
         saved_agendas.append({"id": agenda.id, "title": agenda.title})
 
-    # Todo → HitlReview (target_type="extracted_item") 로 저장
     saved_reviews = []
-    for t in result.get("todos", []):
-        if not t.get("content", "").strip():
-            continue
-        review = models.HitlReview(
-            meeting_id=meeting_id,
-            target_type="extracted_item",
-            status="PENDING",
-            ai_output=_json.dumps({
-                "content": t["content"],
-                "department": t.get("department"),
-                "due_date": t.get("due_date"),
-            }, ensure_ascii=False),
-        )
-        db.add(review)
-        db.flush()
-        saved_reviews.append({"id": review.id, "content": t["content"]})
 
     db.commit()
     return saved_agendas, saved_reviews
@@ -871,10 +852,7 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
     members = db.query(models.MeetingMember).filter(
         models.MeetingMember.meeting_id == meeting_id
     ).all()
-    pending_reviews = db.query(models.HitlReview).filter(
-        models.HitlReview.meeting_id == meeting_id,
-        models.HitlReview.status == "PENDING",
-    ).count()
+    pending_reviews = 0
 
     agenda_list = [
         {"content": a.title, "status": a.status}
@@ -887,7 +865,7 @@ def _build_meeting_status(db: Session, meeting_id: int) -> dict:
             member_list.append({"name": u.name, "department": u.department or "", "role": m.role})
 
     return {
-        "meeting": {"title": meeting.title if meeting else "", "purpose": meeting.purpose if meeting else ""},
+        "meeting": {"title": meeting.title if meeting else "", "purpose": meeting.description if meeting else ""},
         "members": member_list,
         "agendas": {
             "total": len(agendas),
@@ -939,7 +917,7 @@ def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
             person_map[u.name]["meetings"].append({
                 "title": mtg.title,
                 "role": mm.role,
-                "purpose": mtg.purpose or "",
+                "purpose": mtg.description or "",
             })
 
     # 회의체별 요약
@@ -951,13 +929,10 @@ def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
             u = all_users.get(mm.user_id)
             if u:
                 member_names.append(u.name)
-        pending_reviews = db.query(models.HitlReview).filter(
-            models.HitlReview.meeting_id == m.id,
-            models.HitlReview.status == "PENDING",
-        ).count()
+        pending_reviews = 0
         meeting_summaries.append({
             "title": m.title,
-            "purpose": m.purpose or "",
+            "purpose": m.description or "",
             "members": member_names,
             "pending_reviews": pending_reviews,
         })
@@ -984,7 +959,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
                 "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
                 "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
                 "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
-                "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
+                "RETURN mg.id AS mg_id, mg.title AS title, mg.description AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department",
                 {"pid": person_id},
@@ -1009,7 +984,7 @@ async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
                 "MATCH (mg:MeetingGroup) "
                 "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
                 "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
-                "RETURN mg.id AS mg_id, mg.title AS title, mg.purpose AS purpose, "
+                "RETURN mg.id AS mg_id, mg.title AS title, mg.description AS purpose, "
                 "       p.name AS person_name, p.id AS person_id, "
                 "       type(rel) AS rel_type, d.name AS department"
             )
@@ -1109,24 +1084,7 @@ async def archive_extract_agendas(
     # ── 2. 최근 회의록 (최대 3건) ──────────────────────────────────────
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
-    # ── 3. 검토 대기 항목 (HitlReview PENDING) ───────────────────────
-    pending_reviews = db.query(models.HitlReview).filter(
-        models.HitlReview.meeting_id == meeting_id,
-        models.HitlReview.status == "PENDING",
-    ).order_by(models.HitlReview.created_at.desc()).limit(10).all()
-
     pending_todos_text = ""
-    if pending_reviews:
-        import json as _json2
-        review_lines = []
-        for r in pending_reviews:
-            try:
-                item = _json2.loads(r.ai_output or "{}")
-                content = item.get("content", r.ai_output or "")
-            except Exception:
-                content = r.ai_output or ""
-            review_lines.append(f"- [검토 대기] {content}")
-        pending_todos_text = "\n".join(review_lines)
 
     # ── 4. 파일 텍스트 추출 ───────────────────────────────────────────
     file_texts = []

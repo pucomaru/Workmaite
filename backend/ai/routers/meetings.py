@@ -11,12 +11,10 @@ from neo4j_sync import (
     sync_meeting,
     sync_meeting_member,
     sync_user,
-    sync_agenda,
     delete_meeting as neo4j_delete_meeting,
     delete_meeting_member,
     update_meeting_member_role,
 )
-from neo4j_client import run_cypher
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -55,7 +53,7 @@ def list_meetings(
     for m in meetings:
         role = _my_role_in(current_user.id, m.id, db)
         result.append({
-            "id": m.id, "title": m.title, "purpose": m.purpose,
+            "id": m.id, "title": m.title, "description": m.description,
             "start_date": m.start_date, "end_date": m.end_date,
             "status": m.status, "guidelines": m.guidelines,
             "meeting_type": m.type,
@@ -75,7 +73,7 @@ async def create_meeting(
 ):
     meeting = models.Meeting(
         title=data.title,
-        purpose=data.purpose,
+        description=data.description,
         start_date=data.start_date,
         end_date=data.end_date,
         created_by=current_user.id,
@@ -92,7 +90,7 @@ async def create_meeting(
         await sync_meeting(
             meeting_id=meeting.id,
             title=meeting.title,
-            purpose=meeting.purpose,
+            description=meeting.description,
             status=str(meeting.status or "ACTIVE"),
             meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
         )
@@ -123,7 +121,7 @@ def get_meeting(
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     role = _my_role_in(current_user.id, meeting_id, db)
     return {
-        "id": meeting.id, "title": meeting.title, "purpose": meeting.purpose,
+        "id": meeting.id, "title": meeting.title, "description": meeting.description,
         "start_date": meeting.start_date, "end_date": meeting.end_date,
         "status": meeting.status, "guidelines": meeting.guidelines,
         "created_by": meeting.created_by, "created_at": meeting.created_at,
@@ -155,7 +153,7 @@ async def update_meeting(
         if data["status"] == "ended" and not meeting.end_date:
             from datetime import datetime
             meeting.end_date = datetime.utcnow()
-    if "purpose" in data:    meeting.purpose = data["purpose"]
+    if "description" in data: meeting.description = data["description"]
     if "start_date" in data: meeting.start_date = data["start_date"]
     if "end_date" in data:   meeting.end_date = data["end_date"]
     if "guidelines" in data: meeting.guidelines = data["guidelines"]
@@ -168,7 +166,7 @@ async def update_meeting(
         sync_meeting,
         meeting_id=meeting.id,
         title=meeting.title,
-        purpose=meeting.purpose,
+        description=meeting.description,
         status=str(meeting.status or "ACTIVE"),
         meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
     )
@@ -331,13 +329,11 @@ async def delete_meeting(
     if session_ids:
         db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
         db.query(models.ChatMessage).filter(
-            models.ChatMessage.context_type == "room",
-            models.ChatMessage.context_id.in_(session_ids),
+            models.ChatMessage.session_id.in_(session_ids),
         ).delete(synchronize_session=False)
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
@@ -356,9 +352,9 @@ def search_users(
     db: Session = Depends(get_db),
 ):
     users = db.query(models.User).filter(
-        (models.User.name.contains(q)) | (models.User.employee_id.contains(q))
+        models.User.name.contains(q)
     ).limit(20).all()
-    return [{"id": u.id, "name": u.name, "employee_id": u.employee_id, "email": u.employee_id, "department": u.department, "organization": u.organization, "position": u.position} for u in users]
+    return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company, "position": u.position} for u in users]
 
 
 @router.get("/users/all")
@@ -369,16 +365,21 @@ def all_users(
     users = db.query(models.User).order_by(models.User.name).all()
     result = []
     for u in users:
-        meetings = []
-        for mm in u.meeting_members:
-            meetings.append({"id": mm.meeting_id, "member_id": mm.id, "title": mm.meeting.title if mm.meeting else "", "role": mm.role})
+        member_rows = db.query(models.MeetingMember).filter(models.MeetingMember.user_id == u.id).all()
+        meeting_ids = [mm.meeting_id for mm in member_rows]
+        meetings_map = {
+            m.id: m for m in db.query(models.Meeting).filter(models.Meeting.id.in_(meeting_ids)).all()
+        } if meeting_ids else {}
+        meetings = [
+            {"id": mm.meeting_id, "member_id": mm.id, "title": meetings_map.get(mm.meeting_id, None) and meetings_map[mm.meeting_id].title or "", "role": mm.role}
+            for mm in member_rows
+        ]
         result.append({
             "id": u.id,
             "name": u.name,
-            "email": u.employee_id,
-            "employee_id": u.employee_id,
+            "email": u.email,
             "department": u.department,
-            "organization": u.organization,
+            "company": u.company,
             "position": u.position,
             "meetings": meetings,
         })
@@ -397,15 +398,15 @@ def update_user(
         raise HTTPException(status_code=404, detail="Not found")
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
-    if "organization" in data:
-        user.organization = data["organization"] if data["organization"] else None
+    if "company" in data:
+        user.company = data["company"] if data["company"] else None
     if "department" in data:
         user.department = data["department"] if data["department"] else None
     if "position" in data:
         user.position = data["position"] if data["position"] else None
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "name": user.name, "organization": user.organization, "department": user.department, "position": user.position}
+    return {"id": user.id, "name": user.name, "company": user.company, "department": user.department, "position": user.position}
 
 
 @router.get("/meetings/{meeting_id}/my-role")
@@ -452,13 +453,11 @@ async def ai_delete_meeting(
     if session_ids:
         db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
         db.query(models.ChatMessage).filter(
-            models.ChatMessage.context_type == "room",
-            models.ChatMessage.context_id.in_(session_ids),
+            models.ChatMessage.session_id.in_(session_ids),
         ).delete(synchronize_session=False)
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Todo).filter(models.Todo.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Notification).filter(models.Notification.ref_id == meeting_id, models.Notification.ref_type == "meeting").delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
@@ -467,90 +466,3 @@ async def ai_delete_meeting(
 
     background_tasks.add_task(neo4j_delete_meeting, meeting_id=meeting_id)
     return {"ok": True}
-
-@ai_router.get("/meetings/{meeting_id}/todos", response_model=List[schemas.TodoOut])
-def get_todos(
-    meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return db.query(models.Todo).filter(
-        models.Todo.meeting_id == meeting_id
-    ).order_by(models.Todo.created_at).all()
-
-
-@ai_router.post("/meetings/{meeting_id}/todos", response_model=schemas.TodoOut)
-async def create_todo(
-    meeting_id: int,
-    body: schemas.TodoCreate,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
-
-    # ── 1. todos 테이블 저장 ──────────────────────────────────────────
-    todo = models.Todo(
-        meeting_id=meeting_id,
-        user_id=current_user.id,
-        agenda_id=None,  # will be set after agenda insert
-        content=body.content,
-        assignee_name=body.assignee_name,
-        assignee_dept=body.assignee_dept,
-        priority=body.priority or "normal",
-        status=body.status or "pending",
-        source_type=body.source_type or "meeting_minutes",
-        due_date=body.due_date,
-    )
-    db.add(todo)
-
-    # ── 2. agendas 테이블에도 저장 (그래프·아카이브 표시용) ──────────
-    agenda = models.Agenda(
-        meeting_id=meeting_id,
-        title=body.content,
-        content=body.content,
-        order_index=0,
-        status="ON_HOLD",
-        created_at=datetime.utcnow(),
-    )
-    db.add(agenda)
-    db.commit()
-    db.refresh(todo)
-    db.refresh(agenda)
-
-    # agenda_id 역참조 저장
-    todo.agenda_id = agenda.id
-    db.commit()
-    db.refresh(todo)
-
-    # ── 3. Neo4j Agenda 노드 동기화 (실패해도 무시) ──────────────────
-    try:
-        # Meeting 노드가 없으면 먼저 생성
-        await sync_meeting(
-            meeting.id, meeting.title,
-            meeting.purpose, str(meeting.status or "ACTIVE"), str(meeting.type or ""),
-        )
-        # agendas.id 기준 Agenda 노드 생성 → Meeting {pg_id} 연결
-        await sync_agenda(agenda.id, meeting_id, body.content, body.content, "ON_HOLD")
-
-        # MeetingGroup 노드에도 연결
-        mg_id = body.mg_id or ""
-        if mg_id:
-            await run_cypher(
-                "MATCH (ag:Agenda {pg_id: $pg_id}), (mg:MeetingGroup {id: $mg_id}) "
-                "MERGE (ag)-[:`관할`]->(mg)",
-                {"pg_id": agenda.id, "mg_id": mg_id},
-            )
-
-        # 담당자 Person 연결 (이름 기준)
-        if body.assignee_name:
-            await run_cypher(
-                "MATCH (ag:Agenda {pg_id: $pg_id}), (p:Person {name: $name}) "
-                "MERGE (p)-[:`담당`]->(ag)",
-                {"pg_id": agenda.id, "name": body.assignee_name},
-            )
-    except Exception as e:
-        _logger.warning(f"[Todo] Neo4j 동기화 실패 (agenda_id={agenda.id}): {e}")
-
-    return todo
