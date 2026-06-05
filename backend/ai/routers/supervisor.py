@@ -477,7 +477,7 @@ async def supervisor_chat(
             from langchain_openai import ChatOpenAI as _SupLLM
             from langchain_core.messages import SystemMessage as _SupSys, HumanMessage as _SupHuman
             _sup_llm = _SupLLM(
-                model=os.environ["OPENAI_MODEL", "gpt-4o-mini"],
+                model=os.environ["OPENAI_MODEL"],
                 temperature=0.2,
                 api_key=os.environ["OPENAI_API_KEY"],
                 streaming=True,
@@ -1141,7 +1141,7 @@ async def archive_extract_agendas(
     from langchain_core.messages import SystemMessage, HumanMessage
 
     llm = ChatOpenAI(
-        model=_os.environ["OPENAI_MODEL", "gpt-4o-mini"],
+        model=_os.environ["OPENAI_MODEL"],
         temperature=0.15,
         api_key=_os.environ["OPENAI_API_KEY"],
     )
@@ -1248,7 +1248,7 @@ async def archive_chat_extract(
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
     llm = ChatOpenAI(
-        model=_os.environ["OPENAI_MODEL", "gpt-4o-mini"],
+        model=_os.environ["OPENAI_MODEL"],
         temperature=0.15,
         api_key=_os.environ["OPENAI_API_KEY"],
     )
@@ -1359,7 +1359,7 @@ async def analyze_archive_file(
     ) if knowledge_items else "없음"
 
     llm = ChatOpenAI(
-        model=os.environ["OPENAI_MODEL", "gpt-4o-mini"],
+        model=os.environ["OPENAI_MODEL"],
         temperature=0.2,
         api_key=os.environ["OPENAI_API_KEY"],
     )
