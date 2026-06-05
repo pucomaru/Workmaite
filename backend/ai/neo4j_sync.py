@@ -39,7 +39,7 @@ from neo4j_client import run_cypher
 # (file_embedder → neo4j_sync → file_embedder 순환 참조 차단)
 EMBED_DIM = 1536  # text-embedding-3-small 고정값
 
-UPLOAD_DIR = os.environ["UPLOAD_DIR"]
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
 logger = logging.getLogger(__name__)
 
 # ─── VectorIndex 초기화 ───────────────────────────────────────────────────────
@@ -87,19 +87,7 @@ async def _embed(text: str) -> list[float] | None:
 
 def _log_failure(operation: str, entity_type: str, entity_id: str,
                  error: Exception, payload: dict | None = None) -> None:
-    db: DBSession = SessionLocal()
-    try:
-        import models
-        db.add(models.AgentLog(
-            operation=operation, entity_type=entity_type, entity_id=str(entity_id),
-            status="failed", error_detail=str(error)[:2000],
-            payload=payload, retry_count=0,
-        ))
-        db.commit()
-    except Exception as e2:
-        logger.error(f"[Neo4jSync] agent_logs 기록 실패: {e2}")
-    finally:
-        db.close()
+    logger.warning(f"[Neo4jSync] 동기화 실패: {operation}/{entity_type}/{entity_id} — {error}")
 
 
 # ─── MeetingGroup 동기화 (PG Meeting) ────────────────────────────────────────
@@ -107,7 +95,7 @@ def _log_failure(operation: str, entity_type: str, entity_id: str,
 async def sync_meeting_group(
     meeting_id: int,
     title: str,
-    purpose: str | None = None,
+    description: str | None = None,
     status: str = "ACTIVE",
     meeting_type: str | None = None,
     start_date: str | None = None,
@@ -117,18 +105,18 @@ async def sync_meeting_group(
     mg_id = f"mg-{meeting_id}"
     cypher = """
     MERGE (mg:MeetingGroup {id: $id})
-    SET mg.pg_id      = $pg_id,
-        mg.title      = $title,
-        mg.purpose    = $purpose,
-        mg.status     = $status,
-        mg.type       = $type,
-        mg.start_date = $start_date,
-        mg.created_at = $created_at,
-        mg.updated_at = $updated_at
+    SET mg.pg_id        = $pg_id,
+        mg.title        = $title,
+        mg.description  = $description,
+        mg.status       = $status,
+        mg.type         = $type,
+        mg.start_date   = $start_date,
+        mg.created_at   = $created_at,
+        mg.updated_at   = $updated_at
     """
     params = {
         "id": mg_id, "pg_id": meeting_id,
-        "title": title, "purpose": purpose or "",
+        "title": title, "description": description or "",
         "status": status, "type": meeting_type or "",
         "start_date": start_date or "",
         "created_at": created_at or "",
@@ -810,109 +798,8 @@ async def delete_agenda(agenda_id: int) -> None:
 # ─── 실패 재시도 ──────────────────────────────────────────────────────────────
 
 async def retry_failed_syncs(max_retries: int = 3) -> dict:
-    """agent_logs status='failed' 항목을 재시도합니다."""
-    db: DBSession = SessionLocal()
-    result = {"retried": 0, "recovered": 0, "skipped": 0}
-    try:
-        import models
-        pending = (
-            db.query(models.AgentLog)
-            .filter(models.AgentLog.status == "failed",
-                    models.AgentLog.retry_count < max_retries)
-            .order_by(models.AgentLog.created_at)
-            .limit(200).all()
-        )
-
-        chunk_logs  = [l for l in pending if l.operation == "sync_file_chunk"]
-        entity_logs = [l for l in pending if l.operation != "sync_file_chunk"]
-
-        _RETRY_MAP = {
-            "sync_meeting_group": lambda p: sync_meeting_group(
-                int(p.get("pg_id", 0)), p.get("title", ""), p.get("purpose"),
-                p.get("status", "ACTIVE"), p.get("type")),
-            "sync_meeting": lambda p: sync_meeting_group(
-                int(p.get("pg_id", 0)), p.get("title", ""), p.get("purpose"),
-                p.get("status", "ACTIVE"), p.get("type")),
-            "sync_session": lambda p: sync_session(
-                int(p.get("pg_id", 0)), int(p.get("meeting_id", 0)), p.get("title", ""),
-                p.get("status", "SCHEDULED"), p.get("scheduled_at")),
-            "sync_user": lambda p: sync_user(
-                int(p.get("pg_id", 0)), p.get("name", ""), p.get("email", ""),
-                p.get("department"), p.get("company"), p.get("position")),
-            "sync_agenda": lambda p: sync_agenda(
-                int(p.get("pg_id", 0)), int(p.get("meeting_id", 0)), p.get("title", ""),
-                p.get("content"), p.get("status", "ON_HOLD"), int(p.get("order_index", 0)),
-                p.get("assignee_id")),
-            "sync_minutes": lambda p: sync_minutes(
-                int(p.get("pg_id", 0)), int(p.get("session_id", 0)),
-                p.get("content_summary"),
-                json.loads(p["decisions"]) if isinstance(p.get("decisions"), str) else p.get("decisions")),
-            "sync_meeting_member": lambda p: sync_meeting_member(
-                int(p.get("meeting_id", 0)), int(p.get("user_id", 0)), p.get("role", "MEMBER")),
-            "sync_ai_judgment": lambda p: sync_ai_judgment(
-                int(p.get("pg_id", 0)), int(p.get("meeting_id", 0)),
-                p.get("summary", ""), p.get("recommendation"), p.get("confidence")),
-            "sync_human_judgment": lambda p: sync_human_judgment(
-                int(p.get("pg_id", 0)), p.get("meeting_id"),
-                p.get("judgment", "PENDING"), p.get("reason")),
-            "sync_meeting_relation": lambda p: sync_meeting_relation(
-                int(p.get("src_id", 0)), int(p.get("tgt_id", 0)), p.get("relation_type", "RELATED_TO")),
-        }
-
-        for log in entity_logs:
-            result["retried"] += 1
-            payload = log.payload or {}
-            fn = _RETRY_MAP.get(log.operation)
-            if not fn:
-                result["skipped"] += 1; continue
-            try:
-                await fn(payload)
-                log.status = "recovered"; log.updated_at = datetime.utcnow()
-                db.commit(); result["recovered"] += 1
-            except Exception as e:
-                logger.error(f"[Retry] {log.id} 실패: {e}")
-                log.retry_count += 1; log.updated_at = datetime.utcnow()
-                db.commit()
-
-        # 파일 청크 재시도
-        if chunk_logs:
-            from file_embedder import process_and_embed_file
-
-            def _src(l: Any) -> str:
-                return (l.payload or {}).get("source_file", "")
-
-            for source_file, grp in groupby(sorted(chunk_logs, key=_src), key=_src):
-                group = list(grp)
-                result["retried"] += len(group)
-                if not source_file:
-                    result["skipped"] += len(group); continue
-
-                from r2_storage import is_r2_url as _is_r2
-                file_path = source_file if _is_r2(source_file) else os.path.join(UPLOAD_DIR, source_file)
-                if not _is_r2(source_file) and not os.path.exists(file_path):
-                    for l in group: l.retry_count = max_retries; l.updated_at = datetime.utcnow()
-                    db.commit(); result["skipped"] += len(group); continue
-
-                first = group[0].payload or {}
-                try:
-                    er = await process_and_embed_file(
-                        file_path=file_path, file_name=source_file,
-                        meeting_id=int(first["meeting_id"]) if first.get("meeting_id") else None,
-                        session_id=int(first["session_id"]) if first.get("session_id") else None,
-                    )
-                    if er["embedded"] > 0:
-                        for l in group: l.status = "recovered"; l.updated_at = datetime.utcnow()
-                        result["recovered"] += len(group)
-                    else:
-                        for l in group: l.retry_count += 1; l.updated_at = datetime.utcnow()
-                    db.commit()
-                except Exception as e:
-                    logger.error(f"[Retry] 파일 재임베딩 실패 {source_file}: {e}")
-                    for l in group: l.retry_count += 1; l.updated_at = datetime.utcnow()
-                    db.commit()
-    finally:
-        db.close()
-    return result
+    """Neo4j 동기화 재시도 (현재 미구현 — 항상 0건 반환)."""
+    return {"retried": 0, "recovered": 0, "skipped": 0}
 
 
 # ─── PostgreSQL 전체 동기화 ───────────────────────────────────────────────────
@@ -939,7 +826,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
         # MeetingGroup
         for m in db.query(models.Meeting).all():
             await sync_meeting_group(
-                m.id, m.title, m.purpose,
+                m.id, m.title, m.description,
                 str(m.status or "ACTIVE"), str(m.type or ""),
                 m.start_date.isoformat() if m.start_date else None,
                 m.created_at.isoformat() if m.created_at else None,
@@ -964,8 +851,8 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
         # Agendas
         for ag in db.query(models.Agenda).all():
             await sync_agenda(
-                ag.id, ag.meeting_id, ag.title, ag.content,
-                str(ag.status or "ON_HOLD"), ag.order_index or 0, ag.assignee_id,
+                ag.id, ag.meeting_id, ag.title, None,
+                str(ag.status or "ON_HOLD"), 0, ag.assignee_id,
                 created_at=ag.created_at.isoformat() if ag.created_at else None,
             )
             stats["agendas"] += 1
@@ -975,35 +862,15 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             await sync_minutes(mn.id, mn.session_id, mn.content_summary)
             stats["minutes"] += 1
 
-        # MeetingRelations
-        if hasattr(models, "MeetingRelation"):
-            for mr in db.query(models.MeetingRelation).all():
-                await sync_meeting_relation(mr.source_meeting_id, mr.target_meeting_id, mr.relation_type)
-                stats["meeting_relations"] += 1
-
-        # AIJudgment ← Report (layer 결과 있는 것만)
-        if hasattr(models, "Report"):
-            for rp in db.query(models.Report).filter(models.Report.score.isnot(None)).all():
-                summary = rp.layer3_result or rp.layer2_result or rp.layer1_result or ""
-                if summary:
-                    await sync_ai_judgment(
-                        rp.id, rp.meeting_id,
-                        summary=summary[:500],
-                        confidence=round((rp.score or 0) / 100, 2),
-                        version=rp.version or 1,
-                        generated_at=rp.created_at.isoformat() if rp.created_at else None,
-                    )
-                    stats["ai_judgments"] += 1
-
         # HumanJudgment ← HitlReview (검토 완료된 것만)
         if hasattr(models, "HitlReview"):
             for hr in db.query(models.HitlReview).filter(
-                models.HitlReview.status.in_(["APPROVED", "REJECTED", "REVISED"])
+                models.HitlReview.status.in_(["approved", "rejected"])
             ).all():
                 await sync_human_judgment(
-                    hr.id, hr.meeting_id,
+                    hr.id, None,
                     judgment=hr.status,
-                    reason=hr.comment,
+                    reason=hr.review_comment,
                     reviewer_id=hr.reviewer_id,
                     judged_at=hr.reviewed_at.isoformat() if hr.reviewed_at else None,
                 )
