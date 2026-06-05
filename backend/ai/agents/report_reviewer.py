@@ -4,8 +4,10 @@ from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
@@ -77,30 +79,72 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
     return result
 
 
-# ── Chat graph nodes ───────────────────────────────────────────────────────
-async def _chat_node(state: ReportState) -> dict:
-    system = _build_system_with_knowledge(state.get("knowledge", []), state.get("meeting_context", ""))
-    reports_info = state.get("reports_info", [])
+# ── Tools ──────────────────────────────────────────────────────────────────────
+@tool
+async def search_review_references(query: str) -> str:
+    """보고서 검토에 필요한 관련 회의록·판단 기준을 검색합니다.
 
-    system_msgs: List[BaseMessage] = [SystemMessage(content=system)]
+    Args:
+        query: 검색할 내용 (보고서 주제, 검토 기준 등)
+    """
+    from agents.knowledge_manager import search_knowledge
+    minutes_results = await search_knowledge(query, node_type="Minutes", k=3)
+    judgment_results = await search_knowledge(query, node_type="AIJudgment", k=2)
+    all_results = minutes_results + judgment_results
+    if not all_results:
+        return "관련 참고 자료를 찾지 못했습니다."
+    lines = [
+        f"[{r.get('title','?')}]: {r.get('content','')[:200]}"
+        for r in all_results[:4]
+    ]
+    return "\n\n".join(lines)
+
+
+@tool
+async def get_report_agenda_context(query: str) -> str:
+    """보고서와 관련된 안건 컨텍스트를 검색합니다.
+
+    Args:
+        query: 검색할 내용 (보고서의 주제나 관련 안건)
+    """
+    from agents.knowledge_manager import search_knowledge
+    results = await search_knowledge(query, node_type="Agenda", k=3)
+    if not results:
+        return "관련 안건을 찾지 못했습니다."
+    lines = [
+        f"[안건] {r.get('title','?')}: {r.get('content','')[:150]}"
+        for r in results[:3]
+    ]
+    return "\n".join(lines)
+
+
+REPORT_TOOLS: list = [search_review_references, get_report_agenda_context]
+
+
+# ── Chat graph ─────────────────────────────────────────────────────────────────
+def _report_state_modifier(state: ReportState) -> List[BaseMessage]:
+    """런타임 컨텍스트(knowledge·meeting_context·reports_info)를 시스템 메시지로 주입합니다."""
+    system = _build_system_with_knowledge(state.get("knowledge", []), state.get("meeting_context", ""))
+    messages = list(state.get("messages", []))
+    reports_info = state.get("reports_info", [])
     if reports_info:
         reports_text = "\n\n".join([
             f"[{r.get('presenter_name','')} - {r.get('file_name','')}]\n상태: {r.get('status','')}"
             for r in reports_info
         ])
-        system_msgs += [HumanMessage(content=f"다음 보고서 목록을 검토해주세요:\n{reports_text}")]
-
-    llm = _make_llm()
-    response = await llm.ainvoke(system_msgs + state["messages"])
-    return {"messages": [response]}
+        messages = [HumanMessage(content=f"다음 보고서 목록을 검토해주세요:\n{reports_text}")] + messages
+    return [SystemMessage(content=system)] + messages
 
 
 def _build_chat_graph():
-    builder = StateGraph(ReportState)
-    builder.add_node("chat", _chat_node)
-    builder.add_edge(START, "chat")
-    builder.add_edge("chat", END)
-    return builder.compile()
+    """LangGraph create_react_agent — REPORT_TOOLS를 도구로 사용하는 에이전트 그래프."""
+    return create_react_agent(
+        model=_make_llm(),
+        tools=REPORT_TOOLS,
+        state_schema=ReportState,
+        state_modifier=_report_state_modifier,
+    )
+
 
 _chat_graph = _build_chat_graph()
 

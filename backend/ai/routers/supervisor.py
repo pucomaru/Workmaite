@@ -2,7 +2,7 @@ import json
 import re
 import os
 from collections import defaultdict
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -19,7 +19,7 @@ from agents import (
     report_reviewer as report_agent,
 )
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 
 from .prompts import (
@@ -68,6 +68,30 @@ class _ConfirmRelationshipsReq(BaseModel):
     proposal_id: str
     approved: bool
     reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
+
+
+# ─── Supervisor 라우팅 — LLM이 직접 에이전트를 선택 ───────────────────────────
+class _RoutingDecision(BaseModel):
+    """LLM 슈퍼바이저의 라우팅 결정 스트럭처드 아웃풋."""
+    thinking: str = Field(
+        description="어떤 에이전트가 적합한지 한국어로 1~2문장 근거 설명"
+    )
+    agent: Literal["task_agent", "minutes_agent", "report_agent", "supervisor_direct"] = Field(
+        description="위임할 에이전트 이름"
+    )
+
+
+_ROUTING_SYSTEM = """\
+당신은 워크메이트 AI 슈퍼바이저입니다.
+사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하세요.
+
+에이전트 선택 기준:
+- task_agent: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비
+- minutes_agent: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
+- report_agent: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
+- supervisor_direct: 현황 조회, 구성원 안내, 회의체 현황, 인사·일반 질문
+
+thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -274,34 +298,21 @@ async def supervisor_chat(
     db: Session = Depends(get_db),
 ):
     msg = data.message or ""
-    msg_lower = msg.lower()
 
-    _SUPERVISOR_DIRECT_KWS = [
-        '현황', '멤버', '목록', '조회', '구성원', '상태', '진행 상황', '진척도',
-        '어떻게 됐', '어떻게 되', '얼마나', '몇 개', '몇개', '회의 목록', '누가 있',
-        '안녕', '반가워', '도와줘', '뭘 할 수 있', '뭐 할 수 있', '누구야', '뭐야',
-    ]
-    _is_supervisor_direct = any(kw in msg_lower for kw in _SUPERVISOR_DIRECT_KWS)
-
-    if any(kw in msg_lower for kw in [
-        '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
-        '추출', '과제 목록', '안건', '다음 회의'
-    ]):
-        _route = 'task_agent'
-    elif any(kw in msg_lower for kw in [
-        '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성', '속기', '회의 보조'
-    ]):
-        _route = 'minutes_agent'
-    elif any(kw in msg_lower for kw in [
-        '검토', '보고서', '자료 분석', '리뷰', 'review', '문제점', '개선',
-        '첨삭', '피드백', '문서 검토', '파일 검토'
-    ]):
-        _route = 'report_agent'
-    else:
-        _route = 'report_agent'
-
-    if _is_supervisor_direct:
-        _route = 'supervisor_direct'
+    # ── LLM 라우팅 결정 ─────────────────────────────────────────────────────────
+    # 키워드 매칭 대신 LLM이 사용자 의도를 파악해 적합한 에이전트를 선택합니다.
+    _route = "supervisor_direct"
+    _route_thinking = "질문을 분석 중입니다."
+    try:
+        _routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
+        _decision = await _routing_llm.ainvoke([
+            SystemMessage(content=_ROUTING_SYSTEM),
+            HumanMessage(content=msg[:500]),
+        ])
+        _route = _decision.agent
+        _route_thinking = _decision.thinking
+    except Exception as _re:
+        logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {_re}")
 
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
@@ -340,7 +351,8 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
-            yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
+            yield f"data: [PLANNING] 🧠 {_route_thinking}\n\n"
+            yield f"data: [PLANNING] ➜ {_route} 에이전트에 위임\n\n"
 
             if data.meeting_id:
                 mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
