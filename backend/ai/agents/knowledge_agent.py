@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -90,7 +90,7 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
     return await embeddings.aembed_query(text[:2000])
 
 

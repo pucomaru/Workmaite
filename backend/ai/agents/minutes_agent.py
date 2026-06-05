@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
     return ChatOpenAI(
         model=MODEL,
         temperature=temperature,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
     )
 
@@ -54,7 +54,7 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
     """Neo4j 내장 벡터 검색으로 유사 회의록을 조회합니다 (Cypher 기반)."""
     try:
         from neo4j_client import run_cypher
-        embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+        embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
         query_vec = await embeddings.aembed_query(text[:500])
 
         rows = await run_cypher(

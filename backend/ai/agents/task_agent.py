@@ -12,7 +12,7 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ["OPENAI_MODEL"]
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ async def _chat_node(state: TaskState) -> dict:
     system = _build_system_prompt(
         state.get("knowledge"), state.get("departments"), state.get("meeting_context", "")
     )
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"), streaming=True)
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True)
     response = await llm.ainvoke([SystemMessage(content=system)] + state["messages"])
     return {"messages": [response]}
 
@@ -139,7 +139,7 @@ async def _extract_propose_node(state: ExtractionState) -> dict:
     if state.get("departments"):
         dept_hint = f"\n담당 부서는 반드시 다음 목록에서 선택하세요: {', '.join(state['departments'])}"
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
         SystemMessage(content=_build_system_prompt(state.get("knowledge"), state.get("departments"))),
         HumanMessage(content=(
@@ -232,7 +232,7 @@ async def extract_agendas_and_todos(
 
 {content[:8000]}"""
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
         SystemMessage(content=_build_system_prompt(knowledge, departments)),
         HumanMessage(content=prompt),

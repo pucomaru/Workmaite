@@ -5,7 +5,7 @@ on:
     branches:
       - develop          # develop 브랜치 push 시 실행
     paths:
-      - 'ai/**'          # ai 폴더 변경 시에만 실행
+      - 'backend/ai/**'  # backend/ai 폴더 변경 시에만 실행
 
 jobs:
   build-and-push:

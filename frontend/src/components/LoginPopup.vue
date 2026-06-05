@@ -31,8 +31,7 @@ async function submit() {
   <div class="popup-inner">
     <!-- Header -->
     <div class="popup-header">
-      <div class="popup-logo">W</div>
-      <h5 class="fw-bold mb-0" style="color:var(--primary)">workma<span style="color:#f59e0b">!</span>te</h5>
+      <img src="../assets/workmaite-logo-black.svg" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <h4 class="fw-bold mb-1 mt-3" style="color:var(--primary)">로그인</h4>
@@ -96,14 +95,10 @@ async function submit() {
   padding: 32px 36px 28px;
 }
 .popup-header {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center;
 }
-.popup-logo {
-  width: 36px; height: 36px;
-  background: var(--primary);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; font-weight: 900; color: #f59e0b;
+.popup-logo-img {
+  height: 30px; width: auto; display: block; margin: 0 auto;
 }
 .input-group-text { border-color: var(--border); }
 .form-control { border-color: var(--border); font-size: 13px; }

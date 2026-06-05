@@ -273,6 +273,13 @@ async def supervisor_chat(
     is_admin = (
         current_user.position in ("대표", "CEO", "임원")
     )
+    # PostgreSQL 기반 소속 meeting_id 집합 (Neo4j 불일치 시 폴백)
+    pg_meeting_ids: set[int] = {
+        row.meeting_id
+        for row in db.query(models.MeetingMember.meeting_id)
+            .filter(models.MeetingMember.user_id == current_user.id)
+            .all()
+    }
     try:
         p_rows = await run_cypher(
             "MATCH (p:Person) WHERE p.email = $email OR p.name = $name "
@@ -282,21 +289,14 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
-                "RETURN mg.id AS mg_id",
+                "MATCH (p:Person {id: $pid})-[:`간사`|`구성원`]->(mg) "
+                "WHERE mg:MeetingGroup OR mg:Meeting "
+                "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id",
                 {"pid": user_person_id},
             )
             user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
     except Exception:
-        pass  # Neo4j 불가 → SQLite fallback 사용
-
-    # SQLite 기반 소속 meeting_id 집합 (fallback)
-    user_sqlite_meeting_ids: set[int] = {
-        mm.meeting_id
-        for mm in db.query(models.MeetingMember).filter(
-            models.MeetingMember.user_id == current_user.id
-        ).all()
-    }
+        pass  # Neo4j 연결 실패 시 PostgreSQL 폴백으로만 확인
 
     async def stream():
         # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
@@ -307,15 +307,15 @@ async def supervisor_chat(
             yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
 
             if data.meeting_id:
-                mid_neo4j = f"mg-{int(data.meeting_id):03d}"
+                mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
 
-                # ── 접근 권한 확인 ──
+                # ── 접근 권한 확인 (Neo4j 우선, PostgreSQL 폴백) ──
                 if not is_admin:
                     if user_allowed_mg_ids:
                         has_access = mid_neo4j in user_allowed_mg_ids
                     else:
-                        # Neo4j 조회 실패 시 SQLite 멤버십으로 확인
-                        has_access = data.meeting_id in user_sqlite_meeting_ids
+                        # Neo4j 데이터 없을 때 PostgreSQL 소속 여부로 판단
+                        has_access = int(data.meeting_id) in pg_meeting_ids
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
@@ -499,9 +499,9 @@ async def supervisor_chat(
             from langchain_openai import ChatOpenAI as _SupLLM
             from langchain_core.messages import SystemMessage as _SupSys, HumanMessage as _SupHuman
             _sup_llm = _SupLLM(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                model=os.environ["OPENAI_MODEL"],
                 temperature=0.2,
-                api_key=os.getenv("OPENAI_API_KEY"),
+                api_key=os.environ["OPENAI_API_KEY"],
                 streaming=True,
             )
             _sup_collected: list[str] = []
@@ -1190,9 +1190,9 @@ async def archive_extract_agendas(
     from langchain_core.messages import SystemMessage, HumanMessage
 
     llm = ChatOpenAI(
-        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=_os.environ["OPENAI_MODEL"],
         temperature=0.15,
-        api_key=_os.getenv("OPENAI_API_KEY"),
+        api_key=_os.environ["OPENAI_API_KEY"],
     )
 
     dept_list = ", ".join(departments) if departments else "정보 없음"
@@ -1297,9 +1297,9 @@ async def archive_chat_extract(
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
     llm = ChatOpenAI(
-        model=_os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=_os.environ["OPENAI_MODEL"],
         temperature=0.15,
-        api_key=_os.getenv("OPENAI_API_KEY"),
+        api_key=_os.environ["OPENAI_API_KEY"],
     )
 
     current_agendas_text = _json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
@@ -1408,9 +1408,9 @@ async def analyze_archive_file(
     ) if knowledge_items else "없음"
 
     llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=os.environ["OPENAI_MODEL"],
         temperature=0.2,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=os.environ["OPENAI_API_KEY"],
     )
 
     system_msg = SystemMessage(content="""당신은 조직 온톨로지·지식 관리 전문 AI입니다.
