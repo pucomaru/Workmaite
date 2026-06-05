@@ -68,8 +68,7 @@ async function submit() {
 
     <!-- Header -->
     <div class="popup-header mb-3">
-      <div class="popup-logo">W</div>
-      <h5 class="fw-bold mb-0" style="color:var(--primary)">workma<span style="color:#f59e0b">!</span>te</h5>
+      <img src="../assets/workmaite-logo.svg" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <!-- ── STEP 1: 회원가입 폼 ──────────────────────── -->
@@ -223,13 +222,9 @@ async function submit() {
 
 <style scoped>
 .popup-inner { padding: 32px 36px 28px; }
-.popup-header { display: flex; align-items: center; gap: 10px; }
-.popup-logo {
-  width: 36px; height: 36px;
-  background: var(--primary);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; font-weight: 900; color: #f59e0b;
+.popup-header { display: flex; align-items: center; }
+.popup-logo-img {
+  height: 40px; width: auto;
 }
 .input-group-text { border-color: var(--border); }
 .form-control { border-color: var(--border); font-size: 13px; }

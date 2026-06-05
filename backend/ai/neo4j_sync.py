@@ -225,7 +225,7 @@ async def sync_user(
     FOREACH (_ IN CASE WHEN $dept <> '' THEN [1] ELSE [] END |
         MERGE (d:Department {name: $dept})
         ON CREATE SET d.id = $dept_id, d.created_at = $updated_at
-        MERGE (p)-[:소속부서]->(d)
+        MERGE (p)-[:소속]->(d)
     )
     WITH p
     // Organization 연결
