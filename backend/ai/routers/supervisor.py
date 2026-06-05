@@ -654,7 +654,7 @@ async def report_chat(
 @router.post("/knowledge/store-minutes", summary="Knowledge Store Minutes")
 async def knowledge_store_minutes(
     data: _StoreMinutesReq,
-    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """승인된 회의록을 Neo4j Knowledge Base의 Minutes 노드에 저장."""
     try:
@@ -673,7 +673,7 @@ async def knowledge_store_minutes(
 @router.post("/knowledge/store-task", summary="Knowledge Store Task")
 async def knowledge_store_task(
     data: _StoreTaskReq,
-    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """승인된 과제를 Neo4j Knowledge Base의 KnowledgeTask 노드에 저장."""
     try:
@@ -692,7 +692,7 @@ async def knowledge_store_task(
 @router.post("/knowledge/store-report", summary="Knowledge Store Report")
 async def knowledge_store_report(
     data: _StoreReportReq,
-    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """승인된 보고서 검토 결과를 Neo4j AIJudgment 노드에 저장."""
     try:
@@ -711,7 +711,7 @@ async def knowledge_store_report(
 @router.post("/knowledge/propose-relationships", summary="Knowledge Propose Relationships")
 async def knowledge_propose_relationships(
     data: _ProposeRelationshipsReq,
-    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """Neo4j 노드 간 연결 관계를 LLM이 분석해 제안. proposal_id를 반환."""
     try:
@@ -727,7 +727,7 @@ async def knowledge_propose_relationships(
 @router.post("/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships")
 async def knowledge_confirm_relationships(
     data: _ConfirmRelationshipsReq,
-    #_: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
     """제안된 관계를 승인(Neo4j MERGE) 또는 반려(HumanJudgment 노드 생성)."""
     try:
