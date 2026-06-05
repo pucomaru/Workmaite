@@ -1,22 +1,37 @@
+import json
+import re
 import os
+from collections import defaultdict
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import SystemMessage, HumanMessage
 from sqlalchemy.orm import Session
+
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
 from agents import task_agent, knowledge_agent, minutes_agent, report_agent
-from datetime import datetime
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
 from pydantic import BaseModel
+import logging
+
+from .prompts import (
+    make_llm,
+    SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
+    extract_agendas_system,
+    chat_extract_system,
+    ANALYZE_FILE_SYSTEM, analyze_file_human,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
 
 
-# ─── Knowledge Base 요청 스키마 ───────────────────────────────
+# ─── Knowledge Base 요청 스키마 ───────────────────────────────────────────────
 class _StoreMinutesReq(BaseModel):
-    """POST /knowledge/store-minutes 요청 바디."""
     meeting_id: int
     session_id: Optional[int] = None
     title: str
@@ -24,7 +39,6 @@ class _StoreMinutesReq(BaseModel):
 
 
 class _StoreTaskReq(BaseModel):
-    """POST /knowledge/store-task 요청 바디."""
     content: str
     department: Optional[str] = None
     due_date: Optional[str] = None
@@ -32,7 +46,6 @@ class _StoreTaskReq(BaseModel):
 
 
 class _StoreReportReq(BaseModel):
-    """POST /knowledge/store-report 요청 바디."""
     title: str
     content: str
     meeting_id: Optional[int] = None
@@ -52,8 +65,8 @@ class _ConfirmRelationshipsReq(BaseModel):
     reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
 
 
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
-    """AI 에이전트 활동을 agent_logs에 기록."""
     if not meeting_id:
         return
     db = SessionLocal()
@@ -73,13 +86,7 @@ def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
         db.close()
 
 
-def _get_knowledge(db: Session, meeting_id: int = None) -> List[dict]:
-    """지식 베이스 조회 — 현재 비활성화 (TacitKnowledge 테이블 제거됨)."""
-    return []
-
-
 def _get_meeting_context(db: Session, meeting_id: int) -> str:
-    """회의체 기본 맥락 문자열 구성 — Supervisor 패턴으로 서브에이전트에 주입."""
     if not meeting_id:
         return ""
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
@@ -104,47 +111,111 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     return "\n".join(lines)
 
 
-# ─── Minutes Agent ───────────────────────────────
-@router.post("/minutes/sessions-chat", summary="Minutes Sessions Chat")
+def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
+    from sqlalchemy.orm import joinedload
+    members = (
+        db.query(models.MeetingMember)
+        .options(joinedload(models.MeetingMember.user))
+        .filter(models.MeetingMember.meeting_id == meeting_id)
+        .all()
+    )
+    return list({m.user.department for m in members if m.user and m.user.department})
+
+
+def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
+    sessions = db.query(models.MeetingSession).filter(
+        models.MeetingSession.meeting_id == meeting_id,
+        models.MeetingSession.status == "ENDED",
+    ).all()
+    return [s.minutes.content_summary for s in sessions if s.minutes and s.minutes.content_summary]
+
+
+def _extract_text_from_file(raw: bytes, filename: str) -> str:
+    import io
+
+    if filename.endswith(".pdf"):
+        try:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                pages = [p.extract_text() or "" for p in pdf.pages]
+            return "\n".join(pages).strip()
+        except Exception as e:
+            return f"[PDF 추출 오류: {e}]"
+
+    if filename.endswith(".docx"):
+        try:
+            import docx as _docx
+            doc = _docx.Document(io.BytesIO(raw))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            return f"[DOCX 추출 오류: {e}]"
+
+    if filename.endswith((".xlsx", ".xls")):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+            lines = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    row_text = "\t".join(str(c) if c is not None else "" for c in row)
+                    if row_text.strip():
+                        lines.append(row_text)
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[XLSX 추출 오류: {e}]"
+
+    for enc in ("utf-8", "euc-kr", "cp949"):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            pass
+    return ""
+
+
+def _parse_json_response(raw_text: str) -> dict:
+    """LLM 응답에서 JSON 블록 추출 및 파싱."""
+    match = re.search(r'\{[\s\S]*\}', raw_text)
+    if match:
+        json_str = match.group(0)
+        open_count = json_str.count('{') - json_str.count('}')
+        if open_count > 0:
+            json_str += '}' * open_count
+        return json.loads(json_str)
+    return json.loads(raw_text)
+
+
+# ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
+@router.post("/minutes/sessions-chat")
 async def ara_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """회의 탭 전용: 전체/특정 세션 요약·질의응답."""
-    # 전체 세션 목록 + 회의록 수집
     sessions = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.meeting_id == data.meeting_id)
         .order_by(models.MeetingSession.id.desc())
         .all()
     )
-    sessions_info = []
-    for s in sessions:
-        info = {
+    sessions_info = [
+        {
             "id": s.id,
             "title": s.title,
             "status": s.status,
             "summary": s.minutes.content_summary if s.minutes and s.minutes.content_summary else None,
         }
-        sessions_info.append(info)
-
+        for s in sessions
+    ]
     agendas = db.query(models.Agenda).filter(
         models.Agenda.meeting_id == data.meeting_id,
     ).all()
-    agendas_list = [{"content": a.title, "status": a.status} for a in agendas]
 
-    # 세션 요약들을 previous_minutes 형태로 전달
-    session_summaries = [
-        f"[{s['title']}] {s['summary']}"
-        for s in sessions_info if s["summary"]
-    ]
-    # 세션 목록 컨텍스트 (요약 없는 것 포함)
     session_list_text = "\n".join([
-        f"- {s['title']} ({s['status']})" + (f": 요약 있음" if s['summary'] else ": 요약 없음")
+        f"- {s['title']} ({s['status']})" + (": 요약 있음" if s['summary'] else ": 요약 없음")
         for s in sessions_info
     ])
     extra_context = f"[회의 세션 목록]\n{session_list_text}"
+    session_summaries = [f"[{s['title']}] {s['summary']}" for s in sessions_info if s["summary"]]
     if session_summaries:
         extra_context += f"\n\n[세션별 회의록]\n" + "\n\n".join(session_summaries)
 
@@ -153,7 +224,7 @@ async def ara_sessions_chat(
             message=data.message,
             chat_history=data.chat_history or [],
             previous_minutes=[extra_context],
-            current_agendas=agendas_list,
+            current_agendas=[{"content": a.title, "status": a.status} for a in agendas],
             meeting_context=_get_meeting_context(db, data.meeting_id),
         ):
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
@@ -162,28 +233,25 @@ async def ara_sessions_chat(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/minutes/generate-minutes", summary="Minutes Generate Minutes")
+@router.post("/minutes/generate-minutes")
 async def ara_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """STT 대화 기록을 받아 구조화된 회의록을 스트리밍으로 생성."""
     from datetime import datetime
     transcript = data.message or ""
     meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
-    agenda_text = "\n".join([f"- {a.content} ({a.status})" for a in agendas]) or "없음"
+    agenda_text = "\n".join([f"- {a.title} ({a.status})" for a in agendas]) or "없음"
     now = datetime.now().strftime("%Y년 %m월 %d일")
-
-    # Knowledge Base 저장 시 사용할 회의록 타이틀 구성
     meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first() if data.meeting_id else None
     minutes_title = f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"
 
     async def stream():
         async for chunk in minutes_agent.generate_minutes_stream(
             transcript, meeting_context, agenda_text, now,
-            meeting_id=data.meeting_id,  # 스트리밍 완료 후 Knowledge Base 자동 저장용
+            meeting_id=data.meeting_id,
             title=minutes_title,
         ):
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
@@ -192,31 +260,7 @@ async def ara_generate_minutes(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── Report Agent ───────────────────────────────
-@router.post("/report/status", summary="Report Status")
-async def report_status(
-    data: schemas.ReportStatusRequest,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting_status = _build_meeting_status(db, data.meeting_id)
-    knowledge = _get_knowledge(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "회의 현황 분석 요청", "")
-
-    async def stream():
-        async for chunk in report_agent.status_stream(
-            meeting_status=meeting_status,
-            user_role=data.user_role,
-            active_knowledge=knowledge,
-            user_name=current_user.name,
-        ):
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
-
-
+# ─── Supervisor Chat ──────────────────────────────────────────────────────────
 @router.post("/supervisor/chat")
 async def supervisor_chat(
     data: schemas.AgentChatRequest,
@@ -224,29 +268,23 @@ async def supervisor_chat(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """워크메이트 Supervisor — 사용자 메시지를 분석해 적절한 서브에이전트에 투명하게 위임."""
     msg = data.message or ""
     msg_lower = msg.lower()
 
-    # 1단계 — B 유형 질문 감지 (기존 라우팅 앞에 추가): 현황 조회/인사/일반 질문
     _SUPERVISOR_DIRECT_KWS = [
-        # 현황/조회 관련 키워드
         '현황', '멤버', '목록', '조회', '구성원', '상태', '진행 상황', '진척도',
         '어떻게 됐', '어떻게 되', '얼마나', '몇 개', '몇개', '회의 목록', '누가 있',
-        # 인사 및 일반 질문 키워드
         '안녕', '반가워', '도와줘', '뭘 할 수 있', '뭐 할 수 있', '누구야', '뭐야',
     ]
     _is_supervisor_direct = any(kw in msg_lower for kw in _SUPERVISOR_DIRECT_KWS)
 
-    # ── 인텐트 분류 (키워드 기반, 추후 LLM 분류로 교체 가능) ──────────────
     if any(kw in msg_lower for kw in [
         '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
         '추출', '과제 목록', '안건', '다음 회의'
     ]):
         _route = 'task_agent'
     elif any(kw in msg_lower for kw in [
-        '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성',
-        '속기', '회의 보조'
+        '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성', '속기', '회의 보조'
     ]):
         _route = 'minutes_agent'
     elif any(kw in msg_lower for kw in [
@@ -257,23 +295,17 @@ async def supervisor_chat(
     else:
         _route = 'report_agent'
 
-    # B 유형이면 기존 라우팅 결과를 Supervisor 직접 처리로 덮어씀
     if _is_supervisor_direct:
         _route = 'supervisor_direct'
 
-    knowledge = _get_knowledge(db, data.meeting_id)
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
         "Supervisor 대화", f'"{msg[:80]}"'
     )
 
-    # ── 현재 사용자 접근 권한 범위 사전 확인 ────────────────────────────
     user_person_id: str | None = None
     user_allowed_mg_ids: set[str] = set()
-    is_admin = (
-        current_user.position in ("대표", "CEO", "임원")
-    )
-    # PostgreSQL 기반 소속 meeting_id 집합 (Neo4j 불일치 시 폴백)
+    is_admin = current_user.position in ("대표", "CEO", "임원")
     pg_meeting_ids: set[int] = {
         row.meeting_id
         for row in db.query(models.MeetingMember.meeting_id)
@@ -296,64 +328,49 @@ async def supervisor_chat(
             )
             user_allowed_mg_ids = {r["mg_id"] for r in mg_access_rows}
     except Exception:
-        pass  # Neo4j 연결 실패 시 PostgreSQL 폴백으로만 확인
+        pass
 
     async def stream():
-        # ── Neo4j 사고 과정 스트리밍 ────────────────────────────────────
         neo4j_ctx = {}
         neo4j_ctx_str = ""
-        hl_candidates: list[str] = []  # AI 답변과 대조할 그래프 노드 레이블 후보
+        hl_candidates: list[str] = []
         try:
             yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
 
             if data.meeting_id:
                 mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
 
-                # ── 접근 권한 확인 (Neo4j 우선, PostgreSQL 폴백) ──
                 if not is_admin:
-                    if user_allowed_mg_ids:
-                        has_access = mid_neo4j in user_allowed_mg_ids
-                    else:
-                        # Neo4j 데이터 없을 때 PostgreSQL 소속 여부로 판단
-                        has_access = int(data.meeting_id) in pg_meeting_ids
+                    has_access = (
+                        mid_neo4j in user_allowed_mg_ids if user_allowed_mg_ids
+                        else int(data.meeting_id) in pg_meeting_ids
+                    )
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
                         yield "data: [DONE]\n\n"
                         return
 
-                yield f"data: [PLANNING] 회의체 데이터 검색 중...\n\n"
+                yield "data: [PLANNING] 회의체 데이터 검색 중...\n\n"
                 neo4j_ctx = await get_meeting_graph_context(data.meeting_id)
 
                 if neo4j_ctx.get("meeting", {}).get("title"):
-                    mg_title = neo4j_ctx["meeting"]["title"]
-                    yield f"data: [PLANNING] [{mg_title}] 회의체 정보 확인\n\n"
-
+                    yield f"data: [PLANNING] [{neo4j_ctx['meeting']['title']}] 회의체 정보 확인\n\n"
                 if neo4j_ctx.get("agendas"):
-                    count = len(neo4j_ctx["agendas"])
-                    yield f"data: [PLANNING] 아젠다 {count}건 분석\n\n"
-
-                if neo4j_ctx.get("decisions"):
-                    count = len(neo4j_ctx["decisions"])
-                    yield f"data: [PLANNING] 의사결정 사항 {count}건 확인\n\n"
+                    yield f"data: [PLANNING] 아젠다 {len(neo4j_ctx['agendas'])}건 분석\n\n"
 
                 neo4j_ctx_str = graph_context_to_str(neo4j_ctx)
 
-                # HL 후보 수집: 회의체/아젠다/세션/의사결정 레이블
-                if neo4j_ctx.get("meeting", {}).get("title"):
-                    hl_candidates.append(neo4j_ctx["meeting"]["title"])
                 for ag in neo4j_ctx.get("agendas", []):
                     if ag.get("title"): hl_candidates.append(ag["title"])
                 for s in neo4j_ctx.get("recent_sessions", []):
                     if s.get("title"): hl_candidates.append(s["title"])
-                for dec in neo4j_ctx.get("decisions", []):
-                    c = dec.get("content", "")
-                    if c: hl_candidates.append(c[:30])
+                if neo4j_ctx.get("meeting", {}).get("title"):
+                    hl_candidates.append(neo4j_ctx["meeting"]["title"])
             else:
                 yield f"data: [PLANNING] {current_user.name}님의 업무 지식 그래프 탐색 중\n\n"
                 try:
                     if user_person_id:
-                        # 현재 사용자의 소속 회의체만 조회
                         person_rows = await run_cypher(
                             "MATCH (p:Person {id: $pid})-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
                             "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
@@ -368,15 +385,11 @@ async def supervisor_chat(
                         person_rows = []
                     if person_rows:
                         yield f"data: [PLANNING] 구성원 소속 회의체 {len(person_rows)}건 확인\n\n"
-                        lines = []
-                        from collections import defaultdict
                         pm: dict = defaultdict(list)
                         for row in person_rows:
                             pm[row.get("person", "?")].append(row.get("meeting", "?"))
-                        for person, mtgs in pm.items():
-                            lines.append(f"- {person}: {', '.join(mtgs)}")
+                        lines = [f"- {person}: {', '.join(mtgs)}" for person, mtgs in pm.items()]
                         neo4j_ctx_str = "[구성원 소속 회의체]\n" + "\n".join(lines)
-                        # HL 후보: 소속 회의체 이름
                         for row in person_rows:
                             t = row.get("meeting", "")
                             if t and t not in hl_candidates:
@@ -391,10 +404,9 @@ async def supervisor_chat(
                     pass
 
             yield f"data: [PLANNING] {_route} 에이전트에 위임 — 응답 생성 중...\n\n"
-        except Exception as e:
-            yield f"data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
+        except Exception:
+            yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
 
-        # ── 서브에이전트 스트리밍 ────────────────────────────────────────
         _user_scope_header = (
             f"[현재 사용자] {current_user.name}"
             + (f" / {current_user.position}" if current_user.position else "")
@@ -404,306 +416,481 @@ async def supervisor_chat(
         )
 
         def _enrich(base_ctx: str) -> str:
-            """사용자 범위 헤더 + SQLite 컨텍스트 + Neo4j 그래프 컨텍스트를 합칩니다."""
             parts = [_user_scope_header, base_ctx]
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
-        # ── Supervisor 직접 처리 (B 유형: 현황 조회/인사/일반 질문) ──────────
+        # ── B 유형: 현황 조회 / 인사 / 일반 질문 ───────────────────────────
         if _route == 'supervisor_direct':
-            yield f"data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+            yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
 
-            # 2단계: Knowledge Base 벡터 검색 — 회의록/과제/보고서 유사 문서 조회
             _kb_results: list[dict] = []
             try:
-                # 회의록 벡터 검색 (상위 3건)
-                _minutes_hits = await knowledge_agent.search_knowledge(msg, node_type="Minutes", k=3)
-                for _r in _minutes_hits:
-                    if _r.get("title") or _r.get("content"):
-                        _kb_results.append({
-                            "type": "회의록",
-                            "title": _r.get("title", "회의록"),
-                            "content": _r.get("content", "")[:400],
-                        })
-                # 과제(Agenda) 벡터 검색 (상위 3건) — PM 스키마 노드명
-                _task_hits = await knowledge_agent.search_knowledge(msg, node_type="Agenda", k=3)
-                for _r in _task_hits:
-                    if _r.get("content"):
-                        _kb_results.append({
-                            "type": "과제",
-                            "title": _r.get("title") or _r.get("content", "")[:40],
-                            "content": _r.get("content", "")[:300],
-                        })
-                # AI 보고서 검토(AIJudgment) 벡터 검색 (상위 2건) — PM 스키마 노드명
-                _report_hits = await knowledge_agent.search_knowledge(msg, node_type="AIJudgment", k=2)
-                for _r in _report_hits:
-                    if _r.get("title") or _r.get("content"):
-                        _kb_results.append({
-                            "type": "보고서",
-                            "title": _r.get("title", "보고서"),
-                            "content": _r.get("content", "")[:300],
-                        })
+                for hits, type_label, k in [
+                    (await knowledge_agent.search_knowledge(msg, node_type="Minutes", k=5), "회의록", 5),
+                ]:
+                    for r in hits:
+                        if r.get("title") or r.get("content"):
+                            _kb_results.append({
+                                "type": type_label,
+                                "title": r.get("title") or r.get("content", "")[:40],
+                                "content": r.get("content", "")[:300],
+                            })
             except Exception:
-                pass  # Neo4j 조회 실패 시 컨텍스트 없이 응답 생성 (fallback)
+                pass
 
             if _kb_results:
                 yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+            yield "data: [PLANNING] 답변 생성 중...\n\n"
 
-            yield f"data: [PLANNING] 답변 생성 중...\n\n"
-
-            # 3단계: 사용자 친화적 응답 생성용 컨텍스트 구성
-            # 기술적 노드/관계 정보 제외, 문서명/회의록명 기반 근거만 포함
             _ctx_parts: list[str] = [_user_scope_header]
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
             if _kb_results:
-                _kb_lines = [
-                    f"- [{_r['type']}] {_r['title']}: {_r['content'][:200]}"
-                    for _r in _kb_results
-                ]
-                _ctx_parts.append("[Knowledge Base 관련 자료]\n" + "\n".join(_kb_lines))
-            _full_ctx = "\n\n".join(_ctx_parts)
+                _ctx_parts.append(
+                    "[Knowledge Base 관련 자료]\n" + "\n".join(
+                        f"- [{r['type']}] {r['title']}: {r['content'][:200]}" for r in _kb_results
+                    )
+                )
 
-            # Supervisor 시스템 프롬프트 — 사용자 친화적 근거 포함 답변 형식 지시
-            _sup_system = """당신은 회의체 운영 AI 워크메이트입니다.
-제공된 컨텍스트를 바탕으로 사용자 질문에 명확하고 친근하게 답변하세요.
-
-[답변 원칙]
-1. 기술적 용어 절대 사용 금지 — "KnowledgeTask 노드", "MERGE", "pg_id", "neo4j" 등 금지
-2. 참조 근거는 사용자가 이해할 수 있는 언어로 표시
-   좋은 예: "3차 SUPEX 회의록 기준", "운영팀 제출 보고서"
-   나쁜 예: "KnowledgeTask 노드 5개", "Meeting {pg_id:3}"
-3. 현황이 있으면 📊, 참고 자료가 있으면 📎, 확인 필요 사항은 ⚠️ 이모지 사용
-4. 관련 자료가 없으면 "아직 등록된 자료가 없습니다"라고 솔직하게 안내
-5. 정중하고 친근한 비서 말투 ('~드립니다', '~하세요')
-6. 이상/누락 발견 시 자연스러운 언어로 추가 여부를 제안
-
-[응답 형식 — 해당 섹션만 포함]
-📊 현황
-[자연스러운 현황 설명]
-
-📎 참고한 자료 (자료 있을 시)
-- [문서명/회의록명/보고서명]
-
-⚠️ 확인이 필요해요 (이상/누락 발견 시)
-[자연스러운 설명 및 추가 여부 제안]"""
-
-            _sup_human = f"""사용자 질문: {msg}
-
-{_full_ctx}
-
-위 정보를 바탕으로 답변해 주세요."""
-
-            # LLM 스트리밍 응답 생성 및 전달
-            from langchain_openai import ChatOpenAI as _SupLLM
-            from langchain_core.messages import SystemMessage as _SupSys, HumanMessage as _SupHuman
-            _sup_llm = _SupLLM(
-                model=os.environ["OPENAI_MODEL"],
-                temperature=0.2,
-                api_key=os.environ["OPENAI_API_KEY"],
-                streaming=True,
-            )
+            _sup_llm = make_llm(temperature=0.2, streaming=True)
             _sup_collected: list[str] = []
-            async for _sup_chunk in _sup_llm.astream([_SupSys(content=_sup_system), _SupHuman(content=_sup_human)]):
-                if _sup_chunk.content:
-                    _sup_collected.append(_sup_chunk.content)
-                    yield f"data: {_sup_chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+            async for chunk in _sup_llm.astream([
+                SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM),
+                HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts))),
+            ]):
+                if chunk.content:
+                    _sup_collected.append(chunk.content)
+                    yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
 
-            # 4단계: 답변에 언급된 회의체/자료명 하이라이팅 처리
             if hl_candidates and _sup_collected:
-                import json as _sup_json
                 _sup_full = "".join(_sup_collected)
-                _sup_matched = [c for c in hl_candidates if c and c in _sup_full]
-                if _sup_matched:
-                    yield f"data: [HIGHLIGHT] {_sup_json.dumps(_sup_matched, ensure_ascii=False)}\n\n"
+                matched = [c for c in hl_candidates if c and c in _sup_full]
+                if matched:
+                    yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
 
             yield "data: [DONE]\n\n"
-            return  # 기존 서브에이전트 라우팅 건너뜀 (B 유형 처리 완료)
+            return
 
-        # ── 기존 서브에이전트 라우팅 (A 유형, 변경 금지) ───────────────────
+        # ── A 유형: 서브에이전트 라우팅 ─────────────────────────────────────
         if _route == 'task_agent':
-            previous_minutes = _get_previous_minutes(db, data.meeting_id)
-            departments = _get_member_departments(db, data.meeting_id)
-            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
             gen = task_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
-                previous_minutes=previous_minutes, knowledge=knowledge,
-                departments=departments, meeting_context=meeting_context,
+                previous_minutes=_get_previous_minutes(db, data.meeting_id),
+                knowledge=[],
+                departments=_get_member_departments(db, data.meeting_id),
+                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
         elif _route == 'minutes_agent':
-            previous_minutes = _get_previous_minutes(db, data.meeting_id)
             agendas = db.query(models.Agenda).filter(
                 models.Agenda.meeting_id == data.meeting_id,
                 models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
             ).all()
             gen = minutes_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
-                previous_minutes=previous_minutes,
+                previous_minutes=_get_previous_minutes(db, data.meeting_id),
                 current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        elif _route == 'report_agent':
-            meeting_context = _enrich(_get_meeting_context(db, data.meeting_id))
+        else:  # report_agent
             gen = report_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
-                knowledge=knowledge, meeting_context=meeting_context,
-            )
-        else:  # default → report_agent (meeting status)
-            member = db.query(models.MeetingMember).filter(
-                models.MeetingMember.meeting_id == data.meeting_id,
-                models.MeetingMember.user_id == current_user.id,
-            ).first()
-            meeting_status = await _build_neo4j_meeting_status(
-                person_id=None if is_admin else user_person_id
-            )
-            if not meeting_status:
-                meeting_status = _build_all_meetings_status(
-                    db, user_id=None if is_admin else current_user.id
-                )
-            if data.meeting_id and neo4j_ctx:
-                meeting_status["current_meeting"] = neo4j_ctx
-            elif data.meeting_id:
-                meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
-            gen = report_agent.status_stream(
-                meeting_status=meeting_status,
-                user_role=member.role if member else "presenter",
-                active_knowledge=knowledge,
-                chat_history=data.chat_history,
-                message=msg,
-                user_name=current_user.name,
+                knowledge=[],
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        # ── LLM 응답 스트리밍 + 전체 텍스트 수집 ──────────────────────
+
         collected: list[str] = []
         async for chunk in gen:
             collected.append(chunk)
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
 
-        # ── AI 기반 하이라이팅: 답변에 실제 언급된 그래프 노드 추출 ──────
         if hl_candidates and collected:
-            import json as _json
             full_text = "".join(collected)
             matched = [c for c in hl_candidates if c and c in full_text]
             if matched:
-                yield f"data: [HIGHLIGHT] {_json.dumps(matched, ensure_ascii=False)}\n\n"
+                yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/report/chat", summary="Report Chat")
-async def report_chat(
-    data: schemas.AgentChatRequest,
+# ─── Supervisor 그래프 분석 ───────────────────────────────────────────────────
+_AGENDA_LINK_THRESHOLD = 0.80
+_DOC_LINK_THRESHOLD    = 0.78
+
+
+async def _count_nodes(label: str) -> int:
+    try:
+        r = await run_cypher(f"MATCH (n:{label}) RETURN count(n) AS c")
+        return r[0]["c"] if r else 0
+    except Exception:
+        return 0
+
+
+async def _analyze_graph() -> dict:
+    semantic   = {"agenda_links": [], "doc_links": []}
+    structural = {"session_chains": [], "lifecycle_gaps": [], "ownerless_agendas": [],
+                  "orphan_documents": [], "minuteless_sessions": [], "isolated_persons": []}
+    membership = {"issues": []}
+
+    counts = {
+        "agendas":   await _count_nodes("Agenda"),
+        "documents": await _count_nodes("Document"),
+        "meetings":  await _count_nodes("MeetingGroup"),
+        "persons":   await _count_nodes("Person"),
+        "sessions":  await _count_nodes("Session"),
+    }
+
+    # ⓪ 세션 시간순 체인 점검
+    try:
+        ch_rows = await run_cypher(
+            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup) "
+            "WITH mg, s ORDER BY CASE WHEN coalesce(s.scheduled_at,'')='' THEN 1 ELSE 0 END, "
+            "     s.scheduled_at, s.id "
+            "WITH mg, collect({id:s.id, title:coalesce(s.title,'')}) AS sess "
+            "WHERE size(sess) >= 2 "
+            "RETURN mg.id AS mg_id, coalesce(mg.title,'') AS mg_title, sess AS ordered"
+        )
+        existing_followups: set = set()
+        try:
+            ex_rows = await run_cypher(
+                "MATCH (a:Session)-[:`후속`]->(b:Session) RETURN a.id AS a, b.id AS b"
+            )
+            existing_followups = {(r.get("a"), r.get("b")) for r in ex_rows}
+        except Exception:
+            pass
+        for r in ch_rows:
+            ordered = r.get("ordered", []) or []
+            missing = [
+                {"a_id": ordered[i].get("id"), "a_title": ordered[i].get("title", ""),
+                 "b_id": ordered[i+1].get("id"), "b_title": ordered[i+1].get("title", "")}
+                for i in range(len(ordered) - 1)
+                if (ordered[i].get("id"), ordered[i+1].get("id")) not in existing_followups
+            ]
+            if missing:
+                structural["session_chains"].append(
+                    {"mg": r.get("mg_title", ""), "count": len(ordered), "missing": missing}
+                )
+    except Exception as e:
+        logger.warning(f"[Supervisor] 세션 체인 분석 실패(무시): {e}")
+
+    # ⓪-b 회의 생명주기 공백
+    try:
+        lg_rows = await run_cypher(
+            "MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`소속`|`개최`]->(mg:MeetingGroup) "
+            "WHERE coalesce(mn.content_summary,'') <> '' AND NOT (mn)-[:`도출`]->(:Agenda) "
+            "OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg) "
+            "WITH mn, s, mg, collect(DISTINCT {id: coalesce(ag.id, toString(ag.pg_id)), title: ag.title})[..25] AS ags "
+            "RETURN mn.pg_id AS minutes_pg_id, s.id AS session_id, coalesce(s.title,'') AS session_title, "
+            "       coalesce(mg.title,'') AS mg, left(mn.content_summary, 1800) AS content, ags AS agendas "
+            "LIMIT 10"
+        )
+        for r in lg_rows:
+            structural["lifecycle_gaps"].append({
+                "minutes_pg_id": r.get("minutes_pg_id"),
+                "session_id": r.get("session_id"),
+                "session_title": r.get("session_title", ""),
+                "mg": r.get("mg", ""),
+                "content": r.get("content", ""),
+                "agendas": [a for a in (r.get("agendas") or []) if a.get("title")],
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 생명주기 공백 분석 실패(무시): {e}")
+
+    # ① 잠재 연결 — 회의 간 의미 유사 안건쌍
+    try:
+        rows = await run_cypher(
+            "MATCH (a:Agenda)-[:`관할`]->(mga:MeetingGroup) "
+            "WHERE a.embedding IS NOT NULL "
+            "CALL db.index.vector.queryNodes('agendaEmbedding', 5, a.embedding) "
+            "YIELD node, score "
+            "WITH a, mga, node, score "
+            "WHERE a.id < node.id AND score >= $th AND node.embedding IS NOT NULL "
+            "MATCH (node)-[:`관할`]->(mgb:MeetingGroup) "
+            "WHERE mgb.id <> mga.id AND NOT (a)-[:`관련`]-(node) "
+            "RETURN a.id AS a_id, a.title AS a_title, mga.title AS a_mg, "
+            "       node.id AS b_id, node.title AS b_title, mgb.title AS b_mg, score "
+            "ORDER BY score DESC LIMIT 30",
+            {"th": _AGENDA_LINK_THRESHOLD},
+        )
+        for r in rows:
+            semantic["agenda_links"].append({
+                "a_id": r.get("a_id"), "a_title": r.get("a_title", "?"), "a_mg": r.get("a_mg", ""),
+                "b_id": r.get("b_id"), "b_title": r.get("b_title", "?"), "b_mg": r.get("b_mg", ""),
+                "score": float(r.get("score") or 0.0),
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 안건 유사도 분석 실패(무시): {e}")
+
+    # ① 잠재 연결 — 문서 ↔ 안건 적합도
+    try:
+        rows = await run_cypher(
+            "MATCH (d:Document) WHERE d.embedding IS NOT NULL "
+            "CALL db.index.vector.queryNodes('agendaEmbedding', 3, d.embedding) "
+            "YIELD node, score "
+            "WITH d, node, score "
+            "WHERE score >= $th AND NOT (d)-[:`첨부`]->(node) AND NOT (d)-[:`참조`]->(node) "
+            "RETURN d.id AS doc_id, coalesce(d.title, d.file_name) AS doc_title, "
+            "       node.id AS ag_id, node.title AS ag_title, score "
+            "ORDER BY score DESC LIMIT 30",
+            {"th": _DOC_LINK_THRESHOLD},
+        )
+        for r in rows:
+            semantic["doc_links"].append({
+                "doc_id": r.get("doc_id"), "doc_title": r.get("doc_title", "?"),
+                "ag_id": r.get("ag_id"), "ag_title": r.get("ag_title", "?"),
+                "score": float(r.get("score") or 0.0),
+            })
+    except Exception as e:
+        logger.warning(f"[Supervisor] 문서-안건 적합도 분석 실패(무시): {e}")
+
+    # ② 구조 공백 — 담당자 없는 안건
+    try:
+        rows = await run_cypher(
+            "MATCH (ag:Agenda) WHERE NOT (:Person)-[:`담당`]->(ag) "
+            "OPTIONAL MATCH (ag)-[:`관할`]->(mg:MeetingGroup) "
+            "RETURN ag.id AS id, ag.title AS title, mg.title AS mg LIMIT 50"
+        )
+        structural["ownerless_agendas"] = [
+            {"id": r.get("id"), "title": r.get("title", "?"), "mg": r.get("mg", "")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 고아 문서
+    try:
+        rows = await run_cypher(
+            "MATCH (d:Document) WHERE NOT (d)-[:`첨부`]->() "
+            "RETURN d.id AS id, coalesce(d.title, d.file_name) AS title, "
+            "       (d.embedding IS NOT NULL) AS emb LIMIT 50"
+        )
+        structural["orphan_documents"] = [
+            {"id": r.get("id"), "title": r.get("title", "?"), "emb": bool(r.get("emb"))} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 회의록 없는 세션
+    try:
+        rows = await run_cypher(
+            "MATCH (s:Session) WHERE NOT (:Minutes)-[:`생성`]->(s) "
+            "OPTIONAL MATCH (s)-[:`소속`]->(mg:MeetingGroup) "
+            "RETURN s.id AS id, mg.title AS mg LIMIT 50"
+        )
+        structural["minuteless_sessions"] = [
+            {"id": r.get("id"), "mg": r.get("mg", "")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ② 구조 공백 — 고립 인물
+    try:
+        rows = await run_cypher(
+            "MATCH (p:Person) WHERE NOT (p)--() RETURN p.id AS id, p.name AS name LIMIT 50"
+        )
+        structural["isolated_persons"] = [
+            {"id": r.get("id"), "name": r.get("name", "?")} for r in rows
+        ]
+    except Exception:
+        pass
+
+    # ③ 소속 무결성
+    for cypher, issue_type, extra_key in [
+        (
+            "MATCH (p:Person)-[:`소속부서`]->(d:Department) "
+            "RETURN p.id AS pid, p.name AS name, d.name AS dept",
+            "legacy", None,
+        ),
+        (
+            "MATCH (p:Person) WHERE coalesce(p.department, '') <> '' "
+            "  AND NOT (p)-[:`소속`]->(:Department) "
+            "RETURN p.id AS pid, p.name AS name, p.department AS dept",
+            "missing", None,
+        ),
+        (
+            "MATCH (p:Person)-[:`소속`]->(d:Department) "
+            "WHERE coalesce(p.department, '') <> '' AND d.name <> p.department "
+            "RETURN p.id AS pid, p.name AS name, p.department AS dept, d.name AS wrong",
+            "mismatch", "wrong",
+        ),
+    ]:
+        try:
+            for r in await run_cypher(cypher):
+                entry = {"type": issue_type, "pid": r.get("pid"), "person": r.get("name", "?"),
+                         "dept": r.get("dept", ""), "current": r.get(extra_key) if extra_key else None}
+                membership["issues"].append(entry)
+        except Exception:
+            pass
+
+    return {"semantic": semantic, "structural": structural,
+            "membership": membership, "counts": counts}
+
+
+@router.post("/knowledge/analyze-relationships")
+async def analyze_relationships_stream(
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    member = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == data.meeting_id,
-        models.MeetingMember.user_id == current_user.id,
-    ).first()
-    user_role = member.role if member else "presenter"
-
-    # 현재 사용자 접근 범위 확인
-    is_admin_report = (
-        current_user.position in ("대표", "CEO", "임원")
+    background_tasks.add_task(
+        _log_activity, 0, "워크메이트[supervisor→knowledge]",
+        "관계도 분석·재구성", f"요청자: {current_user.name}"
     )
-    report_person_id: str | None = None
-    try:
-        p_rows = await run_cypher(
-            "MATCH (p:Person) WHERE p.email = $email OR p.name = $name RETURN p.id AS pid LIMIT 1",
-            {"email": current_user.email or "", "name": current_user.name or ""},
-        )
-        if p_rows:
-            report_person_id = p_rows[0]["pid"]
-    except Exception:
-        pass
-
-    meeting_status = await _build_neo4j_meeting_status(
-        person_id=None if is_admin_report else report_person_id
-    )
-    if not meeting_status:
-        meeting_status = _build_all_meetings_status(
-            db, user_id=None if is_admin_report else current_user.id
-        )
-    if data.meeting_id:
-        meeting_status["current_meeting"] = _build_meeting_status(db, data.meeting_id)
-    knowledge = _get_knowledge(db, data.meeting_id)
-    meeting_context = _get_meeting_context(db, data.meeting_id)
-    background_tasks.add_task(_log_activity, data.meeting_id, "report_agent", "현황 대화", f'"{ data.message[:80] }"')
 
     async def stream():
-        async for chunk in report_agent.status_stream(
-            meeting_status=meeting_status,
-            user_role=user_role,
-            active_knowledge=knowledge,
-            chat_history=data.chat_history,
-            message=data.message,
-            user_name=current_user.name,
-            meeting_context=meeting_context,
-        ):
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        try:
+            yield "data: [PLANNING] Supervisor: 지식 그래프 전체 스캔 — 안건·문서·세션·구성원\n\n"
+
+            analysis = await _analyze_graph()
+            sem    = analysis["semantic"]
+            struct = analysis["structural"]
+            member = analysis["membership"]
+            counts = analysis["counts"]
+
+            chains    = struct.get("session_chains", [])
+            lifecycle = struct.get("lifecycle_gaps", [])
+            ag_links  = sem["agenda_links"]
+            doc_links = sem["doc_links"]
+            ownerless = struct["ownerless_agendas"]
+            orphans   = struct["orphan_documents"]
+            embeddable_orphans = [d for d in orphans if d.get("emb")]
+            missing_seq = sum(len(c["missing"]) for c in chains)
+            lifecycle_n = len(lifecycle)
+
+            yield (f"data: [PLANNING] Supervisor: 회의 {counts['meetings']}개 · 세션 "
+                   f"{counts['sessions']}개 · 안건 {counts['agendas']}개 · 문서 {counts['documents']}개 인덱싱 완료\n\n")
+
+            yield "data: [PLANNING] Supervisor: 회의 흐름 점검 — 같은 회의체의 세션이 시간순으로 이어졌는지 확인 중...\n\n"
+            if missing_seq:
+                _c = chains[0]
+                yield (f"data: [PLANNING] Supervisor: 끊긴 회의 흐름 {missing_seq}건 발견 "
+                       f"— 예: '{_c['mg']}'의 {_c['count']}개 회차가 미연결\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의 흐름은 모두 시간순으로 연결돼 있음\n\n"
+
+            yield "data: [PLANNING] Supervisor: 회의 생명주기 점검 — 회의록이 안건과 이어졌는지 확인 중...\n\n"
+            if lifecycle_n:
+                yield (f"data: [PLANNING] Supervisor: 회의록→안건 미연결 {lifecycle_n}건 발견 "
+                       f"— 회의에서 다뤄진 안건이 아직 연결되지 않음\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의록과 안건 흐름이 정상\n\n"
+
+            yield "data: [PLANNING] Supervisor: 안건 임베딩으로 회의 간 의미 유사도 분석 중...\n\n"
+            if ag_links:
+                _top = ag_links[0]
+                yield (f"data: [PLANNING] Supervisor: 회의 간 잠재 연관 안건 {len(ag_links)}쌍 발굴 "
+                       f"— 최고 유사도 {_top['score']*100:.0f}% ([{_top['a_title']}]↔[{_top['b_title']}])\n\n")
+            else:
+                yield "data: [PLANNING] Supervisor: 회의 간 신규 연관 안건 없음\n\n"
+
+            yield "data: [PLANNING] Supervisor: 문서-안건 적합도 분석 — 미연결 참조 탐색 중...\n\n"
+            if doc_links:
+                yield f"data: [PLANNING] Supervisor: 안건과 의미상 맞닿은 미연결 문서 {len(doc_links)}건 발굴\n\n"
+            yield (f"data: [PLANNING] Supervisor: 구조 공백 점검 — 담당자 없는 안건 {len(ownerless)}건 · "
+                   f"고아 문서 {len(orphans)}건\n\n")
+            if member["issues"]:
+                yield f"data: [PLANNING] Supervisor: 소속 무결성 이상 {len(member['issues'])}건 (베이스라인)\n\n"
+
+            actionable = (missing_seq + lifecycle_n + len(ag_links) + len(doc_links) +
+                          len(embeddable_orphans) + len(member["issues"]))
+            if actionable == 0:
+                yield "data: [PLANNING] Supervisor: 신규 연결·보완 대상 없음 — 그래프가 충분히 연결돼 있습니다\n\n"
+                result = {"actions": [], "stats": {"session_links": 0, "lifecycle_links": 0,
+                          "carry_links": 0, "related_agendas": 0, "doc_refs": 0,
+                          "doc_attached": 0, "membership_fixed": 0},
+                          "advisories": {"ownerless_agendas": ownerless,
+                                         "minuteless_sessions": struct["minuteless_sessions"],
+                                         "isolated_persons": struct["isolated_persons"]}}
+            else:
+                yield "data: [PLANNING] KnowledgeAgent에 위임 — 발굴된 연결을 그래프에 반영 시작\n\n"
+                result = await knowledge_agent.reconcile_graph(analysis)
+                stats = result["stats"]
+                for stat_key, label in [
+                    ("session_links", "끊긴 회의 흐름 {}건을 시간순 '후속'으로 연결"),
+                    ("lifecycle_links", "회의록을 관련 안건 {}개와 연결 (회의→회의록→안건)"),
+                    ("carry_links", "미해결 안건 {}건을 다음 회차로 이월 (안건→회의)"),
+                    ("related_agendas", "회의 간 '관련' 지식 링크 {}건 생성"),
+                    ("doc_refs", "문서 '참조' 링크 {}건 생성"),
+                    ("doc_attached", "고아 문서 {}건을 적합 안건에 자동 연결"),
+                    ("membership_fixed", "소속 무결성 {}건 보정"),
+                ]:
+                    if stats.get(stat_key):
+                        yield f"data: [PLANNING] KnowledgeAgent: {label.format(stats[stat_key])}\n\n"
+                yield "data: [PLANNING] KnowledgeAgent: 재구성 근거 리포트 작성 중...\n\n"
+
+            _hl = set()
+            for l in ag_links:
+                _hl.add(l.get("a_title")); _hl.add(l.get("b_title"))
+            for l in doc_links:
+                _hl.add(l.get("ag_title"))
+            for g in lifecycle:
+                _hl.add(g.get("session_title"))
+            for a in result.get("actions", []):
+                if a.get("highlight"):
+                    _hl.add(a["highlight"])
+            _hl.discard(None); _hl.discard("")
+            if _hl:
+                yield f"data: [HIGHLIGHT] {json.dumps(list(_hl), ensure_ascii=False)}\n\n"
+
+            report = {**result, "counts": counts,
+                      "findings": {"session_missing": missing_seq, "session_groups": len(chains),
+                                   "lifecycle_gaps": lifecycle_n,
+                                   "agenda_links": len(ag_links), "doc_links": len(doc_links),
+                                   "ownerless": len(ownerless), "orphans": len(orphans),
+                                   "examples": ag_links[:5], "doc_examples": doc_links[:5],
+                                   "chain_examples": chains[:3]}}
+            async for chunk in knowledge_agent.summarize_relationship_analysis(report):
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+
+        except Exception as e:
+            yield f"data: 관계도 분석 중 오류가 발생했습니다: {str(e)}\n\n"
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── knowledge_agent 엔드포인트 ───────────────────────────────
-@router.post("/knowledge/store-minutes", summary="Knowledge Store Minutes")
+# ─── Knowledge Base 저장 ──────────────────────────────────────────────────────
+@router.post("/knowledge/store-minutes")
 async def knowledge_store_minutes(
     data: _StoreMinutesReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),
 ):
-    """승인된 회의록을 Neo4j Knowledge Base의 Minutes 노드에 저장."""
     try:
-        # knowledge_agent.store_minutes()로 Minutes 노드 생성 및 벡터 임베딩 인덱싱
-        result = await knowledge_agent.store_minutes(
-            title=data.title,
-            content=data.content,
-            meeting_id=data.meeting_id,
-            session_id=data.session_id,
+        return await knowledge_agent.store_minutes(
+            title=data.title, content=data.content,
+            meeting_id=data.meeting_id, session_id=data.session_id,
         )
-        return result
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/store-task", summary="Knowledge Store Task")
+@router.post("/knowledge/store-task")
 async def knowledge_store_task(
     data: _StoreTaskReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),
 ):
-    """승인된 과제를 Neo4j Knowledge Base의 KnowledgeTask 노드에 저장."""
     try:
-        # knowledge_agent.store_task()로 KnowledgeTask 노드 생성 및 부서/회의체 관계 연결
-        result = await knowledge_agent.store_task(
-            content=data.content,
-            department=data.department,
-            due_date=data.due_date,
-            meeting_id=data.meeting_id,
+        return await knowledge_agent.store_task(
+            content=data.content, department=data.department,
+            due_date=data.due_date, meeting_id=data.meeting_id,
         )
-        return result
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/store-report", summary="Knowledge Store Report")
+@router.post("/knowledge/store-report")
 async def knowledge_store_report(
     data: _StoreReportReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    _: models.User = Depends(get_current_user),
 ):
-    """승인된 보고서 검토 결과를 Neo4j AIJudgment 노드에 저장."""
     try:
-        # knowledge_agent.store_report()로 AIJudgment 노드 생성 및 벡터 임베딩 인덱싱
-        result = await knowledge_agent.store_report(
-            title=data.title,
-            content=data.content,
-            meeting_id=data.meeting_id,
-            score=data.score,
+        return await knowledge_agent.store_report(
+            title=data.title, content=data.content,
+            meeting_id=data.meeting_id, score=data.score,
         )
-        return result
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
@@ -741,375 +928,68 @@ async def knowledge_confirm_relationships(
         return {"status": "error", "detail": str(e)}
 
 
-# ─── Helpers ─────────────────────────────────
-def _extract_text_from_file(raw: bytes, filename: str) -> str:
-    """파일 종류에 따라 텍스트 추출."""
-    import io
-
-    # PDF
-    if filename.endswith(".pdf"):
-        try:
-            import pdfplumber
-            with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages]
-            return "\n".join(pages).strip()
-        except Exception as e:
-            return f"[PDF 추출 오류: {e}]"
-
-    # DOCX
-    if filename.endswith(".docx"):
-        try:
-            import docx as _docx
-            doc = _docx.Document(io.BytesIO(raw))
-            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        except Exception as e:
-            return f"[DOCX 추출 오류: {e}]"
-
-    # XLSX
-    if filename.endswith((".xlsx", ".xls")):
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
-            lines = []
-            for ws in wb.worksheets:
-                for row in ws.iter_rows(values_only=True):
-                    row_text = "\t".join(str(c) if c is not None else "" for c in row)
-                    if row_text.strip():
-                        lines.append(row_text)
-            return "\n".join(lines)
-        except Exception as e:
-            return f"[XLSX 추출 오류: {e}]"
-
-    # 텍스트 파일 (txt, csv, md 등)
-    for enc in ("utf-8", "euc-kr", "cp949"):
-        try:
-            return raw.decode(enc)
-        except Exception:
-            pass
-
-    return ""
-
-
-def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
-    from sqlalchemy.orm import joinedload
-    members = (
-        db.query(models.MeetingMember)
-        .options(joinedload(models.MeetingMember.user))
-        .filter(models.MeetingMember.meeting_id == meeting_id)
-        .all()
-    )
-    return list({m.user.department for m in members if m.user and m.user.department})
-
-
-def _save_extracted(db: Session, meeting_id: int, result: dict):
-    import json as _json
-
-    saved_agendas = []
-    existing_count = db.query(models.Agenda).filter(
-        models.Agenda.meeting_id == meeting_id
-    ).count()
-    for idx, a in enumerate(result.get("agendas", [])):
-        raw = a.get("content", "") or a.get("title", "")
-        if not raw.strip():
-            continue
-        agenda = models.Agenda(
-            meeting_id=meeting_id,
-            title=raw[:255],
-        )
-        db.add(agenda)
-        db.flush()
-        saved_agendas.append({"id": agenda.id, "title": agenda.title})
-
-    saved_reviews = []
-
-    db.commit()
-    return saved_agendas, saved_reviews
-
-
-def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
-    sessions = db.query(models.MeetingSession).filter(
-        models.MeetingSession.meeting_id == meeting_id,
-        models.MeetingSession.status == "ENDED",
-    ).all()
-    result = []
-    for s in sessions:
-        if s.minutes and s.minutes.content_summary:
-            result.append(s.minutes.content_summary)
-    return result
-
-
-def _build_meeting_status(db: Session, meeting_id: int) -> dict:
-    # meeting_id가 없으면 전체 회의체·구성원 현황 반환
-    if not meeting_id:
-        return _build_all_meetings_status(db)
-
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).all()
-    reports = db.query(models.Report).filter(models.Report.meeting_id == meeting_id).all()
-    sessions = db.query(models.MeetingSession).filter(
-        models.MeetingSession.meeting_id == meeting_id
-    ).all()
-    members = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id
-    ).all()
-    pending_reviews = 0
-
-    agenda_list = [
-        {"content": a.title, "status": a.status}
-        for a in agendas
-    ]
-    member_list = []
-    for m in members:
-        u = db.query(models.User).filter(models.User.id == m.user_id).first()
-        if u:
-            member_list.append({"name": u.name, "department": u.department or "", "role": m.role})
-
-    return {
-        "meeting": {"title": meeting.title if meeting else "", "purpose": meeting.description if meeting else ""},
-        "members": member_list,
-        "agendas": {
-            "total": len(agendas),
-            "in_progress": sum(1 for a in agendas if a.status == "IN_PROGRESS"),
-            "done": sum(1 for a in agendas if a.status == "DONE"),
-            "items": agenda_list,
-        },
-        "reports": {
-            "total": len(reports),
-            "submitted": sum(1 for r in reports if r.status == "SUBMITTED"),
-            "approved": sum(1 for r in reports if r.status == "APPROVED"),
-            "rejected": sum(1 for r in reports if r.status == "REJECTED"),
-        },
-        "pending_reviews": pending_reviews,
-        "sessions": {"total": len(sessions), "ended": sum(1 for s in sessions if s.status == "ENDED")},
-    }
-
-
-def _build_all_meetings_status(db: Session, user_id: int | None = None) -> dict:
-    """SQLite 기반 조직 현황. user_id가 주어지면 해당 사용자의 소속 회의체만 반환."""
-    if user_id is not None:
-        allowed_ids = {
-            mm.meeting_id
-            for mm in db.query(models.MeetingMember).filter(
-                models.MeetingMember.user_id == user_id
-            ).all()
-        }
-        meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(allowed_ids)).all()
-    else:
-        meetings = db.query(models.Meeting).all()
-    all_members = db.query(models.MeetingMember).all()
-    all_users = {u.id: u for u in db.query(models.User).all()}
-
-    # 구성원별 소속 회의체 매핑
-    person_map: dict = {}
-    for mm in all_members:
-        u = all_users.get(mm.user_id)
-        if not u:
-            continue
-        if u.name not in person_map:
-            person_map[u.name] = {
-                "name": u.name,
-                "department": u.department or "",
-                "position": u.position or "",
-                "meetings": [],
-            }
-        mtg = next((m for m in meetings if m.id == mm.meeting_id), None)
-        if mtg:
-            person_map[u.name]["meetings"].append({
-                "title": mtg.title,
-                "role": mm.role,
-                "purpose": mtg.description or "",
-            })
-
-    # 회의체별 요약
-    meeting_summaries = []
-    for m in meetings:
-        mems = [mm for mm in all_members if mm.meeting_id == m.id]
-        member_names = []
-        for mm in mems:
-            u = all_users.get(mm.user_id)
-            if u:
-                member_names.append(u.name)
-        pending_reviews = 0
-        meeting_summaries.append({
-            "title": m.title,
-            "purpose": m.description or "",
-            "members": member_names,
-            "pending_reviews": pending_reviews,
-        })
-
-    if user_id:
-        _u = db.query(models.User).filter(models.User.id == user_id).first()
-        scope_label = f"{_u.name}의 소속 회의체" if _u else "소속 회의체"
-    else:
-        scope_label = "전체 조직"
-    return {
-        "scope": scope_label,
-        "meetings": meeting_summaries,
-        "persons": list(person_map.values()),
-    }
-
-
-async def _build_neo4j_meeting_status(person_id: str | None = None) -> dict:
-    """Neo4j에서 조직 현황 구성 — report_agent의 primary 소스.
-    person_id가 주어지면 해당 Person이 소속된 회의체만 반환."""
-    try:
-        if person_id:
-            # 해당 사용자의 소속 회의체만 조회
-            mg_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
-                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
-                "RETURN mg.id AS mg_id, mg.title AS title, mg.description AS purpose, "
-                "       p.name AS person_name, p.id AS person_id, "
-                "       type(rel) AS rel_type, d.name AS department",
-                {"pid": person_id},
-            )
-            agenda_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
-                "MATCH (ag:Agenda)-[:`관할`]->(mg) "
-                "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
-                "       ag.priority AS priority",
-                {"pid": person_id},
-            )
-            person_rows = await run_cypher(
-                "MATCH (me:Person {id: $pid})-[:`간사`|`구성원`]->(mg:MeetingGroup) "
-                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg) "
-                "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
-                {"pid": person_id},
-            )
-            scope_label = "소속 회의체 (Neo4j)"
-        else:
-            # admin: 전체 조회
-            mg_rows = await run_cypher(
-                "MATCH (mg:MeetingGroup) "
-                "OPTIONAL MATCH (p:Person)-[rel:`간사`|`구성원`]->(mg) "
-                "OPTIONAL MATCH (p)-[:`소속`]->(d:Department) "
-                "RETURN mg.id AS mg_id, mg.title AS title, mg.description AS purpose, "
-                "       p.name AS person_name, p.id AS person_id, "
-                "       type(rel) AS rel_type, d.name AS department"
-            )
-            agenda_rows = await run_cypher(
-                "MATCH (ag:Agenda)-[:`관할`]->(mg:MeetingGroup) "
-                "RETURN mg.id AS mg_id, ag.title AS content, ag.status AS status, "
-                "       ag.priority AS priority"
-            )
-            person_rows = await run_cypher(
-                "MATCH (p:Person)-[r:`구성원`|`간사`]->(mg:MeetingGroup) "
-                "RETURN p.name AS person, mg.title AS meeting, type(r) AS role"
-            )
-            scope_label = "전체 조직 (Neo4j)"
-    except Exception as e:
-        return {}  # Neo4j 불가 시 빈 dict 반환 → caller에서 fallback
-
-    # 회의체별 빌드
-    meetings_map: dict = {}
-    for row in mg_rows:
-        mg_id = row.get("mg_id", "")
-        if mg_id not in meetings_map:
-            meetings_map[mg_id] = {
-                "id": mg_id,
-                "title": row.get("title", ""),
-                "purpose": row.get("purpose", ""),
-                "members": [],
-                "agendas": [],
-            }
-        if row.get("person_id"):
-            mg = meetings_map[mg_id]
-            if not any(m["name"] == row["person_name"] for m in mg["members"]):
-                mg["members"].append({
-                    "name": row.get("person_name", "?"),
-                    "department": row.get("department") or "",
-                    "role": "admin" if row.get("rel_type") == "간사" else "member",
-                })
-    for row in agenda_rows:
-        mg_id = row.get("mg_id", "")
-        if mg_id in meetings_map:
-            meetings_map[mg_id]["agendas"].append({
-                "content": row.get("content", ""),
-                "status": row.get("status", ""),
-                "priority": row.get("priority", ""),
-            })
-
-    # 구성원별 소속 회의체 매핑
-    from collections import defaultdict
-    pm: dict = defaultdict(list)
-    for row in person_rows:
-        pm[row.get("person", "?")].append({
-            "title": row.get("meeting", "?"),
-            "role": "admin" if row.get("role") == "간사" else "member",
-        })
-    persons = [
-        {"name": name, "meetings": mtgs}
-        for name, mtgs in pm.items()
-    ]
-
-    return {
-        "scope": scope_label,
-        "meetings": list(meetings_map.values()),
-        "persons": persons,
-    }
-
-
-# ─── 아카이브 과제 추출 (컨텍스트 기반) ──────────────────────────────────
+# ─── 아카이브 과제 추출 ───────────────────────────────────────────────────────
 @router.post("/archive/extract-agendas")
 async def archive_extract_agendas(
     meeting_id: int = Form(...),
-    selected_file_ids: str = Form("[]"),   # JSON 문자열
+    selected_file_ids: str = Form("[]"),
     selected_similar_docs: str = Form("[]"),
     files: List[UploadFile] = File(default=[]),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    아카이브 과제 탭에서 호출되는 AI 과제 추출 엔드포인트.
-    - 회의체 기본 정보 (목적, 지침, 구성원)
-    - 최근 회의록 최대 3건
-    - 미완료 과제
-    - 선택된 파일 (DB 저장 파일 or 새로 업로드)
-    를 컨텍스트로 조합해 LLM에 전달, 구조화된 과제 목록을 반환한다.
-    """
-    import json as _json, os as _os, re as _re
+    selected_ids = json.loads(selected_file_ids) if selected_file_ids else []
 
-    selected_ids = _json.loads(selected_file_ids) if selected_file_ids else []
-
-    # ── 1. 회의체 기본 정보 ────────────────────────────────────────────
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
 
     meeting_context = _get_meeting_context(db, meeting_id)
     departments = _get_member_departments(db, meeting_id)
-    knowledge = _get_knowledge(db, meeting_id)
-
-    # ── 2. 최근 회의록 (최대 3건) ──────────────────────────────────────
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
+    pending_reviews = db.query(models.HitlReview).filter(
+        models.HitlReview.meeting_id == meeting_id,
+        models.HitlReview.status == "PENDING",
+    ).order_by(models.HitlReview.created_at.desc()).limit(10).all()
+
     pending_todos_text = ""
+    if pending_reviews:
+        review_lines = []
+        for r in pending_reviews:
+            try:
+                item = json.loads(r.ai_output or "{}")
+                content = item.get("content", r.ai_output or "")
+            except Exception:
+                content = r.ai_output or ""
+            review_lines.append(f"- [검토 대기] {content}")
+        pending_todos_text = "\n".join(review_lines)
 
-    # ── 4. 파일 텍스트 추출 ───────────────────────────────────────────
     file_texts = []
-
-    # DB에 저장된 보고서
     for fid in selected_ids:
         try:
             report = db.query(models.Report).filter(models.Report.id == int(fid)).first()
-            if report and report.file_path and _os.path.exists(report.file_path):
-                with open(report.file_path, "rb") as f:
-                    raw = f.read()
+            raw = None
+            if report and report.file_path:
+                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
+                if _is_r2(report.file_path):
+                    raw = _r2_dl(_r2_key(report.file_path))
+                elif os.path.exists(report.file_path):
+                    with open(report.file_path, "rb") as f:
+                        raw = f.read()
+            if report and raw:
                 text = _extract_text_from_file(raw, report.file_name or "")
                 if text.strip():
                     file_texts.append(f"[보고서: {report.file_name}]\n{text[:4000]}")
         except Exception as e:
             print(f"[DB 파일 추출 오류] {e}")
 
-    # 새로 업로드된 파일 (multipart)
     for upload in files:
         if not upload or not upload.filename:
             continue
         try:
             raw = await upload.read()
-            fname = upload.filename.lower()
-            text = _extract_text_from_file(raw, fname)
+            text = _extract_text_from_file(raw, upload.filename.lower())
             if text.strip():
                 file_texts.append(f"[첨부: {upload.filename}]\n{text[:4000]}")
             else:
@@ -1117,120 +997,55 @@ async def archive_extract_agendas(
         except Exception as e:
             print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
 
-    # ── 5. 프롬프트 구성 ──────────────────────────────────────────────
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
-
     if meeting.guidelines:
         context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
-
     if previous_minutes:
-        minutes_text = "\n\n".join(
-            f"[회의록 {i+1}]\n{m}" for i, m in enumerate(previous_minutes)
+        context_parts.append(
+            "[최근 회의록]\n" + "\n\n".join(f"[회의록 {i+1}]\n{m}" for i, m in enumerate(previous_minutes))
         )
-        context_parts.append(f"[최근 회의록]\n{minutes_text}")
-
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
-
     if file_texts:
-        context_parts.append(f"[첨부 자료]\n" + "\n\n".join(file_texts))
-
-    if knowledge:
-        kb_text = "\n".join(
-            f"- [{k['category']}] {k['title']}: {k['content']}" for k in knowledge[:5]
-        )
-        context_parts.append(f"[조직 암묵지]\n{kb_text}")
-
-    full_context = "\n\n".join(context_parts)
-
-    # ── 6. LLM 호출 ───────────────────────────────────────────────────
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import SystemMessage, HumanMessage
-
-    llm = ChatOpenAI(
-        model=_os.environ["OPENAI_MODEL"],
-        temperature=0.15,
-        api_key=_os.environ["OPENAI_API_KEY"],
-    )
+        context_parts.append("[첨부 자료]\n" + "\n\n".join(file_texts))
 
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
-    system_prompt = f"""당신은 회의체 운영 전문 AI입니다.
-주어진 컨텍스트(회의체 정보, 회의록, 미완료 과제, 첨부 자료)를 분석하여
-다음 회의에서 다뤄야 할 핵심 과제와 아젠다를 추출해 주세요.
-
-참여 부서: {dept_list}
-
-규칙:
-1. 첨부 자료가 있으면 그 내용을 최우선으로 분석하여 구체적인 후속 과제를 추출하세요
-2. 미완료 과제가 있으면 반드시 포함하되 중복은 제거하세요
-3. 과제는 실행 가능하고 구체적으로 작성하세요 (문서에서 언급된 날짜, 수치, 담당자 반영)
-4. bullets는 과제의 세부 실행 항목 2-4개로 작성하세요
-5. 3-6개 과제를 추출하세요
-6. 문서에 일정이 명시되어 있으면 bullets에 반드시 포함하세요
-
-반드시 아래 JSON 형식으로만 응답하세요:
-{{
-  "agendas": [
-    {{
-      "title": "과제/아젠다 제목",
-      "bullets": ["세부 항목1", "세부 항목2", "세부 항목3"],
-      "department": "담당부서명 또는 null",
-      "priority": "urgent_important" | "important" | "urgent" | "normal"
-    }}
-  ]
-}}"""
-
-    human_prompt = f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{full_context}"
-
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=human_prompt),
+        response = await make_llm(temperature=0.15).ainvoke([
+            SystemMessage(content=extract_agendas_system(dept_list)),
+            HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
         ])
         raw_text = response.content.strip()
-        print(f"[LLM RAW] {raw_text[:500]}")
         try:
-            match = _re.search(r'\{[\s\S]*\}', raw_text)
-            if match:
-                json_str = match.group(0)
-                open_count = json_str.count('{') - json_str.count('}')
-                if open_count > 0:
-                    json_str += '}' * open_count
-                parsed = _json.loads(json_str)
-            else:
-                parsed = _json.loads(raw_text)
-        except Exception as parse_err:
-            print(f"[JSON 파싱 오류] {parse_err}")
+            parsed = _parse_json_response(raw_text)
+        except Exception:
             parsed = {"agendas": []}
-        agendas = parsed.get("agendas", [])
-        print(f"[AGENDAS] {agendas}")
-        result = []
-        for ag in agendas:
-            result.append({
-                "title": ag.get("title", ""),
-                "bullets": ag.get("bullets", []),
-                "department": ag.get("department"),
-                "priority": ag.get("priority", "normal"),
-                "_state": None,
-                "_editing": False,
-            })
 
         return {
-            "agendas": result,
+            "agendas": [
+                {
+                    "title": ag.get("title", ""),
+                    "bullets": ag.get("bullets", []),
+                    "department": ag.get("department"),
+                    "priority": ag.get("priority", "normal"),
+                    "_state": None,
+                    "_editing": False,
+                }
+                for ag in parsed.get("agendas", [])
+            ],
             "context_used": {
                 "minutes_count": len(previous_minutes),
                 "pending_reviews_count": len(pending_reviews),
                 "files_count": len(file_texts),
-            }
+            },
         }
-
     except Exception as e:
         print(f"[archive/extract-agendas 오류] {e}")
         return {"agendas": [], "error": f"AI 분석 중 오류: {str(e)}"}
 
 
-# ─── 아카이브 채팅 기반 과제 업데이트 ──────────────────────────────────────
+# ─── 아카이브 채팅 기반 과제 업데이트 ────────────────────────────────────────
 @router.post("/archive/chat-extract")
 async def archive_chat_extract(
     data: schemas.AgentChatRequest,
@@ -1238,14 +1053,6 @@ async def archive_chat_extract(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    아카이브 과제 탭 채팅 - 사용자가 채팅으로 과제를 수정/추가 요청하면
-    현재 추출된 과제 목록을 업데이트해서 반환한다.
-    """
-    import json as _json, os as _os, re as _re
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import SystemMessage, HumanMessage
-
     meeting_id = data.meeting_id
     message = data.message or ""
     current_agendas = data.chat_history[0].get("agendas", []) if data.chat_history else []
@@ -1253,171 +1060,59 @@ async def archive_chat_extract(
     meeting_context = _get_meeting_context(db, meeting_id) if meeting_id else ""
     departments = _get_member_departments(db, meeting_id) if meeting_id else []
     dept_list = ", ".join(departments) if departments else "정보 없음"
-
-    llm = ChatOpenAI(
-        model=_os.environ["OPENAI_MODEL"],
-        temperature=0.15,
-        api_key=_os.environ["OPENAI_API_KEY"],
-    )
-
-    current_agendas_text = _json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
-
-    system_prompt = f"""당신은 회의체 과제 관리 AI입니다.
-현재 추출된 과제 목록과 사용자의 요청을 바탕으로 과제 목록을 업데이트해주세요.
-
-회의체 정보: {meeting_context}
-참여 부서: {dept_list}
-
-현재 과제 목록:
-{current_agendas_text}
-
-규칙:
-1. 사용자가 과제 추가를 요청하면 새 과제를 목록에 추가하세요
-2. 사용자가 과제 수정을 요청하면 해당 과제를 수정하세요
-3. 사용자가 과제 삭제를 요청하면 해당 과제를 제거하세요
-4. 변경되지 않은 과제는 그대로 유지하세요
-5. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
-
-{{
-  "agendas": [
-    {{
-      "title": "과제 제목",
-      "bullets": ["세부 항목1", "세부 항목2"],
-      "department": "담당부서 또는 null",
-      "priority": "urgent_important" | "important" | "urgent" | "normal"
-    }}
-  ],
-  "message": "변경 사항 설명 (한 문장)"
-}}"""
+    current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
 
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=system_prompt),
+        response = await make_llm(temperature=0.15).ainvoke([
+            SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
             HumanMessage(content=message),
         ])
         raw_text = response.content.strip()
-        print(f"[chat-extract RAW] {raw_text[:300]}")
-
         try:
-            match = _re.search(r'\{[\s\S]*\}', raw_text)
-            if match:
-                json_str = match.group(0)
-                open_count = json_str.count('{') - json_str.count('}')
-                if open_count > 0:
-                    json_str += '}' * open_count
-                parsed = _json.loads(json_str)
-            else:
-                parsed = _json.loads(raw_text)
+            parsed = _parse_json_response(raw_text)
         except Exception:
             parsed = {"agendas": current_agendas, "message": raw_text}
 
         agendas = parsed.get("agendas", current_agendas)
-        reply_msg = parsed.get("message", "과제 목록을 업데이트했습니다.")
-
-        result = [
-            {
-                "title": ag.get("title", ""),
-                "bullets": ag.get("bullets", []),
-                "department": ag.get("department"),
-                "priority": ag.get("priority", "normal"),
-                "_state": None,
-                "_editing": False,
-            }
-            for ag in agendas
-        ]
-        return {"agendas": result, "reply": reply_msg}
-
+        return {
+            "agendas": [
+                {
+                    "title": ag.get("title", ""),
+                    "bullets": ag.get("bullets", []),
+                    "department": ag.get("department"),
+                    "priority": ag.get("priority", "normal"),
+                    "_state": None,
+                    "_editing": False,
+                }
+                for ag in agendas
+            ],
+            "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
+        }
     except Exception as e:
         print(f"[chat-extract 오류] {e}")
         return {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
 
+
+# ─── 아카이브 파일 AI 검토 ────────────────────────────────────────────────────
 @router.post("/archive/analyze-file")
 async def analyze_archive_file(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    아카이브에서 자료 업로드 시 AI가 문서를 검토하고
-    - 적합성 점수(0-100)
-    - 검토 의견 (피드백 항목)
-    - 제안 아젠다 목록
-    - 유관부서 목록
-    을 반환한다. GraphDB(온톨로지) 맥락도 활용한다.
-    """
-    import json as _json
-    from langchain_openai import ChatOpenAI
-    from langchain_core.messages import SystemMessage, HumanMessage
-
     file_name: str = data.get("file_name", "")
     file_type: str = data.get("file_type", "")
     dept_name: str = data.get("dept_name", "")
     graph_context: str = data.get("graph_context", "")
     file_content: str = data.get("file_content", "")
 
-    has_content = file_content and file_content not in (
-        "[파일 미첨부 — 이름만 입력됨]", "[바이너리 파일 — 내용 추출 불가]", ""
-    )
-
-    # 글로벌 암묵지 컨텍스트 로드
-    knowledge_items = _get_knowledge(db)
-    knowledge_text = "\n".join(
-        f"[{k['category']}] {k['title']}: {k['content']}" for k in knowledge_items[:10]
-    ) if knowledge_items else "없음"
-
-    llm = ChatOpenAI(
-        model=os.environ["OPENAI_MODEL"],
-        temperature=0.2,
-        api_key=os.environ["OPENAI_API_KEY"],
-    )
-
-    system_msg = SystemMessage(content="""당신은 조직 온톨로지·지식 관리 전문 AI입니다.
-파일 이름, 유형, 업로드 부서, 실제 파일 내용(제공된 경우), 조직 그래프 맥락을 바탕으로
-해당 자료의 적합성·완성도를 평가하고 아래 JSON을 반드시 반환하세요.
-
-{
-  "score": <0-100 정수>,
-  "feedback": ["피드백 항목1", "피드백 항목2", ...],
-  "agendas": [
-    {"content": "아젠다 내용", "department": "담당부서명"}
-  ],
-  "related_depts": ["부서명1", "부서명2", ...]
-}
-
-중요 채점 기준:
-- 파일 내용이 없거나 "[파일 미첨부]" 상태이면 score는 최대 30점이며, feedback에 "파일 내용 없음" 반드시 명시
-- "[바이너리 파일]"이면 내용 평가 불가이므로 score는 최대 50점
-- 실제 내용이 있으면 내용의 구체성, 완성도, 회의 적합성을 종합 평가 (0-100 전체 범위 사용)
-- score: 파일명·유형·부서 적합성 + 실제 내용 완성도 + 그래프 맥락 연계도 종합
-- feedback: 보완할 점, 잘된 점 포함 (3-5개, 구체적으로)
-- agendas: 이 자료가 다음 회의에서 다뤄야 할 아젠다 제안 (1-3개)
-- related_depts: 유관부서 (그래프에 이미 존재하는 부서 우선, 2-4개)
-반드시 JSON만 반환하고 다른 설명은 쓰지 마세요.""")
-
-    human_msg = HumanMessage(content=f"""파일 이름: {file_name}
-파일 유형: {file_type}
-업로드 부서: {dept_name}
-
-[파일 내용]
-{file_content if file_content else "[파일 미첨부 — 이름만 입력됨]"}
-
-[현재 조직 그래프 맥락]
-{graph_context or '(그래프 정보 없음)'}
-
-[조직 암묵지]
-{knowledge_text}
-""")
-
     try:
-        response = await llm.ainvoke([system_msg, human_msg])
-        raw = response.content.strip()
-        # JSON 추출
-        import re as _re
-        match = _re.search(r'\{[\s\S]*\}', raw)
-        if match:
-            result = _json.loads(match.group(0))
-        else:
-            result = _json.loads(raw)
+        response = await make_llm(temperature=0.2).ainvoke([
+            SystemMessage(content=ANALYZE_FILE_SYSTEM),
+            HumanMessage(content=analyze_file_human(file_name, file_type, dept_name, file_content, graph_context)),
+        ])
+        match = re.search(r'\{[\s\S]*\}', response.content.strip())
+        result = json.loads(match.group(0)) if match else json.loads(response.content.strip())
         return {
             "score": int(result.get("score", 70)),
             "feedback": result.get("feedback", []),

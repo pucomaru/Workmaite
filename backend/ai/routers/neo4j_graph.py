@@ -22,7 +22,7 @@ ALLOWED_REL_TYPES = {
     "소속", "참여", "간사", "구성원", "포함",
     "관할", "담당", "첨부", "제출",
     "개최", "도출", "산출", "근거", "원인",
-    "추천", "참조", "후속",
+    "추천", "참조", "후속", "다룸멌",
     # 프론트 자유 관계 타입
     "연결", "협업", "공유", "지원", "검토", "상위", "관련", "후속회의", "출처", "생성", "세션출처",
 }
@@ -256,6 +256,7 @@ async def get_archive(
                 "status": row.get("status", "active"),
                 "purpose": row.get("purpose"),
                 "members": [], "tasks": [], "minutes": [], "reports": [],
+                "minutes_agendas": [], "session_agendas": [], "derivations": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
@@ -344,6 +345,65 @@ async def get_archive(
             "department": row.get("department", ""),
             "related_todo_id": row.get("related_todo_id"),
         })
+
+    # ── 회의 생명주기: Minutes→Agenda(도출) + Session→Agenda(다룸멌) + Session→Agenda(도출 이월) 조회 ──
+    try:
+        mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
+            _run_cypher(
+                """
+                MATCH (mn:Minutes)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                MATCH (mn)-[:`생성`]->(s:Session)
+                RETURN mg.id AS meetingId,
+                       coalesce(s.id, toString(s.pg_id)) AS session_id,
+                       coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
+                """,
+                {"ids": mg_ids_list},
+            ),
+            _run_cypher(
+                """
+                MATCH (s:Session)-[:`다룸멌`]->(ag:Agenda)-[:`관할`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                RETURN mg.id AS meetingId,
+                       coalesce(s.id, toString(s.pg_id)) AS session_id,
+                       coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
+                """,
+                {"ids": mg_ids_list},
+            ),
+            _run_cypher(
+                """
+                MATCH (s:Session)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                WHERE (mg:MeetingGroup OR mg:Meeting) AND mg.id IN $ids
+                RETURN mg.id AS meetingId,
+                       coalesce(s.id, toString(s.pg_id)) AS session_id,
+                       coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
+                """,
+                {"ids": mg_ids_list},
+            ),
+        )
+        for row in mn_ag_rows:
+            mg_id = row.get("meetingId")
+            if mg_id in meetings_map:
+                meetings_map[mg_id]["minutes_agendas"].append({
+                    "session_id": row.get("session_id"),
+                    "agenda_id": row.get("agenda_id"),
+                })
+        for row in sess_ag_rows:
+            mg_id = row.get("meetingId")
+            if mg_id in meetings_map:
+                meetings_map[mg_id]["session_agendas"].append({
+                    "session_id": row.get("session_id"),
+                    "agenda_id": row.get("agenda_id"),
+                })
+        for row in deriv_rows:
+            mg_id = row.get("meetingId")
+            if mg_id in meetings_map:
+                meetings_map[mg_id]["derivations"].append({
+                    "session_id": row.get("session_id"),
+                    "agenda_id": row.get("agenda_id"),
+                })
+    except Exception:
+        pass  # 생명주기 데이터 없어도 메인 그래프는 정상 반환
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()

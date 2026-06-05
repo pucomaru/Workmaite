@@ -956,7 +956,8 @@ const REL_COLORS = {
   '담당':   '#34d399',  // person → agenda
   '관할':   '#6abba5',  // agenda → meetingGroup
   '개최':   '#c9a870',  // session → meetingGroup
-  '도출':   '#f472b6',  // session → agenda
+  '도출':   '#f472b6',  // session → agenda (캐리포워드 · 미니츠→안건)
+  '다룸멌': '#6ee7b7',  // session → agenda (직접 담당 안건)
   '산출':   '#a8a5a2',  // session → document
   '첨부':   '#fb923c',  // document → meetingGroup
   '근거':   '#38bdf8',  // decision → session
@@ -990,7 +991,7 @@ const REL_MATRIX = {
   'file→agenda':                 '참조',
   // ── Session ────────────────────────────────────────────────
   'session→meeting_group':       '개최',
-  'session→agenda':              '도출',
+  'session→agenda':              '다룸멌',
   'session→file':                '산출',
   'session→session':             '후속',
   // ── Decision ───────────────────────────────────────────────
@@ -1503,9 +1504,22 @@ const agentChat = useAgentChat({
 const {
   SUPERVISOR_EXTRACT, agentSidebarOpen,
   allMessages, agentLoading, agentMessagesEl,
-  _runPlanningSteps, initAgentGreeting, injectActionToAgent,
+  _runPlanningSteps, initAgentGreeting, injectActionToAgent, runRelationshipAnalysis,
 } = agentChat
 provide('agentSidebar', agentChat)
+
+// ─── 관계도 분석·재설정 (Supervisor → Knowledge agent) ─────────
+// 새로고침 버튼 클릭 시 AI가 Neo4j 소속 관계를 분석/재설정하고 근거를 보고합니다.
+const analyzingRelations = ref(false)
+async function analyzeRelationships() {
+  if (analyzingRelations.value) return
+  analyzingRelations.value = true
+  try {
+    await runRelationshipAnalysis(async () => { await refreshArchive() })
+  } finally {
+    analyzingRelations.value = false
+  }
+}
 
 // ─── Stats computed ──────────────────────────────────────────
 const statsData = computed(() => {
@@ -1890,7 +1904,10 @@ provide('archiveSidebar', {
         </button>
       </div>
 
-      <button class="agent-header-btn refresh-map-btn" @click="refreshArchive" title="관계도 새로고침">
+      <button class="agent-header-btn refresh-map-btn" :class="{ analyzing: analyzingRelations }"
+        :disabled="analyzingRelations"
+        @click="analyzeRelationships"
+        title="관계도 새로고침 — AI가 소속 관계를 분석·재설정하고 근거를 알려드립니다">
         <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="18">
           <defs>
             <linearGradient id="refreshGrad" x1="0%" y1="0%" x2="100%" y2="100%">

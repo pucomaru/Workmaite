@@ -1,13 +1,31 @@
-from typing import List
+import os
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db
 from auth import get_current_user
 from notifications import create_notification
-from neo4j_sync import sync_session, delete_session
+from neo4j_sync import sync_session, delete_session, sync_minutes
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
+
+
+def _md_to_pdf(md_text: str) -> bytes:
+    import markdown
+    from weasyprint import HTML, CSS
+    html_body = markdown.markdown(md_text, extensions=["tables", "nl2br"])
+    css = CSS(string="""
+        body { font-family: 'NanumGothic', sans-serif; margin: 40px; line-height: 1.6; }
+        h1, h2, h3 { color: #333; }
+        table { border-collapse: collapse; width: 100%; }
+        td, th { border: 1px solid #ccc; padding: 8px; }
+    """)
+    html_full = f"<html><body>{html_body}</body></html>"
+    return HTML(string=html_full).write_pdf(stylesheets=[css])
+
 
 @router.get("/meetings/{meeting_id}/sessions", response_model=List[schemas.SessionOut])
 def list_sessions(
@@ -28,34 +46,16 @@ async def create_session(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # 루프가 없으면 기본 루프 자동 생성
-    if data.loop_id:
-        loop = db.query(models.MeetingLoop).filter(
-            models.MeetingLoop.id == data.loop_id,
-            models.MeetingLoop.meeting_id == meeting_id,
-        ).first()
-        if not loop:
-            raise HTTPException(status_code=404, detail="루프를 찾을 수 없습니다.")
-    else:
-        loop = db.query(models.MeetingLoop).filter(
-            models.MeetingLoop.meeting_id == meeting_id
-        ).first()
-        if not loop:
-            loop = models.MeetingLoop(meeting_id=meeting_id, loop_number=1)
-            db.add(loop)
-            db.flush()
-
-    count = db.query(models.MeetingSession).filter(
-        models.MeetingSession.meeting_id == meeting_id
-    ).count()
+    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
 
     session = models.MeetingSession(
         meeting_id=meeting_id,
-        loop_id=data.loop_id,
-        session_number=count + 1,
         title=data.title,
+        type=data.type or "offline",
         location=data.location,
-        password=data.password,
+        description=data.description,
         scheduled_at=data.scheduled_at,
     )
     db.add(session)
@@ -64,14 +64,13 @@ async def create_session(
     members = db.query(models.MeetingMember).filter(
         models.MeetingMember.meeting_id == meeting_id
     ).all()
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     for m in members:
         if m.user_id != current_user.id:
             create_notification(
                 db,
                 user_id=m.user_id,
                 type="session_created",
-                message=f"'{meeting.title}' {loop.loop_number}차 회의가 생성되었습니다.",
+                message=f"'{meeting.title}' 회의 세션이 생성되었습니다.",
                 ref_id=session.id,
                 ref_type="session",
             )
@@ -79,14 +78,162 @@ async def create_session(
     db.commit()
     db.refresh(session)
 
-    # Neo4j 동기화 (백그라운드): neo4j_sync.sync_session 사용
     background_tasks.add_task(
         sync_session,
         session_id=session.id,
         meeting_id=meeting_id,
         title=session.title or "",
-        status=str(session.status or "SCHEDULED"),
+        status=str(session.status or "scheduled"),
         scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        location=session.location,
+        description=session.description,
     )
     return session
 
+
+@router.patch("/meetings/{meeting_id}/sessions/{session_id}", response_model=schemas.SessionOut)
+async def update_session(
+    meeting_id: int,
+    session_id: int,
+    data: schemas.SessionUpdate,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session = db.query(models.MeetingSession).filter(
+        models.MeetingSession.id == session_id,
+        models.MeetingSession.meeting_id == meeting_id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    if data.title is not None:       session.title = data.title
+    if data.type is not None:        session.type = data.type
+    if data.location is not None:    session.location = data.location
+    if data.description is not None: session.description = data.description
+    if data.scheduled_at is not None: session.scheduled_at = data.scheduled_at
+    db.commit()
+    db.refresh(session)
+
+    background_tasks.add_task(
+        sync_session,
+        session_id=session.id,
+        meeting_id=meeting_id,
+        title=session.title or "",
+        status=str(session.status or "scheduled"),
+        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        location=session.location,
+        description=session.description,
+    )
+    return session
+
+
+@router.delete("/meetings/{meeting_id}/sessions/{session_id}")
+async def delete_session_endpoint(
+    meeting_id: int,
+    session_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session = db.query(models.MeetingSession).filter(
+        models.MeetingSession.id == session_id,
+        models.MeetingSession.meeting_id == meeting_id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    db.query(models.Minutes).filter(models.Minutes.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.SttSegment).filter(models.SttSegment.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.ChatMessage).filter(models.ChatMessage.session_id == session_id).delete(synchronize_session=False)
+    db.delete(session)
+    db.commit()
+
+    background_tasks.add_task(delete_session, session_id=session_id)
+    return {"ok": True}
+
+
+# ─── 회의록 저장 ──────────────────────────────────────────────────────────────
+
+class MinutesSaveRequest(BaseModel):
+    content: str               # 생성된 회의록 전체 텍스트
+    content_summary: Optional[str] = None  # 요약 (없으면 content 앞 500자 사용)
+    file_name: Optional[str] = None        # 저장할 파일명 (없으면 자동 생성)
+
+
+@router.post("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+async def save_minutes(
+    session_id: int,
+    body: MinutesSaveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    생성된 회의록을 R2에 업로드하고 PostgreSQL minutes 테이블에 저장합니다.
+    스트리밍으로 생성 완료 후 프론트에서 최종 텍스트를 보내면 이 API를 호출합니다.
+    """
+    session = db.query(models.MeetingSession).filter(
+        models.MeetingSession.id == session_id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    # 파일명 결정 (.pdf)
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    base_name = body.file_name or f"minutes_{session_id}_{ts}"
+    base_name = base_name.removesuffix(".pdf").removesuffix(".md")
+    file_name = base_name + ".pdf"
+
+    # MD → PDF 변환 후 R2 업로드
+    r2_url: Optional[str] = None
+    try:
+        pdf_bytes = _md_to_pdf(body.content)
+        from r2_storage import upload_bytes
+        r2_url = upload_bytes(
+            pdf_bytes,
+            f"minutes/{session_id}/{file_name}",
+            "application/pdf",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[Minutes] PDF 변환/R2 업로드 실패 (무시): {e}")
+
+    summary = body.content_summary or body.content[:500]
+
+    # minutes 테이블 upsert (session_id UNIQUE)
+    existing = db.query(models.Minutes).filter(
+        models.Minutes.session_id == session_id
+    ).first()
+
+    if existing:
+        existing.content_original = body.content
+        existing.content_summary  = summary
+        existing.file_name        = file_name
+        existing.file_path        = r2_url
+        existing.recorder_id      = current_user.id
+        existing.generated_at     = datetime.utcnow()
+        minutes = existing
+    else:
+        minutes = models.Minutes(
+            session_id       = session_id,
+            content_original = body.content,
+            content_summary  = summary,
+            file_name        = file_name,
+            file_path        = r2_url,
+            recorder_id      = current_user.id,
+        )
+        db.add(minutes)
+
+    db.commit()
+    db.refresh(minutes)
+
+    # Neo4j 동기화 (백그라운드)
+    background_tasks.add_task(
+        sync_minutes,
+        minutes_id=minutes.id,
+        session_id=session_id,
+        content_summary=summary,
+    )
+
+    return minutes

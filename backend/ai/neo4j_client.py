@@ -129,17 +129,11 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
                ORDER BY s.session_number DESC LIMIT 5""",
             {"id": neo_id},
         )
-        decision_rows = await run_cypher(
-            """MATCH (dec:Decision)-[:`근거`]->(s:Session)-[:`개최`]->(mg:MeetingGroup {id: $id})
-               OPTIONAL MATCH (dec)-[:`원인`]->(ag:Agenda)
-               RETURN dec.content AS content, ag.title AS agenda LIMIT 10""",
-            {"id": neo_id},
-        )
         return {
             "meeting": mg_rows[0],
             "agendas": agenda_rows,
             "recent_sessions": session_rows,
-            "decisions": decision_rows,
+            "decisions": [],
         }
     except Exception:
         return {}
@@ -164,9 +158,4 @@ def graph_context_to_str(ctx: dict) -> str:
         lines.append("[최근 세션]")
         for s in sessions:
             lines.append(f"  - {s.get('num', s.get('session_number','?'))}회차: {s.get('title','')} ({s.get('ended_at','?')})")
-    decisions = ctx.get("decisions", [])
-    if decisions:
-        lines.append(f"[의사결정 {len(decisions)}건]")
-        for d in decisions[:5]:
-            lines.append(f"  - {d.get('content','')}")
     return "\n".join(lines) if lines else "(Neo4j 데이터 없음)"

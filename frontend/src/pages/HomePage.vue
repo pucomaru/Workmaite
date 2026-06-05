@@ -137,68 +137,79 @@ function clickMiniDay(d) {
 // ── Data loading ─────────────────────────────────────────────
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
-  try {
-    const calRes = await api.get('/api/v1/home/calendar', { params: { view: 'month', date: new Date().toISOString().slice(0, 10) } })
-    calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
-      ...s,
-      id: s.sessionId,
-      type: 'session',
-      date: s.scheduledAt?.slice(0, 10),
-      meeting_title: s.meetingTitle,
-    }))
-  } catch {}
 
-  await hydrateMeetingMeta()
+  // 캘린더·담당자 메타·역할을 모두 병렬 실행
+  await Promise.all([
+    api.get('/api/v1/home/calendar', { params: { view: 'month', date: new Date().toISOString().slice(0, 10) } })
+      .then(calRes => {
+        calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
+          ...s,
+          id: s.sessionId,
+          type: 'session',
+          date: s.scheduledAt?.slice(0, 10),
+          meeting_title: s.meetingTitle,
+        }))
+      }).catch(() => {}),
 
-  // 각 회의체에 대한 내 권한 병렬 조회
-  await Promise.all(
-    meetingsStore.meetings.map(async (m) => {
-      try {
-        const { data } = await api.get(`/api/v1/meetings/${m.id}/my-role`)
-        meetingRoles.value[m.id] = data.role
-      } catch {
-        meetingRoles.value[m.id] = null
-      }
-    })
-  )
+    hydrateMeetingMeta(),
+
+    Promise.all(
+      meetingsStore.meetings.map(async (m) => {
+        try {
+          const { data } = await api.get(`/api/v1/meetings/${m.id}/my-role`)
+          meetingRoles.value[m.id] = data.role
+        } catch {
+          meetingRoles.value[m.id] = null
+        }
+      })
+    ),
+  ])
 })
 
 async function hydrateMeetingMeta() {
   const active = meetingsStore.meetings.filter(m => m.status === 'active')
-  const entries = await Promise.all(
+  if (active.length === 0) return
+
+  // 담당자: 단일 요청으로 모든 active 회의체의 admin 이름을 일괄 조회
+  const adminMap = {}
+  try {
+    const { data: activeMeetingsData } = await api.get('/api/v1/me/meetings')
+    ;(activeMeetingsData ?? []).forEach(r => {
+      adminMap[r.meetingId] = r.adminName || '-'
+    })
+  } catch {}
+
+  // 담당자를 즉시 반영 (아젠다 로드를 기다리지 않음)
+  const initial = {}
+  active.forEach(m => {
+    initial[m.id] = { owner_name: adminMap[m.id] ?? '-', due_date: null, priority: m.priority ?? 'normal' }
+  })
+  meetingMeta.value = initial
+
+  // 아젠다 기반 마감일·우선순위: 준비되는 즉시 개별 업데이트
+  await Promise.all(
     active.map(async (m) => {
       try {
-        const [membersRes, agendasRes] = await Promise.all([
-          api.get(`/api/v1/meetings/${m.id}/members`),
-          api.get(`/api/v1/meetings/${m.id}/agendas`),
-        ])
-
-        const members = membersRes.data || []
-        const agendas = agendasRes.data || []
-
-        const admin = members.find(mm => mm.role === 'admin')
-        const owner_name = admin?.user?.name || admin?.user_name || '-'
-
-        const openAgendas = agendas
+        const { data: agendas } = await api.get(`/api/v1/meetings/${m.id}/agendas`)
+        const openAgendas = (agendas ?? [])
           .filter(a => a.status !== 'done')
           .sort((a, b) => {
             const da = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
             const db = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
             return da - db
           })
-
         const topAgenda = openAgendas[0]
-        return [m.id, {
-          owner_name,
-          due_date: topAgenda?.due_date || null,
-          priority: topAgenda?.priority || 'normal',
-        }]
-      } catch {
-        return [m.id, { owner_name: '-', due_date: null, priority: 'normal' }]
-      }
+        meetingMeta.value = {
+          ...meetingMeta.value,
+          [m.id]: {
+            ...meetingMeta.value[m.id],
+            due_date: topAgenda?.due_date || null,
+            priority: topAgenda?.priority || m.priority || 'normal',
+          },
+        }
+      } catch {}
     })
   )
-  meetingMeta.value = Object.fromEntries(entries)
 }
 
 // ── 회의체 종료 / 삭제 ─────────────────────────────────────────

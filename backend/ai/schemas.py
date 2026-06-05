@@ -167,54 +167,36 @@ class ReportStatusUpdate(BaseModel):
     notify_teams: bool = False  # Teams 알림 전송 여부
 
 
-# MeetingLoop
-class LoopCreate(BaseModel):
-    pass
-
-
-class LoopOut(BaseModel):
-    id: int
-    meeting_id: int
-    loop_number: int
-    sessions: List["SessionOut"] = []
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 # MeetingSession
 class SessionCreate(BaseModel):
-    title: str
-    loop_id: Optional[int] = None
+    title: Optional[str] = None
+    type: Optional[str] = "offline"
     scheduled_at: Optional[datetime] = None
-    password: Optional[str] = None
-    location: Optional[str] = None   # 장소 (TPO)
+    location: Optional[str] = None
+    description: Optional[str] = None
 
 
 class SessionUpdate(BaseModel):
     title: Optional[str] = None
+    type: Optional[str] = None
     scheduled_at: Optional[datetime] = None
-    password: Optional[str] = None
-    location: Optional[str] = None   # 장소 (TPO)
+    location: Optional[str] = None
+    description: Optional[str] = None
 
 
 class SessionOut(BaseModel):
     id: int
     meeting_id: int
-    loop_id: Optional[int]
-    session_number: int
-    title: str
-    location: Optional[str]
-    password: Optional[str]
-    scheduled_at: Optional[datetime]
-    started_at: Optional[datetime]
-    ended_at: Optional[datetime]
-    status: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    type: str
+    scheduled_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    status: Optional[str] = None
 
     model_config = {"from_attributes": True}
-
-
-LoopOut.model_rebuild()
 
 
 # Minutes

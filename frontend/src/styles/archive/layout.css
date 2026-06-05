@@ -118,4 +118,10 @@
 .day-mode .zoom-btn { background:rgba(255,255,255,.85); border-color:#e2e8f0; color:#475569; }
 .day-mode .zoom-btn:hover { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
 .day-mode .zoom-btn.active { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }
+/* 관계도 새로고침(AI 분석·재설정) 버튼 애니메이션 keyframes */
+@keyframes ai-pulse {
+  0% { box-shadow:0 0 0 0 rgba(16,185,129,.45); }
+  70% { box-shadow:0 0 0 8px rgba(16,185,129,0); }
+  100% { box-shadow:0 0 0 0 rgba(16,185,129,0); }
+}
 @keyframes spin { to { transform:rotate(360deg); } }

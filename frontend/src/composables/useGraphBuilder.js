@@ -4,9 +4,9 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
     const data = meetingGroups.value
 
     // ── 반경 정의 (Neo4j 그래프 온톨로지 계층 반영) ─────────────
-    // Organization(중심) → MeetingGroup → Department/Person → Document/Agenda → Session → Decision
-    const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920, decision: 600 }
-    const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12, decision: -20 }
+    // Organization(중심) → MeetingGroup → Department/Person → Agenda/Session → Minutes(file)
+    const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920 }
+    const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12 }
     const TWO_PI = Math.PI * 2
 
     // ── Person 노드 (현재 로그인 사용자, 중심) ────────────────────
@@ -129,6 +129,8 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       })
 
       const agendaIdxByTodoId = new Map()
+      const sessionIdxByNeoId = new Map()
+      const minutesFileIdxBySessionNeoId = new Map()
       const allAgendaIdxList = []
 
       depts.forEach(deptName => {
@@ -190,8 +192,16 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       }
 
       // ── Session 노드: HELD_BY meetingGroup ────────────────────
-      const sessions = g.minutes || []
+      // 같은 회의체의 세션은 시간순(1차→2차→3차)으로 정렬해 '후속' 체인으로 연결
+      const sessions = [...(g.minutes || [])].sort((a, b) => {
+        const da = a.date || a.scheduled_at || '', db = b.date || b.scheduled_at || ''
+        if (da && db && da !== db) return da < db ? -1 : 1
+        if (da && !db) return -1
+        if (!da && db) return 1
+        return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true })
+      })
       const sTotal = sessions.length
+      let prevSessionIdx = -1
       sessions.forEach((m, mi) => {
         // 회의체 각도 기준으로 세션을 부채꼴 배치 (과제와 무관)
         const sFan = sTotal > 1 ? Math.min(sectorWidth * 0.4, 0.5) / (sTotal - 1) : 0
@@ -206,6 +216,10 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         })
         // session -[개최]→ meetingGroup (실제 Neo4j 관계)
         edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
+        // 직전 회차 → 이번 회차: 시간순 '후속' 체인 (1차→2차→3차)
+        if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
+        prevSessionIdx = sIdx
+        if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)
         // 세션→과제 연결은 Neo4j에 실제 관계가 없으므로 생성하지 않음
 
         // ── Document 노드 (회의록): session -[PRODUCED]→ document
@@ -223,6 +237,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           }
         })
         edges.push({ from: sIdx, to: dIdx, rel: '산출' })
+        if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
       })
 
       // ── Document 노드 (보고자료): ATTACHED_TO meetingGroup ───
@@ -245,6 +260,27 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           ? agendaIdxByTodoId.get(relTodoId)
           : (allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx)
         edges.push({ from: rIdx, to: docToIdx, rel: '첨부' })
+      })
+
+      // ── Minutes→Agenda 도출 연결 (회의→회의록→안건 생명주기) ──
+      ;(g.minutes_agendas || []).forEach(ma => {
+        const srcIdx = ma.session_id != null ? minutesFileIdxBySessionNeoId.get(String(ma.session_id)) : undefined
+        const dstIdx = ma.agenda_id  != null ? agendaIdxByTodoId.get(String(ma.agenda_id)) : undefined
+        if (srcIdx != null && dstIdx != null) edges.push({ from: srcIdx, to: dstIdx, rel: '도출' })
+      })
+
+      // ── Session→Agenda 다룸 연결 (회의가 직접 담당하는 안건) ──
+      ;(g.session_agendas || []).forEach(sa => {
+        const sIdx  = sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
+        const agIdx = sa.agenda_id  != null ? agendaIdxByTodoId.get(String(sa.agenda_id)) : undefined
+        if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '다룸' })
+      })
+
+      // ── 이월(carry-forward): 다음 회차 -[도출]→ 미해결 안건 (안건→회의 폐곡선) ──
+      ;(g.derivations || []).forEach(d => {
+        const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined
+        const agIdx = d.agenda_id  != null ? agendaIdxByTodoId.get(String(d.agenda_id)) : undefined
+        if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '도출' })
       })
     })
 
