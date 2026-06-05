@@ -12,13 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * 안건 비즈니스 로직
- * - 목록 조회: 회의체의 안건을 orderIndex 오름차순으로 반환
- * - 생성·수정·삭제: 별도 권한 확인 없이 처리
- * - 담당자 배정: assigneeId 업데이트
- * - AI 추출: 추후 AI 연동 후 구현 예정
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -28,7 +21,7 @@ public class AgendaService {
     private final NeoSyncService neoSyncService;
 
     public List<AgendaResponse> getAgendas(Long meetingId) {
-        return agendaRepository.findByMeetingIdOrderByOrderIndex(meetingId).stream()
+        return agendaRepository.findByMeetingIdOrderByCreatedAt(meetingId).stream()
                 .map(AgendaResponse::from)
                 .toList();
     }
@@ -37,9 +30,9 @@ public class AgendaService {
     public AgendaResponse createAgenda(Long meetingId, AgendaCreateRequest request) {
         Agenda agenda = Agenda.create(
                 meetingId,
+                request.getSessionId(),
                 request.getTitle(),
-                request.getContent(),
-                request.getOrderIndex()
+                request.getPriority()
         );
         AgendaResponse response = AgendaResponse.from(agendaRepository.save(agenda));
         neoSyncService.syncAgenda(response.getId());
@@ -48,7 +41,6 @@ public class AgendaService {
 
     @Transactional
     public List<AgendaResponse> extractAgendas(Long meetingId, AgendaExtractRequest request) {
-        // TODO: AI 연동 후 실제 추출 로직 구현
         return List.of();
     }
 
@@ -59,7 +51,7 @@ public class AgendaService {
     @Transactional
     public AgendaResponse updateAgenda(Long agendaId, AgendaUpdateRequest request) {
         Agenda agenda = findAgendaById(agendaId);
-        agenda.update(request.getTitle(), request.getContent(), request.getOrderIndex(), request.getStatus());
+        agenda.update(request.getTitle(), request.getStatus(), request.getDepartment(), request.getDueDate(), request.getPriority());
         neoSyncService.syncAgenda(agendaId);
         return AgendaResponse.from(agenda);
     }

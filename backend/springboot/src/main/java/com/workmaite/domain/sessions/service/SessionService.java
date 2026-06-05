@@ -66,7 +66,9 @@ public class SessionService {
         MeetingSession session = MeetingSession.create(
                 meetingId,
                 request.getTitle(),
+                request.getDescription(),
                 request.getLocation(),
+                request.getType(),
                 request.getScheduledAt()
         );
         SessionResponse response = SessionResponse.from(sessionRepository.save(session));
@@ -90,7 +92,7 @@ public class SessionService {
             throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
         }
 
-        session.update(request.getTitle(), request.getLocation(), request.getScheduledAt());
+        session.update(request.getTitle(), request.getDescription(), request.getLocation(), request.getType(), request.getScheduledAt());
         return SessionResponse.from(session);
     }
 
