@@ -45,7 +45,7 @@ const {
             </div>
             <div v-if="settingsSearchResults.length" class="member-search-results">
               <div v-for="u in settingsSearchResults" :key="u.id" class="member-search-item" @click="addMemberToSettings(u)">
-                <div class="ms-avatar" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
+                <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
                 <div class="ms-info">
                   <span class="ms-name">{{ u.name || '이름없음' }}</span>
                   <span class="ms-email">{{ u.email }}</span>
@@ -56,7 +56,7 @@ const {
             <div class="settings-member-list">
               <div v-if="!settingsModal.members.length" class="settings-empty-members">참여자가 없습니다.</div>
               <div v-for="(mb, idx) in settingsModal.members" :key="mb.userId" class="settings-member-row">
-                <div class="sm-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
+                <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
                 <div class="sm-info">
                   <span class="sm-name">{{ mb.name }}</span>
                   <span class="sm-email">{{ mb.position || mb.department || mb.email }}</span>

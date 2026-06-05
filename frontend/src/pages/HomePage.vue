@@ -389,7 +389,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td>
-            <span v-if="(m.due_date || m.end_date)" style="color:#1e293b">
+            <span v-if="(m.due_date || m.end_date)" style="color:var(--dark-card)">
               {{ formatDate(m.due_date || m.end_date) }}
             </span>
             <span v-else class="text-muted">-</span>
@@ -552,16 +552,16 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
   gap: 10px;
   padding: 8px 10px;
   border-radius: var(--radius);
-  background: #f8fafc;
+  background: var(--surface);
   border: 1px solid var(--border);
   transition: background .1s;
 }
-.todo-row:hover { background: #f1f5f9; }
+.todo-row:hover { background: var(--surface-2); }
 .todo-row.done .todo-content { text-decoration: line-through; color: var(--text-muted); }
 .todo-check { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; flex-shrink: 0; }
 .todo-circle { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); }
 .todo-content { flex: 1; font-size: 13px; }
-.todo-dday { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: #f1f5f9; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.todo-dday { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
 .todo-dday.urgent { background: #fef3c7; color: #d97706; }
 .todo-dday.overdue { background: #fee2e2; color: var(--danger); }
 .todo-meeting { font-size: 11px; color: var(--text-muted); background: #eff6ff; border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
@@ -581,7 +581,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .meeting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .meeting-card { padding: 16px; cursor: pointer; transition: box-shadow .15s; display: flex; flex-direction: column; gap: 4px; }
 .meeting-card:hover { box-shadow: var(--shadow-md); }
-.meeting-card-ended { opacity: 0.7; background: #f8fafc; }
+.meeting-card-ended { opacity: 0.7; background: var(--surface); }
 .meeting-card-ended:hover { opacity: 0.9; }
 .meeting-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
 .meeting-title { font-size: 14px; font-weight: 600; flex: 1; }
@@ -621,23 +621,23 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .wd-cell { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
 .month-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
 .month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .1s; min-width: 0; overflow: hidden; }
-.month-cell:not(.empty):hover { background: #f1f5f9; }
+.month-cell:not(.empty):hover { background: var(--surface-2); }
 .month-cell.empty { cursor: default; }
 .month-cell.today .day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
 .day-num { font-size: 12px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
 .month-evts { display: flex; flex-direction: column; gap: 1px; min-width: 0; width: 100%; }
 .week-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; min-height: 160px; }
 .week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; transition: background .1s; overflow: hidden; min-width: 0; }
-.week-col:hover { background: #f8fafc; }
+.week-col:hover { background: var(--surface); }
 .week-col.today { border-color: var(--primary); }
-.week-col-header { padding: 6px 6px 4px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 2px; background: #f8fafc; flex-shrink: 0; }
+.week-col-header { padding: 6px 6px 4px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface); flex-shrink: 0; }
 .week-wd { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
 .week-daynum { font-size: 13px; font-weight: 600; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
 .week-daynum.today { background: var(--primary); color: #fff; }
 .week-evts { flex: 1; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
 .week-empty-slot { flex: 1; }
 .day-view { display: flex; flex-direction: column; gap: 8px; min-height: 140px; }
-.day-evt-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border); }
+.day-evt-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
 .day-evt-bar { width: 3px; min-height: 36px; border-radius: 2px; flex-shrink: 0; }
 .day-evt-bar.evt-session { background: var(--accent); }
 .day-evt-bar.evt-todo { background: var(--warning); }
@@ -651,7 +651,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .mini-weekrow span { font-size: 8px; font-weight: 600; color: var(--text-muted); text-align: center; }
 .mini-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
 .mini-cell { font-size: 9px; text-align: center; border-radius: 3px; padding: 1px 0; cursor: pointer; line-height: 1.6; }
-.mini-cell:not(:empty):hover { background: #e2e8f0; }
+.mini-cell:not(:empty):hover { background: var(--border); }
 .mini-cell.today { background: var(--primary); color: #fff; border-radius: 50%; }
 .mini-cell.has-evt { font-weight: 700; color: var(--accent); }
 .evt-pill { font-size: 10px; font-weight: 500; border-radius: 3px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -661,24 +661,25 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .section-count { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 .upcoming-dday { font-size: 12px; font-weight: 700; }
 .upcoming-dday.dday-urgent { color: #d97706; }
-.upcoming-dday.dday-normal { color: #64748b; }
+.upcoming-dday.dday-normal { color: var(--text-muted); }
 .priority-indicator { font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; }
 .priority-indicator.high { color: #dc2626; }
 .priority-indicator.mid  { color: #d97706; }
 .priority-indicator.low  { color: #2563eb; }
 /* 유형 텍스트 (배지 없음) */
-.type-badge { font-size: 12px; font-weight: 600; color: #64748b; }
+.type-badge { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .cal-legend span { display: flex; align-items: center; gap: 5px; }
 .dot-session, .dot-todo { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
-.dot-session { background: #3b82f6; }
-.dot-todo { background: #f59e0b; }
+.dot-session { background: var(--accent); }
+.dot-todo { background: var(--warning); }
 
 /* ── 모달 ───────────────────────────────────────────────────── */
 .modal-inner { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
 .search-dropdown { border: 1px solid var(--border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-md); margin-top: 4px; }
+
 .search-item { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 13px; }
 .search-item:last-child { border-bottom: none; }
 .selected-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

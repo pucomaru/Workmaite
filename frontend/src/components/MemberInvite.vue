@@ -98,25 +98,25 @@ function updateRole(idx, role) {
 <style scoped>
 .mi-wrap { display:flex;flex-direction:column;gap:6px; }
 .mi-search { display:flex;align-items:center;gap:6px;border:1px solid var(--border, #e2e8f0);border-radius:8px;padding:5px 8px; }
-.mi-input { flex:1;border:none;outline:none;font-size:12px;color:#1e293b;background:transparent; }
-.mi-spinner { font-size:11px;color:#94a3b8; }
+.mi-input { flex:1;border:none;outline:none;font-size:12px;color:var(--dark-card);background:transparent; }
+.mi-spinner { font-size:11px;color:var(--dark-muted); }
 .mi-results { border:1px solid var(--border, #e2e8f0);border-radius:8px;overflow:hidden; }
 .mi-result-item { display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border, #e2e8f0);font-size:12px; }
 .mi-result-item:last-child { border-bottom:none; }
 .mi-avatar { width:24px;height:24px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .mi-info { flex:1;min-width:0;display:flex;flex-direction:column;gap:1px; }
-.mi-name { font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.mi-email { font-size:11px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.mi-name { font-weight:600;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.mi-email { font-size:11px;color:var(--dark-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .mi-role-btns { display:flex;gap:4px;flex-shrink:0; }
-.mi-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid #475569;background:transparent;color:#94a3b8;transition:all .15s; }
-.mi-role-btn:hover { border-color:#60a5fa;color:#60a5fa; }
+.mi-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid var(--text-dim);background:transparent;color:var(--dark-muted);transition:all .15s; }
+.mi-role-btn:hover { border-color:var(--accent-light);color:var(--accent-light); }
 .mi-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
 .mi-role-btn.admin:hover { background:#2563eb; }
 .mi-member-list { display:flex;flex-direction:column;gap:4px; }
-.mi-member-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f8fafc;border-radius:7px;font-size:12px; }
-.mi-role-select { font-size:11px;border:1px solid var(--border, #e2e8f0);border-radius:5px;padding:2px 4px;background:#fff;color:#475569;cursor:pointer;outline:none; }
-.mi-remove { background:none;border:none;cursor:pointer;color:#94a3b8;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .15s; }
-.mi-remove:hover { color:#ef4444; }
+.mi-member-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
+.mi-role-select { font-size:11px;border:1px solid var(--border, #e2e8f0);border-radius:5px;padding:2px 4px;background:var(--bg-card);color:var(--text-dim);cursor:pointer;outline:none; }
+.mi-remove { background:none;border:none;cursor:pointer;color:var(--dark-muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .15s; }
+.mi-remove:hover { color:var(--danger); }
 .mi-remove-placeholder { width:20px;flex-shrink:0; }
 .mi-me-badge { margin-left:5px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:#dbeafe;color:#1d4ed8;vertical-align:middle; }
 </style>

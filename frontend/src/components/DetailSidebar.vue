@@ -528,7 +528,7 @@ const {
                 <div class="detail-section-label">부서 구성원</div>
                 <div v-if="detailNode.members?.length" class="node-member-list">
                   <div v-for="mb in detailNode.members" :key="mb.userId||mb.userName" class="node-member-row">
-                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? '#3b82f6' : '#475569' }">{{ (mb.userName||mb.name||'?')[0] }}</div>
+                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? 'var(--accent)' : 'var(--text-dim)' }">{{ (mb.userName||mb.name||'?')[0] }}</div>
                     <div class="node-member-info">
                       <span class="node-member-name">{{ mb.userName || mb.name || '-' }}</span>
                       <span class="node-member-role">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
@@ -633,7 +633,7 @@ const {
                 <div class="detail-section-label">참여자</div>
                 <div class="node-member-list">
                   <div v-for="p in detailNode.data.participants" :key="p.userId||p.userName" class="node-member-row">
-                    <div class="node-avatar" style="background:#475569">{{ (p.userName||p.name||'?')[0] }}</div>
+                    <div class="node-avatar" style="background:var(--text-dim)">{{ (p.userName||p.name||'?')[0] }}</div>
                     <div class="node-member-info">
                       <span class="node-member-name">{{ p.userName || p.name }}</span>
                       <span v-if="p.department" class="node-member-role">{{ p.department }}</span>

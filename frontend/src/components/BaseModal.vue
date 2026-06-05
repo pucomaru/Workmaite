@@ -64,12 +64,12 @@ defineEmits(['update:modelValue'])
 }
 .base-modal-close {
   width: 28px; height: 28px; border-radius: 50%;
-  border: none; background: #f1f5f9; color: var(--text-muted);
+  border: none; background: var(--surface-2); color: var(--text-muted);
   cursor: pointer; font-size: 14px;
   display: flex; align-items: center; justify-content: center;
   transition: background .15s;
 }
-.base-modal-close:hover { background: #e2e8f0; color: var(--text); }
+.base-modal-close:hover { background: var(--border); color: var(--text); }
 
 .base-modal-body {
   flex: 1; overflow-y: auto;

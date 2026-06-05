@@ -190,7 +190,7 @@ async function deleteMeeting(id) {
 <style scoped>
 .sidebar {
   width: var(--sidebar-w);
-  background: #fff;
+  background: var(--bg-card);
   border-right: 1px solid var(--border);
   height: 100%;
   overflow-y: auto;
@@ -218,7 +218,7 @@ async function deleteMeeting(id) {
 .meeting-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meeting-item-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; flex-shrink: 0; }
 .sidebar-empty { font-size: 12px; color: var(--text-muted); padding: 8px 10px; }
-.ended-dot { background: #94a3b8 !important; }
+.ended-dot { background: var(--dark-muted) !important; }
 .meeting-item.ended { opacity: .8; }
 .mt-3 { margin-top: 12px; }
 
@@ -246,7 +246,7 @@ async function deleteMeeting(id) {
 .ctx-backdrop { position: fixed; inset: 0; z-index: 9000; }
 .ctx-popup {
   position: fixed; z-index: 9001;
-  background: #fff; border: 1px solid var(--border);
+  background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15);
   min-width: 148px; padding: 4px;
 }
@@ -254,10 +254,10 @@ async function deleteMeeting(id) {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 8px 12px;
   background: none; border: none; cursor: pointer;
-  font-size: 13px; color: #334155; border-radius: 6px;
+  font-size: 13px; color: var(--dark-border); border-radius: 6px;
   text-align: left; transition: background .1s;
 }
-.ctx-item:hover { background: #f1f5f9; }
+.ctx-item:hover { background: var(--surface-2); }
 .ctx-item.danger { color: #dc2626; }
 .ctx-item.danger:hover { background: #fef2f2; }
 .ctx-divider { height: 1px; background: var(--border); margin: 3px 8px; }
