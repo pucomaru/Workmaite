@@ -56,7 +56,7 @@ class MeetingSession(Base):
     title        = Column(String(255), nullable=True)
     description  = Column(String(255), nullable=True)
     location     = Column(String(255), nullable=True)
-    type         = Column(String(50), nullable=True)
+    type         = Column(String(50), nullable=False)
     audio_path   = Column(String(500), nullable=True)
     scheduled_at = Column(DateTime, nullable=True)
     started_at   = Column(DateTime, nullable=True)
@@ -104,16 +104,6 @@ class ReportScore(Base):
     feedback      = Column(Text, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
-
-class ReportCriteria(Base):
-    __tablename__ = "report_criteria"
-    id          = Column(Integer, primary_key=True, index=True)
-    meeting_id  = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    file_type   = Column(String(20), nullable=True)
-    name        = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    created_by  = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at  = Column(DateTime, default=datetime.utcnow)
 
 
 class SttSegment(Base):
