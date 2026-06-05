@@ -4,7 +4,6 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
@@ -16,8 +15,7 @@ load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 os.environ["LANGSMITH_TRACING"] = "false"
 
-from database import engine, get_db
-import models
+from database import get_db
 from websocket_manager import manager
 from auth import get_current_user
 
@@ -75,19 +73,6 @@ async def _periodic_retry_task() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # FastAPI가 관리하는 AI 전용 테이블만 생성
-    # (users, meetings 등 공유 테이블은 SpringBoot ddl-auto:update가 생성)
-    ai_only_tables = [
-        models.User.__table__,
-        models.Notification.__table__,
-        models.ChatMessage.__table__,
-        models.AgentLog.__table__,
-        models.TokenUsageLog.__table__,
-        models.HitlReview.__table__,
-        models.ArchiveCombined.__table__,
-        models.Todo.__table__,
-    ]
-    models.Base.metadata.create_all(bind=engine, tables=ai_only_tables, checkfirst=True)
     await init_vector_index()
 
     asyncio.create_task(_startup_sync_task())
@@ -111,10 +96,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Static files for uploads
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # 라우터
 app.include_router(auth_router.router)
