@@ -55,18 +55,19 @@ def extract_agendas_system(dept_list: str) -> str:
 1. 첨부 자료가 있으면 그 내용을 최우선으로 분석하여 구체적인 후속 과제를 추출하세요
 2. 미완료 과제가 있으면 반드시 포함하되 중복은 제거하세요
 3. 과제는 실행 가능하고 구체적으로 작성하세요 (문서에서 언급된 날짜, 수치, 담당자 반영)
-4. bullets는 과제의 세부 실행 항목 2-4개로 작성하세요
-5. 3-6개 과제를 추출하세요
-6. 문서에 일정이 명시되어 있으면 bullets에 반드시 포함하세요
+4. 3-6개 과제를 추출하세요
+5. 문서에 시작일/마감일이 명시되어 있으면 반드시 start_date/due_date에 반영하세요
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
   "agendas": [
     {{
       "title": "과제/아젠다 제목",
-      "bullets": ["세부 항목1", "세부 항목2", "세부 항목3"],
       "department": "담당부서명 또는 null",
-      "priority": "urgent_important" | "important" | "urgent" | "normal"
+      "priority": "urgent_important" | "important" | "urgent" | "normal",
+      "start_date": "YYYY-MM-DD 또는 null",
+      "due_date": "YYYY-MM-DD 또는 null",
+      "reasoning": "이 과제를 추출한 근거 (문서의 어느 내용에서 도출했는지 1-2문장)"
     }}
   ]
 }}"""
@@ -95,9 +96,10 @@ def chat_extract_system(meeting_context: str, dept_list: str, current_agendas_te
   "agendas": [
     {{
       "title": "과제 제목",
-      "bullets": ["세부 항목1", "세부 항목2"],
       "department": "담당부서 또는 null",
-      "priority": "urgent_important" | "important" | "urgent" | "normal"
+      "priority": "urgent_important" | "important" | "urgent" | "normal",
+      "start_date": "YYYY-MM-DD 또는 null",
+      "due_date": "YYYY-MM-DD 또는 null"
     }}
   ],
   "message": "변경 사항 설명 (한 문장)"
