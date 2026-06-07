@@ -30,7 +30,13 @@ public class MeetingSession {
     private String title;
 
     @Column(length = 255)
+    private String description;
+
+    @Column(length = 255)
     private String location;
+
+    @Column(length = 255, nullable = false)
+    private String type;
 
     @Column(name = "scheduled_at")
     private LocalDateTime scheduledAt;
@@ -49,19 +55,23 @@ public class MeetingSession {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    public static MeetingSession create(Long meetingId, String title, String location, LocalDateTime scheduledAt) {
+    public static MeetingSession create(Long meetingId, String title, String description, String location, String type, LocalDateTime scheduledAt) {
         MeetingSession session = new MeetingSession();
         session.meetingId = meetingId;
         session.title = title;
+        session.description = description;
         session.location = location;
+        session.type = type;
         session.scheduledAt = scheduledAt;
         session.status = SessionStatus.SCHEDULED;
         return session;
     }
 
-    public void update(String title, String location, LocalDateTime scheduledAt) {
+    public void update(String title, String description, String location, String type, LocalDateTime scheduledAt) {
         if (title != null) this.title = title;
+        if (description != null) this.description = description;
         if (location != null) this.location = location;
+        if (type != null) this.type = type;
         if (scheduledAt != null) this.scheduledAt = scheduledAt;
     }
 

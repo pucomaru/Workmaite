@@ -13,22 +13,28 @@ public class AgendaResponse {
 
     private Long id;
     private Long meetingId;
-    private Long assigneeId;
+    private Long sessionId;
     private String title;
-    private String content;
-    private Integer orderIndex;
     private AgendaStatus status;
+    private Long assigneeId;
+    private String department;
+    private LocalDateTime dueDate;
+    private String priority;
+    private String aiEvidence;
     private LocalDateTime createdAt;
 
     public static AgendaResponse from(Agenda agenda) {
         return AgendaResponse.builder()
                 .id(agenda.getId())
                 .meetingId(agenda.getMeetingId())
-                .assigneeId(agenda.getAssigneeId())
+                .sessionId(agenda.getSessionId())
                 .title(agenda.getTitle())
-                .content(agenda.getContent())
-                .orderIndex(agenda.getOrderIndex())
                 .status(agenda.getStatus())
+                .assigneeId(agenda.getAssigneeId())
+                .department(agenda.getDepartment())
+                .dueDate(agenda.getDueDate())
+                .priority(agenda.getPriority())
+                .aiEvidence(agenda.getAiEvidence())
                 .createdAt(agenda.getCreatedAt())
                 .build();
     }

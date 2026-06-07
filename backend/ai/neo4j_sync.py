@@ -155,7 +155,6 @@ async def sync_session(
     ended_at: str | None = None,
     location: str | None = None,
     session_type: str | None = None,  # PG: type (대면/비대면 등)
-    audio_path: str | None = None,
     description: str | None = None,
 ) -> None:
     """Session 노드를 Neo4j에 upsert하고 Meetings과 관계를 맺습니다."""
@@ -171,7 +170,6 @@ async def sync_session(
         s.ended_at     = $ended_at,
         s.location     = $location,
         s.type         = $session_type,
-        s.audio_path   = $audio_path,
         s.description  = $description,
         s.updated_at   = $updated_at
     WITH s
@@ -190,7 +188,6 @@ async def sync_session(
         "ended_at": ended_at or "",
         "location": location or "",
         "session_type": session_type or "",
-        "audio_path": audio_path or "",
         "description": description or "",
         "mg_id": mg_id,
         "updated_at": datetime.utcnow().isoformat(),
@@ -1001,7 +998,6 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 ended_at=s.ended_at.isoformat() if s.ended_at else None,
                 location=s.location,
                 session_type=s.type,
-                audio_path=s.audio_path,
                 description=s.description,
             )
             stats["sessions"] += 1
