@@ -13,6 +13,138 @@ import hyeanAvatar from '../assets/agents/hyean.png'
 
 const renderMd = (t) => marked.parse(t || '', { breaks: true })
 
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  ⚠️  TEST MODE — 백엔드 API 연동 완료 후 이 블록 전체 삭제           ║
+// ║  삭제 범위: TEST_MODE 상수 + MOCK_DATA 객체 (아래 END 주석까지)       ║
+// ║  각 함수의 if (TEST_MODE) 블록도 함께 삭제 후 else 브랜치만 남길 것   ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+const TEST_MODE = true
+
+const MOCK_DATA = {
+  // ── meetings 테이블 ───────────────────────────────────────────
+  meetings: [
+    {
+      id: 1,
+      title: '전략기획 월례회의',
+      description: '월간 전략 방향 및 주요 의사결정 논의',
+      guidelines: '과제 72시간 전 제출 필수, 의장 승인 후 진행, 회의 시간 90분 초과 금지',
+      type: 'monthly',
+      start_date: '2025-01-01T00:00:00',
+      end_date: null,
+      status: 'active',
+      created_by: 1,
+      created_at: '2025-01-01T00:00:00',
+      updated_at: '2025-01-01T00:00:00',
+    },
+    {
+      id: 2,
+      title: '개발팀 주간 스탠드업',
+      description: '주간 개발 현황 및 이슈 공유',
+      guidelines: null,
+      type: 'weekly',
+      start_date: '2025-01-06T00:00:00',
+      end_date: null,
+      status: 'active',
+      created_by: 3,
+      created_at: '2025-01-06T00:00:00',
+      updated_at: '2025-01-06T00:00:00',
+    },
+  ],
+
+  // ── meeting_sessions 테이블 ───────────────────────────────────
+  sessions: [
+    {
+      id: 101,
+      meeting_id: 1,
+      title: '2025년 2월 전략회의',
+      description: '2025년 상반기 전략 방향 및 신제품 출시 일정 논의',
+      location: '본사 대회의실 3층',
+      type: 'whisper',
+      scheduled_at: '2025-02-17T10:00:00',
+      started_at: '2025-02-17T10:05:00',
+      ended_at: '2025-02-17T11:40:00',
+      status: 'ended',
+    },
+    {
+      id: 102,
+      meeting_id: 1,
+      title: '2025년 3월 전략회의',
+      description: null,
+      location: '화상회의 (Zoom)',
+      type: 'external',
+      scheduled_at: '2025-03-17T10:00:00',
+      started_at: null,
+      ended_at: null,
+      status: 'scheduled',
+    },
+    {
+      id: 103,
+      meeting_id: 2,
+      title: '3월 2주차 스탠드업',
+      description: null,
+      location: '개발실',
+      type: 'whisper',
+      scheduled_at: '2025-03-10T09:30:00',
+      started_at: '2025-03-10T09:31:00',
+      ended_at: '2025-03-10T09:55:00',
+      status: 'ended',
+    },
+  ],
+
+  // ── stt_segments 테이블 ───────────────────────────────────────
+  stt_segments: [
+    // session_id: 101
+    { id: 1, session_id: 101, speaker_label: 'SPEAKER_00', speaker_user_id: 1, content: '안녕하세요, 2월 전략회의를 시작하겠습니다. 오늘 주요 과제은 신제품 출시 일정과 마케팅 예산 배분입니다.', start_sec: 0.0, end_sec: 6.2, confidence: 0.97, created_at: '2025-02-17T10:05:00' },
+    { id: 2, session_id: 101, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '신제품 출시는 5월 초로 맞추는 게 좋겠습니다. 운영팀 준비 일정상 4월 말까지는 최종 확정이 필요합니다.', start_sec: 7.0, end_sec: 14.3, confidence: 0.95, created_at: '2025-02-17T10:05:07' },
+    { id: 3, session_id: 101, speaker_label: 'SPEAKER_02', speaker_user_id: 3, content: '개발 측에서는 4월 15일까지 베타 버전 완료 가능합니다. QA 기간 2주 확보하면 5월 초 출시 충분합니다.', start_sec: 15.0, end_sec: 22.5, confidence: 0.96, created_at: '2025-02-17T10:05:15' },
+    { id: 4, session_id: 101, speaker_label: 'SPEAKER_00', speaker_user_id: 1, content: '마케팅 예산은 작년 대비 20% 증액 요청이 들어왔습니다. 기획팀 검토 후 다음 회의에서 최종 결정하겠습니다.', start_sec: 23.0, end_sec: 31.0, confidence: 0.94, created_at: '2025-02-17T10:05:23' },
+    { id: 5, session_id: 101, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '운영팀 물류 파트너 계약 갱신 건도 5월 전에 처리해야 합니다. 다음 회의 과제에 포함 부탁드립니다.', start_sec: 32.0, end_sec: 40.0, confidence: 0.93, created_at: '2025-02-17T10:05:32' },
+    { id: 6, session_id: 101, speaker_label: 'SPEAKER_02', speaker_user_id: 3, content: '개발팀 입장에서는 API 문서화 작업도 이번 분기 내 완료가 필요합니다. 리소스 배분 논의가 필요합니다.', start_sec: 41.0, end_sec: 49.5, confidence: 0.95, created_at: '2025-02-17T10:05:41' },
+    // session_id: 103
+    { id: 7, session_id: 103, speaker_label: 'SPEAKER_00', speaker_user_id: 3, content: '이번 주 백엔드 API 수정 완료했습니다. DB 스키마 불일치 이슈 해결됐습니다.', start_sec: 0.0, end_sec: 5.8, confidence: 0.98, created_at: '2025-03-10T09:31:00' },
+    { id: 8, session_id: 103, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '프론트엔드 테스트 진행 중입니다. 회의 화면 기능 검증 이번 주 내 완료 예정입니다.', start_sec: 6.5, end_sec: 12.0, confidence: 0.96, created_at: '2025-03-10T09:31:06' },
+    { id: 9, session_id: 103, speaker_label: 'SPEAKER_00', speaker_user_id: 3, content: '다음 주 배포 일정 맞추려면 목요일까지 QA 완료되어야 합니다. 확인 부탁드립니다.', start_sec: 13.0, end_sec: 19.0, confidence: 0.97, created_at: '2025-03-10T09:31:13' },
+  ],
+
+  // ── minutes_ 테이블 ───────────────────────────────────────────
+  minutes: [
+    {
+      id: 1,
+      session_id: 101,
+      file_name: null,
+      file_path: null,
+      recorder_id: 1,
+      content_original: null,
+      content_summary: `<h2>2025년 2월 전략회의 회의록</h2>
+<p><strong>일시:</strong> 2025-02-17 10:05 ~ 11:40 &nbsp;|&nbsp; <strong>장소:</strong> 본사 대회의실 3층</p>
+<h3>참석자</h3>
+<ul><li>김민준 (전략기획팀, 팀장)</li><li>이서연 (운영팀, 과장)</li><li>박지훈 (개발팀, 대리)</li></ul>
+<h3>주요 논의 사항</h3>
+<ul>
+<li><strong>신제품 출시 일정:</strong> 5월 초 목표, 4월 15일까지 베타 완료, QA 기간 2주 확보</li>
+<li><strong>마케팅 예산:</strong> 작년 대비 20% 증액 요청 — 기획팀 검토 후 3월 회의에서 최종 결정</li>
+<li><strong>물류 파트너 계약 갱신:</strong> 5월 전 처리 필요 (운영팀 주관)</li>
+<li><strong>API 문서화:</strong> 이번 분기 내 완료 목표, 개발 리소스 배분 추가 논의 필요</li>
+</ul>
+<h3>결정 사항</h3>
+<ul>
+<li>신제품 출시일 5월 초로 잠정 결정</li>
+<li>베타 완료 기한 4월 15일, QA 완료 기한 4월 29일</li>
+</ul>
+<h3>다음 회의 과제</h3>
+<ul>
+<li>마케팅 예산 최종 확정 (기획팀)</li>
+<li>물류 파트너 계약 갱신 검토 결과 보고 (운영팀)</li>
+<li>베타 테스트 결과 및 QA 현황 보고 (개발팀)</li>
+<li>API 문서화 리소스 배분 논의 (개발팀)</li>
+</ul>`,
+      status: 'draft',
+      generated_at: '2025-02-17T11:45:00',
+    },
+  ],
+}
+// ══════════════════════════ TEST MODE END ═══════════════════════════════════
+
 // ─── State ────────────────────────────────────────────────────
 const meetings = ref([])          // [{ id, title, sessions: [] }]
 const loadingMeetings = ref(false)
@@ -36,6 +168,15 @@ const selectedMeeting = computed(() => meetings.value.find(m => m.id === selecte
 
 async function loadSessions(meetingId) {
   if (sessionsCache.value[meetingId]) return sessionsCache.value[meetingId]
+  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+  if (TEST_MODE) {
+    const sessions = MOCK_DATA.sessions.filter(s => s.meeting_id === meetingId)
+    sessionsCache.value[meetingId] = sessions
+    const m = meetings.value.find(m => m.id === meetingId)
+    if (m) m.sessions = sessions
+    return sessions
+  }
+  // [/TEST_MODE] ↑
   try {
     const res = await api.get(`/api/v1/meetings/${meetingId}/sessions`)
     sessionsCache.value[meetingId] = res.data ?? []
@@ -50,9 +191,15 @@ async function loadSessions(meetingId) {
 async function fetchMeetings() {
   loadingMeetings.value = true
   try {
+    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+    if (TEST_MODE) {
+      meetings.value = MOCK_DATA.meetings.map(m => ({ ...m, sessions: null }))
+      meetings.value.forEach(m => loadSessions(m.id))
+      return
+    }
+    // [/TEST_MODE] ↑
     const res = await api.get('/api/v1/meetings')
     meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
-    // 백그라운드에서 각 회의체 세션 로드
     meetings.value.forEach(m => loadSessions(m.id))
   } catch (e) {
     console.error('meetings fetch error', e)
@@ -85,11 +232,26 @@ async function enterSession(s) {
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
   if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
+    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+    if (TEST_MODE) {
+      const segs = MOCK_DATA.stt_segments.filter(seg => seg.session_id === s.id)
+      if (segs.length) {
+        const lines = segs.map(seg => ({
+          time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
+          speaker: seg.speaker_label,
+          text: `${seg.speaker_label}: ${seg.content}`,
+        }))
+        rec.transcriptLines.push(...lines)
+        transcriptLines.value = rec.transcriptLines
+      }
+    } else {
+    // [/TEST_MODE] ↑
     try {
       const { data } = await apiAI.get(`/api/sessions/${s.id}/stt-segments`)
       if (data && data.length) {
         const lines = data.map(seg => ({
           time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
+          speaker: seg.speaker_label,
           text: `${seg.speaker_name || seg.speaker_label}: ${seg.content}`,
         }))
         rec.transcriptLines.push(...lines)
@@ -98,10 +260,24 @@ async function enterSession(s) {
     } catch (e) {
       console.error('STT 세그먼트 로드 실패', e)
     }
+    } // [TEST_MODE] else 닫힘 — 삭제 시 이 줄도 함께 삭제
   }
 
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
+    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+    if (TEST_MODE) {
+      const mins = MOCK_DATA.minutes.find(m => m.session_id === s.id)
+      if (mins?.content_summary) {
+        generatedMinutes.value = { content_summary: mins.content_summary }
+        showMinutesTab.value = true
+        rec.generatedMinutes = generatedMinutes.value
+        rec.showMinutesTab = true
+        await nextTick()
+        loadMinutesToEditor(mins.content_summary)
+      }
+    } else {
+    // [/TEST_MODE] ↑
     try {
       const { data } = await apiAI.get(`/api/sessions/${s.id}/minutes`)
       if (data?.content_summary) {
@@ -113,6 +289,7 @@ async function enterSession(s) {
         loadMinutesToEditor(data.content_summary)
       }
     } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
+    } // [TEST_MODE] else 닫힘 — 삭제 시 이 줄도 함께 삭제
   }
 }
 
@@ -301,7 +478,7 @@ async function generateMinutes() {
         agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
         wmLoading.value = false
         generatingMinutes.value = false
-        // 다음 회의 안건 자동 추출
+        // 다음 회의 과제 자동 추출
         extractNextAgendas()
       }
     )
@@ -359,7 +536,7 @@ function downloadWord() {
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
 
-// ── 다음 회의 안건 승인/반려 블록 ─────────────────────────────
+// ── 다음 회의 과제 승인/반려 블록 ─────────────────────────────
 const nextAgendaItems = ref([])
 const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
@@ -368,6 +545,49 @@ async function extractNextAgendas() {
   if (!generatedMinutes.value?.content_summary) return
   nextAgendaExtracting.value = true
   showNextAgendaBlock.value = true
+
+  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+  if (TEST_MODE) {
+    try {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
+      const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6')
+      let listEl = null
+      for (const h of headings) {
+        if (h.textContent.includes('다음 회의 과제') || h.textContent.includes('다음 회의 안건')) {
+          let sibling = h.nextElementSibling
+          while (sibling && !['UL','OL'].includes(sibling.tagName)) sibling = sibling.nextElementSibling
+          if (sibling) { listEl = sibling; break }
+        }
+      }
+      const toNounTitle = (t) => t
+        .replace(/\s*(검토\s*)?결과\s*보고\s*$/, '')
+        .replace(/\s*보고\s*$/, '')
+        .replace(/\s*논의\s*$/, '')
+        .replace(/\s*수립\s*$/, '')
+        .replace(/\s*확인\s*$/, '')
+        .replace(/\s*예정\s*$/, '')
+        .replace(/\s*완료\s*$/, '')
+        .trim()
+      const items = listEl
+        ? [...listEl.querySelectorAll('li')].map(li => {
+            const text = li.textContent.trim()
+            const match = text.match(/^(.+?)\s*[(\（]([^)\）]+)[)\）]\s*$/)
+            return match
+              ? { title: toNounTitle(match[1].trim()), dept: match[2].trim() }
+              : { title: toNounTitle(text), dept: '' }
+          })
+        : []
+      nextAgendaItems.value = items.length
+        ? items.map(a => ({ ...a, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: a.title, _editDept: a.dept }))
+        : [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    } finally {
+      nextAgendaExtracting.value = false
+    }
+    return
+  }
+  // [/TEST_MODE] ↑
+
   try {
     const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
 
@@ -398,10 +618,10 @@ async function extractNextAgendas() {
       _editDept: a.dept || a.assignee_dept || a.department || '',
     }))
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -427,6 +647,15 @@ function saveNextAgendaEdit(i) {
 async function saveApprovedNextAgendas() {
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   if (!approved.length) return
+  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+  // 실제 연동 시: POST /api/v1/meetings/{id}/agendas 를 approved 건수만큼 순차 호출
+  // 또는 Spring Boot에 /agendas/batch 엔드포인트 추가 후 단일 호출로 변경
+  if (TEST_MODE) {
+    nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
+    console.log('[TEST_MODE] 과제 저장 mock:', approved.map(a => ({ title: a.title, department: a.dept, reason: a._reason })))
+    return
+  }
+  // [/TEST_MODE] ↑
   try {
     await apiAI.post(`/api/v1/meetings/${activeSession.value?.meeting_id || selectedMeeting.value?.id || 0}/agendas/batch`, {
       agendas: approved.map(a => ({ title: a.title, dept: a.dept, reason: a._reason })),
@@ -442,6 +671,13 @@ async function saveMinutesToDB() {
   savingMinutes.value = true
   try {
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
+    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+    if (TEST_MODE) {
+      minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+      console.log('[TEST_MODE] 회의록 저장 mock — session_id:', activeSession.value.id)
+      return
+    }
+    // [/TEST_MODE] ↑
     await apiAI.post(`/api/sessions/${activeSession.value.id}/minutes`, { content_summary: html })
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
   } catch (e) {
@@ -566,11 +802,34 @@ async function doCreateSessionForm() {
   creatingSessionForm.value = true
   try {
     const meetingId = createSessionForm.value.meetingId
+    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
+    if (TEST_MODE) {
+      const newId = Date.now()
+      const newSession = {
+        id: newId,
+        meeting_id: meetingId,
+        title: createSessionForm.value.title,
+        description: null,
+        location: null,
+        type: 'whisper',
+        scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+        started_at: null,
+        ended_at: null,
+        status: 'scheduled',
+      }
+      MOCK_DATA.sessions.push(newSession)
+      delete sessionsCache.value[meetingId]
+      await loadSessions(meetingId)
+      showCreateSession.value = false
+      createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
+      createSessionMembers.value = []
+      return
+    }
+    // [/TEST_MODE] ↑
     await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
     })
-    // 캐시 무효화 후 재로드
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
@@ -740,19 +999,19 @@ onMounted(() => {
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
             </div>
 
-            <!-- ── 다음 회의 안건 승인/반려 블록 (에디터 영역 밖) ── -->
+            <!-- ── 다음 회의 과제 승인/반려 블록 (에디터 영역 밖) ── -->
             <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 안건</span>
+                  <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 안건을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>안건 추출 중...</span>
+                <div class="nab-spinner"></div><span>과제 추출 중...</span>
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
@@ -778,7 +1037,7 @@ onMounted(() => {
                       </template>
                       <template v-else>
                         <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="안건 내용" />
+                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
                           <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
                         </div>
                         <div class="nab-item-actions">
@@ -806,7 +1065,7 @@ onMounted(() => {
 
                 <div class="nab-footer">
                   <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 안건 직접 추가
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
                   </button>
                   <div class="nab-footer-right">
                     <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
@@ -1299,47 +1558,48 @@ onMounted(() => {
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
 
-/* ── 다음 회의 안건 블록 ── */
+/* ── 다음 회의 과제 블록 ── */
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
 .nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
-.nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#818cf8;margin-bottom:4px; }
-.nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.15);color:#818cf8; }
+.nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#6366f1;margin-bottom:4px; }
+.nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.1);color:#6366f1; }
 .nab-desc { font-size:11px;color:#64748b;margin:0; }
 .nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:#64748b; }
-.nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
+.nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
-.nab-item { background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.07);border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
-.nab-item.nab-approved { border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04); }
-.nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
-.nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
-.nab-item-body { flex:1;min-width:0; }
-.nab-item-title { font-size:12px;color:#e2e8f0;font-weight:500; }
-.nab-item-dept { font-size:11px;color:#64748b;margin-top:2px; }
+.nab-list { display:flex;flex-direction:column;padding:8px;gap:6px; }
+.nab-item { background:#fff;border:1px solid #e2e8f0;border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
+.nab-item.nab-approved { border-color:rgba(34,197,94,.4);background:#f0fdf4; }
+.nab-item.nab-rejected { border-color:rgba(239,68,68,.3);background:#fef2f2;opacity:.7; }
+.nab-item.nab-saved { border-color:rgba(34,197,94,.6);background:#dcfce7; }
+.nab-item-body { flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px; }
+.nab-item-title { font-size:12px;color:#1e293b;font-weight:600; }
+.nab-item-dept { font-size:10px;color:#6366f1;background:rgba(99,102,241,.08);padding:1px 7px;border-radius:10px;white-space:nowrap;font-weight:500; }
 .nab-item-edit { display:flex;flex-direction:column; }
-.nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:#e2e8f0;outline:none; }
+.nab-input { width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:4px 7px;font-size:12px;color:#1e293b;outline:none; }
+.nab-input:focus { border-color:#6366f1; }
 .nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
 .nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
-.nab-btn-edit { background:rgba(255,255,255,.06);color:#94a3b8; }
-.nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
+.nab-btn-edit { background:#f1f5f9;color:#64748b; }
+.nab-btn-approve { background:rgba(34,197,94,.12);color:#16a34a; }
 .nab-btn-approved { background:#22c55e;color:#fff; }
-.nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
+.nab-btn-reject { background:rgba(239,68,68,.1);color:#dc2626; }
 .nab-btn-rejected { background:#ef4444;color:#fff; }
 .nab-item:has(+ .nab-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
-.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid rgba(255,255,255,.06);border-top:none;border-radius:0 0 7px 7px;background:rgba(255,255,255,.02); }
-.nrb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
-.nrb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
-.nrb-label { font-size:10px;font-weight:600;color:#475569;letter-spacing:.03em; }
-.nrb-approved .nrb-label { color:rgba(52,211,153,.7); }
-.nrb-rejected .nrb-label { color:rgba(248,113,113,.7); }
-.nab-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
-.nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
-.nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
-.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid rgba(255,255,255,.05); }
+.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 7px 7px;background:#f8fafc; }
+.nrb-approved { border-color:rgba(34,197,94,.3);background:#f0fdf4; }
+.nrb-rejected { border-color:rgba(239,68,68,.2);background:#fef2f2; }
+.nrb-label { font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.03em; }
+.nrb-approved .nrb-label { color:#16a34a; }
+.nrb-rejected .nrb-label { color:#dc2626; }
+.nab-reason-input { width:100%;background:#fff;border:1px solid #e2e8f0;border-radius:5px;padding:5px 7px;font-size:11px;color:#475569;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
+.nab-reason-input:focus { border-color:#6366f1; }
+.nab-reason-input::placeholder { color:#cbd5e1;font-style:italic; }
+.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid #f1f5f9; }
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
-.nab-count { font-size:11px;color:#64748b; }
-.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
+.nab-count { font-size:11px;color:#94a3b8; }
+.nab-add-btn { font-size:11px;color:#6366f1;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
 .nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer;transition:opacity .15s; }
 .nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>
