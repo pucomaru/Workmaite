@@ -10,8 +10,8 @@ import java.time.LocalDateTime;
 public class SessionUpdateRequest {
 
     private String title;
-
+    private String description;
     private String location;
-
+    private String type;
     private LocalDateTime scheduledAt;
 }

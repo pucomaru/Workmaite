@@ -7,8 +7,6 @@ import com.workmaite.domain.user.entity.User;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.time.LocalDateTime;
-
 @Getter
 @Builder
 public class MeetingMemberResponse {
@@ -23,8 +21,7 @@ public class MeetingMemberResponse {
 
     private MeetingMemberRole role;
 
-    @JsonProperty("created_at")
-    private LocalDateTime createdAt;
+    private String priority;
 
     private UserInfo user;
 
@@ -57,7 +54,7 @@ public class MeetingMemberResponse {
                 .meetingId(member.getMeetingId())
                 .userId(member.getUserId())
                 .role(member.getRole())
-                .createdAt(member.getCreatedAt())
+                .priority(member.getPriority())
                 .user(userInfo)
                 .build();
     }

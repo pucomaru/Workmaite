@@ -60,7 +60,7 @@ public class ReportController {
     @GetMapping("/sessions/{sessionId}/reports")
     public ResponseEntity<ApiResponse<List<ReportResponse>>> getReportsBySession(
             @PathVariable Long sessionId) {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsBySession(sessionId)));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsByMeeting(sessionId)));
     }
 
     // 자료 단건 조회
@@ -74,7 +74,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<ReportResponse>> updateStatus(
             @PathVariable Long reportId,
             @Valid @RequestBody ReportStatusUpdateRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.updateStatus(reportId, request)));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.updateHumanStatus(reportId, request)));
     }
 
     // 자료 재제출 - 기존 자료를 parent로 삼아 version +1
@@ -89,7 +89,7 @@ public class ReportController {
     // 자료 검토 요청 - REVIEWING 상태로 변경
     @PostMapping("/reports/{reportId}/review")
     public ResponseEntity<ApiResponse<ReportResponse>> requestReview(@PathVariable Long reportId) {
-        return ResponseEntity.ok(ApiResponse.ok(reportService.requestReview(reportId)));
+        return ResponseEntity.ok(ApiResponse.ok(reportService.getReport(reportId)));
     }
 
     // 자료 검토 결과 조회

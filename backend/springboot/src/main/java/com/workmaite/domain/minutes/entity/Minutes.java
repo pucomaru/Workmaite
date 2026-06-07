@@ -3,7 +3,6 @@ package com.workmaite.domain.minutes.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
@@ -25,11 +24,14 @@ public class Minutes {
     @Column(name = "session_id", nullable = false, unique = true)
     private Long sessionId;
 
+    @Column(name = "file_name", length = 255)
+    private String fileName;
+
+    @Column(name = "file_path", length = 500)
+    private String filePath;
+
     @Column(name = "recorder_id")
     private Long recorderId;
-
-    @Column(name = "content_raw", columnDefinition = "TEXT")
-    private String contentRaw;
 
     @Column(name = "content_original", columnDefinition = "TEXT")
     private String contentOriginal;
@@ -46,12 +48,7 @@ public class Minutes {
     @Column(name = "generated_at", updatable = false)
     private LocalDateTime generatedAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
-
-    public void generate(String contentRaw, String contentOriginal) {
-        this.contentRaw = contentRaw;
+    public void generate(String contentOriginal) {
         this.contentOriginal = contentOriginal;
     }
 
