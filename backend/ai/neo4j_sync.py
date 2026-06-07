@@ -716,17 +716,20 @@ async def sync_document(
             )
         except Exception as e:
             logger.warning(f"[Neo4jSync] {doc_label}-Session 연결 실패 (무시): {e}")
-    # Agenda 연결
+    # Agenda 연결 (다중 지원: 콤마로 구분된 id 허용)
     if agenda_neo4j_id:
-        try:
-            await run_cypher(
-                f"MATCH (d:{doc_label} {{id: $doc_id}}) "
-                "OPTIONAL MATCH (ag:Agenda) WHERE ag.id = $ag_id OR toString(ag.pg_id) = $ag_id "
-                "FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END | MERGE (d)-[:첨부]->(ag))",
-                {"doc_id": doc_id, "ag_id": agenda_neo4j_id},
-            )
-        except Exception as e:
-            logger.warning(f"[Neo4jSync] {doc_label}-Agenda 연결 실패 (무시): {e}")
+        ag_ids = [a.strip() for a in str(agenda_neo4j_id).split(",") if a.strip()]
+        if ag_ids:
+            try:
+                await run_cypher(
+                    f"MATCH (d:{doc_label} {{id: $doc_id}}) "
+                    "UNWIND $ag_ids AS ag_id "
+                    "OPTIONAL MATCH (ag:Agenda) WHERE ag.id = ag_id OR toString(ag.pg_id) = ag_id "
+                    "FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END | MERGE (d)-[:첨부]->(ag))",
+                    {"doc_id": doc_id, "ag_ids": ag_ids},
+                )
+            except Exception as e:
+                logger.warning(f"[Neo4jSync] {doc_label}-Agenda 연결 실패 (무시): {e}")
     logger.debug(f"[Neo4jSync] {doc_label} {doc_id} 저장 완료")
 
 

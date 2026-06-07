@@ -989,7 +989,7 @@ onMounted(() => {
 
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
-    <div v-if="showCreateSession" class="app-modal-backdrop" @click.self="showCreateSession=false">
+    <div v-if="showCreateSession" class="app-modal-backdrop">
       <div class="app-modal app-modal-sm">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>

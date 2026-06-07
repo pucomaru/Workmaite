@@ -158,3 +158,38 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
   onDone?.()
 }
 
+// ── Streaming with FormData (FastAPI SSE) ───────────────────────────────────
+// 각 SSE 라인의 data를 JSON으로 파싱해 onEvent(event)로 전달. data가 '[DONE]'이면 종료.
+export async function streamPostForm(path, formData, onEvent) {
+  const token = sessionStorage.getItem('token')
+  const response = await fetch(`${AI_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6)
+      if (data === '[DONE]') return
+      try {
+        onEvent(JSON.parse(data))
+      } catch { /* 부분 데이터 무시 */ }
+    }
+  }
+}
+

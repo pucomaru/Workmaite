@@ -22,6 +22,7 @@ const {
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
   detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  meetingGroups,
   viewMode,
 } = inject('archiveSidebar')
 </script>
@@ -88,7 +89,7 @@ const {
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
                     <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
                   </template>
-                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">미지정</span>
+                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">없음</span>
                 </div>
               </SidebarInfoRow>
             </div>

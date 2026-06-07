@@ -30,9 +30,6 @@ public class SessionResponse {
     @JsonProperty("ended_at")
     private LocalDateTime endedAt;
 
-    @JsonProperty("created_at")
-    private LocalDateTime createdAt;
-
     public static SessionResponse from(MeetingSession session) {
         return SessionResponse.builder()
                 .id(session.getId())
@@ -43,7 +40,6 @@ public class SessionResponse {
                 .scheduledAt(session.getScheduledAt())
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())
-                .createdAt(session.getCreatedAt())
                 .build();
     }
 }

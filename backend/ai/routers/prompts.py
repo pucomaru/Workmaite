@@ -115,6 +115,9 @@ ANALYZE_FILE_SYSTEM = """\
 {
   "score": <0-100 정수>,
   "feedback": ["피드백 항목1", "피드백 항목2", ...],
+  "matched_agendas": [
+    {"id": "<후보 과제 목록 중 관련 깊은 과제의 id>", "content": "<해당 과제 내용>", "reason": "<선택 이유 한 문장>"}
+  ],
   "agendas": [
     {"content": "아젠다 내용", "department": "담당부서명"}
   ],
@@ -127,6 +130,7 @@ ANALYZE_FILE_SYSTEM = """\
 - 실제 내용이 있으면 내용의 구체성, 완성도, 회의 적합성을 종합 평가 (0-100 전체 범위 사용)
 - score: 파일명·유형·부서 적합성 + 실제 내용 완성도 + 그래프 맥락 연계도 종합
 - feedback: 보완할 점, 잘된 점 포함 (3-5개, 구체적으로)
+- matched_agendas: [연결 가능한 기존 과제 목록] 중 이 자료와 관련 깊은 과제를 관련도 순으로 모두 선택해 각 id를 배열로 반환합니다 (1-3개 권장, 가장 관련 깊은 것을 맨 앞에). 목록이 비어 있거나 충분히 관련된 과제가 없으면 빈 배열 []로 두세요. 임의의 id를 지어내지 마세요.
 - agendas: 이 자료가 다음 회의에서 다뤄야 할 아젠다 제안 (1-3개)
 - related_depts: 유관부서 (그래프에 이미 존재하는 부서 우선, 2-4개)
 반드시 JSON만 반환하고 다른 설명은 쓰지 마세요."""
@@ -138,6 +142,7 @@ def analyze_file_human(
     dept_name: str,
     file_content: str,
     graph_context: str,
+    candidate_agendas: str = "",
 ) -> str:
     return f"""\
 파일 이름: {file_name}
@@ -146,6 +151,9 @@ def analyze_file_human(
 
 [파일 내용]
 {file_content if file_content else "[파일 미첨부 — 이름만 입력됨]"}
+
+[연결 가능한 기존 과제 목록]
+{candidate_agendas or '(연결 가능한 과제 없음)'}
 
 [현재 조직 그래프 맥락]
 {graph_context or '(그래프 정보 없음)'}

@@ -12,7 +12,7 @@ import CreateSessionModal from '../components/CreateSessionModal.vue'
 import UploadModal from '../components/UploadModal.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import { useRouter } from 'vue-router'
-import api, { apiAI } from '../api'
+import api, { apiAI, streamPostForm } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/theme'
@@ -389,12 +389,12 @@ function _onFloatDragEnd() {
       ctx.connectNodeId = target.meetingGroupId || ''
       ctx.relatedTodoId = target.neo4jId || target.data?.id || ''
       ctx.agendaContent = target.data?.content || target.label || ''
-      ctx.meetingId     = target.data?.meetingId || toNumericId(target.meetingGroupId)
+      ctx.meetingId     = target.meetingGroupId || ''
     } else if (target?.type === 'dept') {
       ctx.connectNodeId = target.id
-      ctx.meetingId     = toNumericId(target.meetingGroupId)
+      ctx.meetingId     = target.meetingGroupId || ''
     } else if (target?.type === 'meeting_group') {
-      ctx.meetingId = toNumericId(target.id)
+      ctx.meetingId = target.id
     }
     openUploadModal(ctx)
   }
@@ -811,9 +811,26 @@ const ROLE_MAP = { admin: '간사', member: '참여자' }
 function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 
 // ─── Role-based helpers ───────────────────────────────────────
-const detailMyRole = computed(() =>
-  detailMeeting.value?.id ? (meetingsStore.meetingRoles[detailMeeting.value.id] ?? null) : null
-)
+/** 현재 로그인 유저가 해당 회의체 members 배열에서 가지는 역할(admin/member)을 찾는다.
+ *  meetingRoles(SpringBoot)가 비어 있어도 Neo4j archive 응답의 members로 판정 가능. */
+function selfRoleInGroup(group) {
+  const myId    = authStore.user?.id
+  const myEmail = currentPerson.value?.email || authStore.user?.email || authStore.user?.employee_id
+  const myName  = currentPerson.value?.name  || authStore.user?.name
+  const self = (group?.members || []).find(mb =>
+    (myId != null && mb.userId != null && String(mb.userId).replace(/\D/g, '') === String(myId)) ||
+    (myEmail && mb.email && mb.email === myEmail) ||
+    (myName && (mb.userName === myName || mb.name === myName))
+  )
+  return self?.role ?? null
+}
+const detailMyRole = computed(() => {
+  if (!detailMeeting.value?.id) return null
+  const fromStore = meetingsStore.meetingRoles[toNumericId(detailMeeting.value.id)]
+  if (fromStore != null) return fromStore
+  // SpringBoot 역할 정보가 없으면 Neo4j members 기반으로 판정
+  return selfRoleInGroup(detailMeeting.value)
+})
 const isDetailAdmin = computed(() => detailMyRole.value === 'admin')
 const isAnyAdmin = computed(() => {
   // PostgreSQL 기반 role 확인
@@ -911,25 +928,17 @@ const PRESENTATION_CRITERIA = [
 ]
 
 const showUploadModal = ref(false)
-const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoId: '', agendaContent: '', file: null })
-const uploadMeetingTodos = ref([]) // 선택된 회의체의 과제 목록
+const uploadForm = ref({ label: '', fileType: '보고자료', connectNodeId: '', relType: '생성', meetingId: '', relatedTodoIds: [], agendaContent: '', file: null })
 // 드래그로 자동 입력된 필드 추적 (직접 선택 시에는 표시 안 함)
 const prefilledCtx = ref({ meetingId: false, connectNodeId: false, relatedTodoId: false })
 
 let _pendingRelatedTodoId = ''
-watch(() => uploadForm.value.meetingId, async (id) => {
+watch(() => uploadForm.value.meetingId, (id) => {
   const pendingTodo = _pendingRelatedTodoId
   _pendingRelatedTodoId = ''
-  uploadMeetingTodos.value = []
-  uploadForm.value.relatedTodoId = ''
+  uploadForm.value.relatedTodoIds = []
   if (!id) return
-  // node id가 'mg-13' 형식이므로 숫자만 추출
-  const meetingId = id.match(/\d+$/)?.[0]
-  if (!meetingId) return
-  try {
-    uploadMeetingTodos.value = (await apiAI.get(`/api/ai/meetings/${meetingId}/todos`)).data || []
-    if (pendingTodo) uploadForm.value.relatedTodoId = pendingTodo
-  } catch { uploadMeetingTodos.value = [] }
+  if (pendingTodo) uploadForm.value.relatedTodoIds = [pendingTodo]
 })
 
 // connectNodeId가 meeting_group이면 meetingId 자동 동기화
@@ -1194,24 +1203,41 @@ const deptConnectableNodes = computed(() => {
 })
 
 // 선택된 회의체 노드에 연결된 과제들만 드롭다운에 표시 (맵 상 agenda 노드 기준)
+// 사용자가 직접 추가한 과제(customAgendas)도 포함
+const customAgendas = ref([])
 const 업로드회의체과제 = computed(() => {
   if (!uploadForm.value.meetingId) return []
+  const custom = customAgendas.value.map(c => ({ ...c, isCustom: true }))
   // 맵 상에서 해당 회의체에 연결된 agenda 노드 우선
   const mapAgendas = gNodes.filter(
     n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId
   )
   if (mapAgendas.length > 0) {
-    return mapAgendas.map(n => ({
-      id: n.neo4jId || n.id,
-      content: n.data?.content || n.label,  // 전체 내용 (맵은 12자 truncate)
-      agenda_id: n.data?.pg_id ?? null,
-    }))
+    return [
+      ...mapAgendas.map(n => ({
+        id: n.neo4jId || n.id,
+        content: n.data?.content || n.label,  // 전체 내용 (맵은 12자 truncate)
+        agenda_id: n.data?.pg_id ?? null,
+      })),
+      ...custom,
+    ]
   }
-  // fallback: 맵에 없으면 meeting_group 노드의 tasks 또는 API 로드 데이터
+  // fallback: 맵에 없으면 meeting_group 노드의 tasks
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
-  if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
-  return uploadMeetingTodos.value
+  if (mgNode?.data?.tasks?.length) return [...mgNode.data.tasks, ...custom]
+  return custom
 })
+
+// 사용자가 직접 과제를 입력 → 후보 목록에 추가하고 자동 선택
+function addCustomAgenda(content) {
+  const text = (content || '').trim()
+  if (!text) return
+  const id = `agenda-custom-${Date.now()}`
+  customAgendas.value.push({ id, content: text, agenda_id: null })
+  if (!uploadForm.value.relatedTodoIds.includes(id)) {
+    uploadForm.value.relatedTodoIds.push(id)
+  }
+}
 
 // person 노드 → 참여 회의체 목록
 function personMeetingGroups(node) {
@@ -1238,6 +1264,8 @@ function personTasks(node) {
 const uploadStep = ref(1)  // 1=manual input, 2=AI analysis result
 const aiAnalyzing = ref(false)
 const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
+const aiStreamText = ref('')   // 스트리밍 중 LLM 토큰 누적 텍스트
+const aiStreamStage = ref('')  // 현재 진행 단계 메시지
 const selectedAgendas = ref([])      // indices of agendas to apply
 const selectedRelDepts = ref([])     // dept names to auto-connect
 
@@ -1245,8 +1273,11 @@ function openUploadModal(ctx = {}) {
   showUploadModal.value = true
   uploadStep.value = 1
   aiResult.value = null
+  aiStreamText.value = ''
+  aiStreamStage.value = ''
   selectedAgendas.value = []
   selectedRelDepts.value = []
+  customAgendas.value = []
   // 드래그로 자동 입력된 필드 기록
   prefilledCtx.value = {
     meetingId: !!ctx.meetingId,
@@ -1261,7 +1292,7 @@ function openUploadModal(ctx = {}) {
     connectNodeId: ctx.connectNodeId || '',
     relType: '생성',
     meetingId: ctx.meetingId || '',
-    relatedTodoId: ctx.relatedTodoId ? String(ctx.relatedTodoId) : '',
+    relatedTodoIds: ctx.relatedTodoId ? [String(ctx.relatedTodoId)] : [],
     agendaContent: ctx.agendaContent || '',
     file: null
   }
@@ -1281,46 +1312,62 @@ async function runAiAnalysis() {
   if (!uploadForm.value.label.trim() || !uploadForm.value.connectNodeId) return
   aiAnalyzing.value = true
   uploadStep.value = 2
+  aiResult.value = null
+  aiStreamText.value = ''
+  aiStreamStage.value = '검토를 시작합니다…'
   const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
             || deptConnectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
 
-  // 실제 파일 내용 읽기 (텍스트 기반 파일만)
-  let file_content = ''
-  const file = uploadForm.value.file
-  if (file) {
-    const TEXT_EXTS = /\.(txt|md|html|htm|csv|json|xml|log|yaml|yml)$/i
-    if (TEXT_EXTS.test(file.name) || file.type.startsWith('text/')) {
-      try {
-        file_content = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = e => resolve(e.target.result?.slice(0, 4000) || '')
-          reader.onerror = reject
-          reader.readAsText(file, 'UTF-8')
-        })
-      } catch { file_content = '' }
-    } else {
-      // PDF/이미지 등 — 파일명만 있고 내용 없음을 명시
-      file_content = '[바이너리 파일 — 내용 추출 불가]'
+  // 실제 파일을 백엔드로 전송 → 서버에서 PDF/DOCX 텍스트 추출 후 AI 검토 (스트리밍)
+  const fd = new FormData()
+  if (uploadForm.value.file) fd.append('file', uploadForm.value.file)
+  fd.append('file_name', uploadForm.value.label)
+  fd.append('file_type', uploadForm.value.fileType)
+  fd.append('dept_name', deptNode?.label || '')
+  fd.append('graph_context', buildGraphContextStr())
+  const _mid = String(uploadForm.value.meetingId || '').replace(/^mg-/, '')
+  if (_mid && /^\d+$/.test(_mid)) fd.append('meeting_id', _mid)
+  fd.append('candidate_agendas', JSON.stringify(
+    업로드회의체과제.value.map(t => ({
+      id: String(t.agenda_id ?? t.id),
+      content: t.content,
+    }))
+  ))
+
+  const applyResult = (data) => {
+    aiResult.value = data
+    selectedAgendas.value = (data.agendas || []).map((_, i) => i)  // 기본 전체 선택
+    selectedRelDepts.value = [...(data.related_depts || [])]       // 기본 전체 선택
+
+    // AI가 자동으로 연관 과제(복수)를 판별 → 드래그로 이미 지정한 경우가 아니면 적용
+    const aiMatchedIds = (data.matched_agendas || [])
+      .map(m => String(m.id))
+      .filter(id => id && id !== 'null')
+    if (aiMatchedIds.length && !prefilledCtx.value.relatedTodoId) {
+      uploadForm.value.relatedTodoIds = [...new Set(aiMatchedIds)]
+    } else if (aiMatchedIds.length) {
+      // 드래그로 지정된 과제는 유지하되 AI 추천을 추가
+      uploadForm.value.relatedTodoIds = [
+        ...new Set([...uploadForm.value.relatedTodoIds, ...aiMatchedIds]),
+      ]
     }
   }
-  // 파일 자체가 없으면 (이름만 입력한 경우) 명시
-  if (!file_content) file_content = '[파일 미첨부 — 이름만 입력됨]'
 
   try {
-    const { data } = await apiAI.post('/api/agent/archive/analyze-file', {
-      file_name: uploadForm.value.label,
-      file_type: uploadForm.value.fileType,
-      dept_name: deptNode?.label || '',
-      graph_context: buildGraphContextStr(),
-      file_content,
+    await streamPostForm('/api/agent/archive/analyze-file/stream', fd, (ev) => {
+      if (ev.type === 'status') {
+        aiStreamStage.value = ev.message || ''
+      } else if (ev.type === 'token') {
+        aiStreamText.value += ev.content || ''
+      } else if (ev.type === 'result') {
+        applyResult(ev.data || {})
+      }
     })
-    aiResult.value = data
-    selectedAgendas.value = data.agendas.map((_, i) => i)      // 기본 전체 선택
-    selectedRelDepts.value = [...(data.related_depts || [])]   // 기본 전체 선택
   } catch (e) {
     aiResult.value = {
       score: 70,
       feedback: ['AI 분석 서버에 연결할 수 없습니다.'],
+      matched_agendas: [],
       agendas: [],
       related_depts: [],
       criteria: uploadForm.value.fileType==='발제자료'
@@ -1329,6 +1376,7 @@ async function runAiAnalysis() {
     }
   } finally {
     aiAnalyzing.value = false
+    aiStreamStage.value = ''
   }
 }
 
@@ -1350,13 +1398,39 @@ function doAddFile() {
   // 연결 노드의 meeting_group을 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
 
-  // 연관 과제가 선택된 경우 agenda 노드에 연결, 아니면 부서 노드에 연결
-  const relTodoId = uploadForm.value.relatedTodoId
-  const agendaNode = relTodoId
-    ? gNodes.find(n => n.type === 'agenda' && (n.neo4jId === relTodoId || n.id === relTodoId))
-    : null
-  const anchorNode = agendaNode || fromNode  // 위치·엣지 기준 노드
-  const anchorIdx  = agendaNode ? gNodes.indexOf(agendaNode) : fromIdx
+  // 사용자가 직접 입력한 과제 → 그래프 agenda 노드 생성 + Neo4j Agenda 노드 생성
+  const relTodoIds = uploadForm.value.relatedTodoIds || []
+  customAgendas.value
+    .filter(c => relTodoIds.includes(c.id))
+    .forEach((c, i) => {
+      // 이미 그래프에 있으면 건너뜀
+      if (gNodes.some(n => n.id === c.id)) return
+      const angle = Math.random() * Math.PI * 2
+      gNodes.push({
+        id: c.id,
+        neo4jId: c.id,
+        label: c.content.slice(0, 12) + (c.content.length > 12 ? '…' : ''),
+        type: 'agenda',
+        data: { content: c.content },
+        groupIdx: mgNode?.groupIdx,
+        meetingGroupId: uploadForm.value.meetingId,
+        x: Math.cos(angle) * 110, y: 10, z: Math.sin(angle) * 110,
+      })
+      // Neo4j Agenda 노드 생성 (회의체에 관할 연결)
+      apiAI.post('/api/neo4j/agendas', {
+        id: c.id,
+        content: c.content,
+        mg_id: uploadForm.value.meetingId,
+      }).catch(e => console.warn('[doAddFile] agenda 생성 실패:', e))
+    })
+
+  // 연관 과제(복수)가 선택된 경우 agenda 노드들에 연결, 아니면 부서 노드에 연결
+  const agendaNodes = relTodoIds
+    .map(id => gNodes.find(n => n.type === 'agenda' && (n.neo4jId === id || n.id === id)))
+    .filter(Boolean)
+  const primaryAgenda = agendaNodes[0] || null
+  const anchorNode = primaryAgenda || fromNode  // 위치·엣지 기준 노드
+  const anchorIdx  = primaryAgenda ? gNodes.indexOf(primaryAgenda) : fromIdx
 
   const anchorX = anchorNode?.x||0, anchorZ = anchorNode?.z||0
   const phi   = Math.atan2(anchorZ, anchorX) + 0.28
@@ -1376,9 +1450,15 @@ function doAddFile() {
   }
   gNodes.push(newNode)
   const fileIdx = gNodes.length - 1
-  // agenda에 연결할 때는 '첨부', 부서에 연결할 때는 REL_MATRIX 기준
-  const rel = agendaNode ? '첨부' : autoRel(uploadForm.value.connectNodeId, 'file')
-  if (anchorIdx >= 0) gEdges.push({ from: fileIdx, to: anchorIdx, rel })
+  // agenda에 연결할 때는 '첨부'(복수 가능), 부서에 연결할 때는 REL_MATRIX 기준
+  if (agendaNodes.length) {
+    agendaNodes.forEach(ag => {
+      const agIdx = gNodes.indexOf(ag)
+      if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '첨부' })
+    })
+  } else if (anchorIdx >= 0) {
+    gEdges.push({ from: fileIdx, to: anchorIdx, rel: autoRel(uploadForm.value.connectNodeId, 'file') })
+  }
 
   // AI가 추천한 유관부서 자동 연결
   selectedRelDepts.value.forEach(deptName => {
@@ -1424,8 +1504,8 @@ function doAddFile() {
     if (mgNumId) fd.append('meeting_id', String(mgNumId))
     if (uploadForm.value.label) fd.append('file_label', uploadForm.value.label)
     if (uploadForm.value.fileType) fd.append('doc_type', uploadForm.value.fileType)
-    // 과제 노드에 드래그한 경우 — Agenda / Document 노드 연결
-    if (uploadForm.value.relatedTodoId) fd.append('agenda_neo4j_id', uploadForm.value.relatedTodoId)
+    // 과제 노드에 드래그한 경우 — Agenda / Document 노드 연결 (복수 지원, 콤마 구분)
+    if (uploadForm.value.relatedTodoIds?.length) fd.append('agenda_neo4j_id', uploadForm.value.relatedTodoIds.join(','))
     if (uploadForm.value.agendaContent) fd.append('agenda_content', uploadForm.value.agendaContent)
     if (uploadForm.value.meetingId) fd.append('mg_id', uploadForm.value.meetingId)
     apiAI.post('/api/sync/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
@@ -1600,7 +1680,7 @@ const sortedGroups = computed(() => {
     const histCount = (g.minutes?.length || 0) + (g.reports?.length || 0)
     return {
       ...g,
-      _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자',
+      _role: (meetingsStore.meetingRoles[toNumericId(g.id)] ?? selfRoleInGroup(g)) === 'admin' ? '간사' : '참여자',
       _adminName: adminMember?.userName || adminMember?.name || '',
       _histCount: histCount,
     }
@@ -1839,7 +1919,9 @@ provide('archiveModals', {
   showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession,
   showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
   deptConnectableNodes, 업로드회의체과제, prefilledCtx,
+  addCustomAgenda,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
+  aiStreamText, aiStreamStage,
   PRESENTATION_CRITERIA, doAddFile,
   settingsModal, closeSettings,
   settingsSearchQ, watchSettingsSearch, settingsSearchLoading,
@@ -1866,6 +1948,7 @@ provide('archiveSidebar', {
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
   detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  meetingGroups,
   viewMode,
 })
 </script>

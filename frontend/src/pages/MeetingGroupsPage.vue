@@ -354,7 +354,7 @@ onMounted(async () => {
 
     <Teleport to="body">
       <!-- Create modal -->
-      <div v-if="showCreate" class="app-modal-backdrop" @click.self="showCreate=false">
+      <div v-if="showCreate" class="app-modal-backdrop">
         <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
           <div class="app-modal-header">
             <span class="app-modal-title">회의체 생성</span>
@@ -407,7 +407,7 @@ onMounted(async () => {
       </div>
 
       <!-- Settings modal -->
-      <div v-if="settingsModal" class="app-modal-backdrop" @click.self="closeSettings">
+      <div v-if="settingsModal" class="app-modal-backdrop">
         <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
           <div class="app-modal-header">
             <span class="app-modal-title">회의체 설정</span>

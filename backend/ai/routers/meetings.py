@@ -420,6 +420,129 @@ def my_role(
 ai_router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
+@ai_router.get("/organization/members")
+def organization_members(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """조직 탭 데이터: 현재 사용자가 속한 회의체의 구성원만 PostgreSQL 기준으로 반환한다.
+
+    데이터 보기 권한 = '본인이 속한 회의체'. 권한 밖의 사용자/회의체는 노출하지 않는다.
+    """
+    # 1) 본인이 속한 회의체 id 목록 (PostgreSQL)
+    my_membership = db.query(models.MeetingMember).filter(
+        models.MeetingMember.user_id == current_user.id
+    ).all()
+    my_meeting_ids = [mm.meeting_id for mm in my_membership]
+    if not my_meeting_ids:
+        return {"meetings": [], "members": []}
+
+    # 2) 해당 회의체 메타 (제목 등) + 본인 역할
+    my_role_map = {mm.meeting_id: mm.role for mm in my_membership}
+    meetings_map = {
+        m.id: m
+        for m in db.query(models.Meeting).filter(models.Meeting.id.in_(my_meeting_ids)).all()
+    }
+    meetings_list = [
+        {"id": m.id, "title": m.title, "my_role": my_role_map.get(m.id)}
+        for m in sorted(meetings_map.values(), key=lambda x: x.title or "")
+    ]
+
+    # 3) 해당 회의체들의 전체 멤버십 행
+    member_rows = db.query(models.MeetingMember).filter(
+        models.MeetingMember.meeting_id.in_(my_meeting_ids)
+    ).all()
+
+    # 4) user_id 별로 참여 회의체 묶기
+    user_meetings: dict[int, list] = {}
+    for mm in member_rows:
+        meeting = meetings_map.get(mm.meeting_id)
+        user_meetings.setdefault(mm.user_id, []).append({
+            "id": mm.meeting_id,
+            "member_id": mm.id,
+            "title": meeting.title if meeting else "",
+            "role": mm.role,
+        })
+
+    user_ids = list(user_meetings.keys())
+    users_map = {
+        u.id: u
+        for u in db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+    }
+
+    members = []
+    for uid, meetings in user_meetings.items():
+        u = users_map.get(uid)
+        if not u:
+            continue
+        members.append({
+            "id": u.id,
+            "name": u.name,
+            "email": u.email,
+            "department": u.department,
+            "company": u.company,
+            "position": u.position,
+            "meetings": meetings,
+        })
+    members.sort(key=lambda r: r["name"] or "")
+
+    return {"meetings": meetings_list, "members": members}
+
+
+@ai_router.delete("/meetings/{meeting_id}/members/{member_id}")
+async def ai_remove_member(
+    meeting_id: int,
+    member_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    my_role = _my_role_in(current_user.id, meeting_id, db)
+    target = db.query(models.MeetingMember).filter(
+        models.MeetingMember.id == member_id,
+        models.MeetingMember.meeting_id == meeting_id,
+    ).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Not found")
+    if target.user_id != current_user.id and my_role != "admin":
+        raise HTTPException(status_code=403, detail="간사만 구성원을 제거할 수 있습니다.")
+
+    removed_user = db.query(models.User).filter(models.User.id == target.user_id).first()
+    db.delete(target)
+    db.commit()
+
+    if removed_user:
+        background_tasks.add_task(
+            delete_meeting_member,
+            meeting_id=meeting_id,
+            user_id=removed_user.id,
+        )
+    return {"ok": True}
+
+
+@ai_router.patch("/users/{user_id}")
+def ai_update_user(
+    user_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Not found")
+    if "name" in data and data["name"] is not None:
+        user.name = data["name"]
+    if "company" in data:
+        user.company = data["company"] if data["company"] else None
+    if "department" in data:
+        user.department = data["department"] if data["department"] else None
+    if "position" in data:
+        user.position = data["position"] if data["position"] else None
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "name": user.name, "company": user.company, "department": user.department, "position": user.position}
+
+
 @ai_router.delete("/meetings/{meeting_id}")
 async def ai_delete_meeting(
     meeting_id: int,

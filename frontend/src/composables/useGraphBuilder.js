@@ -12,7 +12,15 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
     // ── Person 노드 (현재 로그인 사용자, 중심) ────────────────────
     const orgIdx = nodes.length
     const orgLabel = currentPerson.value?.name || authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
-    nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0, data: currentOrg.value })
+    const selfData = {
+      ...(currentOrg.value || {}),
+      name: orgLabel,
+      email: currentPerson.value?.email || authStore.user?.email || authStore.user?.employee_id || null,
+      organization: currentPerson.value?.organization || authStore.user?.company || currentOrg.value?.name || null,
+      department: currentPerson.value?.department || authStore.user?.department || null,
+      position: currentPerson.value?.position || authStore.user?.position || null,
+    }
+    nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0, data: selfData })
 
     // 소속 회의체 없으면 본인 노드만 표시
     if (!data.length) return { nodes, edges }

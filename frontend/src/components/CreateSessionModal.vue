@@ -6,7 +6,7 @@ const { showSessionModal, nightMode, sessionForm, sessionMembers, creatingSessio
 
 <template>
   <Teleport to="body">
-    <div v-if="showSessionModal" class="app-modal-backdrop" @click.self="showSessionModal=false">
+    <div v-if="showSessionModal" class="app-modal-backdrop">
       <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>

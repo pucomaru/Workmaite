@@ -1,6 +1,8 @@
 import json
 import re
 import os
+import uuid
+from datetime import datetime
 from collections import defaultdict
 from typing import List, Optional, Literal
 
@@ -27,7 +29,6 @@ from .prompts import (
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
     extract_agendas_system,
     chat_extract_system,
-    ANALYZE_FILE_SYSTEM, analyze_file_human,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,15 +102,17 @@ def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     db = SessionLocal()
     try:
         log = models.AgentLog(
-            operation=f"agent_{agent.lower()}",
-            entity_type="meeting",
-            entity_id=str(meeting_id),
+            task_id=str(uuid.uuid4()),
+            context_type=f"agent_{agent.lower()}",
+            meeting_id=meeting_id,
             status="success",
-            error_detail=f"[{agent}] {action}: {detail}" if detail else f"[{agent}] {action}",
+            output_data={"agent": agent, "action": action, "detail": detail},
+            ended_at=datetime.utcnow(),
         )
         db.add(log)
         db.commit()
     except Exception as e:
+        db.rollback()
         print(f"[ActivityLog Error] {e}")
     finally:
         db.close()
@@ -163,10 +166,23 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
     import io
 
     if filename.endswith(".pdf"):
+        # 1순위: pdfplumber (설치돼 있으면 레이아웃 보존이 우수)
         try:
             import pdfplumber
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 pages = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n".join(pages).strip()
+            if text:
+                return text
+        except ModuleNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"[extract] pdfplumber 실패, pypdf로 대체: {e}")
+        # 2순위: pypdf (기본 의존성)
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(raw))
+            pages = [page.extract_text() or "" for page in reader.pages]
             return "\n".join(pages).strip()
         except Exception as e:
             return f"[PDF 추출 오류: {e}]"
@@ -1300,36 +1316,129 @@ async def archive_chat_extract(
 # ─── 아카이브 파일 AI 검토 ────────────────────────────────────────────────────
 @router.post("/archive/analyze-file")
 async def analyze_archive_file(
-    data: dict,
+    file: Optional[UploadFile] = File(None),
+    file_name: str = Form(""),
+    file_type: str = Form(""),
+    dept_name: str = Form(""),
+    graph_context: str = Form(""),
+    candidate_agendas: str = Form("[]"),
+    meeting_id: Optional[int] = Form(None),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    file_name: str = data.get("file_name", "")
-    file_type: str = data.get("file_type", "")
-    dept_name: str = data.get("dept_name", "")
-    graph_context: str = data.get("graph_context", "")
-    file_content: str = data.get("file_content", "")
-
+    # 후보 과제(JSON 문자열) 파싱
     try:
-        response = await make_llm(temperature=0.2).ainvoke([
-            SystemMessage(content=ANALYZE_FILE_SYSTEM),
-            HumanMessage(content=analyze_file_human(file_name, file_type, dept_name, file_content, graph_context)),
-        ])
-        match = re.search(r'\{[\s\S]*\}', response.content.strip())
-        result = json.loads(match.group(0)) if match else json.loads(response.content.strip())
-        return {
-            "score": int(result.get("score", 70)),
-            "feedback": result.get("feedback", []),
-            "agendas": result.get("agendas", []),
-            "related_depts": result.get("related_depts", []),
-        }
+        candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
+    except Exception:
+        candidate_list = []
+    if not isinstance(candidate_list, list):
+        candidate_list = []
+
+    # 첨부 파일에서 실제 텍스트 추출 (PDF/DOCX/XLSX/텍스트)
+    file_content = ""
+    if file is not None:
+        try:
+            raw = await file.read()
+            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            file_content = (extracted or "").strip()[:8000]
+            if not file_content:
+                file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
+        except Exception as e:
+            logger.warning(f"[analyze-file] 텍스트 추출 실패: {e}")
+            file_content = f"[파일 추출 오류: {e}]"
+    else:
+        file_content = "[파일 미첨부 — 이름만 입력됨]"
+
+    # LangGraph 기반 아카이브 파일 검토 에이전트 실행
+    try:
+        from agents.report_reviewer import analyze_archive_file as _analyze_graph
+        return await _analyze_graph(
+            file_name=file_name,
+            file_type=file_type,
+            dept_name=dept_name,
+            file_content=file_content,
+            graph_context=graph_context,
+            candidate_agendas=candidate_list,
+            user_id=current_user.id if current_user else None,
+            meeting_id=meeting_id,
+        )
     except Exception as e:
+        logger.warning(f"[analyze-file] LangGraph 검토 실패: {e}")
         return {
             "score": 70,
             "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+            "matched_agendas": [],
             "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
             "related_depts": [],
         }
+
+
+# ─── 아카이브 파일 AI 검토 (스트리밍) ─────────────────────────────────────────
+@router.post("/archive/analyze-file/stream")
+async def analyze_archive_file_stream_ep(
+    file: Optional[UploadFile] = File(None),
+    file_name: str = Form(""),
+    file_type: str = Form(""),
+    dept_name: str = Form(""),
+    graph_context: str = Form(""),
+    candidate_agendas: str = Form("[]"),
+    meeting_id: Optional[int] = Form(None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 후보 과제(JSON 문자열) 파싱
+    try:
+        candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
+    except Exception:
+        candidate_list = []
+    if not isinstance(candidate_list, list):
+        candidate_list = []
+
+    # 첨부 파일에서 실제 텍스트 추출 (요청 컨텍스트 내에서 먼저 읽어둠)
+    file_content = ""
+    if file is not None:
+        try:
+            raw = await file.read()
+            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            file_content = (extracted or "").strip()[:8000]
+            if not file_content:
+                file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
+        except Exception as e:
+            logger.warning(f"[analyze-file/stream] 텍스트 추출 실패: {e}")
+            file_content = f"[파일 추출 오류: {e}]"
+    else:
+        file_content = "[파일 미첨부 — 이름만 입력됨]"
+
+    async def stream():
+        from agents.report_reviewer import analyze_archive_file_stream as _stream_graph
+        try:
+            async for event in _stream_graph(
+                file_name=file_name,
+                file_type=file_type,
+                dept_name=dept_name,
+                file_content=file_content,
+                graph_context=graph_context,
+                candidate_agendas=candidate_list,
+                user_id=current_user.id if current_user else None,
+                meeting_id=meeting_id,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.warning(f"[analyze-file/stream] 검토 실패: {e}")
+            err = {
+                "type": "result",
+                "data": {
+                    "score": 70,
+                    "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                    "matched_agendas": [],
+                    "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+                    "related_depts": [],
+                },
+            }
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ─── 아젠다 피드백 저장 (HitlReview) ────────────────────────────────────────
