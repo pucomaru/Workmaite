@@ -168,6 +168,8 @@ async def get_archive(
                     coalesce(mg.meeting_type, mg.type) AS meeting_type,
                     coalesce(mg.status, 'active') AS status,
                     coalesce(mg.description, mg.purpose, '') AS purpose,
+                    mg.start_date AS start_date,
+                    mg.end_date AS end_date,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
                     p.position AS position, type(rel) AS role, d.name AS department
@@ -254,6 +256,8 @@ async def get_archive(
                 "meeting_type": row.get("meeting_type"),
                 "status": row.get("status", "active"),
                 "purpose": row.get("purpose"),
+                "start_date": row.get("start_date"),
+                "end_date": row.get("end_date"),
                 "members": [], "tasks": [], "minutes": [], "reports": [],
                 "minutes_agendas": [], "session_agendas": [], "derivations": [],
             }
@@ -404,6 +408,22 @@ async def get_archive(
     except Exception:
         pass  # 생명주기 데이터 없어도 메인 그래프는 정상 반환
 
+    # ── Postgres 보완: 모든 회의체의 reports를 PostgreSQL에서 채움 ──
+    all_raw_ids = [int(mid.replace("mg-", "")) for mid in meetings_map.keys() if mid.replace("mg-", "").isdigit()]
+    if all_raw_ids:
+        reports_db = db.query(models.Report).filter(models.Report.meeting_id.in_(all_raw_ids)).all()
+        for r in reports_db:
+            sid = f"mg-{r.meeting_id}"
+            if sid in meetings_map:
+                meetings_map[sid]["reports"].append({
+                    "id": r.id,
+                    "meetingId": sid,
+                    "file_name": r.file_name,
+                    "file_path": r.file_path,
+                    "human_status": r.human_status,
+                    "submitter_department": r.submitter_department,
+                })
+
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
     if missing_pg_ids:
@@ -423,6 +443,8 @@ async def get_archive(
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
                 "description": m.description,
+                "start_date": m.start_date.isoformat() if m.start_date else None,
+                "end_date": m.end_date.isoformat() if m.end_date else None,
                 "members": [
                     {
                         "meetingId": sid, "userId": f"user-{u.id}",
@@ -433,7 +455,18 @@ async def get_archive(
                     }
                     for mb, u in members_db
                 ],
-                "tasks": [], "minutes": [], "reports": [],
+                "tasks": [], "minutes": [],
+                "reports": [
+                    {
+                        "id": r.id,
+                        "meetingId": sid,
+                        "file_name": r.file_name,
+                        "file_path": r.file_path,
+                        "human_status": r.human_status,
+                        "submitter_department": r.submitter_department,
+                    }
+                    for r in db.query(models.Report).filter(models.Report.meeting_id == m.id).all()
+                ],
             }
 
     meetings = list(meetings_map.values())

@@ -1002,8 +1002,8 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["sessions"] += 1
 
-        # 5. Agenda
-        for ag in db.query(models.Agenda).all():
+        # 5. Agenda (draft 제외 — draft는 사용자 확인 전이므로 그래프에 노출 안 함)
+        for ag in db.query(models.Agenda).filter(models.Agenda.status != "draft").all():
             dept_str = ""
             if ag.department:
                 dept_str = (

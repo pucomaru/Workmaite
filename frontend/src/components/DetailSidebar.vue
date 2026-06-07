@@ -10,12 +10,12 @@ const {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate,
-  detailTodos, groupedTodos,
+  detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
-  runExtract, setExtractState, addExtractItem, openAssignModal,
-  assignLoading, assignResult, assignDeptOptions,
-  saveAssignItem, cancelAssignEdit, rejectAssignItem, addAssignItem, saveApprovedTasks,
+  runExtract, setExtractState, addExtractItem, finishExtract,
+  showFeedback, submitFeedback,
+  detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
@@ -63,7 +63,7 @@ const {
           <div class="detail-tabs">
             <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
             <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
-            <button v-if="showExtractFlow" class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'">과제추출</button>
+            <button class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'; if(!showExtractFlow) showExtractFlow=true">과제추출</button>
             <button class="detail-tab" :class="{ active: detailTab==='rel' }" @click="detailTab='rel'">관계</button>
           </div>
 
@@ -99,9 +99,9 @@ const {
                 <span class="detail-section-label">팀 제출 현황</span>
                 <span class="dept-submit-summary">
                   <span class="dss-done">{{ detailDeptStatus.filter(d=>d.submitted).length }}팀 완료</span>
-                  <template v-if="detailDeptStatus.filter(d=>!d.submitted).length">
+                  <template v-if="detailDeptStatus.filter(d=>!d.submitted && !d.noTask).length">
                     <span class="dss-sep">·</span>
-                    <span class="dss-pending">{{ detailDeptStatus.filter(d=>!d.submitted).length }}팀 미제출</span>
+                    <span class="dss-pending">{{ detailDeptStatus.filter(d=>!d.submitted && !d.noTask).length }}팀 미제출</span>
                   </template>
                 </span>
               </div>
@@ -110,7 +110,10 @@ const {
                   <div v-for="ds in detailDeptStatus" :key="ds.dept" class="dept-submit-item" :class="{ 'dsi-done': ds.submitted, 'dsi-pending': !ds.submitted, 'dsi-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }">
                     <div class="dsi-dot" :class="{ 'dsi-dot-done': ds.submitted, 'dsi-dot-pending': !ds.submitted, 'dsi-dot-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }"></div>
                     <span class="dsi-name">{{ ds.dept }}</span>
-                    <template v-if="ds.submitted">
+                    <template v-if="ds.noTask">
+                      <span class="dsi-status" style="color:#94a3b8">과제 없음</span>
+                    </template>
+                    <template v-else-if="ds.submitted">
                       <span class="dsi-status dsi-status-done">제출 완료</span>
                     </template>
                     <template v-else>
@@ -167,18 +170,22 @@ const {
                         <div v-for="todo in todos" :key="todo.id||todo.content" class="detail-todo-item">
                           <div class="detail-todo-status" :class="{
                             'ts-done': todo.status==='done',
-                            'ts-progress': todo.status==='in_progress',
+                            'ts-progress': todo.status==='in_progress'||todo.status==='ongoing',
                             'ts-risk': todo.status==='at_risk',
                             'ts-pending': !todo.status||todo.status==='pending'
                           }">
-                            {{ todo.status==='done' ? '완료' : todo.status==='in_progress' ? '진행' : todo.status==='at_risk' ? '위험' : '대기' }}
+                            {{ todo.status==='done' ? '완료' : todo.status==='in_progress'||todo.status==='ongoing' ? '진행' : todo.status==='at_risk' ? '위험' : '대기' }}
                           </div>
                           <div class="detail-todo-info">
-                            <div class="detail-todo-title">{{ todo.content }}</div>
+                            <div class="detail-todo-title">{{ todo.content || todo.title }}</div>
                             <div class="detail-todo-meta">
-                              <span v-if="todo.assignee_name||todo.assignee">{{ todo.assignee_name||todo.assignee }}</span>
+                              <span v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">{{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</span>
                               <span v-if="todo.due_date"> · {{ formatDate(todo.due_date) }}</span>
                             </div>
+                          </div>
+                          <div class="detail-todo-actions">
+                            <button class="todo-action-btn todo-done-btn" :class="{'is-done': todo.status==='done'}" @click="completeTodo(todo)" title="완료/취소">✓</button>
+                            <button class="todo-action-btn todo-del-btn" @click="deleteTodo(todo)" title="삭제">✕</button>
                           </div>
                         </div>
                       </div>
@@ -197,17 +204,17 @@ const {
             <!-- ── 과제추출 탭 ── -->
             <template v-if="detailTab==='extract'">
 
-                <!-- 프로세스 인디케이터 -->
-                <div class="task-process-bar">
+                <!-- 프로세스 인디케이터: 초안이 없을 때만 표시 -->
+                <div class="task-process-bar" v-if="!extractResult.length && !extractLoading">
                   <ProcessStepBar
-                    :steps="['자료선정', '추출', '배정']"
-                    :current-step="extractPhase==='context' ? 0 : extractPhase==='result' ? 1 : 2"
-                    @step-click="i => goToProcessStep(i===0 ? 'context' : 'result')"
+                    :steps="['자료선정', '추출']"
+                    :current-step="0"
+                    @step-click="() => {}"
                   />
                 </div>
 
-                <!-- 자료선정 단계 -->
-                <template v-if="extractPhase==='context'">
+                <!-- 자료선정 단계: 초안이 없을 때만 -->
+                <template v-if="!extractResult.length && !extractLoading">
                   <div class="ctx-section">
                     <div class="detail-section-label ctx-section-title-flex">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
@@ -266,119 +273,71 @@ const {
                   </button>
                 </template><!-- /자료선정 단계 -->
 
-                <!-- 추출·배정 단계 -->
-                <template v-if="extractPhase==='result' || extractPhase==='assign'">
-
-                  <template v-if="extractPhase==='result'">
+                <!-- 추출 결과: 로딩 중이거나 초안이 있을 때 -->
+                <template v-if="extractLoading || extractResult.length">
                     <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
-                    <template v-else-if="extractResult.length">
+                    <template v-else>
                       <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
                       <div class="detail-extract-list">
-                        <div v-for="(ag, i) in extractResult" :key="i" class="detail-extract-item" :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
-                          <div class="dei-num">{{ i+1 }}</div>
-                          <div class="dei-body">
-                            <template v-if="!ag._editing">
-                              <div class="dei-title">{{ ag.title }}</div>
-                              <ul class="dei-bullets"><li v-for="(b, bi) in ag.bullets" :key="bi">{{ b }}</li></ul>
-                            </template>
-                            <template v-else>
-                              <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" />
-                              <textarea class="dei-textarea" v-model="ag._editBullets" placeholder="세부 내용" rows="3"></textarea>
-                            </template>
-                          </div>
-                          <div class="dei-actions">
-                            <template v-if="!ag._editing">
-                              <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                              <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                              <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                            </template>
-                            <template v-else>
-                              <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                              <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                            </template>
-                          </div>
-                        </div>
-                      </div>
-                      <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가</button>
-                      <div class="detail-extract-footer detail-extract-footer--col">
-                        <span class="dei-count">승인 {{ extractResult.filter(a=>a._state==='approved').length }} / 반려 {{ extractResult.filter(a=>a._state==='rejected').length }} / 미검토 {{ extractResult.filter(a=>!a._state).length }}</span>
-                        <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state==='approved').length" @click="extractPhase='assign'; openAssignModal()">배정으로 이동 →</button>
-                      </div>
-                    </template>
-                    <div v-else class="detail-log-empty" style="margin-top:18px">
-                      <svg width="28" height="28" fill="none" stroke="#64748b" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:8px"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-                      <div>추출된 과제가 없습니다.</div>
-                      <div style="font-size:11px;opacity:.6;margin-top:4px">자료를 선택하거나 파일을 추가한 후 다시 시도해보세요.</div>
-                      <button class="ctx-run-btn" style="margin-top:10px" @click="extractPhase='context'">
-                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        자료 선정으로 돌아가기
-                      </button>
-                    </div>
-                  </template>
-
-                  <template v-if="extractPhase==='assign'">
-                    <div v-if="assignLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>과제를 불러오는 중...</span></div>
-                    <div v-else-if="!assignResult.length" class="detail-log-empty">배정된 과제가 없습니다.</div>
-                    <template v-else>
-                      <div class="detail-extract-list">
-                        <template v-for="(t, i) in assignResult" :key="i">
-                          <div class="detail-extract-item" :class="{ 'ei-approved': t._state==='approved', 'ei-rejected': t._state==='rejected' }">
-                            <div class="gm-ai-status-bar" :class="'asb-'+t.status"></div>
+                        <template v-for="(ag, i) in extractResult" :key="i">
+                          <div class="detail-extract-item" :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
+                            <div class="dei-num">{{ i+1 }}</div>
                             <div class="dei-body">
-                              <template v-if="!t._editing">
-                                <div class="dei-title" :class="{ 'ai-rejected-text': t._state==='rejected' }">{{ t.content }}</div>
-                                <div class="dei-meta-row">
-                                  <span class="gm-chip gm-chip-priority" :class="'cp-'+t.priority">{{ PRIORITY_LABEL[t.priority]||t.priority }}</span>
-                                  <span v-if="t.status && t.status !== 'pending'" class="gm-chip gm-chip-status" :class="'cs-'+t.status">{{ STATUS_LABEL[t.status]||t.status }}</span>
-                                  <span class="dei-assignee">{{ t.assignee }} · {{ t.dept }}</span>
+                              <template v-if="!ag._editing">
+                                <div class="dei-title dei-title-bold">{{ ag.title }}</div>
+                                <div class="dei-meta" v-if="ag.department">{{ Array.isArray(ag.department) ? ag.department.join(', ') : ag.department }}</div>
+                                <div class="dei-dates" v-if="ag.start_date || ag.due_date">
+                                  <div v-if="ag.start_date">시작 {{ ag.start_date }}</div>
+                                  <div v-if="ag.due_date">마감 {{ ag.due_date }}</div>
                                 </div>
                               </template>
                               <template v-else>
-                                <input class="dei-input" v-model="t._editContent" placeholder="과제 내용" style="margin-bottom:4px" />
-                                <div class="dei-edit-row">
-                                  <select class="app-select dei-app-select" v-model="t._editDept">
-                                    <option value="">담당부서 선택</option>
-                                    <option v-for="d in assignDeptOptions" :key="d" :value="d">{{ d }}</option>
-                                  </select>
-                                  <select class="app-select dei-app-select" v-model="t._editPriority">
-                                    <option v-for="(label, val) in PRIORITY_LABEL" :key="val" :value="val">{{ label }}</option>
-                                  </select>
+                                <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" />
+                                <select class="app-select dei-app-select" v-model="ag._editDept" style="margin-top:4px;width:100%">
+                                  <option value="">담당부서 선택</option>
+                                  <option v-for="d in detailMemberDepts" :key="d" :value="d">{{ d }}</option>
+                                </select>
+                                <div class="dei-date-row">
+                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editStartDate" />
+                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editDueDate" />
                                 </div>
                               </template>
                             </div>
                             <div class="dei-actions">
-                              <template v-if="!t._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="t._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                                <button class="gm-ei-btn" :class="t._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="t._state = t._state==='approved' ? null : 'approved'; t._showReason = t._state === 'approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn" :class="t._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="t._state = t._state==='rejected' ? null : 'rejected'; t._showReason = t._state === 'rejected'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                              <template v-if="!ag._editing">
+                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true; showFeedback(ag, 'edited')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected'); if(extractResult[i]._state==='rejected') showFeedback(ag,'rejected')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                               <template v-else>
-                                <button class="gm-ei-btn gm-ei-save" @click="saveAssignItem(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="cancelAssignEdit(i)"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                             </div>
                           </div>
-                          <!-- 사유 입력란: 블록 아래 별도 표시 -->
-                          <div v-if="t._showReason && !t._editing" class="dei-reason-below" :class="t._state==='approved' ? 'drb-approved' : 'drb-rejected'">
-                            <span class="drb-label">{{ t._state==='approved' ? '✓ 승인 사유' : '✗ 반려 사유' }}</span>
-                            <textarea
-                              v-model="t._reason"
-                              class="dei-reason-input"
-                              :placeholder="t._state==='approved' ? '승인 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)' : '반려 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)'"
-                              rows="2"
-                            />
+                          <!-- 인라인 피드백: 수정/반려 시 해당 아이템 바로 아래 -->
+                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
+                            <div class="dei-feedback-label">
+                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : '수정' }}</span>
+                              AI에게 피드백 보내기 (선택)
+                            </div>
+                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="이 과제를 수정/반려한 이유를 알려주세요" rows="2" />
+                            <div class="dei-feedback-btns">
+                              <button class="dei-fb-submit" @click="submitFeedback(ag)">보내기</button>
+                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">건너뛰기</button>
+                            </div>
                           </div>
                         </template>
                       </div>
-                      <button class="gm-add-btn" style="margin-top:6px" @click="addAssignItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가</button>
+                      <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가</button>
+
                       <div class="detail-extract-footer detail-extract-footer--col">
-                        <span class="dei-count">승인 {{ assignResult.filter(t=>t._state==='approved').length }} / 반려 {{ assignResult.filter(t=>t._state==='rejected').length }} / 미검토 {{ assignResult.filter(t=>!t._state).length }}</span>
-                        <button class="detail-action-btn btn-extract" :disabled="!assignResult.filter(t=>t._state==='approved').length" @click="saveApprovedTasks">승인 {{ assignResult.filter(t=>t._state==='approved').length }}건 저장</button>
+                        <span class="dei-count">승인 {{ extractResult.filter(a=>a._state==='approved').length }} / 반려 {{ extractResult.filter(a=>a._state==='rejected').length }} / 미검토 {{ extractResult.filter(a=>!a._state).length }}</span>
+                        <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state!==null).length" @click="finishExtract">완료</button>
                       </div>
                     </template>
-                  </template><!-- /assign -->
 
-                </template><!-- /추출·배정 단계 -->
+                </template><!-- /추출 결과 -->
 
             </template><!-- /과제추출 탭 -->
 

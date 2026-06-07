@@ -1080,19 +1080,16 @@ async def archive_extract_agendas(
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
     pending_reviews = db.query(models.HitlReview).filter(
-        models.HitlReview.meeting_id == meeting_id,
-        models.HitlReview.status == "PENDING",
+        models.HitlReview.target_type == "meeting",
+        models.HitlReview.target_id == meeting_id,
+        models.HitlReview.status == "pending",
     ).order_by(models.HitlReview.created_at.desc()).limit(10).all()
 
     pending_todos_text = ""
     if pending_reviews:
         review_lines = []
         for r in pending_reviews:
-            try:
-                item = json.loads(r.ai_output or "{}")
-                content = item.get("content", r.ai_output or "")
-            except Exception:
-                content = r.ai_output or ""
+            content = r.ai_rationale or ""
             review_lines.append(f"- [검토 대기] {content}")
         pending_todos_text = "\n".join(review_lines)
 
@@ -1125,8 +1122,30 @@ async def archive_extract_agendas(
                 file_texts.append(f"[첨부: {upload.filename}]\n{text[:4000]}")
             else:
                 file_texts.append(f"[첨부: {upload.filename}] - 텍스트 추출 불가")
+
+            # R2 업로드 및 reports 테이블 저장
+            try:
+                from r2_storage import upload_bytes as _r2_upload, get_content_type as _r2_ct
+                import uuid
+                key = f"reports/{meeting_id}/{uuid.uuid4().hex}_{upload.filename}"
+                file_url = _r2_upload(raw, key, _r2_ct(upload.filename))
+                report = models.Report(
+                    meeting_id=meeting_id,
+                    upload_id=current_user.id,
+                    submitter_department=current_user.department or "미지정",
+                    file_name=upload.filename,
+                    file_path=file_url,
+                    human_status="pending",
+                )
+                db.add(report)
+                db.flush()
+            except Exception as e:
+                db.rollback()
+                print(f"[파일 저장 오류] {upload.filename}: {e}")
         except Exception as e:
             print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
+
+    db.commit()
 
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:
@@ -1153,17 +1172,70 @@ async def archive_extract_agendas(
         except Exception:
             parsed = {"agendas": []}
 
+        # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
+        import uuid as _uuid
+        from datetime import datetime as _dt
+        agendas_raw = parsed.get("agendas", [])
+        draft_ids: list[int | None] = [None] * len(agendas_raw)
+        try:
+            for idx, ag in enumerate(agendas_raw):
+                title = ag.get("title", "").strip()
+                if not title:
+                    continue
+                due_val = None
+                if ag.get("due_date"):
+                    try:
+                        due_val = _dt.strptime(ag["due_date"], "%Y-%m-%d")
+                    except Exception:
+                        pass
+                dept_raw = ag.get("department")
+                dept_json = [dept_raw] if dept_raw and dept_raw != "null" else None
+                db_agenda = models.Agenda(
+                    meeting_id=meeting_id,
+                    title=title,
+                    status="draft",
+                    department=dept_json,
+                    due_date=due_val,
+                    ai_evidence=ag.get("reasoning"),
+                )
+                db.add(db_agenda)
+                db.flush()
+                draft_ids[idx] = db_agenda.id
+
+            db.add(models.AgentLog(
+                task_id=str(_uuid.uuid4()),
+                context_type="agenda_extraction",
+                meeting_id=meeting_id,
+                user_id=current_user.id,
+                status="success",
+                input_data={
+                    "selected_file_ids": selected_ids,
+                    "file_count": len(file_texts),
+                    "prev_minutes_count": len(previous_minutes),
+                },
+                output_data={
+                    "agenda_count": sum(1 for d in draft_ids if d),
+                    "agenda_titles": [ag.get("title") for ag in agendas_raw],
+                },
+                ended_at=_dt.utcnow(),
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
+
         return {
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "bullets": ag.get("bullets", []),
                     "department": ag.get("department"),
-                    "priority": ag.get("priority", "normal"),
+                    "start_date": ag.get("start_date"),
+                    "due_date": ag.get("due_date"),
+                    "db_id": draft_ids[idx],
                     "_state": None,
                     "_editing": False,
                 }
-                for ag in parsed.get("agendas", [])
+                for idx, ag in enumerate(agendas_raw)
             ],
             "context_used": {
                 "minutes_count": len(previous_minutes),
@@ -1209,9 +1281,10 @@ async def archive_chat_extract(
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "bullets": ag.get("bullets", []),
                     "department": ag.get("department"),
                     "priority": ag.get("priority", "normal"),
+                    "start_date": ag.get("start_date"),
+                    "due_date": ag.get("due_date"),
                     "_state": None,
                     "_editing": False,
                 }
@@ -1257,3 +1330,222 @@ async def analyze_archive_file(
             "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
             "related_depts": [],
         }
+
+
+# ─── 아젠다 피드백 저장 (HitlReview) ────────────────────────────────────────
+@router.post("/archive/agendas/feedback")
+async def submit_agenda_feedback(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    agenda_id = data.get("agenda_id")
+    feedback  = data.get("feedback", "")
+    action    = data.get("action", "rejected")   # "rejected" | "edited"
+    meeting_id = data.get("meeting_id")
+
+    log = models.AgentLog(
+        task_id=str(_uuid.uuid4()),
+        context_type="agenda_feedback",
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+        status="success",
+        input_data={"agenda_id": agenda_id, "action": action},
+        output_data={"feedback": feedback},
+        ended_at=_dt.utcnow(),
+    )
+    db.add(log)
+    db.flush()
+
+    db.add(models.HitlReview(
+        agent_log_id=log.id,
+        target_type="agenda",
+        target_id=agenda_id,
+        review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
+        status=action,
+        reviewer_id=current_user.id,
+        review_comment=feedback or None,
+        reviewed_at=_dt.utcnow(),
+    ))
+    db.commit()
+    return {"ok": True}
+
+
+# ─── 아젠다 commit (승인→ongoing 업데이트 / 반려→삭제) ────────────────────────
+@router.post("/archive/agendas/commit")
+async def commit_draft_agendas(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    meeting_id: int = data.get("meeting_id", 0)
+    approved: list = data.get("approved", [])   # [{db_id, assignee_name, dept, due_date}]
+    rejected_ids: list = data.get("rejected_ids", [])  # [int]
+
+    # 반려된 draft 삭제
+    if rejected_ids:
+        db.query(models.Agenda).filter(
+            models.Agenda.id.in_(rejected_ids),
+            models.Agenda.status == "draft",
+        ).delete(synchronize_session=False)
+
+    # 승인된 항목 업데이트
+    updated_ids = []
+    for item in approved:
+        agenda = db.query(models.Agenda).filter(models.Agenda.id == item.get("db_id")).first()
+        if not agenda:
+            continue
+        assignee_id = None
+        if item.get("assignee_name"):
+            u = db.query(models.User).filter(models.User.name == item["assignee_name"]).first()
+            if u:
+                assignee_id = u.id
+        agenda.status = "ongoing"
+        agenda.assignee_id = assignee_id
+        if item.get("dept"):
+            agenda.department = [item["dept"]]
+        if item.get("due_date"):
+            try:
+                agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+            except Exception:
+                pass
+        updated_ids.append(agenda.id)
+
+    # AgentLog 기록
+    db.add(models.AgentLog(
+        task_id=str(_uuid.uuid4()),
+        context_type="agenda_commit",
+        meeting_id=meeting_id or None,
+        user_id=current_user.id,
+        status="success",
+        input_data={"approved_count": len(approved), "rejected_count": len(rejected_ids)},
+        output_data={"updated_ids": updated_ids, "deleted_ids": rejected_ids},
+        ended_at=_dt.utcnow(),
+    ))
+    db.commit()
+
+    # Neo4j 동기화: 승인된 건 그래프에 추가, 반려된 건 그래프에서 삭제
+    from neo4j_sync import sync_agenda as _sync_ag, delete_agenda as _del_ag
+    import json as _json
+    for ag_id in updated_ids:
+        ag = db.query(models.Agenda).filter(models.Agenda.id == ag_id).first()
+        if ag:
+            dept_str = _json.dumps(ag.department, ensure_ascii=False) if isinstance(ag.department, (dict, list)) else (ag.department or "")
+            try:
+                await _sync_ag(
+                    ag.id, ag.meeting_id,
+                    title=ag.title, status=ag.status,
+                    assignee_id=ag.assignee_id,
+                    priority=ag.priority or "medium",
+                    due_date=ag.due_date.isoformat() if ag.due_date else None,
+                    department=dept_str,
+                )
+            except Exception as e:
+                logger.warning(f"[commit] Neo4j sync 실패 (agenda {ag_id}): {e}")
+    for ag_id in rejected_ids:
+        try:
+            await _del_ag(ag_id)
+        except Exception as e:
+            logger.warning(f"[commit] Neo4j 삭제 실패 (agenda {ag_id}): {e}")
+
+    return {"updated": updated_ids, "deleted": rejected_ids}
+
+
+# ─── 회의체 draft 아젠다 조회 (과제추출 탭 복원용) ──────────────────────────
+@router.get("/meetings/{meeting_id}/draft-agendas")
+async def get_draft_agendas(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agendas = (
+        db.query(models.Agenda)
+        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
+        .order_by(models.Agenda.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "db_id": a.id,
+            "title": a.title,
+            "department": a.department,
+            "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
+            "start_date": None,
+        }
+        for a in agendas
+    ]
+
+
+# ─── 회의체 아젠다 목록 조회 ──────────────────────────────────────────────────
+@router.get("/meetings/{meeting_id}/agendas")
+async def get_meeting_agendas(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agendas = (
+        db.query(models.Agenda)
+        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status != "draft")
+        .order_by(models.Agenda.created_at.desc())
+        .all()
+    )
+    def _dept_str(d):
+        if not d: return None
+        return d[0] if isinstance(d, list) else str(d)
+
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "content": a.title,
+            "status": a.status,
+            "department": a.department,
+            "dept": _dept_str(a.department),
+            "assignee_id": a.assignee_id,
+            "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
+            "ai_evidence": a.ai_evidence,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in agendas
+    ]
+
+
+# ─── 아젠다 상태 변경 (완료/진행 등) ─────────────────────────────────────────
+@router.patch("/archive/agendas/{agenda_id}/status")
+async def update_agenda_status(
+    agenda_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
+    if not agenda:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Agenda not found")
+    new_status = data.get("status", "done")
+    agenda.status = new_status
+    db.commit()
+    return {"ok": True, "status": new_status}
+
+
+# ─── 아젠다 삭제 ──────────────────────────────────────────────────────────────
+@router.delete("/archive/agendas/{agenda_id}")
+async def delete_agenda_item(
+    agenda_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.query(models.Agenda).filter(models.Agenda.id == agenda_id).delete(synchronize_session=False)
+    db.commit()
+    from neo4j_sync import delete_agenda as _del_ag
+    try:
+        await _del_ag(agenda_id)
+    except Exception:
+        pass
+    return {"ok": True}

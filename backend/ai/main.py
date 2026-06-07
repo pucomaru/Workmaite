@@ -33,15 +33,16 @@ _RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:
-    """잘못 생성된 Todo 노드 및 Agenda {id: 'todo-*'} 노드를 정리합니다."""
+    """잘못 생성된 Todo 노드, todo-* Agenda, draft 상태 Agenda 노드를 정리합니다."""
     from neo4j_client import run_cypher as _run
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
+            "   OR (n:Agenda AND n.status = 'draft') "
             "DETACH DELETE n"
         )
-        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*) 노드 정리 완료")
+        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*, draft) 노드 정리 완료")
     except Exception as e:
         logger.warning(f"[Cleanup] 노드 정리 실패 (무시): {e}")
 

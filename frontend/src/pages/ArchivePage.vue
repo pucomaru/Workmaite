@@ -435,12 +435,28 @@ const detailMemberDepts = computed(() => {
 const groupedTodos = computed(() => {
   const groups = {}
   for (const todo of detailTodos.value) {
-    const dept = todo.assignee_dept || todo.dept || '미배정'
+    const dept = todo.assignee_dept || todo.dept ||
+      (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정'
     if (!groups[dept]) groups[dept] = []
     groups[dept].push(todo)
   }
   return groups
 })
+
+async function completeTodo(todo) {
+  const newStatus = todo.status === 'done' ? 'ongoing' : 'done'
+  try {
+    await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: newStatus })
+    todo.status = newStatus
+  } catch (e) { console.error('상태 변경 실패:', e) }
+}
+
+async function deleteTodo(todo) {
+  try {
+    await apiAI.delete(`/api/agent/archive/agendas/${todo.id}`)
+    detailTodos.value = detailTodos.value.filter(t => t.id !== todo.id)
+  } catch (e) { console.error('삭제 실패:', e) }
+}
 // D-day: detailMeeting의 end_date 기준 남은 일수
 const detailDday = computed(() => {
   const ed = detailMeeting.value?.end_date
@@ -461,7 +477,8 @@ const detailDeptStatus = computed(() => {
   const depts = [...new Set((detailMeeting.value?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))]
   return depts.map(dept => {
     const tasks = detailTodos.value.filter(t => (t.assignee_dept||t.dept||'') === dept)
-    const submitted = tasks.length === 0 || tasks.every(t => t.status === 'done')
+    const noTask = tasks.length === 0
+    const submitted = !noTask && tasks.every(t => t.status === 'done')
     const pending = tasks.filter(t => t.status !== 'done')
     let minDays = null
     if (pending.length > 0) {
@@ -472,17 +489,13 @@ const detailDeptStatus = computed(() => {
       })
       if (days.length) minDays = Math.min(...days)
     }
-    return { dept, submitted, pendingCount: pending.length, minDays }
+    return { dept, submitted, noTask, pendingCount: pending.length, minDays }
   })
 })
 
 const groupTodoRatio = ref(new Map())
-const assignDeptOptions = computed(() =>
-  [...new Set((detailMeeting.value?.members || []).map(m => m.department || m.dept || '').filter(Boolean))])
 const showExtractModal = ref(false)
 const detailTab = ref('basic') // 'basic' | 'task'
-const showAssignModal = ref(false)
-const showAssignView = ref(false) // 인라인 배정 뷰
 // 추출 상태 단순 ref (meeting 전환 시 openDetail에서 리셋)
 const extractPhase = ref('context')
 const selectedMinutes = ref([]) // 선택된 회의록 ID
@@ -496,9 +509,57 @@ function onCtxFilesAdded(files) {
 }
 const extractResult = ref([])
 const showExtractFlow = ref(false)
-const assignResult = ref([])
 const extractLoading = ref(false)
-const assignLoading = ref(false)
+
+// draft 복원 공통 함수
+async function _restoreDrafts(meetingId) {
+  if (!meetingId || extractLoading.value) return
+  const numId = _toNumericId(meetingId)
+  if (!numId) return
+  try {
+    const { data: drafts } = await apiAI.get(`/api/agent/meetings/${numId}/draft-agendas`)
+    if (drafts && drafts.length) {
+      extractResult.value = drafts.map(ag => ({
+        ...ag,
+        _state: null, _editing: false,
+        _editTitle: ag.title,
+        _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        _editStartDate: ag.start_date || '',
+        _editDueDate: ag.due_date || '',
+        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
+      }))
+    } else {
+      extractResult.value = []
+    }
+  } catch { extractResult.value = [] }
+}
+
+// 과제추출 탭 활성화 시 draft 자동 체크
+watch(detailTab, async (tab) => {
+  if (tab === 'extract' && !extractResult.value.length && !extractLoading.value && detailMeeting.value) {
+    await _restoreDrafts(detailMeeting.value.id)
+  }
+})
+
+// 피드백: ag 객체에 직접 _feedbackVisible, _feedbackAction, _feedbackText 프로퍼티로 관리
+function showFeedback(ag, action) {
+  ag._feedbackVisible = true
+  ag._feedbackAction = action
+  ag._feedbackText = ''
+}
+async function submitFeedback(ag) {
+  if (!ag.db_id) { ag._feedbackVisible = false; return }
+  try {
+    await apiAI.post('/api/agent/archive/agendas/feedback', {
+      agenda_id: ag.db_id,
+      feedback: ag._feedbackText || '',
+      action: ag._feedbackAction || 'edited',
+      meeting_id: toNumericId(detailMeeting.value?.id),
+    })
+  } catch (e) { console.error('피드백 저장 실패:', e) }
+  ag._feedbackVisible = false
+  ag._feedbackText = ''
+}
 
 // 추출 결과를 채팅 메시지 형식으로 포맷
 function _formatExtractForChat(agendas) {
@@ -506,7 +567,8 @@ function _formatExtractForChat(agendas) {
   const lines = [`${agendas.length}개 과제를 추출했습니다. 수정이 필요하면 말씀해 주세요.\n`]
   agendas.forEach((ag, i) => {
     lines.push(`**${i + 1}. ${ag.title}**`)
-    ;(ag.bullets || []).forEach(b => lines.push(`  • ${b}`))
+    const dates = [ag.start_date && `시작 ${ag.start_date}`, ag.due_date && `마감 ${ag.due_date}`].filter(Boolean)
+    if (dates.length) lines.push(`  ${dates.join(' · ')}`)
     if (ag.department) lines.push(`  담당: ${ag.department}`)
     lines.push('')
   })
@@ -568,7 +630,11 @@ async function runExtract() {
         _state: null,
         _editing: false,
         _editTitle: ag.title,
-        _editBullets: (ag.bullets || []).join('\n')
+        _editStartDate: ag.start_date || '',
+        _editDueDate: ag.due_date || '',
+        _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        db_id: ag.db_id || null,
+        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
       }))
       // 실제 추출 결과를 채팅에 표시
       agentMsg.content = _formatExtractForChat(extractResult.value)
@@ -602,7 +668,7 @@ async function openExtractModal() {
       meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
-    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: [...(ag.bullets||[])] }))
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editDueDate: ag.due_date || '' }))
   } catch {
     extractResult.value = [
       { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
@@ -614,113 +680,33 @@ function setExtractState(i, state) {
   extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
 }
 function addExtractItem() {
-  extractResult.value.push({ title: '', bullets: [''], _state: null, _editing: true, _editTitle: '', _editBullets: [''] })
+  extractResult.value.push({ title: '', _state: null, _editing: true, _editTitle: '', _editStartDate: '', _editDueDate: '', _feedbackVisible: false, _feedbackAction: '', _feedbackText: '' })
 }
 
-async function openAssignModal() {
-  showAssignModal.value = true
-  if (!detailMeeting.value) return
-  assignLoading.value = true
-  assignResult.value = []
-
-  // 승인된 추출 과제를 배정 목록으로 변환
+async function finishExtract() {
   const approved = extractResult.value.filter(a => a._state === 'approved')
-  if (approved.length) {
-    assignResult.value = approved.map(a => ({
-      content: a.title,
-      assignee: '',
-      dept: a.department || '',
-      due: null,
-      status: 'pending',
-      priority: a.priority || 'normal',
-      bullets: a.bullets || [],
-      _editing: false,
-      _editContent: a.title,
-      _editAssignee: '',
-      _editDept: a.department || '',
-      _editStatus: 'pending',
-      _editPriority: a.priority || 'normal',
-      _state: null,
-      _reason: '',
-      _showReason: false,
-    }))
-  }
-  assignLoading.value = false
-}
-function saveAssignItem(i) {
-  const t = assignResult.value[i]
-  t.content = t._editContent
-  t.assignee = t._editAssignee
-  t.dept = t._editDept
-  t.status = t._editStatus
-  t.priority = t._editPriority
-  t._editing = false
-  t._state = 'approved'
-}
-function cancelAssignEdit(i) {
-  const t = assignResult.value[i]
-  t._editContent = t.content
-  t._editAssignee = t.assignee
-  t._editDept = t.dept
-  t._editStatus = t.status
-  t._editPriority = t.priority
-  t._editing = false
-}
-function rejectAssignItem(i) {
-  assignResult.value.splice(i, 1)
-}
-function addAssignItem() {
-  assignResult.value.push({ content: '', assignee: '', dept: '', due: null, status: 'pending', priority: 'normal', _editing: true, _editContent: '', _editAssignee: '', _editDept: '', _editStatus: 'pending', _editPriority: 'normal', _state: null, _reason: '', _showReason: false })
-}
-async function saveApprovedTasks() {
-  const approved = assignResult.value.filter(t => t._state === 'approved')
-  if (!approved.length || !detailMeeting.value) return
-
-  const savingFlag = ref(false)
-  if (savingFlag.value) return
-  savingFlag.value = true
+  const rejected = extractResult.value.filter(a => a._state === 'rejected' && a.db_id)
+  if ((!approved.length && !rejected.length) || !detailMeeting.value) return
 
   try {
-    const saved = []
-    for (const t of approved) {
-      try {
-        const { data } = await apiAI.post(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`, {
-          content: t.content,
-          assignee_name: t.assignee || null,
-          assignee_dept: t.dept || null,
-          priority: t.priority || 'normal',
-          status: t.status || 'pending',
-          source_type: 'meeting_minutes',
-          due_date: t.due || null,
-          mg_id: detailMeeting.value.id,
-        })
-        saved.push(data)
-      } catch (e) {
-        console.error('과제 저장 실패:', t.content, e)
-      }
-    }
+    await apiAI.post('/api/agent/archive/agendas/commit', {
+      meeting_id: toNumericId(detailMeeting.value.id),
+      approved: approved.map(a => ({
+        db_id: a.db_id,
+        dept: a.department || null,
+        due_date: a.due_date || null,
+      })),
+      rejected_ids: rejected.map(a => a.db_id),
+    })
 
-    // DB 저장 후 목록 새로고침
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(detailMeeting.value.id)}/todos`)).data || []
-
-    const total = detailTodos.value.length
-    const done = detailTodos.value.filter(t => t.status === 'done').length
-    groupTodoRatio.value = new Map(groupTodoRatio.value).set(
-      detailMeeting.value.id, total ? done / total : null
-    )
-
-    // 추출 단계 초기화
+    detailTodos.value = (await apiAI.get(`/api/agent/meetings/${toNumericId(detailMeeting.value.id)}/agendas`)).data || []
     extractPhase.value = 'context'
     showExtractFlow.value = false
     extractResult.value = []
-    assignResult.value = []
     detailTab.value = 'task'
-
-    alert(`${saved.length}개 과제가 저장되었습니다.`)
     setTimeout(refreshArchive, 600)
   } catch (e) {
-    console.error('저장 오류:', e)
-    alert('저장 중 오류가 발생했습니다.')
+    console.error('완료 처리 오류:', e)
   }
 }
 
@@ -728,10 +714,8 @@ const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요'
 const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승인대기', done: '완료' }
 
 function goToProcessStep(step) {
-  if (step === 'context' && (extractPhase.value === 'result' || extractPhase.value === 'assign')) {
+  if (step === 'context' && extractPhase.value === 'result') {
     extractPhase.value = 'context'
-  } else if (step === 'result' && extractPhase.value === 'assign') {
-    extractPhase.value = 'result'
   }
 }
 
@@ -857,24 +841,39 @@ async function openDetail(groupData) {
   if (!groupData) return
   const isSameMeeting = detailMeeting.value?.id === groupData.id
   detailMeeting.value = groupData; detailOpen.value = true; detailTab.value = 'basic'
-  detailNode.value = null // 회의체 오픈 시 노드 초기화
+  detailNode.value = null
   if (!isSameMeeting) {
     selectedMinutes.value = []; selectedFiles.value = []
     selectedSimilarDocs.value = []; uploadedCtxFiles.value = []
-    extractPhase.value = 'context'; showExtractFlow.value = false; extractResult.value = []; assignResult.value = []
+    extractPhase.value = 'context'; showExtractFlow.value = false; extractResult.value = []
   }
   hoverNode.value = null
   detailTodos.value = []
-  try {
-    detailTodos.value = (await apiAI.get(`/api/ai/meetings/${_toNumericId(groupData.id)}/todos`)).data || []
-    // ratio는 승인 후 saveApprovedTasks에서 설정됨.
-    // 이미 저장된 ratio가 없으면 로드된 todos 기준으로 초기화
-    if (!groupTodoRatio.value.has(groupData.id)) {
-      const total = detailTodos.value.length
-      const done = detailTodos.value.filter(t => t.status === 'done').length
-      groupTodoRatio.value = new Map(groupTodoRatio.value).set(groupData.id, total ? done / total : null)
+
+  const numId = _toNumericId(groupData.id)
+
+  if (numId > 0) {
+    try {
+      const res = await apiAI.get(`/api/agent/meetings/${numId}/agendas`)
+      detailTodos.value = res.data || []
+    } catch (e) {
+      console.error(`[Task] 과제 로드 실패 (meeting=${numId}):`, e?.response?.status)
+      detailTodos.value = (groupData.tasks || []).filter(t => t.status !== 'draft')
     }
-  } catch { detailTodos.value = [] }
+  } else {
+    detailTodos.value = (groupData.tasks || []).filter(t => t.status !== 'draft')
+  }
+
+  if (!groupTodoRatio.value.has(groupData.id)) {
+    const total = detailTodos.value.length
+    const done = detailTodos.value.filter(t => t.status === 'done').length
+    groupTodoRatio.value = new Map(groupTodoRatio.value).set(groupData.id, total ? done / total : null)
+  }
+
+  // draft 아젠다 복원 (다른 회의체로 전환 시)
+  if (!isSameMeeting) {
+    await _restoreDrafts(groupData.id)
+  }
 }
 
 let gNodes = [], gEdges = []
@@ -1699,14 +1698,9 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
 function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
-    detailMeeting.value = node.data
-    detailNode.value = null
-    detailTab.value = 'basic'
-    detailOpen.value = true
+    openDetail(node.data)
   } else if (node.type !== 'org-root') {
-    detailNode.value = node
-    detailMeeting.value = null
-    detailOpen.value = true
+    openNodeDetail(node)
   }
 }
 
@@ -1860,12 +1854,12 @@ provide('archiveSidebar', {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate,
-  detailTodos, groupedTodos,
+  detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
-  runExtract, setExtractState, addExtractItem, openAssignModal,
-  assignLoading, assignResult, assignDeptOptions,
-  saveAssignItem, cancelAssignEdit, rejectAssignItem, addAssignItem, saveApprovedTasks,
+  runExtract, setExtractState, addExtractItem, finishExtract,
+  showFeedback, submitFeedback,
+  detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
