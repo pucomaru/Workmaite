@@ -232,20 +232,6 @@ class CardNewsOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Notification
-class NotificationOut(BaseModel):
-    id: int
-    user_id: int
-    type: str
-    message: str
-    is_read: bool
-    created_at: datetime
-    ref_id: Optional[int]
-    ref_type: Optional[str]
-
-    model_config = {"from_attributes": True}
-
-
 # TacitKnowledge
 class TacitKnowledgeGlobalOut(BaseModel):
     id: int

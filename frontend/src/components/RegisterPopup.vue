@@ -68,7 +68,7 @@ async function submit() {
 
     <!-- Header -->
     <div class="popup-header mb-3">
-      <img src="../assets/workmaite-logo-black.svg" class="popup-logo-img" alt="Workma!te" />
+      <img src="../assets/workmaite-logo-black.png" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <!-- ── STEP 1: 회원가입 폼 ──────────────────────── -->

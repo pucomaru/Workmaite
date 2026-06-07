@@ -2,37 +2,18 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { useNotificationsStore } from '../stores/notifications'
 import { useMeetingsStore } from '../stores/meetings'
-import { toWsUrl } from '../api'
 import AppHeader from '../components/AppHeader.vue'
 import HyeanAgent from '../components/HyeanAgent.vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
-const notifStore = useNotificationsStore()
 const meetingsStore = useMeetingsStore()
 
-const ws = ref(null)
-
 onMounted(async () => {
-  try { await notifStore.fetch() } catch {}
   await meetingsStore.fetchMeetings()
-  connectNotifWs()
 })
-
-function connectNotifWs() {
-  if (!auth.user) return
-  ws.value = new WebSocket(toWsUrl(`/ws/notifications/${auth.user.id}`))
-  ws.value.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data)
-      notifStore.push(msg)
-    } catch {}
-  }
-  ws.value.onclose = () => setTimeout(connectNotifWs, 3000)
-}
 
 const meetingId = ref(null)
 watch(() => route.params.meetingId, (id) => {

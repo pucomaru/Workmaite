@@ -118,8 +118,8 @@ function startResize(e, colIndex) {
 .app-table-wrap {
   overflow-x: auto;
   border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
 }
 .app-table {
   width: 100%;
@@ -127,20 +127,20 @@ function startResize(e, colIndex) {
   font-size: 13px;
 }
 .app-table thead tr {
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 .app-table th {
   position: relative;
   padding: 11px 16px;
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: .04em;
   text-align: left;
   white-space: nowrap;
-  background: #f8fafc;
+  background: var(--surface);
   user-select: none;
 }
 .th-content {
@@ -152,8 +152,8 @@ function startResize(e, colIndex) {
   cursor: pointer;
 }
 .sortable-th:hover {
-  color: #334155;
-  background: #f1f5f9;
+  color: var(--dark-border);
+  background: var(--surface-2);
 }
 .sort-icons {
   display: inline-flex;
@@ -167,11 +167,11 @@ function startResize(e, colIndex) {
 }
 .sort-icon {
   display: block;
-  color: #94a3b8;
+  color: var(--dark-muted);
   transition: color 0.15s;
 }
 .sort-icon.active {
-  color: #3b82f6;
+  color: var(--accent);
   opacity: 1 !important;
 }
 .sortable-th:hover .sort-icons,
@@ -186,7 +186,7 @@ function startResize(e, colIndex) {
 .app-table td {
   padding: 11px 16px;
   vertical-align: middle;
-  color: #1e293b;
+  color: var(--dark-card);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -195,7 +195,7 @@ function startResize(e, colIndex) {
 .app-table td:last-child {
   position: sticky;
   right: 0;
-  background: #fff;
+  background: var(--bg-card);
   z-index: 1;
   max-width: none;
   overflow: visible;
@@ -208,20 +208,20 @@ function startResize(e, colIndex) {
   top: 0;
   height: 100%;
   width: 2px;
-  background: #e2e8f0;
+  background: var(--border);
   cursor: col-resize;
   z-index: 1;
   transition: background 0.15s;
 }
 .col-resize-handle:hover,
 .col-resize-handle:active {
-  background: #94a3b8;
+  background: var(--dark-muted);
   width: 3px;
 }
 /* ── Dark variant ── */
 .app-table-dark {
   border-color: rgba(255,255,255,.09);
-  background: #1e293b;
+  background: var(--dark-card);
 }
 .app-table-dark .app-table thead tr {
   border-bottom-color: rgba(255,255,255,.09);
@@ -229,24 +229,24 @@ function startResize(e, colIndex) {
 }
 .app-table-dark .app-table th {
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
 }
 .app-table-dark .sortable-th:hover {
-  color: #94a3b8;
+  color: var(--dark-muted);
   background: rgba(255,255,255,.05);
 }
 .app-table-dark .sort-icon {
-  color: #475569;
+  color: var(--text-dim);
 }
 .app-table-dark .app-table th:last-child {
   background: #1e2d3e;
 }
 .app-table-dark .app-table td {
-  color: #e2e8f0;
+  color: var(--dark-text);
   border-right-color: rgba(255,255,255,.05);
 }
 .app-table-dark .app-table td:last-child {
-  background: #1e293b;
+  background: var(--dark-card);
 }
 .app-table-dark .col-resize-handle {
   background: rgba(255,255,255,.12);
