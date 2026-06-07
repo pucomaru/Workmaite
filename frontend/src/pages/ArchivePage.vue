@@ -238,7 +238,8 @@ async function doCreateSession() {
     if (meetingId) {
       await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
         title: sessionForm.value.title,
-        purpose: sessionForm.value.purpose || null,
+        type: 'offline',
+        description: sessionForm.value.purpose || null,
         scheduled_at: sessionForm.value.date || null,
       })
     }
@@ -255,7 +256,7 @@ async function doCreateMeeting() {
   creating.value = true
   try {
     const meeting = await meetingsStore.createMeeting({
-      title: createForm.value.title, purpose: createForm.value.purpose,
+      title: createForm.value.title, description: createForm.value.purpose,
       start_date: createForm.value.start_date || null, end_date: createForm.value.end_date || null,
       guidelines: createForm.value.guidelines || null, meeting_type: createForm.value.meeting_type || null,
     })
@@ -789,7 +790,7 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, guidelines: form.guidelines })
+    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, description: form.purpose, guidelines: form.guidelines })
     for (const memberId of removedIds) {
       await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }
@@ -1494,23 +1495,22 @@ function doAddFile() {
   showUploadModal.value = false
   graphViewRef.value?.reloadGraph(gNodes, gEdges)
 
-  // 백엔드 업로드 + Neo4j 임베딩 동기화
+  // 백엔드 업로드 (R2) — file_path를 노드에 저장
   const file = uploadForm.value.file
   if (file) {
-    const fd = new FormData()
-    fd.append('file', file)
     const rawMgId = uploadForm.value.meetingId
     const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
-    if (mgNumId) fd.append('meeting_id', String(mgNumId))
-    if (uploadForm.value.label) fd.append('file_label', uploadForm.value.label)
-    if (uploadForm.value.fileType) fd.append('doc_type', uploadForm.value.fileType)
-    // 과제 노드에 드래그한 경우 — Agenda / Document 노드 연결 (복수 지원, 콤마 구분)
-    if (uploadForm.value.relatedTodoIds?.length) fd.append('agenda_neo4j_id', uploadForm.value.relatedTodoIds.join(','))
-    if (uploadForm.value.agendaContent) fd.append('agenda_content', uploadForm.value.agendaContent)
-    if (uploadForm.value.meetingId) fd.append('mg_id', uploadForm.value.meetingId)
-    apiAI.post('/api/sync/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      .then(() => setTimeout(refreshArchive, 1200))
-      .catch(e => console.warn('[doAddFile] sync/file 실패:', e))
+    if (mgNumId) {
+      const fd = new FormData()
+      fd.append('file', file)
+      apiAI.post(`/api/upload/reports/${mgNumId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        .then(({ data }) => {
+          newNode.filePath = data.file_path
+          graphViewRef.value?.reloadGraph(gNodes, gEdges)
+          setTimeout(refreshArchive, 1200)
+        })
+        .catch(e => console.warn('[doAddFile] upload/reports 실패:', e))
+    }
   }
 }
 

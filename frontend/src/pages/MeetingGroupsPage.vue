@@ -109,7 +109,7 @@ async function submitCreate() {
   try {
     const meeting = await meetingsStore.createMeeting({
       title: createForm.value.title,
-      purpose: createForm.value.purpose,
+      description: createForm.value.purpose,
       start_date: createForm.value.start_date || null,
       end_date: createForm.value.end_date || null,
       guidelines: createForm.value.guidelines || null,
@@ -217,7 +217,7 @@ async function saveSettings() {
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
   try {
-    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, purpose: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
+    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, description: form.purpose, start_date: form.start_date || null, end_date: form.end_date || null, guidelines: form.guidelines, meeting_type: form.meeting_type || null })
     for (const memberId of removedIds) {
       await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }

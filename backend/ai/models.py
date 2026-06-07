@@ -172,7 +172,7 @@ class TokenUsageLog(Base):
     model_name         = Column(String(50), nullable=False)
     prompt_tokens      = Column(Integer, nullable=False)
     completion_tokens  = Column(Integer, nullable=False)
-    estimated_cost_usd = Column(Float, nullable=True)
+    cost               = Column(Float, nullable=True)
     created_at         = Column(DateTime, default=datetime.utcnow)
 
 

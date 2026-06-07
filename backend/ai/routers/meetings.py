@@ -73,6 +73,8 @@ async def create_meeting(
     meeting = models.Meeting(
         title=data.title,
         description=data.description,
+        guidelines=data.guidelines,
+        type=data.meeting_type,
         start_date=data.start_date,
         end_date=data.end_date,
         created_by=current_user.id,
