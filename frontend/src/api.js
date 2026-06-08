@@ -48,10 +48,11 @@ async function _doRefresh() {
 }
 
 /**
- * 토큰 만료 5분 전에 미리 갱신합니다.
- * streamPost / streamPostForm 진입 시 호출해 스트림 도중 토큰 만료를 예방합니다.
+ * 토큰이 곧 만료될 경우(5분 이내) 갱신합니다.
+ * - streamPost / streamPostForm 진입 시 안전망으로 호출
+ * - useActivityRefresh 컴포저블이 사용자 인터랙션 시에도 호출
  */
-async function ensureFreshToken() {
+export async function ensureFreshToken() {
   const token = sessionStorage.getItem('token')
   if (!token) return
   try {
