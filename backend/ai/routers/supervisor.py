@@ -74,9 +74,13 @@ class _RoutingDecision(BaseModel):
     thinking: str = Field(
         description="어떤 에이전트가 적합한지 한국어로 1~2문장 근거 설명"
     )
-    agent: Literal["task_agent", "minutes_agent", "report_agent", "supervisor_direct"] = Field(
-        description="위임할 에이전트 이름"
-    )
+    agent: Literal[
+        "task_extractor",
+        "minutes_generator",
+        "report_reviewer",
+        "knowledge_manager",
+        "supervisor_direct",
+    ] = Field(description="위임할 에이전트 이름")
     steps: List[str] = Field(
         default_factory=list,
         description=(
@@ -91,13 +95,28 @@ _ROUTING_SYSTEM = """\
 사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하고, 처리 계획을 세우세요.
 
 에이전트 선택 기준:
-- task_agent: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비
-- minutes_agent: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
-- report_agent: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
-- supervisor_direct: 현황 조회, 구성원 안내, 회의체 현황, 인사·일반 질문
+- task_extractor: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비, 아카이브 파일 분석
+- minutes_generator: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
+- report_reviewer: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
+- knowledge_manager: 지식 베이스 관리, 관계 그래프 조회·저장, HITL 검토·승인, 과거 회의 지식 검색
+- supervisor_direct: 회의체 현황 조회, 구성원 안내, 인사·일반 질문
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
+
+
+async def classify_intent(message: str) -> tuple[str, str, List[str]]:
+    """사용자 메시지를 분석해 (에이전트명, 근거, 처리단계) 튜플을 반환합니다."""
+    try:
+        routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
+        decision = await routing_llm.ainvoke([
+            SystemMessage(content=_ROUTING_SYSTEM),
+            HumanMessage(content=message[:500]),
+        ])
+        return decision.agent, decision.thinking, decision.steps or []
+    except Exception as e:
+        logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {e}")
+        return "supervisor_direct", "기본 처리 경로로 응답합니다.", []
 
 
 
@@ -223,18 +242,6 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
     return ""
 
 
-def _parse_json_response(raw_text: str) -> dict:
-    """LLM 응답에서 JSON 블록 추출 및 파싱."""
-    match = re.search(r'\{[\s\S]*\}', raw_text)
-    if match:
-        json_str = match.group(0)
-        open_count = json_str.count('{') - json_str.count('}')
-        if open_count > 0:
-            json_str += '}' * open_count
-        return json.loads(json_str)
-    return json.loads(raw_text)
-
-
 async def _stream_plan(system_content: str, human_content: str):
     """LLM이 작업 계획을 줄 단위로 스트리밍 생성합니다."""
     llm = make_llm(temperature=0.2, streaming=True)
@@ -257,7 +264,7 @@ async def _stream_plan(system_content: str, human_content: str):
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
 @router.post("/minutes/sessions-chat")
-async def ara_sessions_chat(
+async def minutes_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -305,7 +312,7 @@ async def ara_sessions_chat(
 
 
 @router.post("/minutes/generate-minutes")
-async def ara_generate_minutes(
+async def minutes_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -342,21 +349,7 @@ async def supervisor_chat(
     msg = data.message or ""
 
     # ── LLM 라우팅 결정 ─────────────────────────────────────────────────────────
-    # 키워드 매칭 대신 LLM이 사용자 의도를 파악해 적합한 에이전트를 선택합니다.
-    _route = "supervisor_direct"
-    _route_thinking = "질문을 분석 중입니다."
-    _route_steps: List[str] = []
-    try:
-        _routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
-        _decision = await _routing_llm.ainvoke([
-            SystemMessage(content=_ROUTING_SYSTEM),
-            HumanMessage(content=msg[:500]),
-        ])
-        _route = _decision.agent
-        _route_thinking = _decision.thinking
-        _route_steps = _decision.steps or []
-    except Exception as _re:
-        logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {_re}")
+    _route, _route_thinking, _route_steps = await classify_intent(msg)
 
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
@@ -479,14 +472,18 @@ async def supervisor_chat(
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
-        # ── B 유형: 현황 조회 / 인사 / 일반 질문 ───────────────────────────
-        if _route == 'supervisor_direct':
+        # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────────
+        if _route in ('supervisor_direct', 'knowledge_manager'):
+            yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+
             _kb_results: list[dict] = []
+            # knowledge_manager 라우팅 시 안건·AI판단까지 폭넓게 검색
+            _node_type_map = [("Minutes", "회의록", 5)]
+            if _route == "knowledge_manager":
+                _node_type_map += [("Agenda", "안건", 3), ("AIJudgment", "AI 판단", 3)]
             try:
-                for hits, type_label, k in [
-                    (await knowledge_agent.search_knowledge(msg, node_type="Minutes", k=5), "회의록", 5),
-                ]:
-                    for r in hits:
+                for node_type, type_label, k in _node_type_map:
+                    for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):
                         if r.get("title") or r.get("content"):
                             _kb_results.append({
                                 "type": type_label,
@@ -529,7 +526,7 @@ async def supervisor_chat(
             return
 
         # ── A 유형: 서브에이전트 라우팅 ─────────────────────────────────────
-        if _route == 'task_agent':
+        if _route == 'task_extractor':
             gen = task_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 previous_minutes=_get_previous_minutes(db, data.meeting_id),
@@ -537,7 +534,7 @@ async def supervisor_chat(
                 departments=_get_member_departments(db, data.meeting_id),
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        elif _route == 'minutes_agent':
+        elif _route == 'minutes_generator':
             agendas = db.query(models.Agenda).filter(
                 models.Agenda.meeting_id == data.meeting_id,
                 models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
@@ -548,7 +545,7 @@ async def supervisor_chat(
                 current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
                 meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
             )
-        else:  # report_agent
+        else:  # report_reviewer
             gen = report_agent.chat_stream(
                 message=msg, chat_history=data.chat_history or [],
                 knowledge=[],
@@ -1322,16 +1319,9 @@ async def archive_chat_extract(
             async for _step in _stream_plan(_plan_sys, _plan_hmn):
                 yield f"data: [PLANNING] {_step}\n\n"
 
-            response = await make_llm(temperature=0.15).ainvoke([
-                SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
-                HumanMessage(content=message),
-            ])
-            raw_text = response.content.strip()
-
-            try:
-                parsed = _parse_json_response(raw_text)
-            except Exception:
-                parsed = {"agendas": current_agendas, "message": raw_text}
+            parsed = await task_agent.chat_update_agendas(message, meeting_context, dept_list, current_agendas_text)
+            if not parsed:
+                parsed = {"agendas": current_agendas, "message": message}
 
             agendas = parsed.get("agendas", current_agendas)
             result = {
