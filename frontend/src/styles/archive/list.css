@@ -126,8 +126,12 @@
 .ht-minutes { background:#22c55e; }
 .lv-hist-manager { color:var(--dark-muted); }
 .lv-hist-date { color:var(--dark-muted);white-space:nowrap; }
+.lv-hist-table th { position:relative; }
+.hist-col-resize { position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:1; }
+.hist-col-resize:hover, .hist-col-resize:active { background:rgba(148,163,184,.3); }
 .lv-dl-btn { width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:var(--dark-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
 .lv-dl-btn:hover { background:rgba(59,130,246,.15);color:#93c5fd;border-color:rgba(96,165,250,.4); }
+.lv-del-btn:hover { background:rgba(239,68,68,.15);color:#f87171;border-color:rgba(248,113,113,.4); }
 .lv-no-file { color:var(--text-dim); }
 .lv-hist-empty { padding:14px 12px;color:var(--text-muted);font-size:12px; }
 .day-mode .lv-expanded-td { background:var(--surface); }
