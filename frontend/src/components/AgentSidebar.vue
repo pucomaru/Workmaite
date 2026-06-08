@@ -1,6 +1,7 @@
 <script setup>
-import { inject } from 'vue'
+import { inject, ref } from 'vue'
 import { renderMd } from '../composables/useMarkdown'
+import AgentComposer from './AgentComposer.vue'
 
 const {
   SUPERVISOR, agentInfo, agentSidebarOpen, clearAgentChat,
@@ -8,13 +9,37 @@ const {
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
-  sendAgentMsg, agentFileInput, onAgentFileSelected,
+  sendAgentMsg, onAgentFileSelected,
 } = inject('agentSidebar')
+
+const composerRef = ref(null)
+// 공통 컴포저가 마운트되면 내부 textarea를 컴포저블 ref에 연결 (@멘션 커서/포커스용)
+function onComposerReady({ textareaEl }) { agentTextareaEl.value = textareaEl }
+
+// ─── 사이드바 리사이즈 ────────────────────────────────────────
+const sidebarW = ref(320)
+let resizing = false, startX = 0, startW = 0
+function onResizeStart(e) {
+  resizing = true; startX = e.clientX; startW = sidebarW.value
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeEnd)
+  e.preventDefault()
+}
+function onResizeMove(e) {
+  if (!resizing) return
+  sidebarW.value = Math.max(260, Math.min(520, startW - (e.clientX - startX)))
+}
+function onResizeEnd() {
+  resizing = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+}
 </script>
 
 <template>
   <Transition name="agent-sidebar-slide">
-    <div v-if="agentSidebarOpen" class="agent-right-sidebar">
+    <div v-if="agentSidebarOpen" class="agent-right-sidebar" :style="{ width: sidebarW + 'px' }">
+        <div class="agent-resize-handle" @mousedown="onResizeStart"></div>
         <!-- Supervisor header -->
         <div class="agent-supervisor-header">
           <div class="supervisor-brand">
@@ -101,40 +126,25 @@ const {
           </div>
         </div>
         <!-- Input -->
-        <div class="agent-input-area">
-          <!-- @ 드롭다운 -->
-          <Transition name="at-menu">
-            <div v-if="atMenuOpen && atMenuItems.length" class="at-menu">
-              <div v-for="(item, i) in atMenuItems" :key="item.id"
-                class="at-menu-item" :class="{ active: i === atHighlight }"
-                @mousedown.prevent="selectAtItem(item)" @mouseover="atHighlight = i">
-                <span class="at-icon">{{ item.icon }}</span>
-                <span class="at-type">{{ AT_TYPE_LABELS[item.type] }}</span>
-                <span class="at-label">{{ item.label }}</span>
-              </div>
-              <div class="at-menu-hint">↑↓ 이동 · Enter 선택 · Esc 닫기</div>
-            </div>
-          </Transition>
-          <!-- 파일 chips -->
-          <div v-if="agentPendingFiles.length" class="agent-file-chips">
-            <span v-for="f in agentPendingFiles" :key="f.name" class="agent-file-chip">📎 {{ f.name }}</span>
-          </div>
-          <!-- @ 컨텍스트 chips -->
-          <div v-if="mentionedContexts.length" class="agent-ctx-chips">
-            <span v-for="c in mentionedContexts" :key="c.id" class="agent-ctx-chip">
-              {{ c.icon }} {{ c.label }}
-              <button class="ctx-chip-remove" @click="removeMentionCtx(c.id)">×</button>
-            </span>
-          </div>
-          <div class="agent-input-row">
-            <button class="agent-attach-btn" @click="agentFileInput?.click()">＋</button>
-            <textarea ref="agentTextareaEl" v-model="agentInput" class="agent-textarea"
-              placeholder="질문하세요... (@로 그래프 컨텍스트 참조)" rows="1"
-              @input="onAgentInput" @keydown="onAgentKeydown" />
-            <button class="agent-send-btn" :disabled="agentLoading||(!agentInput.trim()&&!agentPendingFiles.length&&!mentionedContexts.length)" @click="sendAgentMsg">전송</button>
-          </div>
-          <input ref="agentFileInput" type="file" multiple style="display:none" @change="onAgentFileSelected" />
-        </div>
+        <AgentComposer
+          ref="composerRef"
+          v-model="agentInput"
+          :pending-files="agentPendingFiles"
+          :mentioned-contexts="mentionedContexts"
+          :at-menu-open="atMenuOpen"
+          :at-menu-items="atMenuItems"
+          v-model:at-highlight="atHighlight"
+          :at-type-labels="AT_TYPE_LABELS"
+          :loading="agentLoading"
+          :can-send="!!(agentInput.trim() || agentPendingFiles.length || mentionedContexts.length)"
+          @input="onAgentInput"
+          @keydown="onAgentKeydown"
+          @send="sendAgentMsg"
+          @select-at-item="selectAtItem"
+          @remove-ctx="removeMentionCtx"
+          @file-change="onAgentFileSelected"
+          @ready="onComposerReady"
+        />
       </div>
     </Transition>
 </template>

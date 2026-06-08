@@ -3,6 +3,7 @@ import { inject } from 'vue'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
+import DateInput from './DateInput.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
@@ -286,8 +287,8 @@ const {
                                   <option v-for="d in detailMemberDepts" :key="d" :value="d">{{ d }}</option>
                                 </select>
                                 <div class="dei-date-row">
-                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editStartDate" />
-                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editDueDate" />
+                                  <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
+                                  <DateInput class="dei-input dei-date-input" v-model="ag._editDueDate" />
                                 </div>
                               </template>
                             </div>
@@ -426,7 +427,7 @@ const {
               <!-- 부서 -->
               <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
               <!-- 조직 -->
-              <svg v-else-if="detailNode.type==='org'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <svg v-else-if="detailNode.type==='company'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg>
               <!-- 아젠다 -->
               <svg v-else-if="detailNode.type==='agenda'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
               <!-- 회의(session) -->
@@ -439,7 +440,7 @@ const {
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', company:'조직' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
@@ -486,7 +487,7 @@ const {
             </template>
 
             <!-- 조직 -->
-            <template v-else-if="detailNode.type==='org'">
+            <template v-else-if="detailNode.type==='company'">
               <div class="detail-section">
                 <div class="detail-info-grid">
                   <div class="detail-info-item" style="grid-column:span 2">
@@ -516,10 +517,6 @@ const {
                   <div class="detail-info-item" style="grid-column:span 2">
                     <span class="detail-info-key">아젠다명</span>
                     <span class="detail-info-val">{{ detailNode.data?.content || detailNode.label }}</span>
-                  </div>
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">카테고리</span>
-                    <span class="detail-info-val">{{ detailNode.data?.category || '-' }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">상태</span>

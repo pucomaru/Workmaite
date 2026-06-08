@@ -1,7 +1,7 @@
 /* ── Page ── */
 .archive-page { display:flex;flex-direction:column;margin:-24px -28px;height:calc(100% + 48px);background:var(--dark-bg);color:var(--dark-text);overflow:hidden;position:relative; }
 
-/* archive-header, search-wrap, search-input, plus-wrap, create-meeting-btn → style.css 전역 정의 */
+/* archive-header, search-wrap, search-input, plus-wrap, create-btn → style.css 전역 정의 */
 .archive-body { flex:1;display:flex;overflow:hidden;min-height:0; }
 
 /* ── Main area ── */
@@ -98,7 +98,8 @@
 .zoom-btn:hover { background:rgba(59,130,246,.35); border-color:rgba(96,165,250,.5); color:#93c5fd; }
 .zoom-reset { font-size:14px; }
 .zoom-pan, .zoom-pan-hint { font-size:14px; }
-.zoom-pan-hint { cursor:default; opacity:0.7; }
+.zoom-pan-hint { cursor:pointer; }
+.graph-pan-only, .graph-pan-only canvas { cursor:grab; }
 .zoom-btn.active { background:rgba(59,130,246,.5); border-color:rgba(96,165,250,.7); color:#bfdbfe; }
 .day-mode .zoom-btn { background:rgba(255,255,255,.85); border-color:var(--border); color:var(--text-dim); }
 .day-mode .zoom-btn:hover { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; }

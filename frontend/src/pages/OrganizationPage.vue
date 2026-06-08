@@ -342,20 +342,19 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
       <span class="org-scope-badge" title="본인이 속한 회의체의 구성원만 조회됩니다.">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-        내 회의체 기준
       </span>
 
       <div class="plus-wrap">
         <input ref="csvImportInput" type="file" accept=".csv" style="display:none" @change="handleCSVFile" />
-        <button class="create-meeting-btn secondary" @click="exportCSV" title="현재 목록을 CSV로 내보내기">
+        <button class="create-btn secondary" @click="exportCSV" title="현재 목록을 CSV로 내보내기">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           CSV 내보내기
         </button>
-        <button class="create-meeting-btn secondary" @click="triggerCSVImport" title="CSV 파일로 구성원 일괄 등록">
+        <button class="create-btn secondary" @click="triggerCSVImport" title="CSV 파일로 구성원 일괄 등록">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           CSV 가져오기
         </button>
-        <button class="create-meeting-btn" @click="openAddModal">
+        <button class="create-btn" @click="openAddModal">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
           구성원 추가
         </button>

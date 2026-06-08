@@ -32,21 +32,26 @@ const NODE_COLORS = {
   'file':          0x64748b,
   'dept':          0x8b5cf6,
   'person':        0xf472b6,
-  'org':           0x0d9488,
+  'company':       0x0d9488,
 }
 const NODE_RADIUS = {
-  'org-root':      20,
-  'meeting_group': 26,
-  'agenda':        18,
-  'session':       18,
-  'file':          14,
-  'dept':          18,
-  'person':        14,
-  'org':           17,
+  'org-root':      13,
+  'meeting_group': 13,
+  'agenda':        12,
+  'session':       12,
+  'file':          12,
+  'dept':          12,
+  'person':        12,
+  'company':       12,
 }
+// 백링크(inbound) 기반 노드 크기 (옵시디언 스타일)
+const BACKLINK_STEP = 2.4   // 백링크 1개당 가중치
+const BACKLINK_MAX  = 18    // 최대 추가 반경
+const SELF_RADIUS   = 16    // "나" 노드 고정 반경
 
 // ─── Refs ─────────────────────────────────────────────────────
 const containerRef = ref(null)
+const panOnly = ref(false)   // 이동 전용 모드 (노드 클릭/드래그 비활성, 배경 팬만)
 let app = null          // PIXI.Application
 let edgeLayer   = null  // PIXI.Graphics (all edges)
 let nodeContainer = null  // PIXI.Container (node sprites)
@@ -60,6 +65,9 @@ let nodeObjs = new Map()
 let sim = null
 let simNodes = []   // { index, x, y, vx, vy, id, type, ... }
 let simEdges = []   // { source, target, rel }
+
+// 노드 idx → inbound(백링크) 개수
+let inboundCount = new Map()
 
 // pan/zoom state
 let vpX = 0, vpY = 0, vpScale = 1
@@ -178,13 +186,19 @@ function buildSimulation(nodes, edges) {
     rel:    e.rel,
   }))
 
+  // inbound(백링크) 개수 집계 — target으로 들어오는 엣지 수
+  inboundCount = new Map()
+  for (const e of es) {
+    inboundCount.set(e.to, (inboundCount.get(e.to) || 0) + 1)
+  }
+
   if (sim) sim.stop()
 
   // Strength per node type — org-root는 자유롭게 이동
   const chargeStr = (d) => {
     if (d.type === 'meeting_group') return -800
     if (d.type === 'dept')         return -300
-    if (d.type === 'org')          return -200
+    if (d.type === 'company')      return -200
     if (d.type === 'org-root')     return -200
     return -160
   }
@@ -206,13 +220,18 @@ function buildSimulation(nodes, edges) {
     )
     .force('charge',  forceManyBody().strength(chargeStr))
     .force('center',  forceCenter(w / 2, h / 2).strength(0.02))
-    .force('collide', forceCollide(d => getRadius(d.type) + 14).strength(0.8))
+    .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.8))
     // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
     .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
       .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
-    // org-node(조직)는 항상 중심에 고정
-    .force('radial-org', forceRadial(0, w / 2, h / 2)
-      .strength(d => (d.id === 'org-node' || d.type === 'org') ? 0.6 : 0))
+    // "나" 노드를 항상 중심에 고정 (없으면 조직 노드를 중심에)
+    .force('radial-center', forceRadial(0, w / 2, h / 2)
+      .strength(d => {
+        const isSelf = props.selfNodeId != null && d.id === props.selfNodeId
+        if (isSelf) return 0.85
+        if (props.selfNodeId == null && (d.id === 'org-node' || d.type === 'company')) return 0.6
+        return 0
+      }))
     .force('x', forceX(w / 2).strength(0.01))
     .force('y', forceY(h / 2).strength(0.01))
     .alphaDecay(0.04)
@@ -225,6 +244,19 @@ function getRadius(type) {
   return NODE_RADIUS[type] ?? 16
 }
 
+// 백링크(inbound) 개수에 따른 추가 반경 — sqrt 스케일로 완만하게 증가
+function backlinkBonus(idx) {
+  const c = inboundCount.get(idx) || 0
+  if (c <= 0) return 0
+  return Math.min(BACKLINK_MAX, Math.sqrt(c) * BACKLINK_STEP)
+}
+
+// 노드 인덱스별 최종 반경 ("나" 노드는 고정 크기)
+function nodeRadiusForIdx(idx, type, id) {
+  if (props.selfNodeId != null && id === props.selfNodeId) return SELF_RADIUS
+  return getRadius(type) + backlinkBonus(idx)
+}
+
 // ─── Node Objects ─────────────────────────────────────────────
 function rebuildNodeObjects() {
   if (!nodeContainer) return
@@ -234,7 +266,7 @@ function rebuildNodeObjects() {
 
   props.gNodes.forEach((n, i) => {
     const type = n.id === 'org-root' ? 'org-root' : n.type
-    const r = getRadius(type)
+    const r = nodeRadiusForIdx(i, type, n.id)
 
     // Graphics
     const gfx = new PIXI.Graphics()
@@ -374,6 +406,20 @@ function drawIcon(gfx, type, r) {
     const hr = r * 0.22, br = r * 0.28
     gfx.circle(0, -r * 0.18, hr).fill({ color: ic, alpha: 0.88 })
     gfx.arc(0, -r * 0.18 + hr + br * 1.1, br, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.88 })
+  } else if (type === 'company') {
+    // building / company icon
+    const bw = r * 0.62, bh = r * 0.66
+    const bx = -bw / 2, by = -bh / 2 + r * 0.04
+    gfx.rect(bx, by, bw, bh).stroke({ color: ic, width: Math.max(1, r * 0.08), alpha: 0.92 })
+    // windows (2 columns x 3 rows)
+    const wsz = r * 0.1
+    const cols = [bx + bw * 0.28, bx + bw * 0.72]
+    const rows = [by + bh * 0.22, by + bh * 0.5, by + bh * 0.78]
+    for (const cx of cols) {
+      for (const cy of rows) {
+        gfx.rect(cx - wsz / 2, cy - wsz / 2, wsz, wsz).fill({ color: ic, alpha: 0.92 })
+      }
+    }
   }
 }
 
@@ -444,7 +490,7 @@ function tick() {
     const dx = tn.x - sn.x, dy = tn.y - sn.y
     const len = Math.sqrt(dx * dx + dy * dy); if (len < 4) return
     const ux = dx / len, uy = dy / len
-    const tr = getRadius(tn.type) + 4
+    const tr = nodeRadiusForIdx(ti, tn.type, props.gNodes[ti]?.id) + 4
     const ex = tn.x - ux * tr, ey = tn.y - uy * tr
 
     // Highlight glow
@@ -455,7 +501,7 @@ function tick() {
     }
 
     // Edge line (straight)
-    const sr = getRadius(typeof e.source === 'object' ? e.source.type : (props.gNodes[si]?.type ?? 'file')) + 3
+    const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'file', props.gNodes[si]?.id) + 3
     const sx2 = sn.x + ux * sr, sy2 = sn.y + uy * sr
 
     edgeLayer.moveTo(sx2, sy2).lineTo(ex, ey)
@@ -578,6 +624,8 @@ function onBgUp() {
 
 let _nodeDownTime = 0
 function onNodeDown(idx, e) {
+  // 이동 전용 모드: 노드 클릭/드래그 무시하고 배경 팬으로 동작
+  if (panOnly.value) { onBgDown(e); return }
   _nodeDownTime = Date.now()
   isPanning = false
   _draggingIdx = idx
@@ -587,6 +635,7 @@ function onNodeDown(idx, e) {
   if (sn) { sn.fx = sn.x; sn.fy = sn.y; sim?.alphaTarget(0.3).restart() }
 }
 function onNodeUp(idx) {
+  if (panOnly.value) { onBgUp(); return }
   const sn = simNodes[idx]
   if (_didNodeDrag) {
     if (sn) { sn.fx = null; sn.fy = null }
@@ -630,6 +679,11 @@ function zoomIn()  { vpScale = Math.min(3,   vpScale * 1.25); _simDirty = true }
 function zoomOut() { vpScale = Math.max(0.2,  vpScale / 1.25); _simDirty = true }
 function resetView() {
   vpX = 0; vpY = 0; vpScale = 1; focusedIdx = null; _simDirty = true
+}
+/** 이동 전용 모드 토글 — 켜면 노드 클릭/드래그 없이 배경 팬만 가능 */
+function togglePanOnly() {
+  panOnly.value = !panOnly.value
+  return panOnly.value
 }
 /** 뷰포트 좌표(px) → 가장 가까운 gNode 반환, 없으면 null */
 function getNodeAtScreen(sx, sy) {
@@ -693,7 +747,7 @@ function focusSearchHits(hitIdxs) {
   }
 }
 
-defineExpose({ zoomIn, zoomOut, resetView, reloadGraph: buildSimulation, getNodeAtScreen, getNodeScreenPos, focusSearchHits })
+defineExpose({ zoomIn, zoomOut, resetView, togglePanOnly, panOnly, reloadGraph: buildSimulation, getNodeAtScreen, getNodeScreenPos, focusSearchHits })
 
 // ─── Helpers ─────────────────────────────────────────────────
 function hexToNum(hex) {

@@ -7,6 +7,7 @@ import api, { apiAI } from '../api'
 
 import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
+import DateInput from '../components/DateInput.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -515,11 +516,11 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
             <label class="form-label">시작일</label>
-            <input type="date" v-model="form.start_date" class="form-input" />
+            <DateInput v-model="form.start_date" class="form-input" />
           </div>
           <div class="form-group">
             <label class="form-label">종료일</label>
-            <input type="date" v-model="form.end_date" class="form-input" />
+            <DateInput v-model="form.end_date" class="form-input" />
           </div>
         </div>
 

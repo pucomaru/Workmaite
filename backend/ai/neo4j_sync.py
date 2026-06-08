@@ -340,6 +340,8 @@ async def sync_agenda(
         MERGE (assignee)-[:담당]->(ag)
     )
     """
+    if isinstance(ai_evidence, (dict, list)):
+        ai_evidence = json.dumps(ai_evidence, ensure_ascii=False)
     emb_text = " ".join(filter(None, [title, ai_evidence]))
     embedding = await _embed(emb_text)
     if embedding:
