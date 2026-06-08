@@ -1,5 +1,4 @@
 import json
-import re
 import os
 import uuid
 from datetime import datetime
@@ -27,8 +26,6 @@ import logging
 from .prompts import (
     make_llm,
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
-    extract_agendas_system,
-    chat_extract_system,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,6 +90,7 @@ _ROUTING_SYSTEM = """\
 - supervisor_direct: 현황 조회, 구성원 안내, 회의체 현황, 인사·일반 질문
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
+
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -215,18 +213,6 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
         except Exception:
             pass
     return ""
-
-
-def _parse_json_response(raw_text: str) -> dict:
-    """LLM 응답에서 JSON 블록 추출 및 파싱."""
-    match = re.search(r'\{[\s\S]*\}', raw_text)
-    if match:
-        json_str = match.group(0)
-        open_count = json_str.count('{') - json_str.count('}')
-        if open_count > 0:
-            json_str += '}' * open_count
-        return json.loads(json_str)
-    return json.loads(raw_text)
 
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
@@ -1157,15 +1143,7 @@ async def archive_extract_agendas(
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
     try:
-        response = await make_llm(temperature=0.15).ainvoke([
-            SystemMessage(content=extract_agendas_system(dept_list)),
-            HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
-        ])
-        raw_text = response.content.strip()
-        try:
-            parsed = _parse_json_response(raw_text)
-        except Exception:
-            parsed = {"agendas": []}
+        parsed = await task_agent.extract_agendas_from_context(context_parts, dept_list)
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
@@ -1261,15 +1239,9 @@ async def archive_chat_extract(
     current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
 
     try:
-        response = await make_llm(temperature=0.15).ainvoke([
-            SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
-            HumanMessage(content=message),
-        ])
-        raw_text = response.content.strip()
-        try:
-            parsed = _parse_json_response(raw_text)
-        except Exception:
-            parsed = {"agendas": current_agendas, "message": raw_text}
+        parsed = await task_agent.chat_update_agendas(message, meeting_context, dept_list, current_agendas_text)
+        if not parsed:
+            parsed = {"agendas": current_agendas, "message": message}
 
         agendas = parsed.get("agendas", current_agendas)
         return {
@@ -1330,8 +1302,7 @@ async def analyze_archive_file(
 
     # LangGraph 기반 아카이브 파일 검토 에이전트 실행
     try:
-        from agents.report_reviewer import analyze_archive_file as _analyze_graph
-        return await _analyze_graph(
+        return await task_agent.analyze_archive_file(
             file_name=file_name,
             file_type=file_type,
             dept_name=dept_name,
@@ -1389,9 +1360,8 @@ async def analyze_archive_file_stream_ep(
         file_content = "[파일 미첨부 — 이름만 입력됨]"
 
     async def stream():
-        from agents.report_reviewer import analyze_archive_file_stream as _stream_graph
         try:
-            async for event in _stream_graph(
+            async for event in task_agent.analyze_archive_file_stream(
                 file_name=file_name,
                 file_type=file_type,
                 dept_name=dept_name,
