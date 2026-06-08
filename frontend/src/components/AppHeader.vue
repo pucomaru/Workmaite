@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
+import TokenUsageModal from './TokenUsageModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +112,11 @@ function logout() {
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
 const showProfileSettings = ref(false)
+const showUsageModal = ref(false)
+function openUsageModal() {
+  showProfile.value = false
+  showUsageModal.value = true
+}
 const profileForm = ref({ name: '', company: '', department: '', position: '', password: '', passwordConfirm: '' })
 const profileSaving = ref(false)
 const profileMsg = ref('')
@@ -259,6 +265,9 @@ async function saveProfileSettings() {
           <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex" @click="openProfileSettings">
             개인설정
           </button>
+          <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex;gap:6px" @click="openUsageModal">
+            <i class="bi bi-bar-chart-line"></i>사용량
+          </button>
           <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">로그아웃</button>
         </div>
       </div>
@@ -323,6 +332,8 @@ async function saveProfileSettings() {
 
     <div v-if="showProfile || showMemberMgmt" class="backdrop"
       @click="showProfile=false; showMemberMgmt=false" />
+
+    <TokenUsageModal v-if="showUsageModal" @close="showUsageModal=false" />
 
     <!-- 개인설정 모달 -->
     <Teleport to="body">
