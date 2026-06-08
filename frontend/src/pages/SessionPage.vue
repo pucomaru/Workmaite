@@ -52,7 +52,6 @@ async function fetchMeetings() {
   try {
     const res = await api.get('/api/v1/meetings')
     meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
-    // 백그라운드에서 각 회의체 세션 로드
     meetings.value.forEach(m => loadSessions(m.id))
   } catch (e) {
     console.error('meetings fetch error', e)
@@ -301,7 +300,7 @@ async function generateMinutes() {
         agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
         wmLoading.value = false
         generatingMinutes.value = false
-        // 다음 회의 안건 자동 추출
+        // 다음 회의 과제 자동 추출
         extractNextAgendas()
       }
     )
@@ -359,7 +358,7 @@ function downloadWord() {
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
 
-// ── 다음 회의 안건 승인/반려 블록 ─────────────────────────────
+// ── 다음 회의 과제 승인/반려 블록 ─────────────────────────────
 const nextAgendaItems = ref([])
 const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
@@ -398,10 +397,10 @@ async function extractNextAgendas() {
       _editDept: a.dept || a.assignee_dept || a.department || '',
     }))
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -563,7 +562,7 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null })
+const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null, type: 'whisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
@@ -576,12 +575,12 @@ async function doCreateSessionForm() {
       title: createSessionForm.value.title,
       type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+      type: createSessionForm.value.type,
     })
-    // 캐시 무효화 후 재로드
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
+    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null, type: 'whisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -817,19 +816,19 @@ async function downloadMinutesFile() {
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
             </div>
 
-            <!-- ── 다음 회의 안건 승인/반려 블록 (에디터 영역 밖) ── -->
+            <!-- ── 다음 회의 과제 승인/반려 블록 (에디터 영역 밖) ── -->
             <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 안건</span>
+                  <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 안건을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>안건 추출 중...</span>
+                <div class="nab-spinner"></div><span>과제 추출 중...</span>
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
@@ -855,7 +854,7 @@ async function downloadMinutesFile() {
                       </template>
                       <template v-else>
                         <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="안건 내용" />
+                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
                           <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
                         </div>
                         <div class="nab-item-actions">
@@ -883,7 +882,7 @@ async function downloadMinutesFile() {
 
                 <div class="nab-footer">
                   <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 안건 직접 추가
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
                   </button>
                   <div class="nab-footer-right">
                     <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
@@ -1108,6 +1107,21 @@ async function downloadMinutesFile() {
             <label>회의 날짜</label>
             <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
           </div>
+          <div class="app-modal-field">
+            <label>STT 방식</label>
+            <div style="display:flex;gap:8px;">
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
+                @click="createSessionForm.type = 'whisper'">
+                Whisper 모델 (보안)
+              </button>
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
+                @click="createSessionForm.type = 'external'">
+                Whisper API (빠름)
+              </button>
+            </div>
+          </div>
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="showCreateSession=false">취소</button>
@@ -1142,6 +1156,8 @@ async function downloadMinutesFile() {
 .sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
 .sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
+.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;transition:all .15s; }
+.stt-type-btn.active { border-color:var(--primary);background:#eff6ff;color:var(--primary);font-weight:600; }
 .sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
 .sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
@@ -1383,8 +1399,8 @@ async function downloadMinutesFile() {
 .spin { display:inline-block;animation:spin .7s linear infinite; }
 
 /* Minutes bottom bar */
-.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
-.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
+.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px;flex-wrap:wrap;gap:8px; }
+.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
 .mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
 .mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
@@ -1399,7 +1415,7 @@ async function downloadMinutesFile() {
 .sp-file-dl-btn { display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;border-radius:4px;border:none;background:rgba(255,255,255,.25);color:inherit;cursor:pointer;vertical-align:middle; }
 .sp-file-dl-btn:hover { background:rgba(255,255,255,.4); }
 
-/* ── 다음 회의 안건 블록 ── */
+/* ── 다음 회의 과제 블록 ── */
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
 .nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
