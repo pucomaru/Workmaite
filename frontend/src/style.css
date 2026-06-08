@@ -33,7 +33,7 @@
 
   /* 레이아웃 */
   --sidebar-w: 240px;
-  --header-h: 56px;
+  --header-h: 47px;
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --shadow-md: 0 4px 6px rgba(0,0,0,.07), 0 2px 4px rgba(0,0,0,.06);
   --shadow-lg: 0 10px 15px rgba(0,0,0,.1), 0 4px 6px rgba(0,0,0,.05);
@@ -240,10 +240,8 @@ html.night-mode .table tr:hover td { background: var(--bg-card) !important; }
 
 /* 모달 */
 html.night-mode .modal-overlay { background: rgba(0,0,0,.65) !important; }
-html.night-mode .ps-modal, html.night-mode .popup-card { background: var(--bg-card) !important; border-color: var(--border) !important; color: var(--text) !important; }
-html.night-mode .ps-header, html.night-mode .ps-footer { border-color: var(--border) !important; background: var(--bg-card) !important; }
-html.night-mode .ps-close, html.night-mode .modal-close-btn { color: #64748b !important; background: var(--bg) !important; }
-html.night-mode .ps-close:hover { background: var(--border) !important; color: var(--text-muted) !important; }
+html.night-mode .popup-card { background: var(--bg-card) !important; border-color: var(--border) !important; color: var(--text) !important; }
+html.night-mode .modal-close-btn { color: #64748b !important; background: var(--bg) !important; }
 html.night-mode .ps-divider { color: #64748b !important; border-top-color: var(--border) !important; }
 html.night-mode .ps-readonly-tag { background: var(--bg) !important; color: #64748b !important; }
 
@@ -306,7 +304,7 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 /* ═══════════════════════════════════════════
    공유 컴포넌트: 다크 헤더 바 (ArchivePage, OrganizationPage, MeetingGroupsPage)
    ═══════════════════════════════════════════ */
-.archive-header { display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--dark-bg);border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
+.archive-header { display:flex;align-items:center;gap:12px;padding:6px 16px;background:var(--dark-bg);border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
 .archive-title { font-size:16px;font-weight:700;color:var(--dark-text);margin:0; }
 .archive-desc { font-size:10px;color:var(--text-dim);margin:0; }
 .search-wrap { position:relative;flex:1;min-width:160px;max-width:360px; }
@@ -316,18 +314,18 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 .search-input:focus { border-color:rgba(96,165,250,.5); }
 .search-clear { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-dim);display:flex;align-items:center; }
 .plus-wrap { position:relative;flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:8px; }
-.create-meeting-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
-.create-meeting-btn:hover { opacity:.85; }
-.create-meeting-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
-.create-meeting-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
+.create-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;white-space:nowrap; }
+.create-btn:hover { opacity:.85; }
+.create-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
+.create-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
 /* day-mode 변형 */
 .day-mode .archive-header { background:#eef2ff;border-bottom-color:var(--border); }
 .day-mode .archive-title { color:var(--dark-card); }
 .day-mode .search-input { background:rgba(255,255,255,.6);border-color:var(--border);color:var(--dark-card); }
 .day-mode .search-input::placeholder { color:var(--dark-muted); }
 .day-mode .search-icon { color:var(--dark-muted); }
-.day-mode .create-meeting-btn.secondary { border-color:#cbd5e1;color:var(--text-dim); }
-.day-mode .create-meeting-btn.secondary:hover { background:var(--surface-2); }
+.day-mode .create-btn.secondary { border-color:#cbd5e1;color:var(--text-dim); }
+.day-mode .create-btn.secondary:hover { background:var(--surface-2); }
 
 /* header-title-wrap: archive-header 내부 제목 영역 */
 .header-title-wrap { flex-shrink:0; }
@@ -387,11 +385,11 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
 .app-modal-sm { width:420px; }
 .app-modal-md { width:480px; }
 .app-modal-lg { width:520px; }
-.app-modal-header { display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-header { display:flex;align-items:center;justify-content:space-between;padding:10px 20px 8px;border-bottom:1px solid #e2e8f0;flex-shrink:0; }
 .app-modal-title { font-size:15px;font-weight:700;color:#1e293b; }
 .app-modal-close { width:28px;height:28px;border-radius:7px;border:none;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;flex-shrink:0; }
 .app-modal-close:hover { background:#e2e8f0;color:#1e293b; }
-.app-modal-body { padding:16px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:72vh; }
+.app-modal-body { padding:8px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:72vh; }
 .app-modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid #e2e8f0;flex-shrink:0; }
 .app-modal-field { display:flex;flex-direction:column;gap:5px; }
 .app-modal-field label { font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.04em; }

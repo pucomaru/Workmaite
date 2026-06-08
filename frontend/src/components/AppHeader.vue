@@ -338,42 +338,42 @@ async function saveProfileSettings() {
     <!-- 개인설정 모달 -->
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showProfileSettings" class="ps-backdrop">
-          <div class="ps-modal">
-            <div class="ps-header">
-              <h5 class="mb-0 fw-bold" style="color:var(--primary)">개인설정</h5>
-              <button class="ps-close" @click="showProfileSettings=false"><i class="bi bi-x-lg"></i></button>
+        <div v-if="showProfileSettings" class="app-modal-backdrop">
+          <div class="app-modal app-modal-md">
+            <div class="app-modal-header">
+              <span class="app-modal-title">개인설정</span>
+              <button class="app-modal-close" @click="showProfileSettings=false"><i class="bi bi-x-lg"></i></button>
             </div>
-            <div class="ps-body">
+            <div class="app-modal-body">
               <!-- 이름 -->
-              <div class="ps-field">
-                <label class="ps-label">이름</label>
+              <div class="app-modal-field">
+                <label>이름</label>
                 <input v-model="profileForm.name" class="form-control" placeholder="홍길동" />
               </div>
               <!-- 회사명 -->
-              <div class="ps-field">
-                <label class="ps-label">회사명</label>
+              <div class="app-modal-field">
+                <label>회사명</label>
                 <input v-model="profileForm.company" class="form-control" placeholder="-" />
               </div>
               <!-- 부서 -->
-              <div class="ps-field">
-                <label class="ps-label">부서</label>
+              <div class="app-modal-field">
+                <label>부서</label>
                 <input v-model="profileForm.department" class="form-control" placeholder="예: 경영지원팀" />
               </div>
               <!-- 직위 -->
-              <div class="ps-field">
-                <label class="ps-label">직급</label>
+              <div class="app-modal-field">
+                <label>직급</label>
                 <input v-model="profileForm.position" class="form-control" placeholder="Manager" />
               </div>
               <!-- 이메일 (readonly) -->
-              <div class="ps-field">
-                <label class="ps-label">이메일 <span class="ps-readonly-tag">변경 불가</span></label>
+              <div class="app-modal-field">
+                <label>이메일 <span class="ps-readonly-tag">변경 불가</span></label>
                 <input :value="auth.user?.email" class="form-control" readonly style="background:var(--surface);color:var(--dark-muted)" />
               </div>
               <!-- 비밀번호 -->
               <div class="ps-divider">비밀번호 변경</div>
-              <div class="ps-field">
-                <label class="ps-label">새 비밀번호</label>
+              <div class="app-modal-field">
+                <label>새 비밀번호</label>
                 <div class="input-group">
                   <input v-model="profileForm.password" :type="showNewPw ? 'text' : 'password'"
                     class="form-control" placeholder="새 비밀번호 입력 (변경 시만)" />
@@ -382,8 +382,8 @@ async function saveProfileSettings() {
                   </button>
                 </div>
               </div>
-              <div class="ps-field">
-                <label class="ps-label">비밀번호 확인</label>
+              <div class="app-modal-field">
+                <label>비밀번호 확인</label>
                 <div class="input-group">
                   <input v-model="profileForm.passwordConfirm" :type="showConfirmPw ? 'text' : 'password'"
                     class="form-control"
@@ -401,9 +401,9 @@ async function saveProfileSettings() {
                 {{ profileMsg.split(':').slice(1).join(':') }}
               </div>
             </div>
-            <div class="ps-footer">
-              <button class="btn btn-outline-secondary" @click="showProfileSettings=false">취소</button>
-              <button class="btn btn-primary" :disabled="profileSaving" @click="saveProfileSettings">
+            <div class="app-modal-footer">
+              <button class="app-btn-cancel" @click="showProfileSettings=false">취소</button>
+              <button class="app-btn-primary" :disabled="profileSaving" @click="saveProfileSettings">
                 <span v-if="profileSaving" class="spinner-border spinner-border-sm me-1"></span>
                 저장
               </button>
@@ -561,17 +561,8 @@ async function saveProfileSettings() {
 .backdrop { position: fixed; inset: 0; z-index: 190; }
 
 /* 개인설정 모달 */
-.ps-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(3px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.ps-modal { background: var(--bg-card); border-radius: 16px; width: 100%; max-width: 480px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-.ps-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.ps-close { background: none; border: none; font-size: 16px; color: var(--dark-muted); cursor: pointer; padding: 4px; border-radius: 6px; line-height: 1; }
-.ps-close:hover { color: var(--text-dim); background: var(--surface-2); }
-.ps-body { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.ps-field { display: flex; flex-direction: column; gap: 5px; }
-.ps-label { font-size: 12px; font-weight: 600; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .ps-readonly-tag { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 99px; background: var(--surface-2); color: var(--dark-muted); }
 .ps-divider { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; padding: 4px 0 0; border-top: 1px solid var(--border); }
-.ps-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>

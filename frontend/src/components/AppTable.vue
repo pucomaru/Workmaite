@@ -132,7 +132,7 @@ function startResize(e, colIndex) {
 }
 .app-table th {
   position: relative;
-  padding: 11px 16px;
+  padding: 8px 16px;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
@@ -184,7 +184,7 @@ function startResize(e, colIndex) {
   z-index: 2;
 }
 .app-table td {
-  padding: 11px 16px;
+  padding: 4px 16px;
   vertical-align: middle;
   color: var(--text);
   white-space: nowrap;

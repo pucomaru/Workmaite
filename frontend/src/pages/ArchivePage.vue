@@ -74,6 +74,10 @@ watch(viewMode, (next, prev) => {
 })
 
 const graphViewRef = ref(null)  // GraphView (PIXI) 컴포넌트 ref
+const graphPanOnly = ref(false) // 그래프 이동 전용 모드 상태
+function toggleGraphPanOnly() {
+  graphPanOnly.value = graphViewRef.value?.togglePanOnly?.() ?? false
+}
 
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
@@ -1854,7 +1858,7 @@ function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.id !== 'org-node' && node.type !== 'org') {
+  } else if (node.id !== 'org-node' && node.type !== 'company') {
     openNodeDetail(node)
   }
 }
@@ -2198,7 +2202,7 @@ provide('archiveSidebar', {
             <button class="zoom-btn" @click="graphViewRef?.zoomIn()" title="확대 (Zoom In)">+</button>
             <button class="zoom-btn zoom-reset" @click="graphViewRef?.resetView()" title="초기화 (Reset)">⌂</button>
             <button class="zoom-btn" @click="graphViewRef?.zoomOut()" title="축소 (Zoom Out)">−</button>
-            <button class="zoom-btn zoom-pan-hint" title="드래그로 이동 (배경을 드래그하세요)">
+            <button class="zoom-btn zoom-pan-hint" :class="{ active: graphPanOnly }" @click="toggleGraphPanOnly" title="이동 전용 모드 (노드 클릭 없이 배경 드래그로만 이동)">
               <i class="bi bi-arrows-move"></i>
             </button>
           </template>
@@ -2222,6 +2226,7 @@ provide('archiveSidebar', {
           v-if="!loading && viewMode==='graph' && !neo4jError"
           ref="graphViewRef"
           class="archive-canvas"
+          :class="{ 'graph-pan-only': graphPanOnly }"
           :gNodes="gNodes"
           :gEdges="gEdges"
           :nightMode="nightMode"
