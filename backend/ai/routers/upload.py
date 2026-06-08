@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from xhtml2pdf import pisa
 
@@ -143,6 +144,8 @@ async def upload_minutes(
     db: Session = Depends(get_db),
 ):
     """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
+    logger.info(f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}")
+
     session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
@@ -150,39 +153,147 @@ async def upload_minutes(
     try:
         pdf_bytes = _html_to_pdf(content, session.title or f"회의록_{session_id}")
     except Exception as e:
+        logger.error(f"[minutes] PDF 변환 실패 — session_id={session_id}, error={e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
 
     key, stored_name = _unique_key(f"minutes/{session_id}", "minutes.pdf")
     r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
+    logger.info(f"[minutes] R2 업로드 완료 — key={key}, url={r2_url}")
 
+    # ── 파라미터 사전 확인 ──────────────────────────────────────────
+    params = {
+        "session_id":      session_id,
+        "file_name":       stored_name,
+        "file_path":       r2_url,
+        "recorder_id":     current_user.id,
+        "content_summary": content[:80] + "..." if len(content) > 80 else content,
+    }
+    logger.info(
+        f"[minutes] UPSERT 파라미터 확인 — "
+        f"session_id={params['session_id']!r}, "
+        f"file_name={params['file_name']!r}, "
+        f"file_path={params['file_path']!r}, "
+        f"recorder_id={params['recorder_id']!r}"
+    )
+
+    # PostgreSQL native UPSERT — 원자적으로 INSERT or UPDATE
     try:
-        existing = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
-        if existing:
-            existing.file_name = stored_name
-            existing.file_path = r2_url
-            existing.recorder_id = current_user.id
-            existing.generated_at = datetime.utcnow()
-            existing.content_summary = content
-            minutes = existing
-        else:
-            minutes = models.Minutes(
-                session_id=session_id,
-                file_name=stored_name,
-                file_path=r2_url,
-                recorder_id=current_user.id,
-                content_summary=content,
-            )
-            db.add(minutes)
+        result = db.execute(text("""
+            INSERT INTO minutes (session_id, file_name, file_path, recorder_id, content_summary, status, generated_at)
+            VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, 'DRAFT', NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                file_name        = EXCLUDED.file_name,
+                file_path        = EXCLUDED.file_path,
+                recorder_id      = EXCLUDED.recorder_id,
+                content_summary  = EXCLUDED.content_summary,
+                generated_at     = NOW()
+            RETURNING id
+        """), {
+            "session_id":      session_id,
+            "file_name":       stored_name,
+            "file_path":       r2_url,
+            "recorder_id":     current_user.id,
+            "content_summary": content,
+        })
+
+        row = result.fetchone()
+        logger.info(f"[minutes] RETURNING 결과 — row={row!r} (None이면 UPSERT 미실행)")
+        if row is None:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="회의록 UPSERT 결과 없음 — RETURNING id가 None")
+
+        minutes_id = row[0]
         db.commit()
-        db.refresh(minutes)
-        logger.info(f"[minutes upsert] 성공 — session_id={session_id}, file_path={r2_url}")
+        logger.info(f"[minutes] commit 완료 — minutes_id={minutes_id}")
+
+        # ── commit 후 SELECT로 실제 저장 값 검증 ──────────────────
+        verify = db.execute(text(
+            "SELECT id, session_id, file_name, file_path FROM minutes WHERE id = :id"
+        ), {"id": minutes_id}).fetchone()
+
+        if verify is None:
+            logger.error(f"[minutes] 저장 검증 실패 — id={minutes_id} 가 SELECT에서 조회되지 않음")
+            raise HTTPException(status_code=500, detail="회의록 저장 검증 실패")
+
+        logger.info(
+            f"[minutes] 저장 검증 성공 — "
+            f"id={verify[0]}, session_id={verify[1]}, "
+            f"file_name={verify[2]!r}, file_path={verify[3]!r}"
+        )
+
+        if verify[2] != stored_name or verify[3] != r2_url:
+            logger.error(
+                f"[minutes] 저장 값 불일치! "
+                f"expected file_name={stored_name!r} got={verify[2]!r}, "
+                f"expected file_path={r2_url!r} got={verify[3]!r}"
+            )
+            raise HTTPException(status_code=500, detail="회의록 저장 값 불일치")
+
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        logger.error(f"[minutes upsert] 실패 — session_id={session_id}, error={e}", exc_info=True)
+        logger.error(f"[minutes] DB 저장 실패 — session_id={session_id}, error={e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"회의록 DB 저장 실패: {e}")
 
     return {
-        "id": minutes.id,
+        "id": minutes_id,
+        "file_name": stored_name,
+        "file_path": r2_url,
+        "session_id": session_id,
+    }
+
+
+# ── 회의록 파일 직접 업로드 (PDF/기타 파일 → R2, minutes 테이블 upsert) ────────
+
+@router.post("/minutes/{session_id}/file")
+async def upload_minutes_file(
+    session_id: int,
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """기존 PDF 파일을 R2에 직접 업로드하고 minutes 테이블에 file_path를 upsert합니다."""
+    logger.info(f"[minutes/file] 요청 — session_id={session_id}, user_id={current_user.id}, filename={file.filename!r}")
+
+    session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    content = await file.read()
+    if len(content) > _MAX_BYTES:
+        raise HTTPException(status_code=413, detail="파일 크기는 100MB를 초과할 수 없습니다.")
+
+    key, stored_name = _unique_key(f"minutes/{session_id}", file.filename or "minutes.pdf")
+    r2_url = upload_bytes(content, key, get_content_type(file.filename or ""))
+    logger.info(f"[minutes/file] R2 업로드 완료 — key={key}, url={r2_url}")
+
+    try:
+        result = db.execute(text("""
+            INSERT INTO minutes (session_id, file_name, file_path, recorder_id, status, generated_at)
+            VALUES (:session_id, :file_name, :file_path, :recorder_id, 'DRAFT', NOW())
+            ON CONFLICT (session_id) DO UPDATE SET
+                file_name    = EXCLUDED.file_name,
+                file_path    = EXCLUDED.file_path,
+                recorder_id  = EXCLUDED.recorder_id
+            RETURNING id
+        """), {
+            "session_id":  session_id,
+            "file_name":   stored_name,
+            "file_path":   r2_url,
+            "recorder_id": current_user.id,
+        })
+        row = result.fetchone()
+        minutes_id = row[0]
+        db.commit()
+        logger.info(f"[minutes/file] DB 저장 성공 — id={minutes_id}, session_id={session_id}, file_path={r2_url!r}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[minutes/file] DB 저장 실패 — session_id={session_id}, error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"회의록 DB 저장 실패: {e}")
+
+    return {
+        "id": minutes_id,
         "file_name": stored_name,
         "file_path": r2_url,
         "session_id": session_id,
