@@ -52,7 +52,7 @@ async function _doRefresh() {
  * - streamPost / streamPostForm 진입 시 안전망으로 호출
  * - useActivityRefresh 컴포저블이 사용자 인터랙션 시에도 호출
  */
-export async function ensureFreshToken() {
+export async function ensureFreshToken() { 
   const token = sessionStorage.getItem('token')
   if (!token) return
   try {
