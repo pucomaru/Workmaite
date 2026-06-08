@@ -13,138 +13,6 @@ import hyeanAvatar from '../assets/agents/hyean.png'
 
 const renderMd = (t) => marked.parse(t || '', { breaks: true })
 
-// ╔══════════════════════════════════════════════════════════════════════╗
-// ║  ⚠️  TEST MODE — 백엔드 API 연동 완료 후 이 블록 전체 삭제           ║
-// ║  삭제 범위: TEST_MODE 상수 + MOCK_DATA 객체 (아래 END 주석까지)       ║
-// ║  각 함수의 if (TEST_MODE) 블록도 함께 삭제 후 else 브랜치만 남길 것   ║
-// ╚══════════════════════════════════════════════════════════════════════╝
-const TEST_MODE = true
-
-const MOCK_DATA = {
-  // ── meetings 테이블 ───────────────────────────────────────────
-  meetings: [
-    {
-      id: 1,
-      title: '전략기획 월례회의',
-      description: '월간 전략 방향 및 주요 의사결정 논의',
-      guidelines: '과제 72시간 전 제출 필수, 의장 승인 후 진행, 회의 시간 90분 초과 금지',
-      type: 'monthly',
-      start_date: '2025-01-01T00:00:00',
-      end_date: null,
-      status: 'active',
-      created_by: 1,
-      created_at: '2025-01-01T00:00:00',
-      updated_at: '2025-01-01T00:00:00',
-    },
-    {
-      id: 2,
-      title: '개발팀 주간 스탠드업',
-      description: '주간 개발 현황 및 이슈 공유',
-      guidelines: null,
-      type: 'weekly',
-      start_date: '2025-01-06T00:00:00',
-      end_date: null,
-      status: 'active',
-      created_by: 3,
-      created_at: '2025-01-06T00:00:00',
-      updated_at: '2025-01-06T00:00:00',
-    },
-  ],
-
-  // ── meeting_sessions 테이블 ───────────────────────────────────
-  sessions: [
-    {
-      id: 101,
-      meeting_id: 1,
-      title: '2025년 2월 전략회의',
-      description: '2025년 상반기 전략 방향 및 신제품 출시 일정 논의',
-      location: '본사 대회의실 3층',
-      type: 'whisper',
-      scheduled_at: '2025-02-17T10:00:00',
-      started_at: '2025-02-17T10:05:00',
-      ended_at: '2025-02-17T11:40:00',
-      status: 'ended',
-    },
-    {
-      id: 102,
-      meeting_id: 1,
-      title: '2025년 3월 전략회의',
-      description: null,
-      location: '화상회의 (Zoom)',
-      type: 'external',
-      scheduled_at: '2025-03-17T10:00:00',
-      started_at: null,
-      ended_at: null,
-      status: 'scheduled',
-    },
-    {
-      id: 103,
-      meeting_id: 2,
-      title: '3월 2주차 스탠드업',
-      description: null,
-      location: '개발실',
-      type: 'whisper',
-      scheduled_at: '2025-03-10T09:30:00',
-      started_at: '2025-03-10T09:31:00',
-      ended_at: '2025-03-10T09:55:00',
-      status: 'ended',
-    },
-  ],
-
-  // ── stt_segments 테이블 ───────────────────────────────────────
-  stt_segments: [
-    // session_id: 101
-    { id: 1, session_id: 101, speaker_label: 'SPEAKER_00', speaker_user_id: 1, content: '안녕하세요, 2월 전략회의를 시작하겠습니다. 오늘 주요 과제은 신제품 출시 일정과 마케팅 예산 배분입니다.', start_sec: 0.0, end_sec: 6.2, confidence: 0.97, created_at: '2025-02-17T10:05:00' },
-    { id: 2, session_id: 101, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '신제품 출시는 5월 초로 맞추는 게 좋겠습니다. 운영팀 준비 일정상 4월 말까지는 최종 확정이 필요합니다.', start_sec: 7.0, end_sec: 14.3, confidence: 0.95, created_at: '2025-02-17T10:05:07' },
-    { id: 3, session_id: 101, speaker_label: 'SPEAKER_02', speaker_user_id: 3, content: '개발 측에서는 4월 15일까지 베타 버전 완료 가능합니다. QA 기간 2주 확보하면 5월 초 출시 충분합니다.', start_sec: 15.0, end_sec: 22.5, confidence: 0.96, created_at: '2025-02-17T10:05:15' },
-    { id: 4, session_id: 101, speaker_label: 'SPEAKER_00', speaker_user_id: 1, content: '마케팅 예산은 작년 대비 20% 증액 요청이 들어왔습니다. 기획팀 검토 후 다음 회의에서 최종 결정하겠습니다.', start_sec: 23.0, end_sec: 31.0, confidence: 0.94, created_at: '2025-02-17T10:05:23' },
-    { id: 5, session_id: 101, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '운영팀 물류 파트너 계약 갱신 건도 5월 전에 처리해야 합니다. 다음 회의 과제에 포함 부탁드립니다.', start_sec: 32.0, end_sec: 40.0, confidence: 0.93, created_at: '2025-02-17T10:05:32' },
-    { id: 6, session_id: 101, speaker_label: 'SPEAKER_02', speaker_user_id: 3, content: '개발팀 입장에서는 API 문서화 작업도 이번 분기 내 완료가 필요합니다. 리소스 배분 논의가 필요합니다.', start_sec: 41.0, end_sec: 49.5, confidence: 0.95, created_at: '2025-02-17T10:05:41' },
-    // session_id: 103
-    { id: 7, session_id: 103, speaker_label: 'SPEAKER_00', speaker_user_id: 3, content: '이번 주 백엔드 API 수정 완료했습니다. DB 스키마 불일치 이슈 해결됐습니다.', start_sec: 0.0, end_sec: 5.8, confidence: 0.98, created_at: '2025-03-10T09:31:00' },
-    { id: 8, session_id: 103, speaker_label: 'SPEAKER_01', speaker_user_id: 2, content: '프론트엔드 테스트 진행 중입니다. 회의 화면 기능 검증 이번 주 내 완료 예정입니다.', start_sec: 6.5, end_sec: 12.0, confidence: 0.96, created_at: '2025-03-10T09:31:06' },
-    { id: 9, session_id: 103, speaker_label: 'SPEAKER_00', speaker_user_id: 3, content: '다음 주 배포 일정 맞추려면 목요일까지 QA 완료되어야 합니다. 확인 부탁드립니다.', start_sec: 13.0, end_sec: 19.0, confidence: 0.97, created_at: '2025-03-10T09:31:13' },
-  ],
-
-  // ── minutes_ 테이블 ───────────────────────────────────────────
-  minutes: [
-    {
-      id: 1,
-      session_id: 101,
-      file_name: null,
-      file_path: null,
-      recorder_id: 1,
-      content_original: null,
-      content_summary: `<h2>2025년 2월 전략회의 회의록</h2>
-<p><strong>일시:</strong> 2025-02-17 10:05 ~ 11:40 &nbsp;|&nbsp; <strong>장소:</strong> 본사 대회의실 3층</p>
-<h3>참석자</h3>
-<ul><li>김민준 (전략기획팀, 팀장)</li><li>이서연 (운영팀, 과장)</li><li>박지훈 (개발팀, 대리)</li></ul>
-<h3>주요 논의 사항</h3>
-<ul>
-<li><strong>신제품 출시 일정:</strong> 5월 초 목표, 4월 15일까지 베타 완료, QA 기간 2주 확보</li>
-<li><strong>마케팅 예산:</strong> 작년 대비 20% 증액 요청 — 기획팀 검토 후 3월 회의에서 최종 결정</li>
-<li><strong>물류 파트너 계약 갱신:</strong> 5월 전 처리 필요 (운영팀 주관)</li>
-<li><strong>API 문서화:</strong> 이번 분기 내 완료 목표, 개발 리소스 배분 추가 논의 필요</li>
-</ul>
-<h3>결정 사항</h3>
-<ul>
-<li>신제품 출시일 5월 초로 잠정 결정</li>
-<li>베타 완료 기한 4월 15일, QA 완료 기한 4월 29일</li>
-</ul>
-<h3>다음 회의 과제</h3>
-<ul>
-<li>마케팅 예산 최종 확정 (기획팀)</li>
-<li>물류 파트너 계약 갱신 검토 결과 보고 (운영팀)</li>
-<li>베타 테스트 결과 및 QA 현황 보고 (개발팀)</li>
-<li>API 문서화 리소스 배분 논의 (개발팀)</li>
-</ul>`,
-      status: 'draft',
-      generated_at: '2025-02-17T11:45:00',
-    },
-  ],
-}
-// ══════════════════════════ TEST MODE END ═══════════════════════════════════
-
 // ─── State ────────────────────────────────────────────────────
 const meetings = ref([])          // [{ id, title, sessions: [] }]
 const loadingMeetings = ref(false)
@@ -168,15 +36,6 @@ const selectedMeeting = computed(() => meetings.value.find(m => m.id === selecte
 
 async function loadSessions(meetingId) {
   if (sessionsCache.value[meetingId]) return sessionsCache.value[meetingId]
-  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-  if (TEST_MODE) {
-    const sessions = MOCK_DATA.sessions.filter(s => s.meeting_id === meetingId)
-    sessionsCache.value[meetingId] = sessions
-    const m = meetings.value.find(m => m.id === meetingId)
-    if (m) m.sessions = sessions
-    return sessions
-  }
-  // [/TEST_MODE] ↑
   try {
     const res = await api.get(`/api/v1/meetings/${meetingId}/sessions`)
     sessionsCache.value[meetingId] = res.data ?? []
@@ -191,13 +50,6 @@ async function loadSessions(meetingId) {
 async function fetchMeetings() {
   loadingMeetings.value = true
   try {
-    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-    if (TEST_MODE) {
-      meetings.value = MOCK_DATA.meetings.map(m => ({ ...m, sessions: null }))
-      meetings.value.forEach(m => loadSessions(m.id))
-      return
-    }
-    // [/TEST_MODE] ↑
     const res = await api.get('/api/v1/meetings')
     meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
     meetings.value.forEach(m => loadSessions(m.id))
@@ -232,20 +84,6 @@ async function enterSession(s) {
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
   if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
-    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-    if (TEST_MODE) {
-      const segs = MOCK_DATA.stt_segments.filter(seg => seg.session_id === s.id)
-      if (segs.length) {
-        const lines = segs.map(seg => ({
-          time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
-          speaker: seg.speaker_label,
-          text: `${seg.speaker_label}: ${seg.content}`,
-        }))
-        rec.transcriptLines.push(...lines)
-        transcriptLines.value = rec.transcriptLines
-      }
-    } else {
-    // [/TEST_MODE] ↑
     try {
       const { data } = await apiAI.get(`/api/sessions/${s.id}/stt-segments`)
       if (data && data.length) {
@@ -260,24 +98,10 @@ async function enterSession(s) {
     } catch (e) {
       console.error('STT 세그먼트 로드 실패', e)
     }
-    } // [TEST_MODE] else 닫힘 — 삭제 시 이 줄도 함께 삭제
   }
 
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
-    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-    if (TEST_MODE) {
-      const mins = MOCK_DATA.minutes.find(m => m.session_id === s.id)
-      if (mins?.content_summary) {
-        generatedMinutes.value = { content_summary: mins.content_summary }
-        showMinutesTab.value = true
-        rec.generatedMinutes = generatedMinutes.value
-        rec.showMinutesTab = true
-        await nextTick()
-        loadMinutesToEditor(mins.content_summary)
-      }
-    } else {
-    // [/TEST_MODE] ↑
     try {
       const { data } = await apiAI.get(`/api/sessions/${s.id}/minutes`)
       if (data?.content_summary) {
@@ -289,7 +113,6 @@ async function enterSession(s) {
         loadMinutesToEditor(data.content_summary)
       }
     } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
-    } // [TEST_MODE] else 닫힘 — 삭제 시 이 줄도 함께 삭제
   }
 }
 
@@ -545,49 +368,6 @@ async function extractNextAgendas() {
   if (!generatedMinutes.value?.content_summary) return
   nextAgendaExtracting.value = true
   showNextAgendaBlock.value = true
-
-  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-  if (TEST_MODE) {
-    try {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
-      const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6')
-      let listEl = null
-      for (const h of headings) {
-        if (h.textContent.includes('다음 회의 과제') || h.textContent.includes('다음 회의 안건')) {
-          let sibling = h.nextElementSibling
-          while (sibling && !['UL','OL'].includes(sibling.tagName)) sibling = sibling.nextElementSibling
-          if (sibling) { listEl = sibling; break }
-        }
-      }
-      const toNounTitle = (t) => t
-        .replace(/\s*(검토\s*)?결과\s*보고\s*$/, '')
-        .replace(/\s*보고\s*$/, '')
-        .replace(/\s*논의\s*$/, '')
-        .replace(/\s*수립\s*$/, '')
-        .replace(/\s*확인\s*$/, '')
-        .replace(/\s*예정\s*$/, '')
-        .replace(/\s*완료\s*$/, '')
-        .trim()
-      const items = listEl
-        ? [...listEl.querySelectorAll('li')].map(li => {
-            const text = li.textContent.trim()
-            const match = text.match(/^(.+?)\s*[(\（]([^)\）]+)[)\）]\s*$/)
-            return match
-              ? { title: toNounTitle(match[1].trim()), dept: match[2].trim() }
-              : { title: toNounTitle(text), dept: '' }
-          })
-        : []
-      nextAgendaItems.value = items.length
-        ? items.map(a => ({ ...a, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: a.title, _editDept: a.dept }))
-        : [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
-    } finally {
-      nextAgendaExtracting.value = false
-    }
-    return
-  }
-  // [/TEST_MODE] ↑
-
   try {
     const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
 
@@ -647,15 +427,6 @@ function saveNextAgendaEdit(i) {
 async function saveApprovedNextAgendas() {
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   if (!approved.length) return
-  // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-  // 실제 연동 시: POST /api/v1/meetings/{id}/agendas 를 approved 건수만큼 순차 호출
-  // 또는 Spring Boot에 /agendas/batch 엔드포인트 추가 후 단일 호출로 변경
-  if (TEST_MODE) {
-    nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
-    console.log('[TEST_MODE] 과제 저장 mock:', approved.map(a => ({ title: a.title, department: a.dept, reason: a._reason })))
-    return
-  }
-  // [/TEST_MODE] ↑
   try {
     await apiAI.post(`/api/v1/meetings/${activeSession.value?.meeting_id || selectedMeeting.value?.id || 0}/agendas/batch`, {
       agendas: approved.map(a => ({ title: a.title, dept: a.dept, reason: a._reason })),
@@ -671,13 +442,6 @@ async function saveMinutesToDB() {
   savingMinutes.value = true
   try {
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
-    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-    if (TEST_MODE) {
-      minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-      console.log('[TEST_MODE] 회의록 저장 mock — session_id:', activeSession.value.id)
-      return
-    }
-    // [/TEST_MODE] ↑
     await apiAI.post(`/api/sessions/${activeSession.value.id}/minutes`, { content_summary: html })
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
   } catch (e) {
@@ -802,30 +566,6 @@ async function doCreateSessionForm() {
   creatingSessionForm.value = true
   try {
     const meetingId = createSessionForm.value.meetingId
-    // [TEST_MODE] ↓ 이 블록 삭제 후 아래 실제 API 코드 사용
-    if (TEST_MODE) {
-      const newId = Date.now()
-      const newSession = {
-        id: newId,
-        meeting_id: meetingId,
-        title: createSessionForm.value.title,
-        description: null,
-        location: null,
-        type: 'whisper',
-        scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
-        started_at: null,
-        ended_at: null,
-        status: 'scheduled',
-      }
-      MOCK_DATA.sessions.push(newSession)
-      delete sessionsCache.value[meetingId]
-      await loadSessions(meetingId)
-      showCreateSession.value = false
-      createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
-      createSessionMembers.value = []
-      return
-    }
-    // [/TEST_MODE] ↑
     await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
@@ -876,8 +616,8 @@ onMounted(() => {
             <svg class="sp-mtg-chev" :class="{ open: expandedMeetingId === mtg.id }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div v-if="expandedMeetingId === mtg.id" class="sp-session-list">
-            <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:#94a3b8;font-size:11px">불러오는 중...</div>
-            <div v-else-if="!mtg.sessions.length" class="sp-session-item" style="justify-content:center;color:#94a3b8;font-size:11px">등록된 회의가 없습니다</div>
+            <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
+            <div v-else-if="!mtg.sessions.length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
             <div v-for="s in mtg.sessions" :key="s.id"
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
@@ -1248,7 +988,7 @@ onMounted(() => {
 
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
-    <div v-if="showCreateSession" class="app-modal-backdrop" @click.self="showCreateSession=false">
+    <div v-if="showCreateSession" class="app-modal-backdrop">
       <div class="app-modal app-modal-sm">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>
@@ -1297,40 +1037,40 @@ onMounted(() => {
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
 .sp-ms-wrap { display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px; }
-.sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:#1e293b; }
+.sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:var(--dark-card); }
 .sp-ms-results { border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px; }
 .sp-ms-item { display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px; }
 .sp-ms-item:last-child { border-bottom:none; }
 .sp-ms-info { flex:1;min-width:0; }
-.sp-ms-name { font-weight:600;color:#1e293b;display:block; }
-.sp-ms-email { color:#94a3b8;font-size:11px;display:block; }
-.sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:#f8fafc;color:#475569;font-size:11px;font-weight:600;cursor:pointer; }
+.sp-ms-name { font-weight:600;color:var(--dark-card);display:block; }
+.sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
+.sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
-.sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f8fafc;border-radius:7px;font-size:12px; }
-.sp-sm-name { flex:1;font-weight:600;color:#1e293b; }
+.sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
+.sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
 .sp-sm-role-tag.admin { background:#eff6ff;color:var(--primary); }
 .sp-sm-role-tag.member { background:#f0fdf4;color:#16a34a; }
-.sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
-.sp-sm-rm:hover { color:#ef4444; }
+.sp-sm-rm { background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:15px;line-height:1; }
+.sp-sm-rm:hover { color:var(--danger); }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
 
-.sp-mtg-group { border-bottom:1px solid #f1f5f9; }
+.sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;transition:background .15s;user-select:none; }
-.sp-mtg-header:hover,.sp-mtg-header.expanded { background:#f8fafc; }
+.sp-mtg-header:hover,.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
-.sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--dark-border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
-.sp-session-list { background:#f8fafc;border-top:1px solid #f1f5f9; }
+.sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
 .sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer;transition:background .15s; }
 .sp-session-item:hover { background:#eff6ff; }
 .sp-session-item.active { background:#eff6ff; }
 .sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
 .sp-session-info { flex:1;min-width:0; }
-.sp-session-name { font-size:11px;font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-session-name { font-size:11px;font-weight:600;color:var(--dark-border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 
@@ -1344,17 +1084,17 @@ onMounted(() => {
 .sp-panel { display:flex;flex-direction:column;height:100%;overflow:visible; }
 .sp-panel-header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;gap:12px; }
 .sp-panel-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
-.sp-panel-title { font-size:14px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.rec-live { font-size:11px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
+.sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-height:0; }
 .sp-tab-body::-webkit-scrollbar { width:4px; }
-.sp-tab-body::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.sp-tab-body::-webkit-scrollbar-thumb { background:var(--border); }
 .minutes-scroll-area { flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0;padding-bottom:8px; }
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
-.minutes-scroll-area::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0;display:flex;flex-direction:column; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
 .sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:0 1 50%;min-height:0; }
@@ -1369,31 +1109,31 @@ onMounted(() => {
   padding:1px 5px;border-radius:4px;border:1px solid;
   letter-spacing:.03em;font-family:monospace;
 }
-.tline-text { font-size:13px;color:#1e293b;line-height:1.5; }
+.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5; }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
-.ts-summary-box { background:#fafafa;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;overflow:hidden; }
-.ts-summary-header { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#475569; }
-.ts-summary-close { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:13px;line-height:1; }
-.ts-summary-body { padding:10px 12px;font-size:13px;color:#334155;line-height:1.6; }
+.ts-summary-box { background:#fafafa;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden; }
+.ts-summary-header { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-dim); }
+.ts-summary-close { background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:13px;line-height:1; }
+.ts-summary-body { padding:10px 12px;font-size:13px;color:var(--dark-border);line-height:1.6; }
 
 /* Minutes – Tiptap editor */
 .tiptap-toolbar { display:flex;align-items:center;gap:2px;padding:6px 4px;border-bottom:1px solid var(--border);background:transparent;flex-wrap:wrap;margin-bottom:8px; }
-.tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:#475569;font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
-.tt-btn:hover { background:#e2e8f0; }
+.tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:var(--text-dim);font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
+.tt-btn:hover { background:var(--border); }
 .tt-btn.active { background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
-.tt-delete { color:#ef4444 !important; }
+.tt-delete { color:var(--danger) !important; }
 .tt-delete:hover { background:#fef2f2 !important; }
 .tt-delete:disabled { opacity:.4;cursor:not-allowed;pointer-events:none; }
 .tt-sep { width:1px;height:18px;background:var(--border);margin:0 3px; }
 
 .tiptap-content { border:none;padding:4px 0;min-height:400px;background:transparent;outline:none; }
 .tiptap-content :deep(.ProseMirror) { outline:none;min-height:380px; }
-.tiptap-content :deep(.ProseMirror p) { margin:0 0 6px;font-size:13px;line-height:1.7;color:#1e293b; }
-.tiptap-content :deep(.ProseMirror h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border);color:#0f172a; }
+.tiptap-content :deep(.ProseMirror p) { margin:0 0 6px;font-size:13px;line-height:1.7;color:var(--dark-card); }
+.tiptap-content :deep(.ProseMirror h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border);color:var(--dark-bg); }
 .tiptap-content :deep(.ProseMirror h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
-.tiptap-content :deep(.ProseMirror h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
+.tiptap-content :deep(.ProseMirror h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:var(--text-dim); }
 .tiptap-content :deep(.ProseMirror strong) { font-weight:700; }
 .tiptap-content :deep(.ProseMirror em) { font-style:italic; }
 .tiptap-content :deep(.ProseMirror u) { text-decoration:underline; }
@@ -1402,63 +1142,63 @@ onMounted(() => {
 .tiptap-content :deep(.ProseMirror li > p) { margin:0; }
 .tiptap-content :deep(.ProseMirror table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;table-layout:fixed; }
 .tiptap-content :deep(.ProseMirror th),.tiptap-content :deep(.ProseMirror td) { border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;word-break:break-word; }
-.tiptap-content :deep(.ProseMirror th) { background:#f1f5f9;font-weight:600;font-size:12px; }
+.tiptap-content :deep(.ProseMirror th) { background:var(--surface-2);font-weight:600;font-size:12px; }
 .tiptap-content :deep(.ProseMirror td > p),.tiptap-content :deep(.ProseMirror th > p) { margin:0; }
 .tiptap-content :deep(.ProseMirror hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
-.tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid #e2e8f0;padding-left:12px;color:#64748b;margin:6px 0; }
+.tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid var(--border);padding-left:12px;color:var(--text-muted);margin:6px 0; }
 
 /* Streaming preview uses same styles */
-.minutes-md { font-size:13px;line-height:1.7;color:#1e293b; }
+.minutes-md { font-size:13px;line-height:1.7;color:var(--dark-card); }
 .minutes-md :deep(h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border); }
 .minutes-md :deep(h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
-.minutes-md :deep(h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
+.minutes-md :deep(h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:var(--text-dim); }
 .minutes-md :deep(strong) { font-weight:700; }
 .minutes-md :deep(ul),.minutes-md :deep(ol) { padding-left:18px;margin:4px 0; }
 .minutes-md :deep(li) { margin-bottom:2px; }
 .minutes-md :deep(table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px; }
 .minutes-md :deep(th),.minutes-md :deep(td) { border:1px solid var(--border);padding:5px 8px;text-align:left; }
-.minutes-md :deep(th) { background:#f8fafc;font-weight:600; }
+.minutes-md :deep(th) { background:var(--surface);font-weight:600; }
 .minutes-md :deep(hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
 
-.tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;padding:0 4px;white-space:nowrap;cursor:default; }
+.tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--dark-muted);padding:0 4px;white-space:nowrap;cursor:default; }
 
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
 .ctrl-pop-wrap { position:relative; }
-.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer;transition:all .15s; }
-.ctrl-btn:hover,.ctrl-active { background:#f1f5f9;border-color:var(--primary);color:var(--primary); }
+.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s; }
+.ctrl-btn:hover,.ctrl-active { background:var(--surface-2);border-color:var(--primary);color:var(--primary); }
 .ctrl-lang { font-size:12px;gap:4px; }
 .ctrl-chev { font-size:9px;opacity:.6; }
 .ctrl-popover { position:absolute;bottom:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:10px 12px;min-width:160px;z-index:200; }
 .cpop-title { font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px; }
-.cpop-row { display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:#475569; }
+.cpop-row { display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:var(--text-dim); }
 .cpop-label { flex:1; }
 .cpop-range { flex:1;accent-color:var(--primary); }
 .cpop-val { font-size:11px;font-weight:600;min-width:28px;text-align:right; }
-.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:#475569;transition:background .1s; }
-.cpop-opt:hover { background:#f1f5f9; }
+.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
+.cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:#eff6ff;color:var(--primary);font-weight:600; }
 .ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(59,130,246,.3); }
-.ctrl-rec-btn.recording { background:#ef4444;box-shadow:0 2px 8px rgba(239,68,68,.35); }
+.ctrl-rec-btn.recording { background:var(--danger);box-shadow:0 2px 8px rgba(239,68,68,.35); }
 .ctrl-rec-btn:hover { opacity:.85; }
-.ctrl-stop { color:#ef4444;border-color:#fca5a5; }
-.ctrl-stop:hover { background:#fef2f2;border-color:#ef4444; }
-.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:#ef4444;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
-.ctrl-end:hover { background:#ef4444;color:#fff;border-color:#ef4444; }
-.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.ctrl-stop { color:var(--danger);border-color:#fca5a5; }
+.ctrl-stop:hover { background:#fef2f2;border-color:var(--danger); }
+.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
+.ctrl-end:hover { background:var(--danger);color:#fff;border-color:var(--danger); }
+.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
 .sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
-.sp-search-icon { position:absolute;left:8px;color:#94a3b8;pointer-events:none; }
-.sp-search-input { width:100%;padding:5px 26px 5px 26px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:#334155;background:#f8fafc;outline:none;box-sizing:border-box; }
+.sp-search-icon { position:absolute;left:8px;color:var(--dark-muted);pointer-events:none; }
+.sp-search-input { width:100%;padding:5px 26px 5px 26px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:var(--dark-border);background:var(--surface);outline:none;box-sizing:border-box; }
 .sp-search-input:focus { border-color:var(--primary);background:#fff; }
-.sp-search-input::placeholder { color:#94a3b8; }
-.sp-search-clear { position:absolute;right:6px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;line-height:1;padding:0; }
-.sp-search-clear:hover { color:#475569; }
-.sp-search-empty { padding:20px 14px;text-align:center;font-size:12px;color:#94a3b8; }
+.sp-search-input::placeholder { color:var(--dark-muted); }
+.sp-search-clear { position:absolute;right:6px;background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:14px;line-height:1;padding:0; }
+.sp-search-clear:hover { color:var(--text-dim); }
+.sp-search-empty { padding:20px 14px;text-align:center;font-size:12px;color:var(--dark-muted); }
 
 /* ── Right: 워크메이트 AI ── */
 .sp-agent-panel { width:290px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff;overflow:hidden;height:100%; }
@@ -1466,14 +1206,14 @@ onMounted(() => {
 .sp-agent-header-brand { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
 .sp-agent-avatar { width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #93c5fd; }
 .sp-agent-header-text { display:flex;flex-direction:column;min-width:0;flex:1; }
-.sp-agent-name { font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sp-agent-sub { font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-name { font-size:13px;font-weight:700;color:var(--dark-card);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-sub { font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .sp-agent-header-actions { display:flex;align-items:center;gap:5px;flex-shrink:0; }
 .sp-agent-new-chat { background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:all .15s;white-space:nowrap; }
 .sp-agent-new-chat:hover { background:#eff6ff;border-color:#93c5fd;color:var(--primary); }
 .sp-agent-messages { flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px; }
 .sp-agent-messages::-webkit-scrollbar { width:3px; }
-.sp-agent-messages::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.sp-agent-messages::-webkit-scrollbar-thumb { background:var(--border); }
 .sp-msg-row { display:flex;flex-direction:column;gap:3px; }
 .sp-msg-row.user { align-items:flex-end; }
 .sp-agent-label { display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--text-muted); }
@@ -1484,7 +1224,7 @@ onMounted(() => {
 .sp-bubble.agent :deep(p) { margin:0 0 6px; }
 .sp-bubble.agent :deep(p:last-child) { margin:0; }
 .typing { display:flex;gap:4px;align-items:center; }
-.typing span { width:5px;height:5px;background:#94a3b8;border-radius:50%;animation:bounce .8s infinite; }
+.typing span { width:5px;height:5px;background:var(--dark-muted);border-radius:50%;animation:bounce .8s infinite; }
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
@@ -1537,8 +1277,8 @@ onMounted(() => {
 .minutes-action-row { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 2px;border-top:1px solid var(--border);flex-shrink:0; }
 .minutes-action-left,.minutes-action-right { display:flex;align-items:center;gap:6px; }
 .minutes-download-group { display:flex;gap:4px; }
-.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.minutes-action-btn:hover { background:#f1f5f9; }
+.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.minutes-action-btn:hover { background:var(--surface-2); }
 .minutes-action-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .minutes-action-btn.primary:hover { opacity:.88; }
 .minutes-action-btn:disabled { opacity:.5;cursor:not-allowed; }
@@ -1549,11 +1289,11 @@ onMounted(() => {
 /* Minutes bottom bar */
 .sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
 .minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
-.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.mbar-btn:hover { background:#f1f5f9; }
+.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .mbar-btn.primary:hover { opacity:.88; }
-.mbar-btn.regen { background:#f8fafc;border-color:#c7d2fe;color:#4f46e5; }
+.mbar-btn.regen { background:var(--surface);border-color:#c7d2fe;color:#4f46e5; }
 .mbar-btn.regen:hover { background:#eef2ff; }
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
@@ -1562,44 +1302,43 @@ onMounted(() => {
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
 .nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
-.nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#6366f1;margin-bottom:4px; }
-.nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.1);color:#6366f1; }
+.nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#818cf8;margin-bottom:4px; }
+.nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.15);color:#818cf8; }
 .nab-desc { font-size:11px;color:#64748b;margin:0; }
 .nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:#64748b; }
-.nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#6366f1;border-radius:50%;animation:spin .7s linear infinite; }
+.nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.nab-list { display:flex;flex-direction:column;padding:8px;gap:6px; }
-.nab-item { background:#fff;border:1px solid #e2e8f0;border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
-.nab-item.nab-approved { border-color:rgba(34,197,94,.4);background:#f0fdf4; }
-.nab-item.nab-rejected { border-color:rgba(239,68,68,.3);background:#fef2f2;opacity:.7; }
-.nab-item.nab-saved { border-color:rgba(34,197,94,.6);background:#dcfce7; }
-.nab-item-body { flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px; }
-.nab-item-title { font-size:12px;color:#1e293b;font-weight:600; }
-.nab-item-dept { font-size:10px;color:#6366f1;background:rgba(99,102,241,.08);padding:1px 7px;border-radius:10px;white-space:nowrap;font-weight:500; }
+.nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
+.nab-item { background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.07);border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
+.nab-item.nab-approved { border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04); }
+.nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
+.nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
+.nab-item-body { flex:1;min-width:0; }
+.nab-item-title { font-size:12px;color:#e2e8f0;font-weight:500; }
+.nab-item-dept { font-size:11px;color:#64748b;margin-top:2px; }
 .nab-item-edit { display:flex;flex-direction:column; }
-.nab-input { width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:4px 7px;font-size:12px;color:#1e293b;outline:none; }
-.nab-input:focus { border-color:#6366f1; }
+.nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:#e2e8f0;outline:none; }
 .nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
 .nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
-.nab-btn-edit { background:#f1f5f9;color:#64748b; }
-.nab-btn-approve { background:rgba(34,197,94,.12);color:#16a34a; }
+.nab-btn-edit { background:rgba(255,255,255,.06);color:#94a3b8; }
+.nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
 .nab-btn-approved { background:#22c55e;color:#fff; }
-.nab-btn-reject { background:rgba(239,68,68,.1);color:#dc2626; }
+.nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
 .nab-btn-rejected { background:#ef4444;color:#fff; }
 .nab-item:has(+ .nab-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
-.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 7px 7px;background:#f8fafc; }
-.nrb-approved { border-color:rgba(34,197,94,.3);background:#f0fdf4; }
-.nrb-rejected { border-color:rgba(239,68,68,.2);background:#fef2f2; }
-.nrb-label { font-size:10px;font-weight:600;color:#94a3b8;letter-spacing:.03em; }
-.nrb-approved .nrb-label { color:#16a34a; }
-.nrb-rejected .nrb-label { color:#dc2626; }
-.nab-reason-input { width:100%;background:#fff;border:1px solid #e2e8f0;border-radius:5px;padding:5px 7px;font-size:11px;color:#475569;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
-.nab-reason-input:focus { border-color:#6366f1; }
-.nab-reason-input::placeholder { color:#cbd5e1;font-style:italic; }
-.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid #f1f5f9; }
+.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid rgba(255,255,255,.06);border-top:none;border-radius:0 0 7px 7px;background:rgba(255,255,255,.02); }
+.nrb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
+.nrb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
+.nrb-label { font-size:10px;font-weight:600;color:#475569;letter-spacing:.03em; }
+.nrb-approved .nrb-label { color:rgba(52,211,153,.7); }
+.nrb-rejected .nrb-label { color:rgba(248,113,113,.7); }
+.nab-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
+.nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
+.nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
+.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid rgba(255,255,255,.05); }
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
-.nab-count { font-size:11px;color:#94a3b8; }
-.nab-add-btn { font-size:11px;color:#6366f1;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
+.nab-count { font-size:11px;color:#64748b; }
+.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
 .nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer;transition:opacity .15s; }
 .nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>
