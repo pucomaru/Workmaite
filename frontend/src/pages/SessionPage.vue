@@ -1399,8 +1399,8 @@ async function downloadMinutesFile() {
 .spin { display:inline-block;animation:spin .7s linear infinite; }
 
 /* Minutes bottom bar */
-.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
-.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
+.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px;flex-wrap:wrap;gap:8px; }
+.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
 .mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
 .mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
