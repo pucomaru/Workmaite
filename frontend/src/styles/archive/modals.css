@@ -121,6 +121,7 @@
 .fr-action-btn.green:hover:not(:disabled) { background:rgba(16,185,129,.08); }
 .dl-icon-btn { display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);cursor:pointer;transition:all .15s;flex-shrink:0; }
 .dl-icon-btn:hover { background:var(--surface-2);color:#6366f1;border-color:rgba(99,102,241,.3); }
+.dl-icon-btn.delete:hover { background:#fef2f2;color:#ef4444;border-color:rgba(239,68,68,.3); }
 .archive-graph.dark .dl-icon-btn { border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:var(--dark-muted); }
 .archive-graph.dark .dl-icon-btn:hover { background:rgba(255,255,255,.1);color:#818cf8; }
 .app-modal.dark .fr-actions { border-bottom-color:rgba(255,255,255,.06); }

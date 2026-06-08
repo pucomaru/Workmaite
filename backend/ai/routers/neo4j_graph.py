@@ -411,7 +411,9 @@ async def get_archive(
     # ── Postgres 보완: 모든 회의체의 reports를 PostgreSQL에서 채움 ──
     all_raw_ids = [int(mid.replace("mg-", "")) for mid in meetings_map.keys() if mid.replace("mg-", "").isdigit()]
     if all_raw_ids:
-        reports_db = db.query(models.Report).filter(models.Report.meeting_id.in_(all_raw_ids)).all()
+        reports_db = db.query(models.Report).filter(
+            models.Report.meeting_id.in_(all_raw_ids),
+        ).all()
         for r in reports_db:
             sid = f"mg-{r.meeting_id}"
             if sid in meetings_map:
@@ -422,6 +424,8 @@ async def get_archive(
                     "file_path": r.file_path,
                     "human_status": r.human_status,
                     "submitter_department": r.submitter_department,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "related_agenda_ids": r.related_agenda_ids or [],
                 })
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
@@ -464,8 +468,12 @@ async def get_archive(
                         "file_path": r.file_path,
                         "human_status": r.human_status,
                         "submitter_department": r.submitter_department,
+                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                        "related_agenda_ids": r.related_agenda_ids or [],
                     }
-                    for r in db.query(models.Report).filter(models.Report.meeting_id == m.id).all()
+                    for r in db.query(models.Report).filter(
+                        models.Report.meeting_id == m.id,
+                    ).all()
                 ],
             }
 
