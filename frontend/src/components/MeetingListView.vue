@@ -72,11 +72,13 @@ const {
                   <tr v-if="!(filteredGroupHistoryMap.get(g.id) || []).length">
                     <td colspan="4" class="lv-hist-empty">{{ selectedHistoryType ? '해당 유형의 이력이 없습니다.' : '이력이 없습니다.' }}</td>
                   </tr>
-                  <tr v-for="(item, i) in (filteredGroupHistoryMap.get(g.id) || [])" :key="i" class="lv-hist-row">
+                  <tr v-for="(item, i) in (filteredGroupHistoryMap.get(g.id) || [])" :key="i"
+                    class="lv-hist-row" :class="{ 'lv-hist-rejected': item.rejected }">
                     <td class="lv-hist-desc">
                       <div class="lv-hist-desc-inner">
                         <span class="lv-hist-type-dot" :class="'ht-' + item.type"></span>
                         {{ item.desc }}
+                        <span v-if="item.rejected" class="lv-rejected-badge">반려</span>
                       </div>
                     </td>
                     <td class="lv-hist-manager">{{ item.manager }}</td>

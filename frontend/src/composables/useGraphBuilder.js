@@ -220,26 +220,35 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
       })
 
-      // ── Document 노드 (보고자료): ATTACHED_TO meetingGroup ───
-      ;(g.reports || []).forEach((rp, ri) => {
-        const relTodoId = String(rp.related_todo_id || '')
-        let fromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
-        if (relTodoId && agendaIdxByTodoId.has(relTodoId)) fromIdx = agendaIdxByTodoId.get(relTodoId)
-        const fromNode = nodes[fromIdx]
+      // ── Document 노드 (보고자료): rejected 제외하고 그래프에 추가 ───
+      const visibleReports = (g.reports || []).filter(rp => rp.human_status !== 'rejected')
+      visibleReports.forEach((rp, ri) => {
+        const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
+        // 연결할 첫 번째 아젠다 노드 탐색
+        let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
+        for (const aid of agendaIds) {
+          if (agendaIdxByTodoId.has(aid)) { primaryFromIdx = agendaIdxByTodoId.get(aid); break }
+        }
+        const fromNode = nodes[primaryFromIdx]
         const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
-        const rAng = bAng + (ri - ((g.reports || []).length - 1) / 2) * 0.12
+        const rAng = bAng + (ri - (visibleReports.length - 1) / 2) * 0.12
         const rIdx = nodes.length
         nodes.push({
           id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
           x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi,
-          data: { ...rp, created_at: rp.submitted_at },
+          data: { ...rp },
           neo4jId: rp.id || null,
         })
-        // document → agenda 연결 (과제 지정 시 해당 agenda, 아니면 첫 agenda, 없으면 meetingGroup)
-        const docToIdx = (relTodoId && agendaIdxByTodoId.has(relTodoId))
-          ? agendaIdxByTodoId.get(relTodoId)
-          : (allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx)
-        edges.push({ from: rIdx, to: docToIdx, rel: '첨부' })
+        // 연결된 모든 아젠다에 엣지 생성, 없으면 meetingGroup에 연결
+        if (agendaIds.length > 0) {
+          agendaIds.forEach(aid => {
+            if (agendaIdxByTodoId.has(aid)) {
+              edges.push({ from: rIdx, to: agendaIdxByTodoId.get(aid), rel: '첨부' })
+            }
+          })
+        } else {
+          edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
+        }
       })
 
       // ── Minutes→Agenda 도출 연결 (회의→회의록→안건 생명주기) ──
