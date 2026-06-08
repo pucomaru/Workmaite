@@ -562,7 +562,7 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null })
+const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null, type: 'whisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
@@ -575,11 +575,12 @@ async function doCreateSessionForm() {
       title: createSessionForm.value.title,
       type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+      type: createSessionForm.value.type,
     })
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
+    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null, type: 'whisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -1106,6 +1107,21 @@ async function downloadMinutesFile() {
             <label>회의 날짜</label>
             <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
           </div>
+          <div class="app-modal-field">
+            <label>STT 방식</label>
+            <div style="display:flex;gap:8px;">
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
+                @click="createSessionForm.type = 'whisper'">
+                Whisper 모델 (보안)
+              </button>
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
+                @click="createSessionForm.type = 'external'">
+                Whisper API (빠름)
+              </button>
+            </div>
+          </div>
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="showCreateSession=false">취소</button>
@@ -1140,6 +1156,8 @@ async function downloadMinutesFile() {
 .sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
 .sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
+.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;transition:all .15s; }
+.stt-type-btn.active { border-color:var(--primary);background:#eff6ff;color:var(--primary);font-weight:600; }
 .sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
 .sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
