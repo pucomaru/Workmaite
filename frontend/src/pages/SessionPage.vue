@@ -52,7 +52,6 @@ async function fetchMeetings() {
   try {
     const res = await api.get('/api/v1/meetings')
     meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
-    // 백그라운드에서 각 회의체 세션 로드
     meetings.value.forEach(m => loadSessions(m.id))
   } catch (e) {
     console.error('meetings fetch error', e)
@@ -86,11 +85,11 @@ async function enterSession(s) {
 
   if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
     try {
-      const { data } = await apiAI.get(`/api/sessions/${s.id}/stt-segments`)
+      const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
       if (data && data.length) {
         const lines = data.map(seg => ({
-          time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
-          text: `${seg.speaker_name || seg.speaker_label}: ${seg.content}`,
+          time: new Date(seg.startSec * 1000).toISOString().slice(11, 19),
+          text: `${seg.speakerLabel}: ${seg.content}`,
         }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
@@ -103,14 +102,14 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await apiAI.get(`/api/sessions/${s.id}/minutes`)
-      if (data?.content_summary) {
-        generatedMinutes.value = { content_summary: data.content_summary }
+      const { data } = await api.get(`/api/v1/sessions/${s.id}/minutes`)
+      if (data?.contentSummary) {
+        generatedMinutes.value = { content_summary: data.contentSummary }
         showMinutesTab.value = true
         rec.generatedMinutes = generatedMinutes.value
         rec.showMinutesTab = true
         await nextTick()
-        loadMinutesToEditor(data.content_summary)
+        loadMinutesToEditor(data.contentSummary)
       }
     } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
   }
@@ -301,7 +300,7 @@ async function generateMinutes() {
         agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
         wmLoading.value = false
         generatingMinutes.value = false
-        // 다음 회의 안건 자동 추출
+        // 다음 회의 과제 자동 추출
         extractNextAgendas()
       }
     )
@@ -359,7 +358,7 @@ function downloadWord() {
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
 
-// ── 다음 회의 안건 승인/반려 블록 ─────────────────────────────
+// ── 다음 회의 과제 승인/반려 블록 ─────────────────────────────
 const nextAgendaItems = ref([])
 const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
@@ -398,10 +397,10 @@ async function extractNextAgendas() {
       _editDept: a.dept || a.assignee_dept || a.department || '',
     }))
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -428,9 +427,10 @@ async function saveApprovedNextAgendas() {
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   if (!approved.length) return
   try {
-    await apiAI.post(`/api/v1/meetings/${activeSession.value?.meeting_id || selectedMeeting.value?.id || 0}/agendas/batch`, {
-      agendas: approved.map(a => ({ title: a.title, dept: a.dept, reason: a._reason })),
-    })
+    const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
+    for (const a of approved) {
+      await api.post(`/api/v1/meetings/${meetingId}/agendas`, { title: a.title, priority: 'medium' })
+    }
     nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
   } catch (e) {
     alert('저장에 실패했습니다.')
@@ -442,7 +442,12 @@ async function saveMinutesToDB() {
   savingMinutes.value = true
   try {
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
-    await apiAI.post(`/api/sessions/${activeSession.value.id}/minutes`, { content_summary: html })
+    const fd = new FormData()
+    fd.append('content', html)
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    minutesFileUrl.value = data.file_path
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
   } catch (e) {
     alert('저장에 실패했습니다.')
@@ -568,10 +573,10 @@ async function doCreateSessionForm() {
     const meetingId = createSessionForm.value.meetingId
     await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
+      type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
       type: createSessionForm.value.type,
     })
-    // 캐시 무효화 후 재로드
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
@@ -587,6 +592,76 @@ async function doCreateSessionForm() {
 onMounted(() => {
   fetchMeetings()
 })
+
+// ─── 채팅 파일 첨부 ──────────────────────────────────────────
+const chatFileRef = ref(null)
+const chatFileUploading = ref(false)
+
+async function sendChatFile(file) {
+  if (!file || chatFileUploading.value || !activeSession.value) return
+  chatFileUploading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('thread_id', `session-${activeSession.value.id}`)
+  fd.append('context_type', 'session')
+  fd.append('session_id', String(activeSession.value.id))
+  if (activeSession.value.meeting_id) fd.append('meeting_id', String(activeSession.value.meeting_id))
+  try {
+    const { data } = await apiAI.post('/api/upload/chat', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    wmMessages.value.push({ role: 'user', content: `[파일 첨부] ${data.file_name}`, filePath: data.file_path, fileName: data.file_name })
+    await nextTick()
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+  } catch {
+    alert('파일 업로드에 실패했습니다.')
+  } finally {
+    chatFileUploading.value = false
+    if (chatFileRef.value) chatFileRef.value.value = ''
+  }
+}
+
+async function downloadChatFile(filePath) {
+  try {
+    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
+    window.open(data.url, '_blank')
+  } catch {
+    alert('다운로드 링크 생성에 실패했습니다.')
+  }
+}
+
+// ─── 회의록 관련 파일 업로드 ─────────────────────────────────
+const minutesFileRef = ref(null)
+const minutesFileUrl = ref(null)
+const minutesFileUploading = ref(false)
+
+async function uploadMinutesFile(event) {
+  const file = event.target.files?.[0]
+  if (!file || !activeSession.value) return
+  minutesFileUploading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  try {
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    minutesFileUrl.value = data.file_path
+    minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    alert('파일 업로드에 실패했습니다.')
+  } finally {
+    minutesFileUploading.value = false
+    if (minutesFileRef.value) minutesFileRef.value.value = ''
+  }
+}
+
+async function downloadMinutesFile() {
+  if (!minutesFileUrl.value) return
+  try {
+    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: minutesFileUrl.value } })
+    window.open(data.url, '_blank')
+  } catch {
+    alert('다운로드 링크 생성에 실패했습니다.')
+  }
+}
 </script>
 
 <template>
@@ -741,19 +816,19 @@ onMounted(() => {
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
             </div>
 
-            <!-- ── 다음 회의 안건 승인/반려 블록 (에디터 영역 밖) ── -->
+            <!-- ── 다음 회의 과제 승인/반려 블록 (에디터 영역 밖) ── -->
             <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 안건</span>
+                  <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 안건을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>안건 추출 중...</span>
+                <div class="nab-spinner"></div><span>과제 추출 중...</span>
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
@@ -779,7 +854,7 @@ onMounted(() => {
                       </template>
                       <template v-else>
                         <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="안건 내용" />
+                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
                           <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
                         </div>
                         <div class="nab-item-actions">
@@ -807,7 +882,7 @@ onMounted(() => {
 
                 <div class="nab-footer">
                   <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 안건 직접 추가
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
                   </button>
                   <div class="nab-footer-right">
                     <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
@@ -892,6 +967,15 @@ onMounted(() => {
             <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadWord">
               <i class="bi bi-file-earmark-word"></i> Word
             </button>
+            <button class="mbar-btn" :disabled="minutesFileUploading" @click="minutesFileRef?.click()" title="회의록 관련 파일 업로드">
+              <i v-if="minutesFileUploading" class="bi bi-arrow-repeat spin"></i>
+              <i v-else class="bi bi-file-earmark-arrow-up"></i>
+              {{ minutesFileUploading ? '업로드 중...' : '파일 업로드' }}
+            </button>
+            <button v-if="minutesFileUrl" class="mbar-btn" @click="downloadMinutesFile" title="R2에 저장된 PDF 다운로드">
+              <i class="bi bi-cloud-download"></i> PDF 다운로드
+            </button>
+            <input ref="minutesFileRef" type="file" accept=".pdf,.doc,.docx,.hwp" style="display:none" @change="uploadMinutesFile" />
           </div>
           <div class="minutes-bar-right">
             <span v-if="minutesSavedAt" class="mbar-saved-label">
@@ -972,7 +1056,12 @@ onMounted(() => {
           </template>
 
           <!-- 사용자 메시지 -->
-          <div v-else-if="msg.role==='user'" class="sp-bubble user">{{ msg.content }}</div>
+          <div v-else-if="msg.role==='user'" class="sp-bubble user">
+            <span>{{ msg.content }}</span>
+            <button v-if="msg.filePath" class="sp-file-dl-btn" @click="downloadChatFile(msg.filePath)" title="파일 다운로드">
+              <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
         </div>
         <div v-if="wmLoading&&wmMessages[wmMessages.length-1]?.role==='agent'&&wmMessages[wmMessages.length-1]?.content===''" class="sp-msg-row agent">
           <div class="sp-bubble agent typing"><span></span><span></span><span></span></div>
@@ -980,6 +1069,10 @@ onMounted(() => {
       </div>
       <div class="sp-agent-input">
         <div class="sp-agent-input-row">
+          <button class="sp-attach-btn" :disabled="chatFileUploading || !activeSession" @click="chatFileRef?.click()" title="파일 첨부">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input ref="chatFileRef" type="file" style="display:none" @change="e => sendChatFile(e.target.files[0])" />
           <textarea v-model="wmInput" class="sp-ara-textarea" rows="1" placeholder="질문하세요..." @keydown="onWmKeydown"></textarea>
           <button class="sp-ara-send" :disabled="wmLoading||!wmInput.trim()" @click="sendAra">전송</button>
         </div>
@@ -1316,8 +1409,13 @@ onMounted(() => {
 .mbar-btn.regen:hover { background:#eef2ff; }
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
+.sp-attach-btn { display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;flex-shrink:0;transition:all .15s; }
+.sp-attach-btn:hover { background:var(--surface-2);color:var(--primary); }
+.sp-attach-btn:disabled { opacity:.35;cursor:not-allowed; }
+.sp-file-dl-btn { display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;border-radius:4px;border:none;background:rgba(255,255,255,.25);color:inherit;cursor:pointer;vertical-align:middle; }
+.sp-file-dl-btn:hover { background:rgba(255,255,255,.4); }
 
-/* ── 다음 회의 안건 블록 ── */
+/* ── 다음 회의 과제 블록 ── */
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
 .nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }

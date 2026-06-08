@@ -255,7 +255,7 @@ async function createMeeting() {
   try {
     const meeting = await meetingsStore.createMeeting({
       title: form.value.title,
-      purpose: form.value.purpose,
+      description: form.value.purpose,
       start_date: form.value.start_date || null,
       end_date: form.value.end_date || null,
     })
