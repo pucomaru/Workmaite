@@ -18,6 +18,8 @@ _DROP_ORDER = [
     "token_usage_logs",
     "agent_logs",
     "chat_messages",
+    "todos",                # 구 테이블명 (현재 미사용)
+    "notifications",        # 구 테이블명 (현재 미사용)
     "archives_combined",
     "minutes",
     "stt_segments",

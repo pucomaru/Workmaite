@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db
 from auth import get_current_user
-from neo4j_sync import sync_session, delete_session
+from neo4j_sync import sync_session, sync_minutes, delete_session
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 

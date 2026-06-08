@@ -5,8 +5,11 @@ from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
+from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from routers.prompts import (
@@ -21,6 +24,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 # ── State ─────────────────────────────────────────────────────────────────
 class KnowledgeState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    remaining_steps: RemainingSteps
     knowledge: List[dict]
     meeting_context: str
 
@@ -272,6 +276,42 @@ async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -
         return []
 
 
+# ── 공개 Tool 함수 (Agent가 직접 호출 가능) ──────────────────────────────────
+@tool
+async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
+    """지식 그래프에서 의미 기반으로 문서를 검색합니다.
+
+    Args:
+        query: 검색할 키워드 또는 자연어 쿼리
+        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment)
+    """
+    results = await search_knowledge(query, node_type=node_type, k=5)
+    if not results:
+        return "관련 자료를 찾지 못했습니다."
+    parts = []
+    for r in results[:5]:
+        title = r.get("title") or ""
+        content = r.get("content", "")[:250]
+        score = float(r.get("score") or 0)
+        parts.append(f"[{node_type}] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+    return "\n\n---\n\n".join(parts)
+
+
+@tool
+async def fetch_meeting_graph_context(meeting_id: int) -> str:
+    """특정 회의체의 Neo4j 그래프 컨텍스트(안건·세션·구성원 등)를 조회합니다.
+
+    Args:
+        meeting_id: 조회할 회의체 ID (PostgreSQL PK)
+    """
+    from neo4j_client import get_meeting_graph_context, graph_context_to_str
+    ctx = await get_meeting_graph_context(meeting_id)
+    return graph_context_to_str(ctx) or "(회의체 정보 없음)"
+
+
+KNOWLEDGE_TOOLS: list = [search_knowledge_graph, fetch_meeting_graph_context]
+
+
 # ── HITL: 관계 제안 / 승인·반려 ──────────────────────────────────────────────
 _proposals: dict = {}  # proposal_id → {meeting_id, relationships, created_at} (인메모리 임시 저장)
 
@@ -431,30 +471,31 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
     return result
 
 
-# ── Graph nodes ────────────────────────────────────────────────────────────
-async def _chat_node(state: KnowledgeState) -> dict:
+# ── Graph ─────────────────────────────────────────────────────────────────
+def _knowledge_state_modifier(state: KnowledgeState) -> List[BaseMessage]:
+    """런타임 컨텍스트(knowledge·meeting_context)를 시스템 메시지로 주입합니다."""
     knowledge = state.get("knowledge", [])
     meeting_context = state.get("meeting_context", "")
-
     system = KNOWLEDGE_SYSTEM
     if meeting_context:
         system += f"\n\n[회의체 맥락]\n{meeting_context}"
     if knowledge:
-        kb_text = "\n".join([f"- [{k.get('category','')}] {k.get('title','')}: {k.get('content','')[:100]}" for k in knowledge[:10]])
+        kb_text = "\n".join([
+            f"- [{k.get('category','')}] {k.get('title','')}: {k.get('content','')[:100]}"
+            for k in knowledge[:10]
+        ])
         system += f"\n\n[Knowledge Base 현황]\n{kb_text}"
-
-    llm = _make_llm()
-    response = await llm.ainvoke([SystemMessage(content=system)] + state["messages"])
-    return {"messages": [response]}
+    return [SystemMessage(content=system)] + list(state.get("messages", []))
 
 
-# ── Graph ─────────────────────────────────────────────────────────────────
 def _build_graph():
-    builder = StateGraph(KnowledgeState)
-    builder.add_node("chat", _chat_node)
-    builder.add_edge(START, "chat")
-    builder.add_edge("chat", END)
-    return builder.compile()
+    """LangGraph create_react_agent — KNOWLEDGE_TOOLS를 도구로 사용하는 에이전트 그래프."""
+    return create_react_agent(
+        model=_make_llm(),
+        tools=KNOWLEDGE_TOOLS,
+        state_schema=KnowledgeState,
+        prompt=_knowledge_state_modifier,
+    )
 
 _graph = _build_graph()
 

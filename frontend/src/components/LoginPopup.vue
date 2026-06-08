@@ -31,7 +31,7 @@ async function submit() {
   <div class="popup-inner">
     <!-- Header -->
     <div class="popup-header">
-      <img src="../assets/workmaite-logo-black.svg" class="popup-logo-img" alt="Workma!te" />
+      <img src="../assets/workmaite-logo-black.png" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <h4 class="fw-bold mb-1 mt-3" style="color:var(--primary)">로그인</h4>

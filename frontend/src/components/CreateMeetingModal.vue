@@ -6,7 +6,7 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
 
 <template>
   <Teleport to="body">
-    <div v-if="showCreateModal" class="app-modal-backdrop" @click.self="showCreateModal=false">
+    <div v-if="showCreateModal" class="app-modal-backdrop">
       <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
         <div class="app-modal-header">
           <span class="app-modal-title">회의체 생성</span>
@@ -25,7 +25,7 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
           </div>
           <div class="app-modal-field">
             <label>유형</label>
-            <select v-model="createForm.meetㅇing_type" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
+            <select v-model="createForm.meeting_type" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>

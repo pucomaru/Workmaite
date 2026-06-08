@@ -129,25 +129,25 @@ function formatDateTime(d) {
 <style scoped>
 .filter-bar { display: flex; gap: 10px; margin-bottom: 18px; }
 .meeting-list { display: flex; flex-direction: column; gap: 10px; }
-.meeting-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.meeting-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .meeting-card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; cursor: pointer; transition: background .15s; }
-.meeting-card-header:hover { background: #f8fafc; }
+.meeting-card-header:hover { background: var(--surface); }
 .meeting-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .meeting-title { font-weight: 600; font-size: 14px; }
 .meeting-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.ended-badge { font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.ended-badge { font-size: 11px; font-weight: 600; color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
 .meeting-body { padding: 0 16px 16px; border-top: 1px solid var(--border); background: #fafbfc; }
 
 /* 탭 이동 버튼 */
 .tab-nav-row { display: flex; gap: 8px; padding: 14px 0 10px; flex-wrap: wrap; }
-.tab-nav-btn { display: flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--text-muted); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; }
+.tab-nav-btn { display: flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s; }
 .tab-nav-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 /* 세션 목록 */
 .sessions-section { margin-top: 4px; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
 .session-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 8px; cursor: pointer; transition: background .15s; }
-.session-row:hover { background: #f1f5f9; }
+.session-row:hover { background: var(--surface-2); }
 .session-title { font-size: 13px; font-weight: 500; }
 .session-date { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 </style>

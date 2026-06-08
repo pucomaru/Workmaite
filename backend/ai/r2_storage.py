@@ -59,3 +59,12 @@ def get_content_type(filename: str) -> str:
     """파일 확장자로 MIME 타입을 추론합니다."""
     mime, _ = mimetypes.guess_type(filename)
     return mime or "application/octet-stream"
+
+
+def generate_presigned_url(key: str, expires_in: int = 3600) -> str:
+    """R2 오브젝트에 대한 시간 제한 presigned URL을 생성합니다."""
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": R2_BUCKET, "Key": key},
+        ExpiresIn=expires_in,
+    )

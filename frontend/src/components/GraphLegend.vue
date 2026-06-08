@@ -51,7 +51,7 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       </svg>
     </div>
     <div class="legend-onto-item" :class="{ 'legend-item-hidden': isHiddenType('file') }" @click="toggleNodeType('file')">
-      <div class="legend-onto-dot legend-dot-circle" style="background:#64748b"></div>
+      <div class="legend-onto-dot legend-dot-circle" style="background:var(--text-muted)"></div>
       파일
       <svg class="legend-eye" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <template v-if="!isHiddenType('file')"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></template>

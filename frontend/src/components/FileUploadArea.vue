@@ -14,13 +14,21 @@ const inputRef = ref(null)
 
 function handleClick() { inputRef.value?.click() }
 
+function matchesAccept(file) {
+  if (!props.accept) return true
+  const exts = props.accept.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (!exts.length) return true
+  const name = (file.name || '').toLowerCase()
+  return exts.some(ext => ext.startsWith('.') ? name.endsWith(ext) : (file.type || '') === ext)
+}
+
 function handleDrop(e) {
-  const files = Array.from(e.dataTransfer.files)
+  const files = Array.from(e.dataTransfer.files).filter(matchesAccept)
   if (files.length) emit('change', files)
 }
 
 function handleInput(e) {
-  const files = Array.from(e.target.files)
+  const files = Array.from(e.target.files).filter(matchesAccept)
   if (files.length) emit('change', files)
   e.target.value = ''
 }
@@ -41,7 +49,7 @@ function handleInput(e) {
 </template>
 
 <style scoped>
-.fua-area { border:1.5px dashed rgba(255,255,255,.12);border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:border-color .18s,background .18s;color:#475569; }
-.fua-area:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:#64748b; }
-.fua-hint { font-size:10px;color:#334155; }
+.fua-area { border:1.5px dashed rgba(255,255,255,.12);border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;transition:border-color .18s,background .18s;color:var(--text-dim); }
+.fua-area:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:var(--text-muted); }
+.fua-hint { font-size:10px;color:var(--dark-border); }
 </style>

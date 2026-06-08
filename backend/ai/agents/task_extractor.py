@@ -4,8 +4,11 @@ from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
+from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
@@ -17,6 +20,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 # ── State ─────────────────────────────────────────────────────────────────
 class TaskState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    remaining_steps: RemainingSteps
     departments: List[str]
     knowledge: List[dict]
     meeting_context: str
@@ -81,20 +85,67 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
     return result
 
 
-# ── Chat graph nodes ───────────────────────────────────────────────────────
-async def _chat_node(state: TaskState) -> dict:
-    system = task_system(state.get("knowledge"), state.get("departments"), state.get("meeting_context", ""))
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True)
-    response = await llm.ainvoke([SystemMessage(content=system)] + state["messages"])
-    return {"messages": [response]}
+# ── Tools ──────────────────────────────────────────────────────────────────────
+@tool
+async def search_related_agendas(query: str) -> str:
+    """지식 그래프에서 관련 안건·과제를 의미 기반으로 검색합니다.
+
+    Args:
+        query: 찾고 싶은 안건/과제 내용 또는 키워드
+    """
+    from agents.knowledge_manager import search_knowledge
+    results = await search_knowledge(query, node_type="Agenda", k=5)
+    if not results:
+        return "관련 안건을 찾지 못했습니다."
+    lines = [
+        f"- [{r.get('title','?')}]: {r.get('content','')[:150]}"
+        for r in results[:4]
+    ]
+    return "\n".join(lines)
+
+
+@tool
+async def search_previous_minutes(query: str) -> str:
+    """이전 회의록에서 관련 내용을 검색합니다.
+
+    Args:
+        query: 검색할 내용 (키워드 또는 자연어 문장)
+    """
+    from agents.knowledge_manager import search_knowledge
+    results = await search_knowledge(query, node_type="Minutes", k=3)
+    if not results:
+        return "관련 회의록을 찾지 못했습니다."
+    lines = [
+        f"[{r.get('title','?')}]\n{r.get('content','')[:300]}"
+        for r in results[:2]
+    ]
+    return "\n\n".join(lines)
+
+
+TASK_TOOLS: list = [search_related_agendas, search_previous_minutes]
+
+
+# ── Chat graph ─────────────────────────────────────────────────────────────────
+def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
+    """런타임 컨텍스트(departments·knowledge·meeting_context)를 시스템 메시지로 주입합니다."""
+    system = task_system(
+        state.get("knowledge"),
+        state.get("departments"),
+        state.get("meeting_context", ""),
+    )
+    return [SystemMessage(content=system)] + list(state.get("messages", []))
 
 
 def _build_chat_graph():
-    builder = StateGraph(TaskState)
-    builder.add_node("chat", _chat_node)
-    builder.add_edge(START, "chat")
-    builder.add_edge("chat", END)
-    return builder.compile()
+    """LangGraph create_react_agent — TASK_TOOLS를 도구로 사용하는 에이전트 그래프."""
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True)
+    return create_react_agent(
+        model=llm,
+        tools=TASK_TOOLS,
+        state_schema=TaskState,
+        prompt=_task_state_modifier,
+    )
+
 
 _chat_graph = _build_chat_graph()
 
@@ -243,7 +294,7 @@ async def confirm_extraction_review(
 
         if extraction:
             try:
-                from agents import knowledge_agent as _ka
+                from agents import knowledge_manager as _ka
                 for todo in extraction.get("todos", []):
                     if todo.get("content"):
                         await _ka.store_task(

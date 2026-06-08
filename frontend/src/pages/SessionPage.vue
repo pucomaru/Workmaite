@@ -52,7 +52,6 @@ async function fetchMeetings() {
   try {
     const res = await api.get('/api/v1/meetings')
     meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
-    // 백그라운드에서 각 회의체 세션 로드
     meetings.value.forEach(m => loadSessions(m.id))
   } catch (e) {
     console.error('meetings fetch error', e)
@@ -86,11 +85,11 @@ async function enterSession(s) {
 
   if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
     try {
-      const { data } = await apiAI.get(`/api/sessions/${s.id}/stt-segments`)
+      const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
       if (data && data.length) {
         const lines = data.map(seg => ({
-          time: new Date(seg.start_sec * 1000).toISOString().slice(11, 19),
-          text: `${seg.speaker_name || seg.speaker_label}: ${seg.content}`,
+          time: new Date(seg.startSec * 1000).toISOString().slice(11, 19),
+          text: `${seg.speakerLabel}: ${seg.content}`,
         }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
@@ -103,14 +102,14 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await apiAI.get(`/api/sessions/${s.id}/minutes`)
-      if (data?.content_summary) {
-        generatedMinutes.value = { content_summary: data.content_summary }
+      const { data } = await api.get(`/api/v1/sessions/${s.id}/minutes`)
+      if (data?.contentSummary) {
+        generatedMinutes.value = { content_summary: data.contentSummary }
         showMinutesTab.value = true
         rec.generatedMinutes = generatedMinutes.value
         rec.showMinutesTab = true
         await nextTick()
-        loadMinutesToEditor(data.content_summary)
+        loadMinutesToEditor(data.contentSummary)
       }
     } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
   }
@@ -301,7 +300,7 @@ async function generateMinutes() {
         agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
         wmLoading.value = false
         generatingMinutes.value = false
-        // 다음 회의 안건 자동 추출
+        // 다음 회의 과제 자동 추출
         extractNextAgendas()
       }
     )
@@ -359,7 +358,7 @@ function downloadWord() {
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
 
-// ── 다음 회의 안건 승인/반려 블록 ─────────────────────────────
+// ── 다음 회의 과제 승인/반려 블록 ─────────────────────────────
 const nextAgendaItems = ref([])
 const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
@@ -398,10 +397,10 @@ async function extractNextAgendas() {
       _editDept: a.dept || a.assignee_dept || a.department || '',
     }))
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 안건을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -428,9 +427,10 @@ async function saveApprovedNextAgendas() {
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   if (!approved.length) return
   try {
-    await apiAI.post(`/api/v1/meetings/${activeSession.value?.meeting_id || selectedMeeting.value?.id || 0}/agendas/batch`, {
-      agendas: approved.map(a => ({ title: a.title, dept: a.dept, reason: a._reason })),
-    })
+    const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
+    for (const a of approved) {
+      await api.post(`/api/v1/meetings/${meetingId}/agendas`, { title: a.title, priority: 'medium' })
+    }
     nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
   } catch (e) {
     alert('저장에 실패했습니다.')
@@ -442,7 +442,12 @@ async function saveMinutesToDB() {
   savingMinutes.value = true
   try {
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
-    await apiAI.post(`/api/sessions/${activeSession.value.id}/minutes`, { content_summary: html })
+    const fd = new FormData()
+    fd.append('content', html)
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    minutesFileUrl.value = data.file_path
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
   } catch (e) {
     alert('저장에 실패했습니다.')
@@ -557,7 +562,7 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null })
+const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null, type: 'whisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
@@ -568,13 +573,14 @@ async function doCreateSessionForm() {
     const meetingId = createSessionForm.value.meetingId
     await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
+      type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+      type: createSessionForm.value.type,
     })
-    // 캐시 무효화 후 재로드
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
+    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null, type: 'whisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -586,6 +592,76 @@ async function doCreateSessionForm() {
 onMounted(() => {
   fetchMeetings()
 })
+
+// ─── 채팅 파일 첨부 ──────────────────────────────────────────
+const chatFileRef = ref(null)
+const chatFileUploading = ref(false)
+
+async function sendChatFile(file) {
+  if (!file || chatFileUploading.value || !activeSession.value) return
+  chatFileUploading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('thread_id', `session-${activeSession.value.id}`)
+  fd.append('context_type', 'session')
+  fd.append('session_id', String(activeSession.value.id))
+  if (activeSession.value.meeting_id) fd.append('meeting_id', String(activeSession.value.meeting_id))
+  try {
+    const { data } = await apiAI.post('/api/upload/chat', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    wmMessages.value.push({ role: 'user', content: `[파일 첨부] ${data.file_name}`, filePath: data.file_path, fileName: data.file_name })
+    await nextTick()
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+  } catch {
+    alert('파일 업로드에 실패했습니다.')
+  } finally {
+    chatFileUploading.value = false
+    if (chatFileRef.value) chatFileRef.value.value = ''
+  }
+}
+
+async function downloadChatFile(filePath) {
+  try {
+    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
+    window.open(data.url, '_blank')
+  } catch {
+    alert('다운로드 링크 생성에 실패했습니다.')
+  }
+}
+
+// ─── 회의록 관련 파일 업로드 ─────────────────────────────────
+const minutesFileRef = ref(null)
+const minutesFileUrl = ref(null)
+const minutesFileUploading = ref(false)
+
+async function uploadMinutesFile(event) {
+  const file = event.target.files?.[0]
+  if (!file || !activeSession.value) return
+  minutesFileUploading.value = true
+  const fd = new FormData()
+  fd.append('file', file)
+  try {
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    minutesFileUrl.value = data.file_path
+    minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    alert('파일 업로드에 실패했습니다.')
+  } finally {
+    minutesFileUploading.value = false
+    if (minutesFileRef.value) minutesFileRef.value.value = ''
+  }
+}
+
+async function downloadMinutesFile() {
+  if (!minutesFileUrl.value) return
+  try {
+    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: minutesFileUrl.value } })
+    window.open(data.url, '_blank')
+  } catch {
+    alert('다운로드 링크 생성에 실패했습니다.')
+  }
+}
 </script>
 
 <template>
@@ -617,8 +693,8 @@ onMounted(() => {
             <svg class="sp-mtg-chev" :class="{ open: expandedMeetingId === mtg.id }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div v-if="expandedMeetingId === mtg.id" class="sp-session-list">
-            <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:#94a3b8;font-size:11px">불러오는 중...</div>
-            <div v-else-if="!mtg.sessions.length" class="sp-session-item" style="justify-content:center;color:#94a3b8;font-size:11px">등록된 회의가 없습니다</div>
+            <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
+            <div v-else-if="!mtg.sessions.length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
             <div v-for="s in mtg.sessions" :key="s.id"
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
@@ -740,19 +816,19 @@ onMounted(() => {
               <div v-else class="sp-empty"><p class="text-muted small">회의록이 없습니다.</p></div>
             </div>
 
-            <!-- ── 다음 회의 안건 승인/반려 블록 (에디터 영역 밖) ── -->
+            <!-- ── 다음 회의 과제 승인/반려 블록 (에디터 영역 밖) ── -->
             <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 안건</span>
+                  <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 안건을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>안건 추출 중...</span>
+                <div class="nab-spinner"></div><span>과제 추출 중...</span>
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
@@ -778,7 +854,7 @@ onMounted(() => {
                       </template>
                       <template v-else>
                         <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="안건 내용" />
+                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
                           <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
                         </div>
                         <div class="nab-item-actions">
@@ -806,7 +882,7 @@ onMounted(() => {
 
                 <div class="nab-footer">
                   <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 안건 직접 추가
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
                   </button>
                   <div class="nab-footer-right">
                     <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
@@ -891,6 +967,15 @@ onMounted(() => {
             <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadWord">
               <i class="bi bi-file-earmark-word"></i> Word
             </button>
+            <button class="mbar-btn" :disabled="minutesFileUploading" @click="minutesFileRef?.click()" title="회의록 관련 파일 업로드">
+              <i v-if="minutesFileUploading" class="bi bi-arrow-repeat spin"></i>
+              <i v-else class="bi bi-file-earmark-arrow-up"></i>
+              {{ minutesFileUploading ? '업로드 중...' : '파일 업로드' }}
+            </button>
+            <button v-if="minutesFileUrl" class="mbar-btn" @click="downloadMinutesFile" title="R2에 저장된 PDF 다운로드">
+              <i class="bi bi-cloud-download"></i> PDF 다운로드
+            </button>
+            <input ref="minutesFileRef" type="file" accept=".pdf,.doc,.docx,.hwp" style="display:none" @change="uploadMinutesFile" />
           </div>
           <div class="minutes-bar-right">
             <span v-if="minutesSavedAt" class="mbar-saved-label">
@@ -971,7 +1056,12 @@ onMounted(() => {
           </template>
 
           <!-- 사용자 메시지 -->
-          <div v-else-if="msg.role==='user'" class="sp-bubble user">{{ msg.content }}</div>
+          <div v-else-if="msg.role==='user'" class="sp-bubble user">
+            <span>{{ msg.content }}</span>
+            <button v-if="msg.filePath" class="sp-file-dl-btn" @click="downloadChatFile(msg.filePath)" title="파일 다운로드">
+              <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
         </div>
         <div v-if="wmLoading&&wmMessages[wmMessages.length-1]?.role==='agent'&&wmMessages[wmMessages.length-1]?.content===''" class="sp-msg-row agent">
           <div class="sp-bubble agent typing"><span></span><span></span><span></span></div>
@@ -979,6 +1069,10 @@ onMounted(() => {
       </div>
       <div class="sp-agent-input">
         <div class="sp-agent-input-row">
+          <button class="sp-attach-btn" :disabled="chatFileUploading || !activeSession" @click="chatFileRef?.click()" title="파일 첨부">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input ref="chatFileRef" type="file" style="display:none" @change="e => sendChatFile(e.target.files[0])" />
           <textarea v-model="wmInput" class="sp-ara-textarea" rows="1" placeholder="질문하세요..." @keydown="onWmKeydown"></textarea>
           <button class="sp-ara-send" :disabled="wmLoading||!wmInput.trim()" @click="sendAra">전송</button>
         </div>
@@ -989,7 +1083,7 @@ onMounted(() => {
 
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
-    <div v-if="showCreateSession" class="app-modal-backdrop" @click.self="showCreateSession=false">
+    <div v-if="showCreateSession" class="app-modal-backdrop">
       <div class="app-modal app-modal-sm">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>
@@ -1012,6 +1106,21 @@ onMounted(() => {
           <div class="app-modal-field">
             <label>회의 날짜</label>
             <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
+          </div>
+          <div class="app-modal-field">
+            <label>STT 방식</label>
+            <div style="display:flex;gap:8px;">
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
+                @click="createSessionForm.type = 'whisper'">
+                Whisper 모델 (보안)
+              </button>
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
+                @click="createSessionForm.type = 'external'">
+                Whisper API (빠름)
+              </button>
+            </div>
           </div>
         </div>
         <div class="app-modal-footer">
@@ -1038,40 +1147,42 @@ onMounted(() => {
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
 .sp-ms-wrap { display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px; }
-.sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:#1e293b; }
+.sp-ms-input { flex:1;border:none;outline:none;font-size:12px;color:var(--dark-card); }
 .sp-ms-results { border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:4px; }
 .sp-ms-item { display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px; }
 .sp-ms-item:last-child { border-bottom:none; }
 .sp-ms-info { flex:1;min-width:0; }
-.sp-ms-name { font-weight:600;color:#1e293b;display:block; }
-.sp-ms-email { color:#94a3b8;font-size:11px;display:block; }
-.sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:#f8fafc;color:#475569;font-size:11px;font-weight:600;cursor:pointer; }
+.sp-ms-name { font-weight:600;color:var(--dark-card);display:block; }
+.sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
+.sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
-.sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:#f8fafc;border-radius:7px;font-size:12px; }
-.sp-sm-name { flex:1;font-weight:600;color:#1e293b; }
+.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;transition:all .15s; }
+.stt-type-btn.active { border-color:var(--primary);background:#eff6ff;color:var(--primary);font-weight:600; }
+.sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
+.sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
 .sp-sm-role-tag.admin { background:#eff6ff;color:var(--primary); }
 .sp-sm-role-tag.member { background:#f0fdf4;color:#16a34a; }
-.sp-sm-rm { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:15px;line-height:1; }
-.sp-sm-rm:hover { color:#ef4444; }
+.sp-sm-rm { background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:15px;line-height:1; }
+.sp-sm-rm:hover { color:var(--danger); }
 .sp-sidebar-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em; }
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
 
-.sp-mtg-group { border-bottom:1px solid #f1f5f9; }
+.sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;transition:background .15s;user-select:none; }
-.sp-mtg-header:hover,.sp-mtg-header.expanded { background:#f8fafc; }
+.sp-mtg-header:hover,.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
-.sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--dark-border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
-.sp-session-list { background:#f8fafc;border-top:1px solid #f1f5f9; }
+.sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
 .sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer;transition:background .15s; }
 .sp-session-item:hover { background:#eff6ff; }
 .sp-session-item.active { background:#eff6ff; }
 .sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
 .sp-session-info { flex:1;min-width:0; }
-.sp-session-name { font-size:11px;font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-session-name { font-size:11px;font-weight:600;color:var(--dark-border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 
@@ -1085,17 +1196,17 @@ onMounted(() => {
 .sp-panel { display:flex;flex-direction:column;height:100%;overflow:visible; }
 .sp-panel-header { display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;gap:12px; }
 .sp-panel-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
-.sp-panel-title { font-size:14px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.rec-live { font-size:11px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
+.sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-height:0; }
 .sp-tab-body::-webkit-scrollbar { width:4px; }
-.sp-tab-body::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.sp-tab-body::-webkit-scrollbar-thumb { background:var(--border); }
 .minutes-scroll-area { flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0;padding-bottom:8px; }
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
-.minutes-scroll-area::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0;display:flex;flex-direction:column; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
 .sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:0 1 50%;min-height:0; }
@@ -1110,31 +1221,31 @@ onMounted(() => {
   padding:1px 5px;border-radius:4px;border:1px solid;
   letter-spacing:.03em;font-family:monospace;
 }
-.tline-text { font-size:13px;color:#1e293b;line-height:1.5; }
+.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5; }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
-.ts-summary-box { background:#fafafa;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;overflow:hidden; }
-.ts-summary-header { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f1f5f9;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#475569; }
-.ts-summary-close { background:none;border:none;cursor:pointer;color:#94a3b8;font-size:13px;line-height:1; }
-.ts-summary-body { padding:10px 12px;font-size:13px;color:#334155;line-height:1.6; }
+.ts-summary-box { background:#fafafa;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden; }
+.ts-summary-header { display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-dim); }
+.ts-summary-close { background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:13px;line-height:1; }
+.ts-summary-body { padding:10px 12px;font-size:13px;color:var(--dark-border);line-height:1.6; }
 
 /* Minutes – Tiptap editor */
 .tiptap-toolbar { display:flex;align-items:center;gap:2px;padding:6px 4px;border-bottom:1px solid var(--border);background:transparent;flex-wrap:wrap;margin-bottom:8px; }
-.tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:#475569;font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
-.tt-btn:hover { background:#e2e8f0; }
+.tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:var(--text-dim);font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
+.tt-btn:hover { background:var(--border); }
 .tt-btn.active { background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
-.tt-delete { color:#ef4444 !important; }
+.tt-delete { color:var(--danger) !important; }
 .tt-delete:hover { background:#fef2f2 !important; }
 .tt-delete:disabled { opacity:.4;cursor:not-allowed;pointer-events:none; }
 .tt-sep { width:1px;height:18px;background:var(--border);margin:0 3px; }
 
 .tiptap-content { border:none;padding:4px 0;min-height:400px;background:transparent;outline:none; }
 .tiptap-content :deep(.ProseMirror) { outline:none;min-height:380px; }
-.tiptap-content :deep(.ProseMirror p) { margin:0 0 6px;font-size:13px;line-height:1.7;color:#1e293b; }
-.tiptap-content :deep(.ProseMirror h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border);color:#0f172a; }
+.tiptap-content :deep(.ProseMirror p) { margin:0 0 6px;font-size:13px;line-height:1.7;color:var(--dark-card); }
+.tiptap-content :deep(.ProseMirror h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border);color:var(--dark-bg); }
 .tiptap-content :deep(.ProseMirror h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
-.tiptap-content :deep(.ProseMirror h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
+.tiptap-content :deep(.ProseMirror h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:var(--text-dim); }
 .tiptap-content :deep(.ProseMirror strong) { font-weight:700; }
 .tiptap-content :deep(.ProseMirror em) { font-style:italic; }
 .tiptap-content :deep(.ProseMirror u) { text-decoration:underline; }
@@ -1143,63 +1254,63 @@ onMounted(() => {
 .tiptap-content :deep(.ProseMirror li > p) { margin:0; }
 .tiptap-content :deep(.ProseMirror table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;table-layout:fixed; }
 .tiptap-content :deep(.ProseMirror th),.tiptap-content :deep(.ProseMirror td) { border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;word-break:break-word; }
-.tiptap-content :deep(.ProseMirror th) { background:#f1f5f9;font-weight:600;font-size:12px; }
+.tiptap-content :deep(.ProseMirror th) { background:var(--surface-2);font-weight:600;font-size:12px; }
 .tiptap-content :deep(.ProseMirror td > p),.tiptap-content :deep(.ProseMirror th > p) { margin:0; }
 .tiptap-content :deep(.ProseMirror hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
-.tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid #e2e8f0;padding-left:12px;color:#64748b;margin:6px 0; }
+.tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid var(--border);padding-left:12px;color:var(--text-muted);margin:6px 0; }
 
 /* Streaming preview uses same styles */
-.minutes-md { font-size:13px;line-height:1.7;color:#1e293b; }
+.minutes-md { font-size:13px;line-height:1.7;color:var(--dark-card); }
 .minutes-md :deep(h1) { font-size:17px;font-weight:800;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border); }
 .minutes-md :deep(h2) { font-size:15px;font-weight:700;margin:16px 0 6px;color:#1e40af; }
-.minutes-md :deep(h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:#475569; }
+.minutes-md :deep(h3) { font-size:13px;font-weight:700;margin:10px 0 4px;color:var(--text-dim); }
 .minutes-md :deep(strong) { font-weight:700; }
 .minutes-md :deep(ul),.minutes-md :deep(ol) { padding-left:18px;margin:4px 0; }
 .minutes-md :deep(li) { margin-bottom:2px; }
 .minutes-md :deep(table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px; }
 .minutes-md :deep(th),.minutes-md :deep(td) { border:1px solid var(--border);padding:5px 8px;text-align:left; }
-.minutes-md :deep(th) { background:#f8fafc;font-weight:600; }
+.minutes-md :deep(th) { background:var(--surface);font-weight:600; }
 .minutes-md :deep(hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
 
-.tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#94a3b8;padding:0 4px;white-space:nowrap;cursor:default; }
+.tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--dark-muted);padding:0 4px;white-space:nowrap;cursor:default; }
 
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
 .ctrl-pop-wrap { position:relative; }
-.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:#475569;font-size:13px;cursor:pointer;transition:all .15s; }
-.ctrl-btn:hover,.ctrl-active { background:#f1f5f9;border-color:var(--primary);color:var(--primary); }
+.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s; }
+.ctrl-btn:hover,.ctrl-active { background:var(--surface-2);border-color:var(--primary);color:var(--primary); }
 .ctrl-lang { font-size:12px;gap:4px; }
 .ctrl-chev { font-size:9px;opacity:.6; }
 .ctrl-popover { position:absolute;bottom:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:10px 12px;min-width:160px;z-index:200; }
 .cpop-title { font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px; }
-.cpop-row { display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:#475569; }
+.cpop-row { display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:var(--text-dim); }
 .cpop-label { flex:1; }
 .cpop-range { flex:1;accent-color:var(--primary); }
 .cpop-val { font-size:11px;font-weight:600;min-width:28px;text-align:right; }
-.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:#475569;transition:background .1s; }
-.cpop-opt:hover { background:#f1f5f9; }
+.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
+.cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:#eff6ff;color:var(--primary);font-weight:600; }
 .ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(59,130,246,.3); }
-.ctrl-rec-btn.recording { background:#ef4444;box-shadow:0 2px 8px rgba(239,68,68,.35); }
+.ctrl-rec-btn.recording { background:var(--danger);box-shadow:0 2px 8px rgba(239,68,68,.35); }
 .ctrl-rec-btn:hover { opacity:.85; }
-.ctrl-stop { color:#ef4444;border-color:#fca5a5; }
-.ctrl-stop:hover { background:#fef2f2;border-color:#ef4444; }
-.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:#ef4444;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
-.ctrl-end:hover { background:#ef4444;color:#fff;border-color:#ef4444; }
-.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.ctrl-stop { color:var(--danger);border-color:#fca5a5; }
+.ctrl-stop:hover { background:#fef2f2;border-color:var(--danger); }
+.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
+.ctrl-end:hover { background:var(--danger);color:#fff;border-color:var(--danger); }
+.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
 .sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
-.sp-search-icon { position:absolute;left:8px;color:#94a3b8;pointer-events:none; }
-.sp-search-input { width:100%;padding:5px 26px 5px 26px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:#334155;background:#f8fafc;outline:none;box-sizing:border-box; }
+.sp-search-icon { position:absolute;left:8px;color:var(--dark-muted);pointer-events:none; }
+.sp-search-input { width:100%;padding:5px 26px 5px 26px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:var(--dark-border);background:var(--surface);outline:none;box-sizing:border-box; }
 .sp-search-input:focus { border-color:var(--primary);background:#fff; }
-.sp-search-input::placeholder { color:#94a3b8; }
-.sp-search-clear { position:absolute;right:6px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;line-height:1;padding:0; }
-.sp-search-clear:hover { color:#475569; }
-.sp-search-empty { padding:20px 14px;text-align:center;font-size:12px;color:#94a3b8; }
+.sp-search-input::placeholder { color:var(--dark-muted); }
+.sp-search-clear { position:absolute;right:6px;background:none;border:none;cursor:pointer;color:var(--dark-muted);font-size:14px;line-height:1;padding:0; }
+.sp-search-clear:hover { color:var(--text-dim); }
+.sp-search-empty { padding:20px 14px;text-align:center;font-size:12px;color:var(--dark-muted); }
 
 /* ── Right: 워크메이트 AI ── */
 .sp-agent-panel { width:290px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff;overflow:hidden;height:100%; }
@@ -1207,14 +1318,14 @@ onMounted(() => {
 .sp-agent-header-brand { display:flex;align-items:center;gap:8px;flex:1;min-width:0; }
 .sp-agent-avatar { width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid #93c5fd; }
 .sp-agent-header-text { display:flex;flex-direction:column;min-width:0;flex:1; }
-.sp-agent-name { font-size:13px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sp-agent-sub { font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-name { font-size:13px;font-weight:700;color:var(--dark-card);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.sp-agent-sub { font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .sp-agent-header-actions { display:flex;align-items:center;gap:5px;flex-shrink:0; }
 .sp-agent-new-chat { background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-muted);cursor:pointer;transition:all .15s;white-space:nowrap; }
 .sp-agent-new-chat:hover { background:#eff6ff;border-color:#93c5fd;color:var(--primary); }
 .sp-agent-messages { flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px; }
 .sp-agent-messages::-webkit-scrollbar { width:3px; }
-.sp-agent-messages::-webkit-scrollbar-thumb { background:#e2e8f0; }
+.sp-agent-messages::-webkit-scrollbar-thumb { background:var(--border); }
 .sp-msg-row { display:flex;flex-direction:column;gap:3px; }
 .sp-msg-row.user { align-items:flex-end; }
 .sp-agent-label { display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--text-muted); }
@@ -1225,7 +1336,7 @@ onMounted(() => {
 .sp-bubble.agent :deep(p) { margin:0 0 6px; }
 .sp-bubble.agent :deep(p:last-child) { margin:0; }
 .typing { display:flex;gap:4px;align-items:center; }
-.typing span { width:5px;height:5px;background:#94a3b8;border-radius:50%;animation:bounce .8s infinite; }
+.typing span { width:5px;height:5px;background:var(--dark-muted);border-radius:50%;animation:bounce .8s infinite; }
 .typing span:nth-child(2) { animation-delay:.15s; }
 .typing span:nth-child(3) { animation-delay:.3s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1} }
@@ -1278,8 +1389,8 @@ onMounted(() => {
 .minutes-action-row { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 2px;border-top:1px solid var(--border);flex-shrink:0; }
 .minutes-action-left,.minutes-action-right { display:flex;align-items:center;gap:6px; }
 .minutes-download-group { display:flex;gap:4px; }
-.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.minutes-action-btn:hover { background:#f1f5f9; }
+.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.minutes-action-btn:hover { background:var(--surface-2); }
 .minutes-action-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .minutes-action-btn.primary:hover { opacity:.88; }
 .minutes-action-btn:disabled { opacity:.5;cursor:not-allowed; }
@@ -1290,23 +1401,28 @@ onMounted(() => {
 /* Minutes bottom bar */
 .sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
 .minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
-.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:#475569;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
-.mbar-btn:hover { background:#f1f5f9; }
+.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .mbar-btn.primary:hover { opacity:.88; }
-.mbar-btn.regen { background:#f8fafc;border-color:#c7d2fe;color:#4f46e5; }
+.mbar-btn.regen { background:var(--surface);border-color:#c7d2fe;color:#4f46e5; }
 .mbar-btn.regen:hover { background:#eef2ff; }
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
+.sp-attach-btn { display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;flex-shrink:0;transition:all .15s; }
+.sp-attach-btn:hover { background:var(--surface-2);color:var(--primary); }
+.sp-attach-btn:disabled { opacity:.35;cursor:not-allowed; }
+.sp-file-dl-btn { display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;border-radius:4px;border:none;background:rgba(255,255,255,.25);color:inherit;cursor:pointer;vertical-align:middle; }
+.sp-file-dl-btn:hover { background:rgba(255,255,255,.4); }
 
-/* ── 다음 회의 안건 블록 ── */
+/* ── 다음 회의 과제 블록 ── */
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
 .nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
 .nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#818cf8;margin-bottom:4px; }
 .nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.15);color:#818cf8; }
-.nab-desc { font-size:11px;color:#64748b;margin:0; }
-.nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:#64748b; }
+.nab-desc { font-size:11px;color:var(--text-muted);margin:0; }
+.nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:var(--text-muted); }
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
@@ -1315,30 +1431,30 @@ onMounted(() => {
 .nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
 .nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
 .nab-item-body { flex:1;min-width:0; }
-.nab-item-title { font-size:12px;color:#e2e8f0;font-weight:500; }
-.nab-item-dept { font-size:11px;color:#64748b;margin-top:2px; }
+.nab-item-title { font-size:12px;color:var(--dark-text);font-weight:500; }
+.nab-item-dept { font-size:11px;color:var(--text-muted);margin-top:2px; }
 .nab-item-edit { display:flex;flex-direction:column; }
-.nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:#e2e8f0;outline:none; }
+.nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--dark-text);outline:none; }
 .nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
 .nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
-.nab-btn-edit { background:rgba(255,255,255,.06);color:#94a3b8; }
+.nab-btn-edit { background:rgba(255,255,255,.06);color:var(--dark-muted); }
 .nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
 .nab-btn-approved { background:#22c55e;color:#fff; }
 .nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
-.nab-btn-rejected { background:#ef4444;color:#fff; }
+.nab-btn-rejected { background:var(--danger);color:#fff; }
 .nab-item:has(+ .nab-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
 .nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid rgba(255,255,255,.06);border-top:none;border-radius:0 0 7px 7px;background:rgba(255,255,255,.02); }
 .nrb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
 .nrb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
-.nrb-label { font-size:10px;font-weight:600;color:#475569;letter-spacing:.03em; }
+.nrb-label { font-size:10px;font-weight:600;color:var(--text-dim);letter-spacing:.03em; }
 .nrb-approved .nrb-label { color:rgba(52,211,153,.7); }
 .nrb-rejected .nrb-label { color:rgba(248,113,113,.7); }
-.nab-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:#94a3b8;resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
+.nab-reason-input { width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--dark-muted);resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
 .nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
 .nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
 .nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid rgba(255,255,255,.05); }
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
-.nab-count { font-size:11px;color:#64748b; }
+.nab-count { font-size:11px;color:var(--text-muted); }
 .nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
 .nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer;transition:opacity .15s; }
 .nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }

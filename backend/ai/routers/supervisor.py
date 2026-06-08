@@ -1,8 +1,10 @@
 import json
 import re
 import os
+import uuid
+from datetime import datetime
 from collections import defaultdict
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -12,9 +14,14 @@ from sqlalchemy.orm import Session
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
-from agents import task_agent, knowledge_agent, minutes_agent, report_agent
+from agents import (
+    task_extractor as task_agent,
+    knowledge_manager as knowledge_agent,
+    minutes_generator as minutes_agent,
+    report_reviewer as report_agent,
+)
 from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cypher
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 
 from .prompts import (
@@ -22,7 +29,6 @@ from .prompts import (
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
     extract_agendas_system,
     chat_extract_system,
-    ANALYZE_FILE_SYSTEM, analyze_file_human,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +71,30 @@ class _ConfirmRelationshipsReq(BaseModel):
     reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
 
 
+# ─── Supervisor 라우팅 — LLM이 직접 에이전트를 선택 ───────────────────────────
+class _RoutingDecision(BaseModel):
+    """LLM 슈퍼바이저의 라우팅 결정 스트럭처드 아웃풋."""
+    thinking: str = Field(
+        description="어떤 에이전트가 적합한지 한국어로 1~2문장 근거 설명"
+    )
+    agent: Literal["task_agent", "minutes_agent", "report_agent", "supervisor_direct"] = Field(
+        description="위임할 에이전트 이름"
+    )
+
+
+_ROUTING_SYSTEM = """\
+당신은 워크메이트 AI 슈퍼바이저입니다.
+사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하세요.
+
+에이전트 선택 기준:
+- task_agent: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비
+- minutes_agent: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
+- report_agent: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
+- supervisor_direct: 현황 조회, 구성원 안내, 회의체 현황, 인사·일반 질문
+
+thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     if not meeting_id:
@@ -72,15 +102,17 @@ def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     db = SessionLocal()
     try:
         log = models.AgentLog(
-            operation=f"agent_{agent.lower()}",
-            entity_type="meeting",
-            entity_id=str(meeting_id),
+            task_id=str(uuid.uuid4()),
+            context_type=f"agent_{agent.lower()}",
+            meeting_id=meeting_id,
             status="success",
-            error_detail=f"[{agent}] {action}: {detail}" if detail else f"[{agent}] {action}",
+            output_data={"agent": agent, "action": action, "detail": detail},
+            ended_at=datetime.utcnow(),
         )
         db.add(log)
         db.commit()
     except Exception as e:
+        db.rollback()
         print(f"[ActivityLog Error] {e}")
     finally:
         db.close()
@@ -134,10 +166,23 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
     import io
 
     if filename.endswith(".pdf"):
+        # 1순위: pdfplumber (설치돼 있으면 레이아웃 보존이 우수)
         try:
             import pdfplumber
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 pages = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n".join(pages).strip()
+            if text:
+                return text
+        except ModuleNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"[extract] pdfplumber 실패, pypdf로 대체: {e}")
+        # 2순위: pypdf (기본 의존성)
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(raw))
+            pages = [page.extract_text() or "" for page in reader.pages]
             return "\n".join(pages).strip()
         except Exception as e:
             return f"[PDF 추출 오류: {e}]"
@@ -269,34 +314,21 @@ async def supervisor_chat(
     db: Session = Depends(get_db),
 ):
     msg = data.message or ""
-    msg_lower = msg.lower()
 
-    _SUPERVISOR_DIRECT_KWS = [
-        '현황', '멤버', '목록', '조회', '구성원', '상태', '진행 상황', '진척도',
-        '어떻게 됐', '어떻게 되', '얼마나', '몇 개', '몇개', '회의 목록', '누가 있',
-        '안녕', '반가워', '도와줘', '뭘 할 수 있', '뭐 할 수 있', '누구야', '뭐야',
-    ]
-    _is_supervisor_direct = any(kw in msg_lower for kw in _SUPERVISOR_DIRECT_KWS)
-
-    if any(kw in msg_lower for kw in [
-        '아젠다', '의제', '과제', '할 일', '할일', '투두', 'todo', 'agenda',
-        '추출', '과제 목록', '안건', '다음 회의'
-    ]):
-        _route = 'task_agent'
-    elif any(kw in msg_lower for kw in [
-        '통역', '번역', '실시간 회의', '회의 진행', '발표', '회의록 작성', '속기', '회의 보조'
-    ]):
-        _route = 'minutes_agent'
-    elif any(kw in msg_lower for kw in [
-        '검토', '보고서', '자료 분석', '리뷰', 'review', '문제점', '개선',
-        '첨삭', '피드백', '문서 검토', '파일 검토'
-    ]):
-        _route = 'report_agent'
-    else:
-        _route = 'report_agent'
-
-    if _is_supervisor_direct:
-        _route = 'supervisor_direct'
+    # ── LLM 라우팅 결정 ─────────────────────────────────────────────────────────
+    # 키워드 매칭 대신 LLM이 사용자 의도를 파악해 적합한 에이전트를 선택합니다.
+    _route = "supervisor_direct"
+    _route_thinking = "질문을 분석 중입니다."
+    try:
+        _routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
+        _decision = await _routing_llm.ainvoke([
+            SystemMessage(content=_ROUTING_SYSTEM),
+            HumanMessage(content=msg[:500]),
+        ])
+        _route = _decision.agent
+        _route_thinking = _decision.thinking
+    except Exception as _re:
+        logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {_re}")
 
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
@@ -335,7 +367,8 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
-            yield f"data: [PLANNING] 질문 의도 파악 중... (라우팅: {_route})\n\n"
+            yield f"data: [PLANNING] 🧠 {_route_thinking}\n\n"
+            yield f"data: [PLANNING] ➜ {_route} 에이전트에 위임\n\n"
 
             if data.meeting_id:
                 mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
@@ -1063,19 +1096,16 @@ async def archive_extract_agendas(
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
     pending_reviews = db.query(models.HitlReview).filter(
-        models.HitlReview.meeting_id == meeting_id,
-        models.HitlReview.status == "PENDING",
+        models.HitlReview.target_type == "meeting",
+        models.HitlReview.target_id == meeting_id,
+        models.HitlReview.status == "pending",
     ).order_by(models.HitlReview.created_at.desc()).limit(10).all()
 
     pending_todos_text = ""
     if pending_reviews:
         review_lines = []
         for r in pending_reviews:
-            try:
-                item = json.loads(r.ai_output or "{}")
-                content = item.get("content", r.ai_output or "")
-            except Exception:
-                content = r.ai_output or ""
+            content = r.ai_rationale or ""
             review_lines.append(f"- [검토 대기] {content}")
         pending_todos_text = "\n".join(review_lines)
 
@@ -1108,8 +1138,30 @@ async def archive_extract_agendas(
                 file_texts.append(f"[첨부: {upload.filename}]\n{text[:4000]}")
             else:
                 file_texts.append(f"[첨부: {upload.filename}] - 텍스트 추출 불가")
+
+            # R2 업로드 및 reports 테이블 저장
+            try:
+                from r2_storage import upload_bytes as _r2_upload, get_content_type as _r2_ct
+                import uuid
+                key = f"reports/{meeting_id}/{uuid.uuid4().hex}_{upload.filename}"
+                file_url = _r2_upload(raw, key, _r2_ct(upload.filename))
+                report = models.Report(
+                    meeting_id=meeting_id,
+                    upload_id=current_user.id,
+                    submitter_department=current_user.department or "미지정",
+                    file_name=upload.filename,
+                    file_path=file_url,
+                    human_status="pending",
+                )
+                db.add(report)
+                db.flush()
+            except Exception as e:
+                db.rollback()
+                print(f"[파일 저장 오류] {upload.filename}: {e}")
         except Exception as e:
             print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
+
+    db.commit()
 
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:
@@ -1136,17 +1188,70 @@ async def archive_extract_agendas(
         except Exception:
             parsed = {"agendas": []}
 
+        # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
+        import uuid as _uuid
+        from datetime import datetime as _dt
+        agendas_raw = parsed.get("agendas", [])
+        draft_ids: list[int | None] = [None] * len(agendas_raw)
+        try:
+            for idx, ag in enumerate(agendas_raw):
+                title = ag.get("title", "").strip()
+                if not title:
+                    continue
+                due_val = None
+                if ag.get("due_date"):
+                    try:
+                        due_val = _dt.strptime(ag["due_date"], "%Y-%m-%d")
+                    except Exception:
+                        pass
+                dept_raw = ag.get("department")
+                dept_json = [dept_raw] if dept_raw and dept_raw != "null" else None
+                db_agenda = models.Agenda(
+                    meeting_id=meeting_id,
+                    title=title,
+                    status="draft",
+                    department=dept_json,
+                    due_date=due_val,
+                    ai_evidence=ag.get("reasoning"),
+                )
+                db.add(db_agenda)
+                db.flush()
+                draft_ids[idx] = db_agenda.id
+
+            db.add(models.AgentLog(
+                task_id=str(_uuid.uuid4()),
+                context_type="agenda_extraction",
+                meeting_id=meeting_id,
+                user_id=current_user.id,
+                status="success",
+                input_data={
+                    "selected_file_ids": selected_ids,
+                    "file_count": len(file_texts),
+                    "prev_minutes_count": len(previous_minutes),
+                },
+                output_data={
+                    "agenda_count": sum(1 for d in draft_ids if d),
+                    "agenda_titles": [ag.get("title") for ag in agendas_raw],
+                },
+                ended_at=_dt.utcnow(),
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
+
         return {
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "bullets": ag.get("bullets", []),
                     "department": ag.get("department"),
-                    "priority": ag.get("priority", "normal"),
+                    "start_date": ag.get("start_date"),
+                    "due_date": ag.get("due_date"),
+                    "db_id": draft_ids[idx],
                     "_state": None,
                     "_editing": False,
                 }
-                for ag in parsed.get("agendas", [])
+                for idx, ag in enumerate(agendas_raw)
             ],
             "context_used": {
                 "minutes_count": len(previous_minutes),
@@ -1192,9 +1297,10 @@ async def archive_chat_extract(
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "bullets": ag.get("bullets", []),
                     "department": ag.get("department"),
                     "priority": ag.get("priority", "normal"),
+                    "start_date": ag.get("start_date"),
+                    "due_date": ag.get("due_date"),
                     "_state": None,
                     "_editing": False,
                 }
@@ -1210,33 +1316,345 @@ async def archive_chat_extract(
 # ─── 아카이브 파일 AI 검토 ────────────────────────────────────────────────────
 @router.post("/archive/analyze-file")
 async def analyze_archive_file(
+    file: Optional[UploadFile] = File(None),
+    file_name: str = Form(""),
+    file_type: str = Form(""),
+    dept_name: str = Form(""),
+    graph_context: str = Form(""),
+    candidate_agendas: str = Form("[]"),
+    meeting_id: Optional[int] = Form(None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 후보 과제(JSON 문자열) 파싱
+    try:
+        candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
+    except Exception:
+        candidate_list = []
+    if not isinstance(candidate_list, list):
+        candidate_list = []
+
+    # 첨부 파일에서 실제 텍스트 추출 (PDF/DOCX/XLSX/텍스트)
+    file_content = ""
+    if file is not None:
+        try:
+            raw = await file.read()
+            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            file_content = (extracted or "").strip()[:8000]
+            if not file_content:
+                file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
+        except Exception as e:
+            logger.warning(f"[analyze-file] 텍스트 추출 실패: {e}")
+            file_content = f"[파일 추출 오류: {e}]"
+    else:
+        file_content = "[파일 미첨부 — 이름만 입력됨]"
+
+    # LangGraph 기반 아카이브 파일 검토 에이전트 실행
+    try:
+        from agents.report_reviewer import analyze_archive_file as _analyze_graph
+        return await _analyze_graph(
+            file_name=file_name,
+            file_type=file_type,
+            dept_name=dept_name,
+            file_content=file_content,
+            graph_context=graph_context,
+            candidate_agendas=candidate_list,
+            user_id=current_user.id if current_user else None,
+            meeting_id=meeting_id,
+        )
+    except Exception as e:
+        logger.warning(f"[analyze-file] LangGraph 검토 실패: {e}")
+        return {
+            "score": 70,
+            "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+            "matched_agendas": [],
+            "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+            "related_depts": [],
+        }
+
+
+# ─── 아카이브 파일 AI 검토 (스트리밍) ─────────────────────────────────────────
+@router.post("/archive/analyze-file/stream")
+async def analyze_archive_file_stream_ep(
+    file: Optional[UploadFile] = File(None),
+    file_name: str = Form(""),
+    file_type: str = Form(""),
+    dept_name: str = Form(""),
+    graph_context: str = Form(""),
+    candidate_agendas: str = Form("[]"),
+    meeting_id: Optional[int] = Form(None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 후보 과제(JSON 문자열) 파싱
+    try:
+        candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
+    except Exception:
+        candidate_list = []
+    if not isinstance(candidate_list, list):
+        candidate_list = []
+
+    # 첨부 파일에서 실제 텍스트 추출 (요청 컨텍스트 내에서 먼저 읽어둠)
+    file_content = ""
+    if file is not None:
+        try:
+            raw = await file.read()
+            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            file_content = (extracted or "").strip()[:8000]
+            if not file_content:
+                file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
+        except Exception as e:
+            logger.warning(f"[analyze-file/stream] 텍스트 추출 실패: {e}")
+            file_content = f"[파일 추출 오류: {e}]"
+    else:
+        file_content = "[파일 미첨부 — 이름만 입력됨]"
+
+    async def stream():
+        from agents.report_reviewer import analyze_archive_file_stream as _stream_graph
+        try:
+            async for event in _stream_graph(
+                file_name=file_name,
+                file_type=file_type,
+                dept_name=dept_name,
+                file_content=file_content,
+                graph_context=graph_context,
+                candidate_agendas=candidate_list,
+                user_id=current_user.id if current_user else None,
+                meeting_id=meeting_id,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.warning(f"[analyze-file/stream] 검토 실패: {e}")
+            err = {
+                "type": "result",
+                "data": {
+                    "score": 70,
+                    "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                    "matched_agendas": [],
+                    "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+                    "related_depts": [],
+                },
+            }
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+# ─── 아젠다 피드백 저장 (HitlReview) ────────────────────────────────────────
+@router.post("/archive/agendas/feedback")
+async def submit_agenda_feedback(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    file_name: str = data.get("file_name", "")
-    file_type: str = data.get("file_type", "")
-    dept_name: str = data.get("dept_name", "")
-    graph_context: str = data.get("graph_context", "")
-    file_content: str = data.get("file_content", "")
+    import uuid as _uuid
+    from datetime import datetime as _dt
 
+    agenda_id = data.get("agenda_id")
+    feedback  = data.get("feedback", "")
+    action    = data.get("action", "rejected")   # "rejected" | "edited"
+    meeting_id = data.get("meeting_id")
+
+    log = models.AgentLog(
+        task_id=str(_uuid.uuid4()),
+        context_type="agenda_feedback",
+        meeting_id=meeting_id,
+        user_id=current_user.id,
+        status="success",
+        input_data={"agenda_id": agenda_id, "action": action},
+        output_data={"feedback": feedback},
+        ended_at=_dt.utcnow(),
+    )
+    db.add(log)
+    db.flush()
+
+    db.add(models.HitlReview(
+        agent_log_id=log.id,
+        target_type="agenda",
+        target_id=agenda_id,
+        review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
+        status=action,
+        reviewer_id=current_user.id,
+        review_comment=feedback or None,
+        reviewed_at=_dt.utcnow(),
+    ))
+    db.commit()
+    return {"ok": True}
+
+
+# ─── 아젠다 commit (승인→ongoing 업데이트 / 반려→삭제) ────────────────────────
+@router.post("/archive/agendas/commit")
+async def commit_draft_agendas(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    meeting_id: int = data.get("meeting_id", 0)
+    approved: list = data.get("approved", [])   # [{db_id, assignee_name, dept, due_date}]
+    rejected_ids: list = data.get("rejected_ids", [])  # [int]
+
+    # 반려된 draft 삭제
+    if rejected_ids:
+        db.query(models.Agenda).filter(
+            models.Agenda.id.in_(rejected_ids),
+            models.Agenda.status == "draft",
+        ).delete(synchronize_session=False)
+
+    # 승인된 항목 업데이트
+    updated_ids = []
+    for item in approved:
+        agenda = db.query(models.Agenda).filter(models.Agenda.id == item.get("db_id")).first()
+        if not agenda:
+            continue
+        assignee_id = None
+        if item.get("assignee_name"):
+            u = db.query(models.User).filter(models.User.name == item["assignee_name"]).first()
+            if u:
+                assignee_id = u.id
+        agenda.status = "ongoing"
+        agenda.assignee_id = assignee_id
+        if item.get("dept"):
+            agenda.department = [item["dept"]]
+        if item.get("due_date"):
+            try:
+                agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+            except Exception:
+                pass
+        updated_ids.append(agenda.id)
+
+    # AgentLog 기록
+    db.add(models.AgentLog(
+        task_id=str(_uuid.uuid4()),
+        context_type="agenda_commit",
+        meeting_id=meeting_id or None,
+        user_id=current_user.id,
+        status="success",
+        input_data={"approved_count": len(approved), "rejected_count": len(rejected_ids)},
+        output_data={"updated_ids": updated_ids, "deleted_ids": rejected_ids},
+        ended_at=_dt.utcnow(),
+    ))
+    db.commit()
+
+    # Neo4j 동기화: 승인된 건 그래프에 추가, 반려된 건 그래프에서 삭제
+    from neo4j_sync import sync_agenda as _sync_ag, delete_agenda as _del_ag
+    import json as _json
+    for ag_id in updated_ids:
+        ag = db.query(models.Agenda).filter(models.Agenda.id == ag_id).first()
+        if ag:
+            dept_str = _json.dumps(ag.department, ensure_ascii=False) if isinstance(ag.department, (dict, list)) else (ag.department or "")
+            try:
+                await _sync_ag(
+                    ag.id, ag.meeting_id,
+                    title=ag.title, status=ag.status,
+                    assignee_id=ag.assignee_id,
+                    priority=ag.priority or "medium",
+                    due_date=ag.due_date.isoformat() if ag.due_date else None,
+                    department=dept_str,
+                )
+            except Exception as e:
+                logger.warning(f"[commit] Neo4j sync 실패 (agenda {ag_id}): {e}")
+    for ag_id in rejected_ids:
+        try:
+            await _del_ag(ag_id)
+        except Exception as e:
+            logger.warning(f"[commit] Neo4j 삭제 실패 (agenda {ag_id}): {e}")
+
+    return {"updated": updated_ids, "deleted": rejected_ids}
+
+
+# ─── 회의체 draft 아젠다 조회 (과제추출 탭 복원용) ──────────────────────────
+@router.get("/meetings/{meeting_id}/draft-agendas")
+async def get_draft_agendas(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agendas = (
+        db.query(models.Agenda)
+        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
+        .order_by(models.Agenda.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "db_id": a.id,
+            "title": a.title,
+            "department": a.department,
+            "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
+            "start_date": None,
+        }
+        for a in agendas
+    ]
+
+
+# ─── 회의체 아젠다 목록 조회 ──────────────────────────────────────────────────
+@router.get("/meetings/{meeting_id}/agendas")
+async def get_meeting_agendas(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agendas = (
+        db.query(models.Agenda)
+        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status != "draft")
+        .order_by(models.Agenda.created_at.desc())
+        .all()
+    )
+    def _dept_str(d):
+        if not d: return None
+        return d[0] if isinstance(d, list) else str(d)
+
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "content": a.title,
+            "status": a.status,
+            "department": a.department,
+            "dept": _dept_str(a.department),
+            "assignee_id": a.assignee_id,
+            "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
+            "ai_evidence": a.ai_evidence,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in agendas
+    ]
+
+
+# ─── 아젠다 상태 변경 (완료/진행 등) ─────────────────────────────────────────
+@router.patch("/archive/agendas/{agenda_id}/status")
+async def update_agenda_status(
+    agenda_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
+    if not agenda:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Agenda not found")
+    new_status = data.get("status", "done")
+    agenda.status = new_status
+    db.commit()
+    return {"ok": True, "status": new_status}
+
+
+# ─── 아젠다 삭제 ──────────────────────────────────────────────────────────────
+@router.delete("/archive/agendas/{agenda_id}")
+async def delete_agenda_item(
+    agenda_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.query(models.Agenda).filter(models.Agenda.id == agenda_id).delete(synchronize_session=False)
+    db.commit()
+    from neo4j_sync import delete_agenda as _del_ag
     try:
-        response = await make_llm(temperature=0.2).ainvoke([
-            SystemMessage(content=ANALYZE_FILE_SYSTEM),
-            HumanMessage(content=analyze_file_human(file_name, file_type, dept_name, file_content, graph_context)),
-        ])
-        match = re.search(r'\{[\s\S]*\}', response.content.strip())
-        result = json.loads(match.group(0)) if match else json.loads(response.content.strip())
-        return {
-            "score": int(result.get("score", 70)),
-            "feedback": result.get("feedback", []),
-            "agendas": result.get("agendas", []),
-            "related_depts": result.get("related_depts", []),
-        }
-    except Exception as e:
-        return {
-            "score": 70,
-            "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
-            "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
-            "related_depts": [],
-        }
+        await _del_ag(agenda_id)
+    except Exception:
+        pass
+    return {"ok": True}
