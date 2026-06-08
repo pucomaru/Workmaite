@@ -127,7 +127,7 @@ class Minutes(Base):
     recorder_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
     content_original = Column(Text, nullable=True)
     content_summary  = Column(Text, nullable=True)
-    status           = Column(String(20), default="draft")
+    status           = Column(String(20), default="DRAFT")
     generated_at     = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("MeetingSession", back_populates="minutes")

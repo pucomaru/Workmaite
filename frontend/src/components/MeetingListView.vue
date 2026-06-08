@@ -84,7 +84,7 @@ const {
                     <td class="lv-hist-manager">{{ item.manager }}</td>
                     <td class="lv-hist-date">{{ formatDate(item.date) }}</td>
                     <td class="lv-hist-file">
-                      <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item.fileName)" title="다운로드">
+                      <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item)" title="다운로드">
                         <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                       </button>
                       <span v-else class="lv-no-file">-</span>
