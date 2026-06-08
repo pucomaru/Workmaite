@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/auth'
 import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
+import DateInput from '../components/DateInput.vue'
 
 const mgColumns = [
   { label: '', width: '28px' },
@@ -277,7 +278,7 @@ onMounted(async () => {
         </button>
       </div>
       <div class="plus-wrap">
-        <button class="create-meeting-btn" @click="openCreate">
+        <button class="create-btn" @click="openCreate">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
           회의체 생성
         </button>
@@ -382,11 +383,11 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>시작일</label>
-                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
+                <DateInput v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
                 <label>종료일</label>
-                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
+                <DateInput v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">
@@ -417,7 +418,6 @@ onMounted(async () => {
           </div>
           <div class="app-modal-body settings-body">
             <div class="settings-section">
-              <div class="settings-section-title">기본 정보</div>
               <div class="app-modal-field">
                 <label>회의체 이름 <span class="req">*</span></label>
                 <input v-model="settingsModal.form.title" class="app-modal-input" />
@@ -437,11 +437,11 @@ onMounted(async () => {
               <div class="app-modal-field-row">
                 <div class="app-modal-field">
                   <label>시작일</label>
-                  <input type="date" v-model="settingsModal.form.start_date" class="app-modal-input" />
+                  <DateInput v-model="settingsModal.form.start_date" class="app-modal-input" />
                 </div>
                 <div class="app-modal-field">
                   <label>종료일</label>
-                  <input type="date" v-model="settingsModal.form.end_date" class="app-modal-input" />
+                  <DateInput v-model="settingsModal.form.end_date" class="app-modal-input" />
                 </div>
               </div>
               <div class="app-modal-field">

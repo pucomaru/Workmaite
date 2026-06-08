@@ -3,6 +3,7 @@ import { inject } from 'vue'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
+import DateInput from './DateInput.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
@@ -14,7 +15,7 @@ const {
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
   runExtract, setExtractState, addExtractItem, finishExtract,
-  showFeedback, submitFeedback,
+  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
@@ -286,33 +287,32 @@ const {
                                   <option v-for="d in detailMemberDepts" :key="d" :value="d">{{ d }}</option>
                                 </select>
                                 <div class="dei-date-row">
-                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editStartDate" />
-                                  <input class="dei-input dei-date-input" type="date" v-model="ag._editDueDate" />
+                                  <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
+                                  <DateInput class="dei-input dei-date-input" v-model="ag._editDueDate" />
                                 </div>
                               </template>
                             </div>
                             <div class="dei-actions">
                               <template v-if="!ag._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editing=true; showFeedback(ag, 'edited')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-edit" @click="ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._editing=true; ag._feedbackVisible=true; ag._feedbackAction='edited'; ag._feedbackText=''"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                                 <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected'); if(extractResult[i]._state==='rejected') showFeedback(ag,'rejected')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected'); if(extractResult[i]._state==='rejected') { ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText='' }"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                               <template v-else>
                                 <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; ag._feedbackVisible=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                             </div>
                           </div>
                           <!-- 인라인 피드백: 수정/반려 시 해당 아이템 바로 아래 -->
-                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
+                          <div v-if="ag._feedbackVisible && !ag._editing" class="dei-feedback-box">
                             <div class="dei-feedback-label">
                               <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : '수정' }}</span>
-                              AI에게 피드백 보내기 (선택)
+                              사유 입력 (선택)
                             </div>
                             <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="이 과제를 수정/반려한 이유를 알려주세요" rows="2" />
                             <div class="dei-feedback-btns">
-                              <button class="dei-fb-submit" @click="submitFeedback(ag)">보내기</button>
-                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">건너뛰기</button>
+                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag)">저장</button>
                             </div>
                           </div>
                         </template>
@@ -427,7 +427,7 @@ const {
               <!-- 부서 -->
               <svg v-if="detailNode.type==='dept'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
               <!-- 조직 -->
-              <svg v-else-if="detailNode.type==='org'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <svg v-else-if="detailNode.type==='company'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg>
               <!-- 아젠다 -->
               <svg v-else-if="detailNode.type==='agenda'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
               <!-- 회의(session) -->
@@ -440,7 +440,7 @@ const {
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', org:'조직' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', company:'조직' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
@@ -487,7 +487,7 @@ const {
             </template>
 
             <!-- 조직 -->
-            <template v-else-if="detailNode.type==='org'">
+            <template v-else-if="detailNode.type==='company'">
               <div class="detail-section">
                 <div class="detail-info-grid">
                   <div class="detail-info-item" style="grid-column:span 2">
@@ -517,10 +517,6 @@ const {
                   <div class="detail-info-item" style="grid-column:span 2">
                     <span class="detail-info-key">아젠다명</span>
                     <span class="detail-info-val">{{ detailNode.data?.content || detailNode.label }}</span>
-                  </div>
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">카테고리</span>
-                    <span class="detail-info-val">{{ detailNode.data?.category || '-' }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">상태</span>

@@ -11,7 +11,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
 
     // ── Organization 노드 (그래프 중심) ────────────────────────────
     const orgNodeIdx = nodes.length
-    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'org', x: 0, y: Y.org, z: 0, data: currentOrg.value })
+    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'company', x: 0, y: Y.org, z: 0, data: currentOrg.value })
 
     // 소속 회의체 없으면 조직 노드만 표시
     if (!data.length) return { nodes, edges }

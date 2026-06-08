@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { apiAI } from '../api'
+import DateInput from './DateInput.vue'
 
 const emit = defineEmits(['close'])
 
@@ -122,9 +123,8 @@ function modelColor(name) {
           <div class="tum-daterange-inputs">
             <div class="app-modal-field">
               <label>시작일</label>
-              <input
+              <DateInput
                 v-model="startDate"
-                type="date"
                 class="app-modal-input"
                 style="min-width:130px"
                 :max="endDate"
@@ -134,9 +134,8 @@ function modelColor(name) {
             <span class="tum-date-sep">—</span>
             <div class="app-modal-field">
               <label>종료일</label>
-              <input
+              <DateInput
                 v-model="endDate"
-                type="date"
                 class="app-modal-input"
                 style="min-width:130px"
                 :min="startDate"

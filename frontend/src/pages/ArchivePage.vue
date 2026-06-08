@@ -74,6 +74,10 @@ watch(viewMode, (next, prev) => {
 })
 
 const graphViewRef = ref(null)  // GraphView (PIXI) 컴포넌트 ref
+const graphPanOnly = ref(false) // 그래프 이동 전용 모드 상태
+function toggleGraphPanOnly() {
+  graphPanOnly.value = graphViewRef.value?.togglePanOnly?.() ?? false
+}
 
 // ─── Search highlight (meeting_group nodes containing match) ──
 const searchHitMgIdxs = ref([])
@@ -528,6 +532,7 @@ async function _restoreDrafts(meetingId) {
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
         _editDueDate: ag.due_date || '',
+        _agentLogId: null,
         _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
       }))
     } else {
@@ -543,24 +548,36 @@ watch(detailTab, async (tab) => {
   }
 })
 
-// 피드백: ag 객체에 직접 _feedbackVisible, _feedbackAction, _feedbackText 프로퍼티로 관리
-function showFeedback(ag, action) {
-  ag._feedbackVisible = true
-  ag._feedbackAction = action
-  ag._feedbackText = ''
-}
-async function submitFeedback(ag) {
-  if (!ag.db_id) { ag._feedbackVisible = false; return }
-  try {
-    await apiAI.post('/api/agent/archive/agendas/feedback', {
-      agenda_id: ag.db_id,
-      feedback: ag._feedbackText || '',
-      action: ag._feedbackAction || 'edited',
-      meeting_id: toNumericId(detailMeeting.value?.id),
-    })
-  } catch (e) { console.error('피드백 저장 실패:', e) }
+async function saveAgendaFeedback(ag) {
+  if (ag.db_id) {
+    try {
+      await apiAI.post('/api/agent/hitl-reviews', {
+        target_type: 'agenda',
+        target_id: ag.db_id,
+        agent_log_id: ag._agentLogId || null,
+        status: ag._feedbackAction || 'edited',
+        review_prompt: {
+          agenda: ag._origTitle ?? ag.title,
+          department: ag._origDept ?? ag.department ?? null,
+          start_date: ag._origStartDate ?? ag.start_date ?? null,
+          end_date: ag._origEndDate ?? ag.due_date ?? null,
+        },
+        review_comment: {
+          agenda: ag.title,
+          department: ag.department ?? null,
+          start_date: ag.start_date ?? null,
+          end_date: ag.due_date ?? null,
+          comment: ag._feedbackText || null,
+        },
+      })
+    } catch (e) { console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e) }
+  }
   ag._feedbackVisible = false
   ag._feedbackText = ''
+  if (ag._feedbackAction === 'rejected') {
+    const idx = extractResult.value.indexOf(ag)
+    if (idx !== -1) extractResult.value.splice(idx, 1)
+  }
 }
 
 // 추출 결과를 채팅 메시지 형식으로 포맷
@@ -627,6 +644,7 @@ async function runExtract() {
     await planningPromise
 
     if (data.agendas && data.agendas.length) {
+      const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
         _state: null,
@@ -636,6 +654,7 @@ async function runExtract() {
         _editDueDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         db_id: ag.db_id || null,
+        _agentLogId: agentLogId,
         _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
       }))
       // 실제 추출 결과를 채팅에 표시
@@ -1775,32 +1794,34 @@ const groupHistoryMap = computed(() => {
     g.reports.forEach(r => {
       const dept = r.submitter_department || r.submitted_by_dept || r.department || ''
       const isRejected = r.human_status === 'rejected' || r.status === 'rejected'
+      const versionSuffix = r.version ? ` (v${r.version})` : ''
       items.push({
         type: 'report',
-        desc: (isRejected ? '[반려] ' : '') + (dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`),
+        desc: (isRejected ? '[반려] ' : '') + (r.file_name || '파일') + versionSuffix,
         manager: r.submitted_by || managerName,
         date: r.created_at || r.submitted_at,
         hasFile: !!(r.file_path || r.file_url),
         fileName: r.file_name || '보고서',
         filePath: r.file_path || r.file_url || null,
         rejected: isRejected,
+        reportId: r.id,
       })
-      // 보고서 승인 이력 (상태가 있을 경우)
+      // 보고서 승인/반려 이력
       if (r.human_status === 'approved' || r.status === 'approved') {
         items.push({
           type: 'approved',
-          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 승인`,
+          desc: `[승인] ${r.file_name || '파일'}${versionSuffix}`,
           manager: managerName,
-          date: r.approved_at || r.submitted_at,
+          date: r.reviewed_at || r.approved_at || null,
           hasFile: false,
           fileName: '',
         })
       } else if (r.human_status === 'rejected' || r.status === 'rejected') {
         items.push({
           type: 'rejected',
-          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 반려`,
+          desc: `[반려] ${r.file_name || '파일'}${versionSuffix}`,
           manager: managerName,
-          date: r.rejected_at || r.submitted_at,
+          date: r.reviewed_at || r.rejected_at || null,
           hasFile: false,
           fileName: '',
         })
@@ -1809,7 +1830,7 @@ const groupHistoryMap = computed(() => {
     items.sort((a, b) => {
       const da = a.date ? new Date(a.date) : new Date(0)
       const db = b.date ? new Date(b.date) : new Date(0)
-      return db - da
+      return da - db
     })
     map.set(g.id, items)
   })
@@ -1839,7 +1860,7 @@ function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.id !== 'org-node' && node.type !== 'org') {
+  } else if (node.id !== 'org-node' && node.type !== 'company') {
     openNodeDetail(node)
   }
 }
@@ -1955,7 +1976,7 @@ watch(() => neo4jMeetings.value.length, () => {
 
 
 // ─── Helpers ──────────────────────────────────────────────────
-function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
+function formatDate(d){if(!d)return'-';return new Date(d).toLocaleString('ko-KR',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
 async function _openPresigned(filePath) {
   const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
   window.open(data.url, '_blank')
@@ -2023,7 +2044,7 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy: downloadFile,
+  formatDate, downloadDummy: downloadFile, deleteReport,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
@@ -2090,7 +2111,7 @@ provide('archiveSidebar', {
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
   runExtract, setExtractState, addExtractItem, finishExtract,
-  showFeedback, submitFeedback,
+  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
@@ -2183,7 +2204,7 @@ provide('archiveSidebar', {
             <button class="zoom-btn" @click="graphViewRef?.zoomIn()" title="확대 (Zoom In)">+</button>
             <button class="zoom-btn zoom-reset" @click="graphViewRef?.resetView()" title="초기화 (Reset)">⌂</button>
             <button class="zoom-btn" @click="graphViewRef?.zoomOut()" title="축소 (Zoom Out)">−</button>
-            <button class="zoom-btn zoom-pan-hint" title="드래그로 이동 (배경을 드래그하세요)">
+            <button class="zoom-btn zoom-pan-hint" :class="{ active: graphPanOnly }" @click="toggleGraphPanOnly" title="이동 전용 모드 (노드 클릭 없이 배경 드래그로만 이동)">
               <i class="bi bi-arrows-move"></i>
             </button>
           </template>
@@ -2207,6 +2228,7 @@ provide('archiveSidebar', {
           v-if="!loading && viewMode==='graph' && !neo4jError"
           ref="graphViewRef"
           class="archive-canvas"
+          :class="{ 'graph-pan-only': graphPanOnly }"
           :gNodes="gNodes"
           :gEdges="gEdges"
           :nightMode="nightMode"

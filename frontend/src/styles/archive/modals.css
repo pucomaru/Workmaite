@@ -83,6 +83,7 @@
 .legend-onto-item:hover { background:rgba(255,255,255,.07); }
 .legend-item-hidden { opacity:.38; }
 .legend-onto-dot { width:9px;height:9px;flex-shrink:0; }
+.legend-onto-icon { width:15px;height:15px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center; }
 .legend-dot-pentagon { flex-shrink:0;display:block; }
 .legend-dot-circle { border-radius:50%; }
 .legend-dot-rect { border-radius:2px;width:14px;height:9px; }
@@ -90,6 +91,11 @@
 .legend-eye { flex-shrink:0;margin-left:auto;padding-left:4px;opacity:.5;transition:opacity .12s; }
 .legend-onto-item:hover .legend-eye { opacity:.9; }
 .legend-item-hidden .legend-eye { opacity:.75; }
+.legend-onto-divider { height:1px;margin:3px 1px;background:rgba(255,255,255,.1); }
+.legend-item-active { color:#2dd4bf; }
+.legend-item-active .legend-eye { opacity:.95; }
+.legend-item-loading { opacity:.7;cursor:wait; }
+.day-mode .legend-onto-divider { background:rgba(0,0,0,.1); }
 .day-mode .graph-legend-onto { background:rgba(238,242,255,.88);border-color:var(--border);color:var(--text-muted); }
 .day-mode .conn-preview,.day-mode .conn-preview-box { background:#f0f4f8;border-color:var(--border); }
 .day-mode .legend-onto-item { color:var(--text-muted); }

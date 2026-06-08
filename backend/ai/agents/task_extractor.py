@@ -398,6 +398,20 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
     return {"result": _parse_archive_result(text, state.get("candidate_agendas", []))}
 
 
+_DETAIL_SCORE_SCHEMA = {
+    "목적및배경": 15, "현황분석": 20, "핵심내용": 20,
+    "실행계획": 20, "기대효과": 15, "리스크및대안": 10,
+}
+
+def _validate_detail_scores(raw: dict) -> dict:
+    result = {}
+    for key, max_score in _DETAIL_SCORE_SCHEMA.items():
+        item = raw.get(key, {}) if isinstance(raw, dict) else {}
+        score = item.get("score", 0) if isinstance(item, dict) else 0
+        result[key] = {"score": max(0, min(int(score), max_score)), "max": max_score}
+    return result
+
+
 def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
     match = re.search(r'\{[\s\S]*\}', text or "")
     parsed = {}
@@ -406,6 +420,11 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
             parsed = json.loads(match.group(0))
         except Exception:
             parsed = {}
+
+    raw_detail = parsed.get("detail_scores", {})
+    detail_scores = _validate_detail_scores(raw_detail)
+    computed_score = sum(v["score"] for v in detail_scores.values())
+    score = computed_score if raw_detail else int(parsed.get("score", 70))
 
     valid_ids = {
         str(ag.get("id"))
@@ -431,7 +450,8 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
             })
 
     return {
-        "score": int(parsed.get("score", 70)),
+        "score": score,
+        "detail_scores": detail_scores,
         "feedback": parsed.get("feedback", []),
         "matched_agendas": matched_agendas,
         "agendas": parsed.get("agendas", []),

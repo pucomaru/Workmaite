@@ -24,6 +24,7 @@ from routers import auth as auth_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
+from routers import upload as upload_router
 from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ app.include_router(meetings_router.router)
 app.include_router(meetings_router.ai_router)
 app.include_router(sessions_router.router)
 app.include_router(stt_router.router)
+app.include_router(upload_router.router)
 
 
 # WebSocket endpoints

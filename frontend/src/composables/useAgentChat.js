@@ -1,6 +1,7 @@
 import { ref, computed, reactive, nextTick } from 'vue'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { apiAI, streamPost } from '../api'
+import { useAgentMention } from './useAgentMention'
 
 export function useAgentChat({
   meetingGroups,
@@ -17,12 +18,11 @@ export function useAgentChat({
   onQueryClear,
 }) {
   // ─── Agents ───────────────────────────────────────────────────
-  // 내부적으로는 5개 서브에이전트가 존재하지만 사용자에게는 단일 워크메이트 AI로 표시됨
   const SUPERVISOR = {
     name: '워크메이트 AI', nameEn: 'Workmate AI',
     avatar: hyeanAvatar,
     greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n무엇이든 물어보세요.',
-    suggested: ['회의체 현황을 브리핑해줘', '이번 회의 아젠다를 정리해줘', '보고서를 검토해줘'],
+    suggested: ['회의체 현황을 브리핑해줘'],
     endpoint: '/api/agent/supervisor/chat',
   }
 
@@ -51,120 +51,20 @@ export function useAgentChat({
   const agentPendingFiles = ref([])
   const agentTextareaEl = ref(null)
 
-  // ─── @ mention ────────────────────────────────────────────────
-  const atMenuOpen = ref(false)
-  const atQuery = ref('')
-  const atCursorPos = ref(0)
-  const atHighlight = ref(0)
-  const mentionedContexts = ref([]) // [{id, type, label, icon, summary}]
-
-  const AT_TYPE_ICONS = { meeting: '🏢', person: '👤', task: '✅', department: '🏬', session: '📅', document: '📄' }
-  const AT_TYPE_LABELS = { meeting: '회의체', person: '구성원', task: '과제', department: '부서', session: '회의', document: '문서' }
-
-  const atMenuItems = computed(() => {
-    const q = atQuery.value.toLowerCase()
-    const seen = new Set()
-    const items = []
-    // 회의체
-    for (const mg of meetingGroups.value) {
-      const label = mg.title || mg.name || ''
-      if (!label) continue
-      if (!q || label.toLowerCase().includes(q)) {
-        const id = `mg-${mg.id}`
-        if (!seen.has(id)) {
-          seen.add(id)
-          const memberNames = (mg.members || []).map(m => m.name).filter(Boolean).join(', ')
-          const agendaList = (mg.agendas || []).map(a => a.content || a.title).filter(Boolean).slice(0, 3).join(', ')
-          items.push({
-            id, type: 'meeting', label, icon: '🏢',
-            summary: ['[회의체] ' + label, mg.purpose ? '목적: ' + mg.purpose : '', memberNames ? '구성원: ' + memberNames : '', agendaList ? '아젠다: ' + agendaList : ''].filter(Boolean).join('\n'),
-          })
-        }
-      }
-    }
-    // 구성원
-    for (const m of membersData.value) {
-      const label = m.name || ''
-      if (!label) continue
-      if (!q || label.toLowerCase().includes(q)) {
-        const id = `person-${m.id || m.employee_id || m.name}`
-        if (!seen.has(id)) {
-          seen.add(id)
-          items.push({
-            id, type: 'person', label, icon: '👤',
-            summary: ['[구성원] ' + label, m.department ? '부서: ' + m.department : '', m.position ? '직책: ' + m.position : ''].filter(Boolean).join('\n'),
-          })
-        }
-      }
-    }
-    // 과제
-    for (const t of tasksData.value) {
-      const label = (t.content || t.title || '').slice(0, 40)
-      if (!label) continue
-      if (!q || label.toLowerCase().includes(q)) {
-        const id = `task-${t.id}`
-        if (!seen.has(id)) {
-          seen.add(id)
-          const statusLabel = { pending: '대기', done: '완료', in_progress: '진행중', at_risk: '위험' }[t.status] || t.status || ''
-          items.push({
-            id, type: 'task', label, icon: '✅',
-            summary: ['[과제] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.deadline ? '마감: ' + t.deadline : ''].filter(Boolean).join('\n'),
-          })
-        }
-      }
-    }
-    // 현재 선택된 회의체의 세션
-    if (detailMeeting.value?.sessions?.length) {
-      for (const s of detailMeeting.value.sessions) {
-        const label = s.title || s.name || ''
-        if (!label) continue
-        if (!q || label.toLowerCase().includes(q)) {
-          const id = `session-${s.id}`
-          if (!seen.has(id)) {
-            seen.add(id)
-            items.push({ id, type: 'session', label, icon: '📅', summary: ['[회의] ' + label, s.date ? '일시: ' + s.date : ''].filter(Boolean).join('\n') })
-          }
-        }
-      }
-    }
-    return items.slice(0, 8)
+  // ─── @ mention (공통 컴포저블) ────────────────────────────────
+  const {
+    atMenuOpen, atQuery, atCursorPos, atHighlight, mentionedContexts,
+    AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
+    onAgentInput, selectAtItem, removeMentionCtx, handleMentionKeydown, consumeMentionContext,
+  } = useAgentMention({
+    meetingGroups,
+    membersData,
+    tasksData,
+    detailMeeting,
+    agentInput,
+    agentTextareaEl,
+    autoResize: () => agentAutoResize(),
   })
-
-  function onAgentInput(e) {
-    agentAutoResize()
-    const val = agentInput.value
-    const cursor = e.target.selectionStart
-    const before = val.slice(0, cursor)
-    const atIdx = before.lastIndexOf('@')
-    if (atIdx !== -1) {
-      const query = before.slice(atIdx + 1)
-      if (!query.includes(' ') && !query.includes('\n')) {
-        atQuery.value = query
-        atCursorPos.value = atIdx
-        atMenuOpen.value = true
-        atHighlight.value = 0
-        return
-      }
-    }
-    atMenuOpen.value = false
-  }
-
-  function selectAtItem(item) {
-    const el = agentTextareaEl.value
-    const cursor = el ? el.selectionStart : agentInput.value.length
-    const val = agentInput.value
-    agentInput.value = val.slice(0, atCursorPos.value) + val.slice(cursor)
-    if (!mentionedContexts.value.find(c => c.id === item.id)) {
-      mentionedContexts.value.push(item)
-    }
-    atMenuOpen.value = false
-    atQuery.value = ''
-    nextTick(() => { agentTextareaEl.value?.focus(); agentAutoResize() })
-  }
-
-  function removeMentionCtx(id) {
-    mentionedContexts.value = mentionedContexts.value.filter(c => c.id !== id)
-  }
 
   function initAgentGreeting() {
     if (!allMessages.value['supervisor'].length)
@@ -195,11 +95,9 @@ export function useAgentChat({
       agentPendingFiles.value = []
     }
     // @ 컨텍스트를 API 메시지에 주입 (화면에는 chips로만 표시)
-    const ctxSnapshot = [...mentionedContexts.value]
-    if (ctxSnapshot.length) {
-      const ctxBlock = ctxSnapshot.map(c => c.summary).join('\n---\n')
-      content = `${content}\n\n[참조 컨텍스트]\n${ctxBlock}`
-      mentionedContexts.value = []
+    const { block: ctxBlock, contexts: ctxSnapshot } = consumeMentionContext()
+    if (ctxBlock) {
+      content = `${content}${ctxBlock}`
     }
     const key = 'supervisor'
     // 화면에는 원본 텍스트만 + 참조된 컨텍스트 칩 표시 (API엔 full content 전달)
@@ -315,12 +213,7 @@ export function useAgentChat({
   }
 
   function onAgentKeydown(e) {
-    if (atMenuOpen.value && atMenuItems.value.length) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); atHighlight.value = (atHighlight.value + 1) % atMenuItems.value.length; return }
-      if (e.key === 'ArrowUp') { e.preventDefault(); atHighlight.value = (atHighlight.value - 1 + atMenuItems.value.length) % atMenuItems.value.length; return }
-      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectAtItem(atMenuItems.value[atHighlight.value]); return }
-      if (e.key === 'Escape') { atMenuOpen.value = false; return }
-    }
+    if (handleMentionKeydown(e)) return
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMsg() }
   }
   function onAgentFileSelected(e) { agentPendingFiles.value.push(...Array.from(e.target.files || [])); e.target.value = '' }
