@@ -40,7 +40,7 @@ public class GlobalExceptionHandler {
     // 그 외 예상치 못한 예외 처리
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
-        log.error("Exception: {}", e.getMessage());
+        log.error("Unhandled exception: {}", e.getMessage(), e);
         return ResponseEntity
                 .status(ErrorCode.INTERNAL_SERVER_ERROR.getStatus())
                 .body(ApiResponse.fail(ErrorCode.INTERNAL_SERVER_ERROR.getMessage()));
