@@ -21,7 +21,7 @@ const {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
 } = inject('archiveSidebar')
@@ -252,20 +252,7 @@ const {
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                       유사 문서 추천
                     </div>
-                    <div class="ctx-file-list">
-                      <label class="ctx-file-item">
-                        <input type="checkbox" v-model="selectedSimilarDocs" value="sim_1" class="ctx-checkbox" />
-                        <svg width="10" height="10" fill="none" stroke="#a78bfa" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">운영위원회 회의록 3월</span>
-                        <span class="ctx-sim-score">유사도 87%</span>
-                      </label>
-                      <label class="ctx-file-item">
-                        <input type="checkbox" v-model="selectedSimilarDocs" value="sim_2" class="ctx-checkbox" />
-                        <svg width="10" height="10" fill="none" stroke="#a78bfa" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">2025_전략보고서.pdf</span>
-                        <span class="ctx-sim-score">유사도 79%</span>
-                      </label>
-                    </div>
+                    <div class="ctx-file-list"></div>
                   </div>
 
                   <button class="ctx-run-btn" @click="runExtract">
@@ -609,24 +596,29 @@ const {
                 <div class="detail-info-grid">
                   <div class="detail-info-item" style="grid-column:span 2">
                     <span class="detail-info-key">파일명</span>
-                    <span class="detail-info-val">{{ detailNode.data?.title || detailNode.data?.file_name || detailNode.label }}</span>
+                    <span class="detail-info-val">{{ detailNode.data?.file_name || detailNode.data?.title || detailNode.label }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">종류</span>
                     <span class="detail-info-val">{{ detailNode.data?.doc_type || detailNode.fileType || '-' }}</span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">작성일</span>
+                    <span class="detail-info-key">업로드일</span>
                     <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : (detailNode.data?.submitted_at ? formatDate(detailNode.data.submitted_at) : '-') }}</span>
                   </div>
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">작성자</span>
-                    <span class="detail-info-val">{{ detailNode.data?.author || detailNode.data?.department || '-' }}</span>
+                  <div class="detail-info-item" style="grid-column:span 2">
+                    <span class="detail-info-key">작성부서</span>
+                    <span class="detail-info-val">{{ detailNode.data?.submitter_department || detailNode.data?.department || '-' }}</span>
                   </div>
                   <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
                     <span class="detail-info-key">파일</span>
-                    <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode.data?.title || detailNode.data?.file_name || detailNode.label)">
+                    <button class="dl-icon-btn" title="다운로드"
+                      @click="downloadFile(detailNode.data?.file_path || detailNode.filePath, detailNode.data?.file_name || detailNode.label)">
                       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
+                    <button class="dl-icon-btn delete" title="삭제"
+                      @click="deleteReport(detailNode.data?.id || detailNode.reportId)">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                     </button>
                   </div>
                 </div>

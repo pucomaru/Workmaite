@@ -381,7 +381,7 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
 
 /* App Modal */
 .app-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
-.app-modal { background:#fff;border-radius:16px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden; }
+.app-modal { background:#fff;border-radius:16px;max-width:92vw;max-height:90vh;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;resize:both;min-width:360px;min-height:300px; }
 .app-modal-sm { width:420px; }
 .app-modal-md { width:480px; }
 .app-modal-lg { width:520px; }

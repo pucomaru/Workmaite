@@ -62,14 +62,54 @@ def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
 
 # ── 보고자료 업로드 ────────────────────────────────────────────────────────────
 
+@router.get("/reports/rejected")
+async def get_rejected_reports(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다."""
+    from sqlalchemy.orm import aliased
+    # 재제출된 항목(자식 버전이 있는 항목) 제외
+    from sqlalchemy import exists
+    resubmitted_ids = db.query(models.Report.parent_id).filter(
+        models.Report.parent_id.isnot(None)
+    ).subquery()
+
+    rows = (
+        db.query(models.Report, models.ReportScore)
+        .outerjoin(models.ReportScore, models.ReportScore.report_id == models.Report.id)
+        .filter(
+            models.Report.upload_id == current_user.id,
+            models.Report.human_status == "rejected",
+            ~models.Report.id.in_(resubmitted_ids),
+        )
+        .order_by(models.Report.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "file_name": r.file_name,
+            "meeting_id": r.meeting_id,
+            "submitter_department": r.submitter_department,
+            "version": r.version,
+            "total_score": rs.total_score if rs else None,
+        }
+        for r, rs in rows
+    ]
+
+
 @router.post("/reports/{meeting_id}")
 async def upload_report(
     meeting_id: int,
     file: UploadFile = File(...),
+    dept_name: Optional[str] = Form(None),
+    parent_report_id: Optional[int] = Form(None),
+    related_agenda_ids: Optional[str] = Form("[]"),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """보고자료를 R2에 업로드하고 reports 테이블에 저장합니다."""
+    """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다."""
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
@@ -78,16 +118,32 @@ async def upload_report(
     if not meeting:
         raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
 
-    key, stored_name = _unique_key(f"reports/{meeting_id}", file.filename or "file")
-    r2_url = upload_bytes(content, key, get_content_type(file.filename or ""))
+    original_name = file.filename or "file"
+    key, _ = _unique_key(f"reports/{meeting_id}", original_name)
+    r2_url = upload_bytes(content, key, get_content_type(original_name))
+
+    version = 1
+    if parent_report_id:
+        parent = db.query(models.Report).filter(models.Report.id == parent_report_id).first()
+        if parent:
+            version = parent.version + 1
+
+    import json as _json
+    try:
+        agenda_ids = _json.loads(related_agenda_ids or "[]")
+    except Exception:
+        agenda_ids = []
 
     report = models.Report(
         meeting_id=meeting_id,
         upload_id=current_user.id,
-        file_name=stored_name,
+        file_name=original_name,
         file_path=r2_url,
         human_status="pending",
-        submitter_department=current_user.department or "",
+        submitter_department=dept_name or current_user.department or "",
+        parent_id=parent_report_id,
+        version=version,
+        related_agenda_ids=agenda_ids,
     )
     db.add(report)
     db.commit()
@@ -95,10 +151,141 @@ async def upload_report(
 
     return {
         "id": report.id,
-        "file_name": stored_name,
+        "file_name": original_name,
         "file_path": r2_url,
         "meeting_id": meeting_id,
     }
+
+
+@router.post("/reports/{report_id}/score")
+async def save_report_score(
+    report_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
+    import json as _json
+
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
+    feedback = data.get("feedback", [])
+    feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
+    detail_scores = data.get("detail_scores") or {}
+
+    existing = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+    if existing:
+        existing.ai_status = "success"
+        existing.total_score = data.get("score")
+        existing.detail_scores = detail_scores
+        existing.feedback = feedback_text
+    else:
+        db.add(models.ReportScore(
+            report_id=report_id,
+            ai_status="success",
+            total_score=data.get("score"),
+            detail_scores=detail_scores,
+            feedback=feedback_text,
+        ))
+
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/reports/{report_id}/review")
+async def submit_report_review(
+    report_id: int,
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
+    import json as _json
+    from datetime import datetime as _dt
+    from sqlalchemy import desc as _desc
+
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
+    action = data.get("action")  # "approved" or "rejected"
+    if action not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="action은 approved 또는 rejected여야 합니다.")
+
+    report.human_status = action
+
+    # 최종 아젠다 연결 업데이트 (step 2에서 사용자가 선택/확정한 값)
+    if "related_agenda_ids" in data:
+        report.related_agenda_ids = data["related_agenda_ids"]
+
+    # 가장 최근 agent_log 연결 (archive_analyze_stream)
+    agent_log = (
+        db.query(models.AgentLog)
+        .filter(
+            models.AgentLog.user_id == current_user.id,
+            models.AgentLog.context_type == "archive_analyze_stream",
+        )
+        .order_by(_desc(models.AgentLog.created_at))
+        .first()
+    )
+
+    review_prompt = data.get("ai_result", {})
+    review_comment = {"comment": data.get("feedback", "")}
+
+    db.add(models.HitlReview(
+        agent_log_id=agent_log.id if agent_log else None,
+        target_type="report",
+        target_id=report_id,
+        review_prompt=review_prompt,      # dict → JSONB
+        ai_rationale=data.get("ai_rationale", ""),
+        status=action,
+        reviewer_id=current_user.id,
+        review_comment=review_comment,    # dict → JSONB
+        reviewed_at=_dt.utcnow(),
+    ))
+
+    db.commit()
+    return {"status": "ok", "action": action}
+
+
+@router.delete("/reports/{report_id}")
+async def delete_report(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """보고서를 R2, report_scores, hitl_reviews, reports 테이블에서 삭제합니다."""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
+    # R2에서 파일 삭제
+    if report.file_path:
+        try:
+            from r2_storage import url_to_key
+            import boto3, os
+            key = url_to_key(report.file_path)
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=os.environ["R2_ENDPOINT"],
+                aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+            )
+            s3.delete_object(Bucket="workmaite-bucket", Key=key)
+        except Exception as e:
+            pass  # R2 삭제 실패해도 DB는 삭제
+
+    # DB 삭제 (report_scores, hitl_reviews는 FK cascade 없으므로 직접 삭제)
+    db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).delete()
+    db.query(models.HitlReview).filter(
+        models.HitlReview.target_type == "report",
+        models.HitlReview.target_id == report_id,
+    ).delete()
+    db.delete(report)
+    db.commit()
+    return {"status": "ok"}
 
 
 # ── 회의록 HTML → PDF 변환 후 R2 저장 ───────────────────────────────────────

@@ -1267,6 +1267,11 @@ const aiAnalyzing = ref(false)
 const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
 const aiStreamText = ref('')   // 스트리밍 중 LLM 토큰 누적 텍스트
 const aiStreamStage = ref('')  // 현재 진행 단계 메시지
+const reportId = ref(null)        // AI 검토 시작 시 생성된 report ID
+const uploadedFilePath = ref('')  // R2 업로드된 파일 경로
+const isResubmit = ref(false)     // 재검토 모드 여부
+const rejectedReports = ref([])   // 반려된 보고서 목록
+const selectedParentId = ref(null) // 선택된 원본 report ID
 const selectedAgendas = ref([])      // indices of agendas to apply
 const selectedRelDepts = ref([])     // dept names to auto-connect
 
@@ -1279,6 +1284,10 @@ function openUploadModal(ctx = {}) {
   selectedAgendas.value = []
   selectedRelDepts.value = []
   customAgendas.value = []
+  reportId.value = null
+  uploadedFilePath.value = ''
+  isResubmit.value = false
+  selectedParentId.value = null
   // 드래그로 자동 입력된 필드 기록
   prefilledCtx.value = {
     meetingId: !!ctx.meetingId,
@@ -1319,14 +1328,37 @@ async function runAiAnalysis() {
   const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
             || deptConnectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
 
-  // 실제 파일을 백엔드로 전송 → 서버에서 PDF/DOCX 텍스트 추출 후 AI 검토 (스트리밍)
+  const _mid = String(uploadForm.value.meetingId || '').replace(/^mg-/, '')
+
+  // 파일을 먼저 R2에 업로드 → reports 테이블에 pending으로 저장
+  if (uploadForm.value.file && _mid && /^\d+$/.test(_mid)) {
+    try {
+      const uploadFd = new FormData()
+      uploadFd.append('file', uploadForm.value.file)
+      uploadFd.append('dept_name', deptNode?.label || '')
+      uploadFd.append('related_agenda_ids', JSON.stringify(uploadForm.value.relatedTodoIds || []))
+      if (selectedParentId.value) {
+        uploadFd.append('parent_report_id', String(selectedParentId.value))
+      }
+      const { data: uploadData } = await apiAI.post(
+        `/api/upload/reports/${_mid}`,
+        uploadFd,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      reportId.value = uploadData.id
+      uploadedFilePath.value = uploadData.file_path
+    } catch (e) {
+      console.warn('[runAiAnalysis] 파일 업로드 실패:', e)
+    }
+  }
+
+  // AI 검토 스트리밍 요청
   const fd = new FormData()
   if (uploadForm.value.file) fd.append('file', uploadForm.value.file)
   fd.append('file_name', uploadForm.value.label)
   fd.append('file_type', uploadForm.value.fileType)
   fd.append('dept_name', deptNode?.label || '')
   fd.append('graph_context', buildGraphContextStr())
-  const _mid = String(uploadForm.value.meetingId || '').replace(/^mg-/, '')
   if (_mid && /^\d+$/.test(_mid)) fd.append('meeting_id', _mid)
   fd.append('candidate_agendas', JSON.stringify(
     업로드회의체과제.value.map(t => ({
@@ -1378,6 +1410,14 @@ async function runAiAnalysis() {
   } finally {
     aiAnalyzing.value = false
     aiStreamStage.value = ''
+    // AI 결과를 report_scores에 저장
+    if (reportId.value && aiResult.value?.score != null) {
+      apiAI.post(`/api/upload/reports/${reportId.value}/score`, {
+        score: aiResult.value.score,
+        feedback: aiResult.value.feedback ?? [],
+        detail_scores: aiResult.value.detail_scores ?? {},
+      }).catch(e => console.warn('[runAiAnalysis] 점수 저장 실패:', e))
+    }
   }
 }
 
@@ -1444,6 +1484,8 @@ function doAddFile() {
     fileType: uploadForm.value.fileType,
     aiScore: aiResult.value?.score ?? null,
     aiReview: aiResult.value ? { ...aiResult.value } : null,
+    filePath: uploadedFilePath.value || null,
+    reportId: reportId.value || null,
     extractedAgendas: [],
     groupIdx: mgNode?.groupIdx,
     meetingGroupId: uploadForm.value.meetingId,
@@ -1456,6 +1498,16 @@ function doAddFile() {
     agendaNodes.forEach(ag => {
       const agIdx = gNodes.indexOf(ag)
       if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '첨부' })
+      // Neo4j에 파일-아젠다 관계 저장
+      if (reportId.value && ag.neo4jId) {
+        apiAI.post('/api/neo4j/relationships', {
+          from_id: `report-${reportId.value}`,
+          from_label: 'Document',
+          to_id: ag.neo4jId,
+          to_label: 'Agenda',
+          rel_type: '첨부',
+        }).catch(e => console.warn('[doAddFile] agenda 관계 Neo4j 저장 실패:', e))
+      }
     })
   } else if (anchorIdx >= 0) {
     gEdges.push({ from: fileIdx, to: anchorIdx, rel: autoRel(uploadForm.value.connectNodeId, 'file') })
@@ -1494,24 +1546,7 @@ function doAddFile() {
 
   showUploadModal.value = false
   graphViewRef.value?.reloadGraph(gNodes, gEdges)
-
-  // 백엔드 업로드 (R2) — file_path를 노드에 저장
-  const file = uploadForm.value.file
-  if (file) {
-    const rawMgId = uploadForm.value.meetingId
-    const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
-    if (mgNumId) {
-      const fd = new FormData()
-      fd.append('file', file)
-      apiAI.post(`/api/upload/reports/${mgNumId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        .then(({ data }) => {
-          newNode.filePath = data.file_path
-          graphViewRef.value?.reloadGraph(gNodes, gEdges)
-          setTimeout(refreshArchive, 1200)
-        })
-        .catch(e => console.warn('[doAddFile] upload/reports 실패:', e))
-    }
-  }
+  setTimeout(refreshArchive, 1200)
 }
 
 
@@ -1713,16 +1748,18 @@ const groupHistoryMap = computed(() => {
         fileName: m.session_title || '회의록',
       })
     })
-    // 보고서
+    // 보고서 (rejected 포함, 상태 표시)
     g.reports.forEach(r => {
-      const dept = r.submitted_by_dept || r.department || ''
+      const dept = r.submitter_department || r.submitted_by_dept || r.department || ''
+      const isRejected = r.human_status === 'rejected'
       items.push({
         type: 'report',
-        desc: dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`,
+        desc: (isRejected ? '[반려] ' : '') + (dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`),
         manager: r.submitted_by || managerName,
-        date: r.submitted_at,
+        date: r.created_at || r.submitted_at,
         hasFile: true,
         fileName: r.file_name || '보고서',
+        rejected: isRejected,
       })
       // 보고서 승인 이력 (상태가 있을 경우)
       if (r.status === 'approved') {
@@ -1891,6 +1928,38 @@ watch(() => neo4jMeetings.value.length, () => {
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
 function downloadDummy(name){alert(`"${name}" 다운로드 기능은 준비 중입니다.`)}
+
+async function downloadFile(filePath, fileName) {
+  if (!filePath) { alert('다운로드할 파일 경로가 없습니다.'); return }
+  try {
+    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath, expires_in: 3600 } })
+    const a = document.createElement('a')
+    a.href = data.url
+    a.download = fileName || 'download'
+    a.target = '_blank'
+    a.click()
+  } catch (e) {
+    alert('다운로드 링크 생성에 실패했습니다.')
+  }
+}
+
+async function deleteReport(reportId) {
+  if (!reportId) return
+  if (!confirm('보고서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  try {
+    await apiAI.delete(`/api/upload/reports/${reportId}`)
+    // 그래프에서 노드 제거
+    const idx = gNodes.findIndex(n => n.reportId === reportId || n.id === `file-report-${reportId}`)
+    if (idx >= 0) {
+      gNodes.splice(idx, 1)
+      graphViewRef.value?.reloadGraph(gNodes, gEdges)
+    }
+    detailNode.value = null
+    setTimeout(refreshArchive, 600)
+  } catch (e) {
+    alert('삭제에 실패했습니다.')
+  }
+}
 const TYPES=['Draft','In Progress','Done','Pending']
 
 // ─── Provide for Canvas components (GraphLegend, GraphFloatBtns, FloatDragPreview) ─
@@ -1913,6 +1982,41 @@ provide('archiveList', {
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
+async function fetchRejectedReports() {
+  try {
+    const { data } = await apiAI.get('/api/upload/reports/rejected')
+    rejectedReports.value = data || []
+  } catch (e) {
+    console.warn('[fetchRejectedReports] 실패:', e)
+  }
+}
+
+async function submitReview(action, feedback) {
+  if (action === 'rejected') {
+    showUploadModal.value = false
+  }
+  if (!reportId.value) {
+    if (action === 'approved') doAddFile()
+    return
+  }
+  try {
+    await apiAI.post(`/api/upload/reports/${reportId.value}/review`, {
+      action,
+      feedback,
+      ai_result: {
+        score: aiResult.value?.score,
+        detail_scores: aiResult.value?.detail_scores,
+      },
+      ai_rationale: (aiResult.value?.feedback ?? []).join('\n'),
+      related_agenda_ids: uploadForm.value.relatedTodoIds || [],
+    })
+  } catch (e) {
+    console.warn('[submitReview] hitl 저장 실패:', e)
+  } finally {
+    if (action === 'approved') doAddFile()
+  }
+}
+
 provide('archiveModals', {
   nightMode,
   showCreateModal, createForm, creating, doCreateMeeting, createMembers,
@@ -1922,7 +2026,8 @@ provide('archiveModals', {
   addCustomAgenda,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
   aiStreamText, aiStreamStage,
-  PRESENTATION_CRITERIA, doAddFile,
+  PRESENTATION_CRITERIA, doAddFile, submitReview, reportId,
+  isResubmit, rejectedReports, selectedParentId, fetchRejectedReports,
   settingsModal, closeSettings,
   settingsSearchQ, watchSettingsSearch, settingsSearchLoading,
   settingsSearchResults, addMemberToSettings, avatarColor, initials,
@@ -1947,7 +2052,7 @@ provide('archiveSidebar', {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
 })
