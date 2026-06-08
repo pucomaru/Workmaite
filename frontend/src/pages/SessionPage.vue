@@ -202,7 +202,12 @@ function toggleRecording() {
   micError.value = ''
   if (recordingState.value === 'idle') {
     stt.start()
-      .then(() => { recordingState.value = 'recording' })
+      .then(() => {
+        recordingState.value = 'recording'
+        if (activeSession.value?.id) {
+          api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
+        }
+      })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
     recordingState.value = 'paused'; stt.stop(); fetchTranscriptSummary()
@@ -468,9 +473,14 @@ function deleteMinutes() {
   }
 }
 
-function endMeeting() {
+async function endMeeting() {
   if (!confirm('기록을 종료하시겠습니까?')) return
-  stopRecording(); activeSession.value = null
+  const sessionId = activeSession.value?.id
+  stopRecording()
+  if (sessionId) {
+    await api.post(`/api/v1/sessions/${sessionId}/end`).catch(() => {})
+  }
+  activeSession.value = null
 }
 
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
@@ -948,7 +958,7 @@ async function downloadMinutesFile() {
               <i class="bi bi-stop-fill"></i>
             </button>
 
-            <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
+            <button v-if="recordingState!=='idle'" class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
