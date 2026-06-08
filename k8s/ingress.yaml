@@ -69,6 +69,13 @@ spec:
                 name: workmaite-ai
                 port:
                   number: 8000
+          - path: /api/usage
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
           - path: /api
             pathType: Prefix  # /api, /api/v1/... 등 하위 경로 전부 매칭 → Spring Boot
             backend:
