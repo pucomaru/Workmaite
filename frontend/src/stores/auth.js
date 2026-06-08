@@ -16,6 +16,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = data.accessToken
     user.value = data.user
     sessionStorage.setItem('token', data.accessToken)
+    if (data.refreshToken) sessionStorage.setItem('refreshToken', data.refreshToken)
     sessionStorage.setItem('user', JSON.stringify(data.user))
   }
 

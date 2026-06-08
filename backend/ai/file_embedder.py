@@ -1,27 +1,17 @@
 """
-file_embedder.py — 파일 텍스트 추출 → 청킹 → 임베딩 → Neo4j 저장
-===================================================================
+file_embedder.py — 파일 텍스트 추출 → 청킹 → 임베딩 유틸리티
+==============================================================
 지원 파일 형식: PDF, DOCX, TXT, HWP(텍스트 추출 한계로 plaintext fallback)
-
-파이프라인:
-  1. extract_text(file_path)  → 원문 텍스트
-  2. chunk_text(text)         → 청크 리스트 (token 기반, overlap 포함)
-  3. embed_chunks(chunks)     → OpenAI text-embedding-3-small 벡터 리스트
-  4. neo4j_sync.sync_document_chunk() → Neo4j DocumentChunk 노드 + VectorIndex
 """
 
 from __future__ import annotations
-import asyncio
-import hashlib
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from openai import AsyncOpenAI
 
-from neo4j_sync import sync_document_chunk, sync_document
 from r2_storage import is_r2_url, url_to_key, download_bytes as r2_download_bytes
 
 logger = logging.getLogger(__name__)
@@ -202,99 +192,3 @@ async def embed_query(text: str) -> list[float]:
         return [0.0] * EMBED_DIM
 
 
-# ─── 통합 파이프라인 ──────────────────────────────────────────────────────────
-
-async def process_and_embed_file(
-    file_path: str,
-    file_name: str,
-    meeting_id: int | None = None,
-    session_id: int | None = None,
-    extra_meta: dict | None = None,
-    agenda_neo4j_id: str | None = None,
-    agenda_content: str | None = None,
-    file_label: str | None = None,
-    doc_type: str = "보고자료",
-    mg_id: str | None = None,
-) -> dict:
-    """
-    파일 전체 파이프라인을 실행합니다.
-    Returns:
-        {
-            "file_name": str,
-            "chunk_count": int,
-            "embedded": int,       # 성공한 청크 수
-            "failed": int,         # Neo4j 저장 실패 수 (agent_logs에 기록됨)
-        }
-    """
-    logger.info(f"[Embedder] 파일 처리 시작: {file_name}")
-
-    # 1. 텍스트 추출
-    text = extract_text(file_path)
-    if not text.strip():
-        logger.warning(f"[Embedder] {file_name}: 추출된 텍스트 없음")
-        return {"file_name": file_name, "chunk_count": 0, "embedded": 0, "failed": 0}
-
-    # 2. 청킹
-    chunks = chunk_text(text)
-    if not chunks:
-        return {"file_name": file_name, "chunk_count": 0, "embedded": 0, "failed": 0}
-
-    # 3. 임베딩
-    embeddings = await embed_chunks(chunks)
-
-    # 4. Neo4j 저장
-    embedded = 0
-    failed = 0
-    file_hash = hashlib.md5(file_name.encode()).hexdigest()[:8]
-
-    # source_file에 R2 URL을 저장해 retry 시 재다운로드 가능하게 함
-    source_ref = file_path if is_r2_url(file_path) else file_name
-
-    tasks = []
-    for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-        chunk_id = f"{file_hash}-{meeting_id or 'g'}-{session_id or 's'}-{idx}"
-        tasks.append(
-            sync_document_chunk(
-                chunk_id=chunk_id,
-                source_file=source_ref,
-                meeting_id=meeting_id,
-                session_id=session_id,
-                chunk_index=idx,
-                text=chunk,
-                embedding=emb,
-                metadata={**(extra_meta or {}), "total_chunks": len(chunks)},
-            )
-        )
-
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for r in results:
-        if isinstance(r, Exception):
-            failed += 1
-        else:
-            embedded += 1
-
-    # 5. Document 노드 upsert (파일 전체를 대표하는 노드)
-    doc_id = f"doc-{file_hash}-{meeting_id or 'g'}"
-    uploader_id = (extra_meta or {}).get("uploader_id")
-    await sync_document(
-        doc_id=doc_id,
-        file_name=file_name,
-        title=file_label or file_name,
-        doc_type=doc_type,
-        meeting_id=meeting_id,
-        mg_id=mg_id,
-        agenda_neo4j_id=agenda_neo4j_id,
-        agenda_content=agenda_content,
-        uploader_id=uploader_id,
-    )
-
-    logger.info(
-        f"[Embedder] {file_name} 완료 — "
-        f"청크: {len(chunks)}, 임베딩 성공: {embedded}, 실패: {failed}"
-    )
-    return {
-        "file_name": file_name,
-        "chunk_count": len(chunks),
-        "embedded": embedded,
-        "failed": failed,
-    }

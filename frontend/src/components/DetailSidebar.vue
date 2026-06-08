@@ -583,7 +583,7 @@ const {
                   </div>
                   <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
                     <span class="detail-info-key">회의록</span>
-                    <button class="dl-icon-btn" :title="detailNode.data?.doc_title || detailNode.data?.file_name || '회의록 다운로드'" @click="downloadDummy(detailNode.data?.doc_title || detailNode.data?.file_name || detailNode.data?.session_title || detailNode.label)">
+                    <button class="dl-icon-btn" :title="detailNode.data?.doc_title || detailNode.data?.file_name || '회의록 다운로드'" @click="downloadDummy(detailNode)">
                       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
                   </div>
@@ -625,7 +625,7 @@ const {
                   </div>
                   <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
                     <span class="detail-info-key">파일</span>
-                    <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode.data?.title || detailNode.data?.file_name || detailNode.label)">
+                    <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode)">
                       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
                   </div>
