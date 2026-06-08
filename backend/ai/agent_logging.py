@@ -213,7 +213,7 @@ def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
                 model_name=model_name,
                 prompt_tokens=pt,
                 completion_tokens=ct,
-                estimated_cost_usd=_estimate_cost(model_name, pt, ct),
+                cost=_estimate_cost(model_name, pt, ct),
             ))
         db.commit()
     except Exception as e:
