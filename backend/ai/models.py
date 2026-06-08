@@ -179,14 +179,14 @@ class TokenUsageLog(Base):
 class HitlReview(Base):
     __tablename__ = "hitl_reviews"
     id             = Column(Integer, primary_key=True, index=True)
-    agent_log_id   = Column(Integer, ForeignKey("agent_logs.id"), nullable=False)
+    agent_log_id   = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
     target_type    = Column(String(30), nullable=False)
     target_id      = Column(Integer, nullable=False)
-    review_prompt  = Column(Text, nullable=True)
+    review_prompt  = Column(JSON, nullable=True)
     ai_rationale   = Column(Text, nullable=True)
     status         = Column(String(20), default="pending")
     reviewer_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
-    review_comment = Column(Text, nullable=True)
+    review_comment = Column(JSON, nullable=True)
     reviewed_at    = Column(DateTime, nullable=True)
     created_at     = Column(DateTime, default=datetime.utcnow)
 

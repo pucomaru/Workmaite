@@ -527,6 +527,7 @@ async function _restoreDrafts(meetingId) {
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
         _editDueDate: ag.due_date || '',
+        _agentLogId: null,
         _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
       }))
     } else {
@@ -542,24 +543,36 @@ watch(detailTab, async (tab) => {
   }
 })
 
-// 피드백: ag 객체에 직접 _feedbackVisible, _feedbackAction, _feedbackText 프로퍼티로 관리
-function showFeedback(ag, action) {
-  ag._feedbackVisible = true
-  ag._feedbackAction = action
-  ag._feedbackText = ''
-}
-async function submitFeedback(ag) {
-  if (!ag.db_id) { ag._feedbackVisible = false; return }
-  try {
-    await apiAI.post('/api/agent/archive/agendas/feedback', {
-      agenda_id: ag.db_id,
-      feedback: ag._feedbackText || '',
-      action: ag._feedbackAction || 'edited',
-      meeting_id: toNumericId(detailMeeting.value?.id),
-    })
-  } catch (e) { console.error('피드백 저장 실패:', e) }
+async function saveAgendaFeedback(ag) {
+  if (ag.db_id) {
+    try {
+      await apiAI.post('/api/agent/hitl-reviews', {
+        target_type: 'agenda',
+        target_id: ag.db_id,
+        agent_log_id: ag._agentLogId || null,
+        status: ag._feedbackAction || 'edited',
+        review_prompt: {
+          agenda: ag._origTitle ?? ag.title,
+          department: ag._origDept ?? ag.department ?? null,
+          start_date: ag._origStartDate ?? ag.start_date ?? null,
+          end_date: ag._origEndDate ?? ag.due_date ?? null,
+        },
+        review_comment: {
+          agenda: ag.title,
+          department: ag.department ?? null,
+          start_date: ag.start_date ?? null,
+          end_date: ag.due_date ?? null,
+          comment: ag._feedbackText || null,
+        },
+      })
+    } catch (e) { console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e) }
+  }
   ag._feedbackVisible = false
   ag._feedbackText = ''
+  if (ag._feedbackAction === 'rejected') {
+    const idx = extractResult.value.indexOf(ag)
+    if (idx !== -1) extractResult.value.splice(idx, 1)
+  }
 }
 
 // 추출 결과를 채팅 메시지 형식으로 포맷
@@ -626,6 +639,7 @@ async function runExtract() {
     await planningPromise
 
     if (data.agendas && data.agendas.length) {
+      const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
         _state: null,
@@ -635,6 +649,7 @@ async function runExtract() {
         _editDueDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         db_id: ag.db_id || null,
+        _agentLogId: agentLogId,
         _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
       }))
       // 실제 추출 결과를 채팅에 표시
@@ -1940,7 +1955,7 @@ provide('archiveSidebar', {
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
   runExtract, setExtractState, addExtractItem, finishExtract,
-  showFeedback, submitFeedback,
+  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,

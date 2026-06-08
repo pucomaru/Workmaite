@@ -385,22 +385,32 @@ async function extractNextAgendas() {
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
+    const agentLogId = data?.agent_log_id || null
     const items = data?.agendas || []
-    nextAgendaItems.value = items.map(a => ({
-      title: a.title || a.content || '',
-      dept: a.dept || a.assignee_dept || a.department || '',
-      _state: null,
-      _reason: '',
-      _showReason: false,
-      _editing: false,
-      _editTitle: a.title || a.content || '',
-      _editDept: a.dept || a.assignee_dept || a.department || '',
-    }))
+    const toNounTitle = (t) => (t || '')
+      .replace(/\s*(검토\s*)?결과\s*보고\s*$/, '').replace(/\s*보고\s*$/, '')
+      .replace(/\s*논의\s*$/, '').replace(/\s*수립\s*$/, '')
+      .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
+    nextAgendaItems.value = items.map(a => {
+      const title = toNounTitle(a.title || a.content || '')
+      const dept  = a.department || a.dept || a.assignee_dept || ''
+      return {
+        title, dept,
+        db_id: a.db_id || null,
+        start_date: a.start_date || null,
+        end_date: a.due_date || null,
+        _agentLogId: agentLogId,
+        _state: null, _reason: '', _showReason: false, _editing: false,
+        _editTitle: title, _editDept: dept,
+        _editStartDate: a.start_date || null,
+        _editEndDate: a.due_date || null,
+      }
+    })
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 과제을 입력해주세요', dept: '', _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '' }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -413,13 +423,39 @@ function toggleNextAgendaState(i, state) {
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({ title: '', dept: '', _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '' })
+  nextAgendaItems.value.push({ title: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
-function saveNextAgendaEdit(i) {
+async function saveNextAgendaEdit(i) {
   const item = nextAgendaItems.value[i]
+  if (item.db_id && item._agentLogId) {
+    try {
+      await apiAI.post('/api/agent/hitl-reviews', {
+        target_type: 'agenda',
+        target_id: item.db_id,
+        agent_log_id: item._agentLogId,
+        status: 'edited',
+        review_prompt: {
+          agenda: item.title,
+          department: item.dept || null,
+          start_date: item.start_date || null,
+          end_date: item.end_date || null,
+        },
+        review_comment: {
+          agenda: item._editTitle !== item.title ? item._editTitle : null,
+          department: item._editDept !== item.dept ? item._editDept : null,
+          start_date: item._editStartDate !== item.start_date ? item._editStartDate : null,
+          end_date: item._editEndDate !== item.end_date ? item._editEndDate : null,
+        },
+      })
+    } catch (e) {
+      console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e)
+    }
+  }
   item.title = item._editTitle
   item.dept = item._editDept
+  item.start_date = item._editStartDate
+  item.end_date = item._editEndDate
   item._editing = false
 }
 
@@ -855,6 +891,10 @@ async function downloadMinutesFile() {
                         <div class="nab-item-body nab-item-edit">
                           <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
                           <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
+                          <div class="nab-date-row">
+                            <input type="date" class="nab-input nab-date-input" v-model="item._editStartDate" title="시작일" />
+                            <input type="date" class="nab-input nab-date-input" v-model="item._editEndDate" title="종료일" />
+                          </div>
                         </div>
                         <div class="nab-item-actions">
                           <button class="nab-btn nab-btn-approved" @click="saveNextAgendaEdit(i)">
@@ -1416,6 +1456,8 @@ async function downloadMinutesFile() {
 .nab-item-title { font-size:12px;color:var(--dark-text);font-weight:500; }
 .nab-item-dept { font-size:11px;color:var(--text-muted);margin-top:2px; }
 .nab-item-edit { display:flex;flex-direction:column; }
+.nab-date-row { display:flex;gap:6px;margin-top:4px; }
+.nab-date-input { flex:1;min-width:0; }
 .nab-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--dark-text);outline:none; }
 .nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
 .nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
