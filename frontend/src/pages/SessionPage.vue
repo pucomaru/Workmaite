@@ -640,7 +640,7 @@ async function uploadMinutesFile(event) {
   const fd = new FormData()
   fd.append('file', file)
   try {
-    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}/file`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     minutesFileUrl.value = data.file_path

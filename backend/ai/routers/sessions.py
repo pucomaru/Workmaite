@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime
 from typing import List, Optional
@@ -9,21 +10,16 @@ from database import get_db
 from auth import get_current_user
 from neo4j_sync import sync_session, sync_minutes, delete_session
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
 
 def _md_to_pdf(md_text: str) -> bytes:
     import markdown
-    from weasyprint import HTML, CSS
+    from routers.upload import _html_to_pdf
     html_body = markdown.markdown(md_text, extensions=["tables", "nl2br"])
-    css = CSS(string="""
-        body { font-family: 'NanumGothic', sans-serif; margin: 40px; line-height: 1.6; }
-        h1, h2, h3 { color: #333; }
-        table { border-collapse: collapse; width: 100%; }
-        td, th { border: 1px solid #ccc; padding: 8px; }
-    """)
-    html_full = f"<html><body>{html_body}</body></html>"
-    return HTML(string=html_full).write_pdf(stylesheets=[css])
+    return _html_to_pdf(html_body)
 
 
 @router.get("/meetings/{meeting_id}/sessions", response_model=List[schemas.SessionOut])
@@ -180,9 +176,9 @@ async def save_minutes(
             f"minutes/{session_id}/{file_name}",
             "application/pdf",
         )
+        logger.info(f"[sessions/minutes] R2 업로드 완료 — session_id={session_id}, url={r2_url}")
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"[Minutes] PDF 변환/R2 업로드 실패 (무시): {e}")
+        logger.warning(f"[sessions/minutes] PDF 변환/R2 업로드 실패 (무시): {e}")
 
     summary = body.content_summary or body.content[:500]
 
@@ -194,17 +190,18 @@ async def save_minutes(
     if existing:
         existing.content_original = body.content
         existing.content_summary  = summary
-        existing.file_name        = file_name
-        existing.file_path        = r2_url
         existing.recorder_id      = current_user.id
         existing.generated_at     = datetime.utcnow()
+        if r2_url:  # R2 업로드 실패 시 기존 file_path 보존
+            existing.file_name = file_name
+            existing.file_path = r2_url
         minutes = existing
     else:
         minutes = models.Minutes(
             session_id       = session_id,
             content_original = body.content,
             content_summary  = summary,
-            file_name        = file_name,
+            file_name        = file_name if r2_url else None,
             file_path        = r2_url,
             recorder_id      = current_user.id,
         )

@@ -242,6 +242,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
             author: m.doc_author,
             created_at: m.doc_created_at || m.ended_at || m.date,
             file_name: m.file_name,
+            session_neo_id: m.id,
           }
         })
         edges.push({ from: sIdx, to: dIdx, rel: '산출' })

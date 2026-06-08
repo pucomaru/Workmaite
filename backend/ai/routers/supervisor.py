@@ -1430,10 +1430,16 @@ async def submit_agenda_feedback(
     import uuid as _uuid
     from datetime import datetime as _dt
 
-    agenda_id = data.get("agenda_id")
-    feedback  = data.get("feedback", "")
-    action    = data.get("action", "rejected")   # "rejected" | "edited"
-    meeting_id = data.get("meeting_id")
+    agenda_id  = data.get("agenda_id")
+    feedback   = data.get("feedback", "")
+    action     = data.get("action", "rejected")   # "rejected" | "edited"
+    meeting_id = data.get("meeting_id") or None   # 0 → None (FK-safe)
+
+    # agenda_id must be a valid integer for HitlReview.target_id (NOT NULL Integer)
+    try:
+        target_id = int(agenda_id)
+    except (TypeError, ValueError):
+        target_id = None
 
     log = models.AgentLog(
         task_id=str(_uuid.uuid4()),
@@ -1448,16 +1454,17 @@ async def submit_agenda_feedback(
     db.add(log)
     db.flush()
 
-    db.add(models.HitlReview(
-        agent_log_id=log.id,
-        target_type="agenda",
-        target_id=agenda_id,
-        review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
-        status=action,
-        reviewer_id=current_user.id,
-        review_comment=feedback or None,
-        reviewed_at=_dt.utcnow(),
-    ))
+    if target_id is not None:
+        db.add(models.HitlReview(
+            agent_log_id=log.id,
+            target_type="agenda",
+            target_id=target_id,
+            review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
+            status=action,
+            reviewer_id=current_user.id,
+            review_comment=feedback or None,
+            reviewed_at=_dt.utcnow(),
+        ))
     db.commit()
     return {"ok": True}
 
