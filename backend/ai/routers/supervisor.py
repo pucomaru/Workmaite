@@ -264,7 +264,7 @@ async def _stream_plan(system_content: str, human_content: str):
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
 @router.post("/minutes/sessions-chat")
-async def ara_sessions_chat(
+async def minutes_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -312,7 +312,7 @@ async def ara_sessions_chat(
 
 
 @router.post("/minutes/generate-minutes")
-async def ara_generate_minutes(
+async def minutes_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
