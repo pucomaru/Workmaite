@@ -155,7 +155,6 @@ async def sync_session(
     ended_at: str | None = None,
     location: str | None = None,
     session_type: str | None = None,  # PG: type (대면/비대면 등)
-    audio_path: str | None = None,
     description: str | None = None,
 ) -> None:
     """Session 노드를 Neo4j에 upsert하고 Meetings과 관계를 맺습니다."""
@@ -171,7 +170,6 @@ async def sync_session(
         s.ended_at     = $ended_at,
         s.location     = $location,
         s.type         = $session_type,
-        s.audio_path   = $audio_path,
         s.description  = $description,
         s.updated_at   = $updated_at
     WITH s
@@ -190,7 +188,6 @@ async def sync_session(
         "ended_at": ended_at or "",
         "location": location or "",
         "session_type": session_type or "",
-        "audio_path": audio_path or "",
         "description": description or "",
         "mg_id": mg_id,
         "updated_at": datetime.utcnow().isoformat(),
@@ -719,17 +716,20 @@ async def sync_document(
             )
         except Exception as e:
             logger.warning(f"[Neo4jSync] {doc_label}-Session 연결 실패 (무시): {e}")
-    # Agenda 연결
+    # Agenda 연결 (다중 지원: 콤마로 구분된 id 허용)
     if agenda_neo4j_id:
-        try:
-            await run_cypher(
-                f"MATCH (d:{doc_label} {{id: $doc_id}}) "
-                "OPTIONAL MATCH (ag:Agenda) WHERE ag.id = $ag_id OR toString(ag.pg_id) = $ag_id "
-                "FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END | MERGE (d)-[:첨부]->(ag))",
-                {"doc_id": doc_id, "ag_id": agenda_neo4j_id},
-            )
-        except Exception as e:
-            logger.warning(f"[Neo4jSync] {doc_label}-Agenda 연결 실패 (무시): {e}")
+        ag_ids = [a.strip() for a in str(agenda_neo4j_id).split(",") if a.strip()]
+        if ag_ids:
+            try:
+                await run_cypher(
+                    f"MATCH (d:{doc_label} {{id: $doc_id}}) "
+                    "UNWIND $ag_ids AS ag_id "
+                    "OPTIONAL MATCH (ag:Agenda) WHERE ag.id = ag_id OR toString(ag.pg_id) = ag_id "
+                    "FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END | MERGE (d)-[:첨부]->(ag))",
+                    {"doc_id": doc_id, "ag_ids": ag_ids},
+                )
+            except Exception as e:
+                logger.warning(f"[Neo4jSync] {doc_label}-Agenda 연결 실패 (무시): {e}")
     logger.debug(f"[Neo4jSync] {doc_label} {doc_id} 저장 완료")
 
 
@@ -1001,13 +1001,12 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 ended_at=s.ended_at.isoformat() if s.ended_at else None,
                 location=s.location,
                 session_type=s.type,
-                audio_path=s.audio_path,
                 description=s.description,
             )
             stats["sessions"] += 1
 
-        # 5. Agenda
-        for ag in db.query(models.Agenda).all():
+        # 5. Agenda (draft 제외 — draft는 사용자 확인 전이므로 그래프에 노출 안 함)
+        for ag in db.query(models.Agenda).filter(models.Agenda.status != "draft").all():
             dept_str = ""
             if ag.department:
                 dept_str = (

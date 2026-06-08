@@ -232,7 +232,7 @@ const features = [
     <nav class="navbar navbar-expand-lg navbar-dark landing-nav">
       <div class="container">
         <a class="navbar-brand" href="#">
-          <img src="../assets/workmaite-logo-white.svg" class="nav-logo-img" alt="Workma!te" />
+          <img src="../assets/workmaite-logo-white.png" class="nav-logo-img" alt="Workma!te" />
         </a>
         <div class="ms-auto d-flex gap-2">
           <button class="btn btn-outline-light btn-sm px-3" @click="openLogin">로그인</button>
@@ -252,9 +252,9 @@ const features = [
           <span>클릭하여 서비스 소개 보기</span>
         </div>
         <div class="graph-brand">
-          <img src="../assets/workmaite-logo-white.svg" class="graph-logo-img" alt="Workma!te" />
+          <img src="../assets/workmaite-logo-white.png" class="graph-logo-img" alt="Workma!te" />
         </div>
-        <p class="graph-tagline">회의 지식이 연결되는 공간</p>
+        <p class="graph-tagline">AI Archive Link Platform</p>
       </div>
     </section>
 
@@ -263,7 +263,7 @@ const features = [
       <div class="container text-center">
         <div class="hero-badge mb-3">
           <span class="badge rounded-pill bg-warning text-dark px-3 py-2">
-            <i class="bi bi-stars me-1"></i>AI 기반 회의 운영 플랫폼
+            <i class="bi bi-stars me-1"></i>AI Archive Link Platform
           </span>
         </div>
         <h1 class="hero-title mb-4">
@@ -327,7 +327,7 @@ const features = [
     <section class="cta-section text-center py-6">
       <div class="container">
         <h2 class="fw-bold fs-2 text-white mb-3">지금 바로 시작하세요</h2>
-        <p class="text-white-50 mb-4 fs-6">무료로 가입하고 AI가 이끄는 스마트한 회의를 경험해보세요</p>
+        <p class="text-white-50 mb-4 fs-6">AI가 이끄는 스마트한 회의를 경험해보세요</p>
         <button class="btn btn-warning btn-lg fw-bold px-5 py-3" @click="openRegister">
           회원가입 <i class="bi bi-arrow-right ms-1"></i>
         </button>
@@ -343,7 +343,7 @@ const features = [
 
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showLogin" class="popup-backdrop" @click.self="closeModals">
+        <div v-if="showLogin" class="popup-backdrop">
           <div class="popup-box">
             <button class="popup-close" @click="closeModals"><i class="bi bi-x-lg"></i></button>
             <LoginPopup @close="closeModals" @go-register="openRegister" />
@@ -354,7 +354,7 @@ const features = [
 
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showRegister" class="popup-backdrop" @click.self="closeModals">
+        <div v-if="showRegister" class="popup-backdrop">
           <div class="popup-box">
             <button class="popup-close" @click="closeModals"><i class="bi bi-x-lg"></i></button>
             <RegisterPopup @close="closeModals" @go-login="openLogin" />
@@ -375,13 +375,13 @@ const features = [
   position: sticky; top: 0; z-index: 100;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
-.nav-logo-img { height: 26px; width: auto; }
+.nav-logo-img { height: 15px; width: auto; }
 
 /* ── 3D Graph Hero ── */
 .graph-hero {
   position: relative;
   height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+  background: linear-gradient(135deg, var(--dark-bg) 0%, #1e3a5f 50%, var(--dark-bg) 100%);
   cursor: pointer;
   overflow: hidden;
 }
@@ -428,7 +428,7 @@ const features = [
 }
 .hint-pulse {
   width: 10px; height: 10px;
-  background: #60a5fa;
+  background: var(--accent-light);
   border-radius: 50%;
   animation: pulse 1.8s ease-in-out infinite;
 }
@@ -471,7 +471,7 @@ const features = [
 
 /* Features */
 .py-6 { padding-top: 80px; padding-bottom: 80px; }
-.features-section { background: #fff; }
+.features-section { background: var(--bg-card); }
 .feature-card { border: 1px solid var(--border) !important; transition: transform .2s, box-shadow .2s; }
 .feature-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg) !important; }
 .feature-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
@@ -479,16 +479,16 @@ const features = [
 
 /* Popup */
 .popup-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.popup-box { position: relative; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; background: #fff; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-.popup-close { position: absolute; top: 14px; right: 16px; z-index: 10; background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; padding: 4px; line-height: 1; transition: color .15s; }
-.popup-close:hover { color: #475569; }
+.popup-box { position: relative; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; background: var(--bg-card); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.popup-close { position: absolute; top: 14px; right: 16px; z-index: 10; background: none; border: none; font-size: 18px; color: var(--dark-muted); cursor: pointer; padding: 4px; line-height: 1; transition: color .15s; }
+.popup-close:hover { color: var(--text-dim); }
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s, transform .2s; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 .modal-fade-enter-from .popup-box, .modal-fade-leave-to .popup-box { transform: scale(.95) translateY(8px); }
 
 /* CTA */
 .cta-section { background: linear-gradient(135deg, var(--primary), #1e40af); }
-.landing-footer { background: #f8fafc; border-top: 1px solid var(--border); margin-top: auto; }
+.landing-footer { background: var(--surface); border-top: 1px solid var(--border); margin-top: auto; }
 
 @media (max-width: 768px) {
   .hero-stats { flex-wrap: wrap; gap: 16px; padding: 16px 24px; }

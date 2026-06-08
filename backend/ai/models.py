@@ -55,7 +55,6 @@ class MeetingSession(Base):
     description  = Column(String(255), nullable=True)
     location     = Column(String(255), nullable=True)
     type         = Column(String(50), nullable=False)
-    audio_path   = Column(String(500), nullable=True)
     scheduled_at = Column(DateTime, nullable=True)
     started_at   = Column(DateTime, nullable=True)
     ended_at     = Column(DateTime, nullable=True)
@@ -75,6 +74,7 @@ class Agenda(Base):
     department  = Column(JSON, nullable=True)
     due_date    = Column(DateTime, nullable=True)
     priority    = Column(String(20), default="medium")
+    ai_evidence = Column(Text, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
 
 
@@ -172,7 +172,7 @@ class TokenUsageLog(Base):
     model_name         = Column(String(50), nullable=False)
     prompt_tokens      = Column(Integer, nullable=False)
     completion_tokens  = Column(Integer, nullable=False)
-    estimated_cost_usd = Column(Float, nullable=True)
+    cost               = Column(Float, nullable=True)
     created_at         = Column(DateTime, default=datetime.utcnow)
 
 

@@ -1,6 +1,6 @@
 package com.workmaite.domain.reports.dto;
 
-import com.workmaite.domain.reports.entity.ReportFileType;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,12 +13,11 @@ public class ReportSessionSubmitRequest {
     private Long meetingId;
 
     @NotNull(message = "업로더 ID를 입력해주세요.")
-    private Long uploaderId;
+    private Long uploadId;
 
-    @NotNull(message = "파일 타입을 선택해주세요.")
-    private ReportFileType fileType;
+    @NotBlank(message = "제출 부서를 입력해주세요.")
+    private String submitterDepartment;
 
     private String fileName;
-
     private String filePath;
 }

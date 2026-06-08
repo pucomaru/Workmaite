@@ -33,7 +33,7 @@ const {
       <div v-else-if="!meetingGroups.length" class="lv-empty">소속된 회의체가 없습니다.</div>
       <AppTable v-else :columns="lvColumns" :dark="nightMode" :sortKey="lvSortKey" :sortDir="lvSortDir" @sort="handleLvSort">
         <tr v-if="!filteredGroups.length">
-          <td colspan="5" class="lv-hist-empty" style="padding:20px;text-align:center;color:#94a3b8">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
+          <td colspan="5" class="lv-hist-empty" style="padding:20px;text-align:center;color:var(--dark-muted)">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>
         </tr>
         <template v-for="g in sortedGroups" :key="g.id">
           <tr class="lv-group-row" @click="expandedMeeting = expandedMeeting===g.id ? null : g.id">
@@ -45,11 +45,11 @@ const {
             </td>
             <td class="lv-td-type">
               <span v-if="g.meeting_type" class="lv-type-text">{{ g.meeting_type }}</span>
-              <span v-else class="lv-type-text" style="color:#94a3b8">-</span>
+              <span v-else class="lv-type-text" style="color:var(--dark-muted)">-</span>
             </td>
             <td class="lv-td-role">
-              <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
-                {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+              <span class="lv-role-badge" :class="g._role === '간사' ? 'role-admin' : 'role-member'">
+                {{ g._role || '참여자' }}
               </span>
             </td>
             <td class="lv-td-secretary">

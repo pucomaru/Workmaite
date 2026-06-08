@@ -57,7 +57,7 @@ async function save() {
         </div>
         <div class="form-group">
           <label class="form-label">사번</label>
-          <input :value="auth.user?.employee_id" class="form-input" disabled style="background:#f8fafc;color:var(--text-muted)" />
+          <input :value="auth.user?.employee_id" class="form-input" disabled style="background:var(--surface);color:var(--text-muted)" />
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">

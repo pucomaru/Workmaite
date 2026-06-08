@@ -131,14 +131,14 @@ onBeforeUnmount(() => {
 }
 
 .lobby-card {
-  background: #1e293b;
+  background: var(--dark-card);
   border-radius: 16px;
   padding: 32px;
   width: 420px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  color: #f1f5f9;
+  color: var(--surface-2);
 }
 
 .lobby-title {
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 12px;
   overflow: hidden;
-  background: #0f172a;
+  background: var(--dark-bg);
   aspect-ratio: 16/9;
 }
 
@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #94a3b8;
+  color: var(--dark-muted);
   font-size: 14px;
 }
 
@@ -202,18 +202,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  background: #334155;
+  background: var(--dark-border);
   border: none;
   border-radius: 12px;
   padding: 12px 20px;
   cursor: pointer;
-  color: #f1f5f9;
+  color: var(--surface-2);
   flex: 1;
   transition: background 0.2s;
 }
 
 .lobby-ctrl-btn:hover {
-  background: #475569;
+  background: var(--text-dim);
 }
 
 .lobby-ctrl-btn.ctrl-off {
@@ -243,16 +243,16 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 12px;
   border-radius: 10px;
-  border: 1px solid #475569;
+  border: 1px solid var(--text-dim);
   background: transparent;
-  color: #94a3b8;
+  color: var(--dark-muted);
   cursor: pointer;
   font-size: 15px;
   transition: background 0.2s;
 }
 
 .btn-cancel:hover {
-  background: #334155;
+  background: var(--dark-border);
 }
 
 .btn-join {
@@ -260,7 +260,7 @@ onBeforeUnmount(() => {
   padding: 12px;
   border-radius: 10px;
   border: none;
-  background: #3b82f6;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
   font-size: 15px;

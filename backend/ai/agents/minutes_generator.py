@@ -4,8 +4,11 @@ from typing_extensions import TypedDict
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
+from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
@@ -16,6 +19,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 # ── State ─────────────────────────────────────────────────────────────────
 class MinutesState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+    remaining_steps: RemainingSteps
     previous_minutes: List[str]
     current_agendas: List[dict]
     meeting_context: str
@@ -92,31 +96,67 @@ def _build_context_prompt(
     return "\n\n".join(parts) if parts else None
 
 
-# ── Graph nodes ────────────────────────────────────────────────────────────
-async def _chat_node(state: MinutesState) -> dict:
+# ── Tools ──────────────────────────────────────────────────────────────────────
+@tool
+async def search_similar_minutes_tool(query: str) -> str:
+    """이전 회의에서 유사한 회의록 내용을 검색합니다.
+
+    Args:
+        query: 현재 회의 주제나 논의 내용 요약
+    """
+    results = await _search_similar_minutes(query, k=3)
+    if not results:
+        return "유사한 이전 회의록을 찾지 못했습니다."
+    return "\n\n---\n\n".join(results[:2])
+
+
+@tool
+async def get_agenda_status(query: str) -> str:
+    """현재 진행 중이거나 보류된 안건을 검색합니다.
+
+    Args:
+        query: 관련 안건 주제나 키워드
+    """
+    from agents.knowledge_manager import search_knowledge
+    results = await search_knowledge(query, node_type="Agenda", k=5)
+    if not results:
+        return "관련 안건을 찾지 못했습니다."
+    lines = [
+        f"- {r.get('title','?')}: {r.get('content','')[:150]}"
+        for r in results[:4]
+    ]
+    return "\n".join(lines)
+
+
+MINUTES_TOOLS: list = [search_similar_minutes_tool, get_agenda_status]
+
+
+# ── Graph ─────────────────────────────────────────────────────────────────
+def _minutes_state_modifier(state: MinutesState) -> List[BaseMessage]:
+    """런타임 컨텍스트(previous_minutes·current_agendas·meeting_context)를 시스템 메시지로 주입합니다."""
     context = _build_context_prompt(
         state.get("previous_minutes", []),
         state.get("current_agendas", []),
         state.get("meeting_context", ""),
     )
-    system_msgs: List[BaseMessage] = [SystemMessage(content=MINUTES_SYSTEM)]
+    base: List[BaseMessage] = [SystemMessage(content=MINUTES_SYSTEM)]
     if context:
-        system_msgs += [
+        base += [
             HumanMessage(content=context),
             AIMessage(content="회의 정보를 확인했습니다. 도움이 필요하신 게 있나요?"),
         ]
-    llm = _make_llm()
-    response = await llm.ainvoke(system_msgs + state["messages"])
-    return {"messages": [response]}
+    return base + list(state.get("messages", []))
 
 
-# ── Graph ─────────────────────────────────────────────────────────────────
 def _build_graph():
-    builder = StateGraph(MinutesState)
-    builder.add_node("chat", _chat_node)
-    builder.add_edge(START, "chat")
-    builder.add_edge("chat", END)
-    return builder.compile()
+    """LangGraph create_react_agent — MINUTES_TOOLS를 도구로 사용하는 에이전트 그래프."""
+    return create_react_agent(
+        model=_make_llm(),
+        tools=MINUTES_TOOLS,
+        state_schema=MinutesState,
+        prompt=_minutes_state_modifier,
+    )
+
 
 _graph = _build_graph()
 

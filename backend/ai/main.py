@@ -19,11 +19,12 @@ from database import get_db
 from websocket_manager import manager
 from auth import get_current_user
 
-from routers import notifications, supervisor, chat_history, neo4j_graph, sync as sync_router
+from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
 from routers import auth as auth_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
+from routers import upload as upload_router
 from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 
 logger = logging.getLogger(__name__)
@@ -33,15 +34,16 @@ _RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:
-    """잘못 생성된 Todo 노드 및 Agenda {id: 'todo-*'} 노드를 정리합니다."""
+    """잘못 생성된 Todo 노드, todo-* Agenda, draft 상태 Agenda 노드를 정리합니다."""
     from neo4j_client import run_cypher as _run
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
+            "   OR (n:Agenda AND n.status = 'draft') "
             "DETACH DELETE n"
         )
-        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*) 노드 정리 완료")
+        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*, draft) 노드 정리 완료")
     except Exception as e:
         logger.warning(f"[Cleanup] 노드 정리 실패 (무시): {e}")
 
@@ -99,7 +101,6 @@ app.add_middleware(
 
 # 라우터
 app.include_router(auth_router.router)
-app.include_router(notifications.router)
 app.include_router(supervisor.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
@@ -108,6 +109,7 @@ app.include_router(meetings_router.router)
 app.include_router(meetings_router.ai_router)
 app.include_router(sessions_router.router)
 app.include_router(stt_router.router)
+app.include_router(upload_router.router)
 
 
 # WebSocket endpoints
@@ -119,16 +121,6 @@ async def ws_meeting_agenda(meeting_id: int, websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect_meeting(meeting_id, websocket)
-
-
-@app.websocket("/ws/notifications/{user_id}")
-async def ws_notifications(user_id: int, websocket: WebSocket):
-    await manager.connect_user(user_id, websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect_user(user_id)
 
 
 @app.websocket("/ws/sessions/{session_id}/minutes")

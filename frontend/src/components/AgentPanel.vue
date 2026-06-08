@@ -342,7 +342,7 @@ defineExpose({ scrollBottom })
 .ap-bubble-agent :deep(h3)            { font-size: 13px; }
 .ap-bubble-agent :deep(h4)            { font-size: 13px; font-style: italic; }
 .ap-bubble-agent :deep(code)          { background: rgba(0,0,0,.08); padding: 1px 5px; border-radius: 4px; font-size: 12px; font-family: monospace; }
-.ap-bubble-agent :deep(pre)           { background: #1e293b; color: #e2e8f0; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; font-size: 12px; }
+.ap-bubble-agent :deep(pre)           { background: var(--dark-card); color: var(--dark-text); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; font-size: 12px; }
 .ap-bubble-agent :deep(pre code)      { background: none; padding: 0; }
 .ap-bubble-agent :deep(blockquote)    { border-left: 3px solid rgba(0,0,0,.2); padding-left: 10px; margin: 6px 0; opacity: .8; }
 .ap-bubble-agent :deep(hr)            { border: none; border-top: 1px solid rgba(0,0,0,.15); margin: 8px 0; }
@@ -422,7 +422,7 @@ defineExpose({ scrollBottom })
   color: var(--text-muted);
   flex-shrink: 0;
 }
-.ap-chip-remove:hover { color: #ef4444; }
+.ap-chip-remove:hover { color: var(--danger); }
 .ap-input {
   flex: 1;
   resize: none;
@@ -464,7 +464,7 @@ defineExpose({ scrollBottom })
   width: 30px; height: 30px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: #f8fafc;
+  background: var(--surface);
   color: var(--text-muted);
   font-size: 18px;
   line-height: 1;
