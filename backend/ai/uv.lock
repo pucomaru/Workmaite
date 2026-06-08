@@ -2519,7 +2519,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = "==2.0.48" },
     { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.41.0" },
-    { name = "xhtml2pdf", specifier = ">=0.2.11" },
+    { name = "xhtml2pdf", specifier = ">=0.2.16" },
 ]
 
 [[package]]

@@ -1183,7 +1183,7 @@ const connectableNodes = computed(() => {
     const mgId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
     result.push({ id: mgId, label:g.title, typeLabel:'회의체', type:'meeting_group' })
   })
-  groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
+  groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, sessionId: m.id, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
   return result
 })
 
@@ -1499,18 +1499,33 @@ function doAddFile() {
   // 백엔드 업로드 (R2) — file_path를 노드에 저장
   const file = uploadForm.value.file
   if (file) {
-    const rawMgId = uploadForm.value.meetingId
-    const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
-    if (mgNumId) {
-      const fd = new FormData()
-      fd.append('file', file)
-      apiAI.post(`/api/upload/reports/${mgNumId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        .then(({ data }) => {
-          newNode.filePath = data.file_path
-          graphViewRef.value?.reloadGraph(gNodes, gEdges)
-          setTimeout(refreshArchive, 1200)
-        })
-        .catch(e => console.warn('[doAddFile] upload/reports 실패:', e))
+    const fd = new FormData()
+    fd.append('file', file)
+    if (uploadForm.value.fileType === '회의록') {
+      const sessionNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
+      const sessionId = sessionNode?.sessionId
+      if (sessionId) {
+        fd.append('content', '')
+        apiAI.post(`/api/upload/minutes/${sessionId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          .then(({ data }) => {
+            newNode.filePath = data.file_path
+            graphViewRef.value?.reloadGraph(gNodes, gEdges)
+            setTimeout(refreshArchive, 1200)
+          })
+          .catch(e => console.warn('[doAddFile] upload/minutes 실패:', e))
+      }
+    } else {
+      const rawMgId = uploadForm.value.meetingId
+      const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
+      if (mgNumId) {
+        apiAI.post(`/api/upload/reports/${mgNumId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+          .then(({ data }) => {
+            newNode.filePath = data.file_path
+            graphViewRef.value?.reloadGraph(gNodes, gEdges)
+            setTimeout(refreshArchive, 1200)
+          })
+          .catch(e => console.warn('[doAddFile] upload/reports 실패:', e))
+      }
     }
   }
 }
