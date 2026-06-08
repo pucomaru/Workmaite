@@ -1790,32 +1790,34 @@ const groupHistoryMap = computed(() => {
     g.reports.forEach(r => {
       const dept = r.submitter_department || r.submitted_by_dept || r.department || ''
       const isRejected = r.human_status === 'rejected' || r.status === 'rejected'
+      const versionSuffix = r.version ? ` (v${r.version})` : ''
       items.push({
         type: 'report',
-        desc: (isRejected ? '[반려] ' : '') + (dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`),
+        desc: (isRejected ? '[반려] ' : '') + (r.file_name || '파일') + versionSuffix,
         manager: r.submitted_by || managerName,
         date: r.created_at || r.submitted_at,
         hasFile: !!(r.file_path || r.file_url),
         fileName: r.file_name || '보고서',
         filePath: r.file_path || r.file_url || null,
         rejected: isRejected,
+        reportId: r.id,
       })
-      // 보고서 승인 이력 (상태가 있을 경우)
+      // 보고서 승인/반려 이력
       if (r.human_status === 'approved' || r.status === 'approved') {
         items.push({
           type: 'approved',
-          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 승인`,
+          desc: `[승인] ${r.file_name || '파일'}${versionSuffix}`,
           manager: managerName,
-          date: r.approved_at || r.submitted_at,
+          date: r.reviewed_at || r.approved_at || null,
           hasFile: false,
           fileName: '',
         })
       } else if (r.human_status === 'rejected' || r.status === 'rejected') {
         items.push({
           type: 'rejected',
-          desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 반려`,
+          desc: `[반려] ${r.file_name || '파일'}${versionSuffix}`,
           manager: managerName,
-          date: r.rejected_at || r.submitted_at,
+          date: r.reviewed_at || r.rejected_at || null,
           hasFile: false,
           fileName: '',
         })
@@ -1824,7 +1826,7 @@ const groupHistoryMap = computed(() => {
     items.sort((a, b) => {
       const da = a.date ? new Date(a.date) : new Date(0)
       const db = b.date ? new Date(b.date) : new Date(0)
-      return db - da
+      return da - db
     })
     map.set(g.id, items)
   })
@@ -1970,7 +1972,7 @@ watch(() => neo4jMeetings.value.length, () => {
 
 
 // ─── Helpers ──────────────────────────────────────────────────
-function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
+function formatDate(d){if(!d)return'-';return new Date(d).toLocaleString('ko-KR',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
 async function _openPresigned(filePath) {
   const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
   window.open(data.url, '_blank')
@@ -2038,7 +2040,7 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy: downloadFile,
+  formatDate, downloadDummy: downloadFile, deleteReport,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────

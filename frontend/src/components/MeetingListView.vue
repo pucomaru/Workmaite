@@ -1,5 +1,5 @@
 <script setup>
-import { inject } from 'vue'
+import { inject, ref, onUnmounted } from 'vue'
 import AppTable from './AppTable.vue'
 const {
   viewMode, selectedMeetingType, meetingTypeOptions,
@@ -8,8 +8,46 @@ const {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy,
+  formatDate, downloadDummy, deleteReport,
 } = inject('archiveList')
+
+// ── 내부 테이블 컬럼 리사이즈 ──────────────────────────────────
+const MIN_W = 60
+const histColWidths = ref([null, 120, 160, 70]) // null = flex
+
+let resizing = null
+function startHistResize(e, colIndex) {
+  e.preventDefault()
+  resizing = {
+    colIndex,
+    startX: e.clientX,
+    startWidth: histColWidths.value[colIndex],
+    nextStartWidth: histColWidths.value[colIndex + 1],
+  }
+  window.addEventListener('mousemove', onHistMouseMove)
+  window.addEventListener('mouseup', onHistMouseUp)
+}
+function onHistMouseMove(e) {
+  if (!resizing) return
+  const dx = e.clientX - resizing.startX
+  const newW = Math.max(MIN_W, (resizing.startWidth || MIN_W) + dx)
+  const newNext = resizing.nextStartWidth !== null
+    ? Math.max(MIN_W, resizing.nextStartWidth - dx)
+    : null
+  const cols = [...histColWidths.value]
+  cols[resizing.colIndex] = newW
+  if (newNext !== null) cols[resizing.colIndex + 1] = newNext
+  histColWidths.value = cols
+}
+function onHistMouseUp() {
+  resizing = null
+  window.removeEventListener('mousemove', onHistMouseMove)
+  window.removeEventListener('mouseup', onHistMouseUp)
+}
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onHistMouseMove)
+  window.removeEventListener('mouseup', onHistMouseUp)
+})
 </script>
 
 <template>
@@ -62,10 +100,19 @@ const {
               <table class="app-table lv-hist-table">
                 <thead>
                   <tr>
-                    <th>설명</th>
-                    <th style="width:110px">담당자</th>
-                    <th style="width:100px">진행일</th>
-                    <th style="width:60px">자료</th>
+                    <th :style="histColWidths[0] ? { width: histColWidths[0] + 'px' } : {}">
+                      설명
+                      <span class="hist-col-resize" @mousedown.stop="startHistResize($event, 0)"/>
+                    </th>
+                    <th :style="{ width: histColWidths[1] + 'px' }">
+                      담당자
+                      <span class="hist-col-resize" @mousedown.stop="startHistResize($event, 1)"/>
+                    </th>
+                    <th :style="{ width: histColWidths[2] + 'px' }">
+                      진행일시
+                      <span class="hist-col-resize" @mousedown.stop="startHistResize($event, 2)"/>
+                    </th>
+                    <th :style="{ width: histColWidths[3] + 'px' }">자료</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -78,7 +125,7 @@ const {
                       <div class="lv-hist-desc-inner">
                         <span class="lv-hist-type-dot" :class="'ht-' + item.type"></span>
                         {{ item.desc }}
-                        <span v-if="item.rejected" class="lv-rejected-badge">반려</span>
+                        <span v-if="item.rejected && item.type === 'report'" class="lv-rejected-badge">반려</span>
                       </div>
                     </td>
                     <td class="lv-hist-manager">{{ item.manager }}</td>
@@ -87,7 +134,10 @@ const {
                       <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item)" title="다운로드">
                         <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                       </button>
-                      <span v-else class="lv-no-file">-</span>
+                      <button v-if="item.reportId" class="lv-dl-btn lv-del-btn" @click.stop="deleteReport(item.reportId)" title="삭제">
+                        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                      </button>
+                      <span v-if="!item.hasFile && !item.reportId" class="lv-no-file">-</span>
                     </td>
                   </tr>
                 </tbody>
