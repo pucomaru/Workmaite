@@ -327,7 +327,7 @@ async function saveProfileSettings() {
     <!-- 개인설정 모달 -->
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showProfileSettings" class="ps-backdrop" @click.self="showProfileSettings=false">
+        <div v-if="showProfileSettings" class="ps-backdrop">
           <div class="ps-modal">
             <div class="ps-header">
               <h5 class="mb-0 fw-bold" style="color:var(--primary)">개인설정</h5>

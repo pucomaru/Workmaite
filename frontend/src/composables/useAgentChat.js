@@ -220,7 +220,7 @@ export function useAgentChat({
     // 'extract' 탭(runExtract 실행 후)과 'task' 탭(extractPhase=result) 모두 포함
     const isExtractMode = (detailTab.value === 'extract' || detailTab.value === 'task') &&
       showExtractFlow.value &&
-      (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
+      extractPhase.value === 'result' &&
       detailMeeting.value
 
     if (isExtractMode) {
@@ -236,7 +236,7 @@ export function useAgentChat({
         const { data } = await apiAI.post('/api/agent/archive/chat-extract', {
           meeting_id: toNumericId(detailMeeting.value.id),
           message: content,
-          chat_history: [{ agendas: extractResult.value.map(({ title, bullets, department, priority }) => ({ title, bullets, department, priority })) }],
+          chat_history: [{ agendas: extractResult.value.map(({ title, department, priority, start_date, due_date }) => ({ title, department, priority, start_date, due_date })) }],
         })
         agentMsg.content = data.reply || '과제 목록을 업데이트했습니다.'
         if (data.agendas && data.agendas.length) {
@@ -303,7 +303,7 @@ export function useAgentChat({
   function isExtractModeActive() {
     return (detailTab.value === 'extract' || detailTab.value === 'task') &&
       showExtractFlow.value &&
-      (extractPhase.value === 'result' || extractPhase.value === 'assign') &&
+      extractPhase.value === 'result' &&
       !!detailMeeting.value
   }
 

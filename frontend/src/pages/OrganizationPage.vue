@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import api, { apiAI } from '../api'
-import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 
@@ -15,13 +14,14 @@ const orgColumns = [
   { label: '', width: '72px', noResize: true }
 ]
 
-const meetingsStore = useMeetingsStore()
 const themeStore = useThemeStore()
 const nightMode = computed(() => themeStore.nightMode)
 
 const selectedMeetingId = ref('all')
 const searchQuery = ref('')
 const allMembers = ref([])
+// 본인이 속한 회의체 목록 (PostgreSQL 기준 권한 범위)
+const myMeetings = ref([])
 const loadingMembers = ref(false)
 
 const showAddModal = ref(false)
@@ -30,13 +30,13 @@ const addError = ref('')
 
 const editModal = ref(null)  // { ...member }
 
-// Demo data fallback (shown when API has no data)
+// 본인이 속한 회의체의 구성원만 PostgreSQL 기준으로 조회 (서버에서 권한 범위 강제)
 async function fetchAllMembers() {
   loadingMembers.value = true
   try {
-    const res = await api.get('/api/v1/users')
-    // Map API response to the shape groupedFilteredMembers expects
-    allMembers.value = res.data.map(u => ({
+    const res = await apiAI.get('/api/ai/organization/members')
+    myMeetings.value = res.data.meetings ?? []
+    allMembers.value = (res.data.members ?? []).map(u => ({
       id: u.id,
       name: u.name,
       email: u.email,
@@ -47,6 +47,7 @@ async function fetchAllMembers() {
       meetings: u.meetings ?? [],
     }))
   } catch {
+    myMeetings.value = []
     allMembers.value = []
   } finally {
     loadingMembers.value = false
@@ -74,7 +75,7 @@ const memberCount = computed(() => {
 })
 
 onMounted(async () => {
-  await Promise.all([meetingsStore.fetchMeetings(), fetchAllMembers()])
+  await fetchAllMembers()
 })
 
 function openAddModal() {
@@ -116,7 +117,7 @@ async function removeMember(member) {
   const meeting = member.meetings[0]
   if (!meeting?.id || !meeting?.member_id) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
   try {
-    await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${meeting.member_id}`)
+    await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
@@ -126,7 +127,7 @@ function openEdit(member) { editModal.value = { ...member } }
 async function saveEdit() {
   const m = editModal.value
   try {
-    await api.patch(`/api/v1/users/${m.id}`, {
+    await apiAI.patch(`/api/ai/users/${m.id}`, {
       name: m.name,
       company: m.organization || null,
       department: m.department || null,
@@ -333,11 +334,16 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
       </div>
 
       <select v-model="selectedMeetingId" class="org-meeting-select app-select">
-        <option value="all">전체 회의체</option>
-        <option v-for="m in meetingsStore.meetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+        <option value="all">내 회의체 전체</option>
+        <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
       </select>
 
       <span class="member-count-text">({{ memberCount }}건)</span>
+
+      <span class="org-scope-badge" title="본인이 속한 회의체의 구성원만 조회됩니다.">
+        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        내 회의체 기준
+      </span>
 
       <div class="plus-wrap">
         <input ref="csvImportInput" type="file" accept=".csv" style="display:none" @change="handleCSVFile" />
@@ -407,7 +413,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             <td colspan="7" class="empty-row">
               <div class="empty-state">
                 <div class="empty-icon-lg">👤</div>
-                <p>표시할 구성원이 없습니다</p>
+                <p>{{ myMeetings.length ? '표시할 구성원이 없습니다' : '소속된 회의체가 없어 조회할 구성원이 없습니다' }}</p>
               </div>
             </td>
           </tr>
@@ -416,7 +422,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
     <!-- Add member modal -->
     <Teleport to="body">
-      <div v-if="showAddModal" class="app-modal-backdrop" @click.self="showAddModal = false">
+      <div v-if="showAddModal" class="app-modal-backdrop">
         <div class="app-modal app-modal-sm">
           <div class="app-modal-header">
             <span class="app-modal-title">구성원 추가</span>
@@ -468,7 +474,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
       </div>
 
       <!-- CSV 가져오기 결과 모달 -->
-      <div v-if="csvImportResult" class="app-modal-backdrop" @click.self="csvImportResult = null">
+      <div v-if="csvImportResult" class="app-modal-backdrop">
         <div class="app-modal app-modal-sm">
           <div class="app-modal-header">
             <span class="app-modal-title">CSV 가져오기 결과</span>
@@ -485,7 +491,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
 
       <!-- Edit member modal -->
-      <div v-if="editModal" class="app-modal-backdrop" @click.self="editModal = null">
+      <div v-if="editModal" class="app-modal-backdrop">
         <div class="app-modal app-modal-sm">
           <div class="app-modal-header">
             <span class="app-modal-title">구성원 정보 수정</span>
@@ -537,6 +543,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 
 .member-count-text { font-size:13px;color:#c8d1dd;white-space:nowrap;flex-shrink:0; }
 .day-mode .member-count-text { color:#5a5f66; }
+.org-scope-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#7dd3fc;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);border-radius:6px;padding:3px 8px;white-space:nowrap;flex-shrink:0; }
+.org-scope-badge svg { flex-shrink:0; }
+.day-mode .org-scope-badge { color:#0369a1;background:rgba(2,132,199,0.08);border-color:rgba(2,132,199,0.25); }
 .org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
 
 /* Table */

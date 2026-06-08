@@ -48,8 +48,8 @@ const {
               <span v-else class="lv-type-text" style="color:var(--dark-muted)">-</span>
             </td>
             <td class="lv-td-role">
-              <span class="lv-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
-                {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
+              <span class="lv-role-badge" :class="g._role === '간사' ? 'role-admin' : 'role-member'">
+                {{ g._role || '참여자' }}
               </span>
             </td>
             <td class="lv-td-secretary">

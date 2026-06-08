@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="base-modal-overlay" @click.self="$emit('update:modelValue', false)">
+    <div v-if="modelValue" class="base-modal-overlay">
       <div class="base-modal" :style="{ width: width }">
         <!-- 헤더 -->
         <div class="base-modal-header">

@@ -343,7 +343,7 @@ const features = [
 
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showLogin" class="popup-backdrop" @click.self="closeModals">
+        <div v-if="showLogin" class="popup-backdrop">
           <div class="popup-box">
             <button class="popup-close" @click="closeModals"><i class="bi bi-x-lg"></i></button>
             <LoginPopup @close="closeModals" @go-register="openRegister" />
@@ -354,7 +354,7 @@ const features = [
 
     <Teleport to="body">
       <Transition name="modal-fade">
-        <div v-if="showRegister" class="popup-backdrop" @click.self="closeModals">
+        <div v-if="showRegister" class="popup-backdrop">
           <div class="popup-box">
             <button class="popup-close" @click="closeModals"><i class="bi bi-x-lg"></i></button>
             <RegisterPopup @close="closeModals" @go-login="openLogin" />

@@ -31,7 +31,7 @@ public class Meeting {
     private String guidelines;
 
     // weekly | monthly | quarterly
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = MeetingTypeConverter.class)
     @Column(length = 20)
     private MeetingType type;
 

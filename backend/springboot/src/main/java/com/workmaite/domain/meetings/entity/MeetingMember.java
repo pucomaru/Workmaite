@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 /**
  * 회의 참여자 엔티티 - meeting_members 테이블 매핑
@@ -16,7 +15,6 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@EntityListeners(AuditingEntityListener.class)
 public class MeetingMember {
 
     @Id
@@ -34,6 +32,7 @@ public class MeetingMember {
     @Column(length = 20, nullable = false)
     private MeetingMemberRole role;
 
+    // high | medium | low
     @Column(length = 20)
     private String priority = "medium";
 

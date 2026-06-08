@@ -14,13 +14,21 @@ const inputRef = ref(null)
 
 function handleClick() { inputRef.value?.click() }
 
+function matchesAccept(file) {
+  if (!props.accept) return true
+  const exts = props.accept.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (!exts.length) return true
+  const name = (file.name || '').toLowerCase()
+  return exts.some(ext => ext.startsWith('.') ? name.endsWith(ext) : (file.type || '') === ext)
+}
+
 function handleDrop(e) {
-  const files = Array.from(e.dataTransfer.files)
+  const files = Array.from(e.dataTransfer.files).filter(matchesAccept)
   if (files.length) emit('change', files)
 }
 
 function handleInput(e) {
-  const files = Array.from(e.target.files)
+  const files = Array.from(e.target.files).filter(matchesAccept)
   if (files.length) emit('change', files)
   e.target.value = ''
 }

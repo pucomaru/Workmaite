@@ -4,8 +4,6 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
@@ -16,7 +14,6 @@ import java.time.LocalDateTime;
 @Table(name = "meeting_sessions")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@EntityListeners(AuditingEntityListener.class)
 public class MeetingSession {
 
     @Id
@@ -50,10 +47,6 @@ public class MeetingSession {
     @Convert(converter = SessionStatusConverter.class)
     @Column(length = 20, nullable = false)
     private SessionStatus status;
-
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
 
     public static MeetingSession create(Long meetingId, String title, String description, String location, String type, LocalDateTime scheduledAt) {
         MeetingSession session = new MeetingSession();

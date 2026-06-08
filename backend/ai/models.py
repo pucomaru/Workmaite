@@ -74,6 +74,7 @@ class Agenda(Base):
     department  = Column(JSON, nullable=True)
     due_date    = Column(DateTime, nullable=True)
     priority    = Column(String(20), default="medium")
+    ai_evidence = Column(Text, nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
 
 
