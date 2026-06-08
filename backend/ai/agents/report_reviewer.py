@@ -17,6 +17,7 @@ from routers.prompts import (
     review_propose_prompt,
     review_direct_prompt,
 )
+from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
