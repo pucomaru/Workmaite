@@ -43,6 +43,7 @@ const currentOrg = ref(null)    // 현재 조직 (Organization 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
 const neo4jError = ref('')
+const neo4jRetrying = ref(false)
 const search = ref('')
 const expandedMeeting = ref(null)
 
@@ -1832,6 +1833,9 @@ onBeforeUnmount(()=>{
 
 // ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
 async function refreshArchive() {
+  neo4jRetrying.value = true
+  neo4jError.value = ''   // 즉시 오버레이 해제 → 로딩 상태로 전환
+  loading.value = true
   try {
     const res = await apiAI.get('/api/neo4j/archive')
     neo4jError.value = ''
@@ -1853,6 +1857,9 @@ async function refreshArchive() {
   } catch(e) {
     console.error('archive refresh error', e)
     neo4jError.value = '연결 실패'
+  } finally {
+    loading.value = false
+    neo4jRetrying.value = false
   }
 }
 
@@ -2048,7 +2055,10 @@ provide('archiveSidebar', {
           <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#f87171;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
           <div class="neo4j-error-title">그래프 연결 실패</div>
           <div class="neo4j-error-msg">{{ neo4jError }}</div>
-          <button class="neo4j-error-retry" @click="refreshArchive">다시 시도</button>
+          <button class="neo4j-error-retry" :disabled="neo4jRetrying" @click="refreshArchive">
+            <span v-if="neo4jRetrying" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px"></span>
+            {{ neo4jRetrying ? '연결 중...' : '다시 시도' }}
+          </button>
         </div>
         <GraphView
           v-if="!loading && viewMode==='graph' && !neo4jError"
