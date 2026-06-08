@@ -476,9 +476,14 @@ function deleteMinutes() {
 async function endMeeting() {
   if (!confirm('기록을 종료하시겠습니까?')) return
   const sessionId = activeSession.value?.id
+  const meetingId = activeSession.value?.meeting_id
   stopRecording()
   if (sessionId) {
     await api.post(`/api/v1/sessions/${sessionId}/end`).catch(() => {})
+    if (meetingId && sessionsCache.value[meetingId]) {
+      const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)
+      if (s) s.status = 'ended'
+    }
   }
   activeSession.value = null
 }
@@ -909,7 +914,7 @@ async function downloadMinutesFile() {
 
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div class="ctrl-group-left">
+          <div v-show="activeSession?.status !== 'ended'" class="ctrl-group-left">
             <!-- Mic settings -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
@@ -1288,6 +1293,7 @@ async function downloadMinutesFile() {
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
+.ctrl-group-right { margin-left:auto; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s; }
 .ctrl-btn:hover,.ctrl-active { background:var(--surface-2);border-color:var(--primary);color:var(--primary); }
