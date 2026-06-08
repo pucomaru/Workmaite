@@ -3,22 +3,21 @@ routers/sync.py — Neo4j 동기화 관련 API
 =========================================
 엔드포인트:
   POST /api/sync/retry              재시도 작업 수동 트리거
-  GET  /api/sync/logs               실패 로그 목록 조회
+  POST /api/sync/user/{id}          특정 User 동기화 (Spring Boot → FastAPI)
+  DELETE /api/sync/user/{id}        User 삭제 동기화
   POST /api/sync/meeting/{id}       특정 Meeting 수동 동기화
   POST /api/sync/session/{id}       특정 Session 수동 동기화
   POST /api/sync/agenda/{id}        특정 Agenda 수동 동기화
-  POST /api/sync/user/{id}          특정 User 수동 동기화
-  POST /api/sync/member             MeetingMember 관계 수동 동기화
-  POST /api/sync/search             벡터 유사도 검색
+  POST /api/sync/minutes/{id}       특정 Minutes 수동 동기화
+  DELETE /api/sync/meeting/{id}     Meeting 삭제 동기화
   POST /api/sync/all                전체 PostgreSQL→Neo4j 동기화
 """
 
 import os
 import logging
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
-from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 import models
@@ -33,19 +32,16 @@ def verify_internal(x_internal_secret: Optional[str] = Header(None)):
         raise HTTPException(status_code=401, detail="Internal secret mismatch")
 
 from neo4j_sync import (
+    sync_user,
     sync_meeting,
     sync_session,
     sync_agenda,
-    sync_user,
     sync_minutes,
-    sync_meeting_member,
     delete_meeting,
-    delete_meeting_member,
     retry_failed_syncs,
     sync_all_from_pg,
-    vector_search,
 )
-from file_embedder import embed_query
+from neo4j_client import run_cypher
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -71,6 +67,43 @@ async def trigger_retry(
 
 
 
+# ─── User 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────────────
+
+@router.post("/user/{user_id}")
+async def sync_user_manual(
+    user_id: int,
+    _: None = Depends(verify_internal),
+    db: DBSession = Depends(get_db),
+):
+    """특정 User를 Neo4j에 동기화합니다. Spring Boot에서 유저 생성/수정 시 호출합니다."""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User를 찾을 수 없습니다.")
+    await sync_user(
+        user_id=user.id,
+        name=user.name,
+        email=user.email,
+        company=user.company,
+        department=user.department,
+        position=user.position,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+    )
+    return {"success": True, "user_id": user_id}
+
+
+@router.delete("/user/{user_id}")
+async def delete_user_sync(
+    user_id: int,
+    _: None = Depends(verify_internal),
+):
+    """User 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
+    await run_cypher(
+        "MATCH (u:User {pg_id: $pg_id}) DETACH DELETE u",
+        {"pg_id": user_id},
+    )
+    return {"success": True, "user_id": user_id}
+
+
 # ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
 
 @router.delete("/meeting/{meeting_id}/delete")
@@ -81,19 +114,6 @@ async def delete_meeting_sync(
     """Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
     await delete_meeting(meeting_id=meeting_id)
     return {"success": True, "meeting_id": meeting_id}
-
-
-# ─── MeetingMember 관계 삭제 동기화 ──────────────────────────────────────────
-
-@router.delete("/member/delete")
-async def delete_member_sync(
-    meetingId: int,
-    userId: int,
-    _: None = Depends(verify_internal),
-):
-    """Person → Meeting 멤버십 관계를 Neo4j에서 삭제합니다."""
-    await delete_meeting_member(meeting_id=meetingId, user_id=userId)
-    return {"success": True, "meeting_id": meetingId, "user_id": userId}
 
 
 # ─── Meeting 수동 동기화 ──────────────────────────────────────────────────────
@@ -140,14 +160,6 @@ async def sync_session_manual(
     return {"success": True, "session_id": session_id, "title": session.title}
 
 
-# ─── 벡터 유사도 검색 ─────────────────────────────────────────────────────────
-
-class SearchRequest(BaseModel):
-    query: str
-    meeting_id: Optional[int] = None
-    top_k: int = 5
-
-
 # ─── 전체 동기화 (부트스트랩 / 복구) ─────────────────────────────────────────
 
 @router.post("/all")
@@ -191,10 +203,13 @@ async def sync_agenda_manual(
         agenda_id=agenda.id,
         meeting_id=agenda.meeting_id,
         title=agenda.title or "",
-        content=None,
-        status=str(agenda.status or "ON_HOLD"),
-        order_index=0,
+        status=str(agenda.status or "draft"),
         assignee_id=agenda.assignee_id,
+        priority=agenda.priority or "medium",
+        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
+        session_id=agenda.session_id,
+        ai_evidence=agenda.ai_evidence,
+        created_at=agenda.created_at.isoformat() if agenda.created_at else None,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
 
@@ -219,74 +234,3 @@ async def sync_minutes_manual(
     return {"success": True, "minutes_id": minutes_id}
 
 
-# ─── User 수동 동기화 ─────────────────────────────────────────────────────────
-
-@router.post("/user/{user_id}")
-async def sync_user_manual(
-    user_id: int,
-    _: None = Depends(verify_internal),
-    db: DBSession = Depends(get_db),
-):
-    """특정 User를 Neo4j에 수동으로 동기화합니다."""
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User를 찾을 수 없습니다.")
-    await sync_user(
-        user_id=user.id,
-        name=user.name,
-        email=user.email,
-        company=user.company,
-        department=user.department,
-        position=user.position,
-    )
-    return {"success": True, "user_id": user_id, "name": user.name}
-
-
-# ─── MeetingMember 관계 수동 동기화 ──────────────────────────────────────────
-
-@router.post("/member")
-async def sync_member_manual(
-    meetingId: int,
-    userId: int,
-    _: None = Depends(verify_internal),
-    db: DBSession = Depends(get_db),
-):
-    """특정 MeetingMember 관계를 Neo4j에 수동으로 동기화합니다."""
-    member = (
-        db.query(models.MeetingMember)
-        .filter(models.MeetingMember.meeting_id == meetingId, models.MeetingMember.user_id == userId)
-        .first()
-    )
-    if not member:
-        raise HTTPException(status_code=404, detail="MeetingMember를 찾을 수 없습니다.")
-    await sync_meeting_member(
-        meeting_id=member.meeting_id,
-        user_id=member.user_id,
-        role=str(member.role or "MEMBER"),
-    )
-    return {"success": True, "meeting_id": meetingId, "user_id": userId}
-
-
-@router.post("/search")
-async def vector_similarity_search(
-    req: SearchRequest,
-    current_user: models.User = Depends(get_current_user),
-):
-    """
-    텍스트 쿼리를 임베딩하여 Neo4j VectorIndex에서 유사 문서 청크를 검색합니다.
-    """
-    if not req.query.strip():
-        raise HTTPException(status_code=400, detail="검색어를 입력하세요.")
-
-    query_emb = await embed_query(req.query)
-    results = await vector_search(
-        query_embedding=query_emb,
-        top_k=req.top_k,
-        meeting_id=req.meeting_id,
-    )
-
-    return {
-        "query": req.query,
-        "meeting_id": req.meeting_id,
-        "results": results,
-    }

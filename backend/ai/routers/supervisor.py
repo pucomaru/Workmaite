@@ -80,11 +80,18 @@ class _RoutingDecision(BaseModel):
     agent: Literal["task_agent", "minutes_agent", "report_agent", "supervisor_direct"] = Field(
         description="위임할 에이전트 이름"
     )
+    steps: List[str] = Field(
+        default_factory=list,
+        description=(
+            "이 요청을 처리하기 위해 수행할 주요 작업을 한국어로 2~4단계 나열. "
+            "각 항목은 짧은 한 문장(20자 이내), 번호·기호 없이."
+        )
+    )
 
 
 _ROUTING_SYSTEM = """\
 당신은 워크메이트 AI 슈퍼바이저입니다.
-사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하세요.
+사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하고, 처리 계획을 세우세요.
 
 에이전트 선택 기준:
 - task_agent: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비
@@ -92,7 +99,8 @@ _ROUTING_SYSTEM = """\
 - report_agent: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
 - supervisor_direct: 현황 조회, 구성원 안내, 회의체 현황, 인사·일반 질문
 
-thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
+thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
+steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -229,6 +237,26 @@ def _parse_json_response(raw_text: str) -> dict:
     return json.loads(raw_text)
 
 
+async def _stream_plan(system_content: str, human_content: str):
+    """LLM이 작업 계획을 줄 단위로 스트리밍 생성합니다."""
+    llm = make_llm(temperature=0.2, streaming=True)
+    buf = ""
+    async for chunk in llm.astream([
+        SystemMessage(content=system_content),
+        HumanMessage(content=human_content),
+    ]):
+        if chunk.content:
+            buf += chunk.content
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                line = line.strip().lstrip("-•·▪▸◦*0123456789.").strip()
+                if line:
+                    yield line
+    tail = buf.strip().lstrip("-•·▪▸◦*0123456789.").strip()
+    if tail:
+        yield tail
+
+
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
 @router.post("/minutes/sessions-chat")
 async def ara_sessions_chat(
@@ -319,6 +347,7 @@ async def supervisor_chat(
     # 키워드 매칭 대신 LLM이 사용자 의도를 파악해 적합한 에이전트를 선택합니다.
     _route = "supervisor_direct"
     _route_thinking = "질문을 분석 중입니다."
+    _route_steps: List[str] = []
     try:
         _routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
         _decision = await _routing_llm.ainvoke([
@@ -327,6 +356,7 @@ async def supervisor_chat(
         ])
         _route = _decision.agent
         _route_thinking = _decision.thinking
+        _route_steps = _decision.steps or []
     except Exception as _re:
         logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {_re}")
 
@@ -367,8 +397,8 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
-            yield f"data: [PLANNING] 🧠 {_route_thinking}\n\n"
-            yield f"data: [PLANNING] ➜ {_route} 에이전트에 위임\n\n"
+            for _s in (_route_steps or [_route_thinking]):
+                yield f"data: [PLANNING] {_s}\n\n"
 
             if data.meeting_id:
                 mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
@@ -384,7 +414,6 @@ async def supervisor_chat(
                         yield "data: [DONE]\n\n"
                         return
 
-                yield "data: [PLANNING] 회의체 데이터 검색 중...\n\n"
                 neo4j_ctx = await get_meeting_graph_context(data.meeting_id)
 
                 if neo4j_ctx.get("meeting", {}).get("title"):
@@ -401,7 +430,6 @@ async def supervisor_chat(
                 if neo4j_ctx.get("meeting", {}).get("title"):
                     hl_candidates.append(neo4j_ctx["meeting"]["title"])
             else:
-                yield f"data: [PLANNING] {current_user.name}님의 업무 지식 그래프 탐색 중\n\n"
                 try:
                     if user_person_id:
                         person_rows = await run_cypher(
@@ -436,7 +464,6 @@ async def supervisor_chat(
                 except Exception:
                     pass
 
-            yield f"data: [PLANNING] {_route} 에이전트에 위임 — 응답 생성 중...\n\n"
         except Exception:
             yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
 
@@ -456,8 +483,6 @@ async def supervisor_chat(
 
         # ── B 유형: 현황 조회 / 인사 / 일반 질문 ───────────────────────────
         if _route == 'supervisor_direct':
-            yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
-
             _kb_results: list[dict] = []
             try:
                 for hits, type_label, k in [
@@ -475,7 +500,6 @@ async def supervisor_chat(
 
             if _kb_results:
                 yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
-            yield "data: [PLANNING] 답변 생성 중...\n\n"
 
             _ctx_parts: list[str] = [_user_scope_header]
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
@@ -880,9 +904,18 @@ async def analyze_relationships_stream(
 
     async def stream():
         try:
-            yield "data: [PLANNING] Supervisor: 지식 그래프 전체 스캔 — 안건·문서·세션·구성원\n\n"
+            import asyncio as _asyncio
+            # 그래프 분석과 병렬로 LLM이 작업 계획을 서술
+            analysis_task = _asyncio.create_task(_analyze_graph())
+            _pre_sys = (
+                "업무 지식 그래프를 점검하는 AI입니다. 지금 막 전체 그래프를 분석하려 합니다. "
+                "어떤 항목들을 살펴볼지 한국어로 2~3단계 간결하게 나열하세요. 번호·기호 없이."
+            )
+            _pre_hmn = "회의체·세션·안건·문서·구성원의 관계 전체를 점검합니다."
+            async for _step in _stream_plan(_pre_sys, _pre_hmn):
+                yield f"data: [PLANNING] {_step}\n\n"
+            analysis = await analysis_task
 
-            analysis = await _analyze_graph()
             sem    = analysis["semantic"]
             struct = analysis["structural"]
             member = analysis["membership"]
@@ -900,72 +933,94 @@ async def analyze_relationships_stream(
             lifecycle_n = len(lifecycle)
             stale_n     = len(stale)
 
-            yield (f"data: [PLANNING] Supervisor: 회의 {counts['meetings']}개 · 세션 "
-                   f"{counts['sessions']}개 · 안건 {counts['agendas']}개 · 문서 {counts['documents']}개 인덱싱 완료\n\n")
+            # ── LLM이 분석 결과를 보고 현황·계획을 스스로 서술 ──────────
+            findings_text = (
+                f"회의체 {counts['meetings']}개 / 세션 {counts['sessions']}개 / "
+                f"안건 {counts['agendas']}개 / 문서 {counts['documents']}개 스캔 완료.\n"
+                f"끊긴 세션 흐름: {missing_seq}건, "
+                f"회의록→안건 미연결: {lifecycle_n}건, "
+                f"불필요 연결(이월·저유사도): {stale_n}건.\n"
+                f"회의 간 유사 안건: {len(ag_links)}쌍"
+                + (f" (상위: [{ag_links[0]['a_title']}] ↔ [{ag_links[0]['b_title']}], "
+                   f"{ag_links[0]['score']*100:.0f}%)" if ag_links else "")
+                + f"\n미연결 문서: {len(doc_links)}건, "
+                f"담당자 없는 안건: {len(ownerless)}건, "
+                f"고아 문서: {len(orphans)}건, "
+                f"소속 이슈: {len(member.get('issues', []))}건."
+            )
+            if chains:
+                c0 = chains[0]
+                findings_text += f"\n예시: '{c0['mg']}' 회의체에서 {c0['count']}개 회차 미연결."
 
-            yield "data: [PLANNING] Supervisor: 회의 흐름 점검 — 같은 회의체의 세션이 시간순으로 이어졌는지 확인 중...\n\n"
-            if missing_seq:
-                _c = chains[0]
-                yield (f"data: [PLANNING] Supervisor: 끊긴 회의 흐름 {missing_seq}건 발견 "
-                       f"— 예: '{_c['mg']}'의 {_c['count']}개 회차가 미연결\n\n")
-            else:
-                yield "data: [PLANNING] Supervisor: 회의 흐름은 모두 시간순으로 연결돼 있음\n\n"
+            system_findings = (
+                "당신은 업무 지식 그래프를 관리하는 AI입니다. "
+                "아래 그래프 분석 수치를 보고, 현재 상태와 앞으로 할 작업을 "
+                "자연스러운 한국어로 간결하게 나열하세요. "
+                "각 항목은 한 줄, 총 3~6개, 마크다운·번호·기호 없이 plain text만."
+            )
+            async for step in _stream_plan(system_findings, findings_text):
+                yield f"data: [PLANNING] {step}\n\n"
 
-            yield "data: [PLANNING] Supervisor: 회의 생명주기 점검 — 회의록이 안건과 이어졌는지 확인 중...\n\n"
-            if lifecycle_n:
-                yield (f"data: [PLANNING] Supervisor: 회의록→안건 미연결 {lifecycle_n}건 발견 "
-                       f"— 회의에서 다뤄진 안건이 아직 연결되지 않음\n\n")
-            else:
-                yield "data: [PLANNING] Supervisor: 회의록과 안건 흐름이 정상\n\n"
-
-            yield "data: [PLANNING] Supervisor: 불필요 연결 탐지 — 완료된 안건 이월·낮은 유사도 자동 관계 점검 중...\n\n"
-            if stale_n:
-                yield (f"data: [PLANNING] Supervisor: 불필요 연결 {stale_n}건 발견 "
-                       f"— 이월/유사도 링크 중 정리 대상\n\n")
-            else:
-                yield "data: [PLANNING] Supervisor: 딥한 연결 없음 — 그래프가 깔끔함\n\n"
-            if ag_links:
-                _top = ag_links[0]
-                yield (f"data: [PLANNING] Supervisor: 회의 간 잠재 연관 안건 {len(ag_links)}쌍 발굴 "
-                       f"— 최고 유사도 {_top['score']*100:.0f}% ([{_top['a_title']}]↔[{_top['b_title']}])\n\n")
-            else:
-                yield "data: [PLANNING] Supervisor: 회의 간 신규 연관 안건 없음\n\n"
-
-            yield "data: [PLANNING] Supervisor: 문서-안건 적합도 분석 — 미연결 참조 탐색 중...\n\n"
-            if doc_links:
-                yield f"data: [PLANNING] Supervisor: 안건과 의미상 맞닿은 미연결 문서 {len(doc_links)}건 발굴\n\n"
-            yield (f"data: [PLANNING] Supervisor: 구조 공백 점검 — 담당자 없는 안건 {len(ownerless)}건 · "
-                   f"고아 문서 {len(orphans)}건\n\n")
-            if member["issues"]:
-                yield f"data: [PLANNING] Supervisor: 소속 무결성 이상 {len(member['issues'])}건 (베이스라인)\n\n"
-
+            # ── 실제 그래프 재구성 수행 ──────────────────────────────────
             actionable = (missing_seq + lifecycle_n + stale_n + len(ag_links) + len(doc_links) +
-                          len(embeddable_orphans) + len(member["issues"]))
+                          len(embeddable_orphans) + len(member.get("issues", [])))
+
             if actionable == 0:
-                yield "data: [PLANNING] Supervisor: 신규 연결·보완 대상 없음 — 그래프가 충분히 연결돼 있습니다\n\n"
-                result = {"actions": [], "stats": {"session_links": 0, "lifecycle_links": 0,
-                          "carry_links": 0, "related_agendas": 0, "doc_refs": 0,
-                          "doc_attached": 0, "membership_fixed": 0, "pruned_links": 0},
-                          "advisories": {"ownerless_agendas": ownerless,
-                                         "minuteless_sessions": struct["minuteless_sessions"],
-                                         "isolated_persons": struct["isolated_persons"]}}
+                result = {"actions": [], "stats": {
+                    "session_links": 0, "lifecycle_links": 0, "carry_links": 0,
+                    "related_agendas": 0, "doc_refs": 0, "doc_attached": 0,
+                    "membership_fixed": 0, "pruned_links": 0,
+                }, "advisories": {
+                    "ownerless_agendas": ownerless,
+                    "minuteless_sessions": struct["minuteless_sessions"],
+                    "isolated_persons": struct["isolated_persons"],
+                }}
             else:
-                yield "data: [PLANNING] KnowledgeAgent에 위임 — 발굴된 연결을 그래프에 반영 시작\n\n"
                 result = await knowledge_agent.reconcile_graph(analysis)
                 stats = result["stats"]
-                for stat_key, label in [
-                    ("session_links", "끊긴 회의 흐름 {}건을 시간순 '후속'으로 연결"),
-                    ("lifecycle_links", "회의록을 관련 안건 {}개와 연결 (회의→회의록→안건)"),
-                    ("carry_links", "미해결 안건 {}건을 다음 회차로 이월 (안건→회의)"),
-                    ("related_agendas", "회의 간 '관련' 지식 링크 {}건 생성"),
-                    ("doc_refs", "문서 '참조' 링크 {}건 생성"),
-                    ("doc_attached", "고아 문서 {}건을 적합 안건에 자동 연결"),
-                    ("membership_fixed", "소속 무결성 {}건 보정"),
-                    ("pruned_links", "불필요 자동 연결 {}건 정리 (연결 정제)"),
-                ]:
-                    if stats.get(stat_key):
-                        yield f"data: [PLANNING] KnowledgeAgent: {label.format(stats[stat_key])}\n\n"
-                yield "data: [PLANNING] KnowledgeAgent: 재구성 근거 리포트 작성 중...\n\n"
+
+                # LLM이 수행 결과를 보고 planning 단계를 서술
+                done_items = [
+                    label.format(stats[k])
+                    for k, label in [
+                        ("session_links", "끊긴 회의 흐름 {}건 → 시간순 연결"),
+                        ("lifecycle_links", "회의록 {}개를 관련 안건과 연결"),
+                        ("carry_links", "미해결 안건 {}건 다음 회차로 이월"),
+                        ("related_agendas", "회의 간 유사 안건 링크 {}건 생성"),
+                        ("doc_refs", "문서 참조 링크 {}건 생성"),
+                        ("doc_attached", "고아 문서 {}건 → 적합 안건 자동 연결"),
+                        ("membership_fixed", "소속 무결성 {}건 보정"),
+                        ("pruned_links", "불필요 연결 {}건 정리"),
+                    ]
+                    if stats.get(k)
+                ]
+                if done_items:
+                    actions_text = "수행한 작업 목록:\n" + "\n".join(f"- {d}" for d in done_items)
+                    system_actions = (
+                        "당신은 업무 지식 그래프 관리 AI입니다. "
+                        "방금 그래프에 적용한 작업들을 바탕으로, 어떤 개선이 이루어졌는지 "
+                        "자연스러운 한국어로 2~4줄로 서술하세요. "
+                        "마크다운·번호·기호 없이 plain text만."
+                    )
+                    async for step in _stream_plan(system_actions, actions_text):
+                        yield f"data: [PLANNING] {step}\n\n"
+
+            # ── 부서-조직 연결 보완 (항상 실행) ─────────────────────────
+            try:
+                dept_fix_rows = await run_cypher(
+                    "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) "
+                    "RETURN count(d) AS cnt"
+                )
+                dept_fix_cnt = dept_fix_rows[0]["cnt"] if dept_fix_rows else 0
+                if dept_fix_cnt:
+                    await run_cypher(
+                        "MATCH (d:Department), (o:Company) "
+                        "WHERE NOT (d)-[:`소속`]->(o) "
+                        "MERGE (d)-[:`소속`]->(o)"
+                    )
+                    yield f"data: [PLANNING] 부서→조직 누락 연결 {dept_fix_cnt}건 복구\n\n"
+            except Exception:
+                pass
 
             _hl = set()
             for l in ag_links:
@@ -1260,36 +1315,53 @@ async def archive_chat_extract(
     dept_list = ", ".join(departments) if departments else "정보 없음"
     current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
 
-    try:
-        response = await make_llm(temperature=0.15).ainvoke([
-            SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
-            HumanMessage(content=message),
-        ])
-        raw_text = response.content.strip()
+    async def stream():
         try:
-            parsed = _parse_json_response(raw_text)
-        except Exception:
-            parsed = {"agendas": current_agendas, "message": raw_text}
+            cnt = len(current_agendas)
+            # LLM이 요청 내용을 보고 처리 계획을 스스로 서술
+            _plan_sys = (
+                "업무 과제 관리 AI입니다. 사용자 요청을 바탕으로 과제 목록을 어떻게 처리할지 "
+                "한국어로 2~3단계를 간결하게 나열하세요. 각 단계는 짧은 한 문장, 번호·기호 없이."
+            )
+            _plan_hmn = f"현재 과제 {cnt}건. 사용자 요청: {message[:300]}"
+            async for _step in _stream_plan(_plan_sys, _plan_hmn):
+                yield f"data: [PLANNING] {_step}\n\n"
 
-        agendas = parsed.get("agendas", current_agendas)
-        return {
-            "agendas": [
-                {
-                    "title": ag.get("title", ""),
-                    "department": ag.get("department"),
-                    "priority": ag.get("priority", "normal"),
-                    "start_date": ag.get("start_date"),
-                    "due_date": ag.get("due_date"),
-                    "_state": None,
-                    "_editing": False,
-                }
-                for ag in agendas
-            ],
-            "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
-        }
-    except Exception as e:
-        print(f"[chat-extract 오류] {e}")
-        return {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
+            response = await make_llm(temperature=0.15).ainvoke([
+                SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
+                HumanMessage(content=message),
+            ])
+            raw_text = response.content.strip()
+
+            try:
+                parsed = _parse_json_response(raw_text)
+            except Exception:
+                parsed = {"agendas": current_agendas, "message": raw_text}
+
+            agendas = parsed.get("agendas", current_agendas)
+            result = {
+                "agendas": [
+                    {
+                        "title": ag.get("title", ""),
+                        "department": ag.get("department"),
+                        "priority": ag.get("priority", "normal"),
+                        "start_date": ag.get("start_date"),
+                        "due_date": ag.get("due_date"),
+                        "_state": None,
+                        "_editing": False,
+                    }
+                    for ag in agendas
+                ],
+                "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
+            }
+            yield f"data: [RESULT] {json.dumps(result, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.warning(f"[chat-extract] 오류: {e}")
+            fallback = {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
+            yield f"data: [RESULT] {json.dumps(fallback, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ─── 아카이브 파일 AI 검토 ────────────────────────────────────────────────────

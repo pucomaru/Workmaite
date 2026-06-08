@@ -8,11 +8,11 @@ from database import get_db
 from auth import get_current_user
 from neo4j_sync import (
     sync_meeting,
-    sync_meeting_member,
     sync_user,
-    delete_meeting as neo4j_delete_meeting,
+    sync_meeting_member,
     delete_meeting_member,
     update_meeting_member_role,
+    delete_meeting as neo4j_delete_meeting,
 )
 import logging
 
@@ -95,15 +95,6 @@ async def create_meeting(
             status=str(meeting.status or "ACTIVE"),
             meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
         )
-        await sync_user(
-            user_id=current_user.id,
-            name=current_user.name,
-            email=current_user.email,
-            company=current_user.company,
-            department=current_user.department,
-            position=current_user.position,
-        )
-        await sync_meeting_member(meeting_id=meeting.id, user_id=current_user.id, role="ADMIN")
     background_tasks.add_task(_sync)
     return meeting
 
@@ -206,32 +197,26 @@ async def add_member(
     if existing:
         existing.role = data.role
         db.commit()
+        background_tasks.add_task(update_meeting_member_role, meeting_id, data.user_id, data.role)
         return existing
 
     member = models.MeetingMember(meeting_id=meeting_id, user_id=data.user_id, role=data.role)
     db.add(member)
     db.flush()
 
+    added_user = db.query(models.User).filter(models.User.id == data.user_id).first()
     db.commit()
 
-    # Neo4j 동기화 (백그라운드): Person 노드 보장 후 관계 생성
-    added_user = db.query(models.User).filter(models.User.id == data.user_id).first()
     if added_user:
         async def _sync_member():
             await sync_user(
-                user_id=added_user.id,
-                name=added_user.name,
-                email=added_user.email,
-                company=added_user.company,
-                department=added_user.department,
+                user_id=added_user.id, name=added_user.name, email=added_user.email,
+                company=added_user.company, department=added_user.department,
                 position=added_user.position,
             )
-            await sync_meeting_member(
-                meeting_id=meeting_id,
-                user_id=added_user.id,
-                role=data.role.upper(),
-            )
+            await sync_meeting_member(meeting_id=meeting_id, user_id=added_user.id, role=data.role)
         background_tasks.add_task(_sync_member)
+
     return member
 
 
@@ -256,14 +241,8 @@ async def update_member_role(
     if "role" in data:
         member.role = data["role"]
     db.commit()
-
-    # Neo4j 동기화 (기존 관계 삭제 후 새 역할로 재생성)
-    background_tasks.add_task(
-        update_meeting_member_role,
-        meeting_id=meeting_id,
-        user_id=member.user_id,
-        new_role=str(data.get("role", member.role)).upper(),
-    )
+    if "role" in data:
+        background_tasks.add_task(update_meeting_member_role, meeting_id, member.user_id, data["role"])
     return member
 
 
@@ -285,17 +264,10 @@ async def remove_member(
     if target.user_id != current_user.id and my_role != "admin":
         raise HTTPException(status_code=403, detail="간사만 구성원을 제거할 수 있습니다.")
 
-    removed_user = db.query(models.User).filter(models.User.id == target.user_id).first()
+    removed_user_id = target.user_id
     db.delete(target)
     db.commit()
-
-    # Neo4j 동기화 (백그라운드): pg_id 기반으로 관계 삭제
-    if removed_user:
-        background_tasks.add_task(
-            delete_meeting_member,
-            meeting_id=meeting_id,
-            user_id=removed_user.id,
-        )
+    background_tasks.add_task(delete_meeting_member, meeting_id, removed_user_id)
     return {"ok": True}
 
 
@@ -509,23 +481,18 @@ async def ai_remove_member(
     if target.user_id != current_user.id and my_role != "admin":
         raise HTTPException(status_code=403, detail="간사만 구성원을 제거할 수 있습니다.")
 
-    removed_user = db.query(models.User).filter(models.User.id == target.user_id).first()
+    removed_user_id = target.user_id
     db.delete(target)
     db.commit()
-
-    if removed_user:
-        background_tasks.add_task(
-            delete_meeting_member,
-            meeting_id=meeting_id,
-            user_id=removed_user.id,
-        )
+    background_tasks.add_task(delete_meeting_member, meeting_id, removed_user_id)
     return {"ok": True}
 
 
 @ai_router.patch("/users/{user_id}")
-def ai_update_user(
+async def ai_update_user(
     user_id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -542,6 +509,11 @@ def ai_update_user(
         user.position = data["position"] if data["position"] else None
     db.commit()
     db.refresh(user)
+    background_tasks.add_task(
+        sync_user,
+        user_id=user.id, name=user.name, email=user.email,
+        company=user.company, department=user.department, position=user.position,
+    )
     return {"id": user.id, "name": user.name, "company": user.company, "department": user.department, "position": user.position}
 
 

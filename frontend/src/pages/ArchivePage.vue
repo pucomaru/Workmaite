@@ -897,6 +897,18 @@ async function openDetail(groupData) {
 
 let gNodes = [], gEdges = []
 const gNodesRef = shallowRef([])  // reactive mirror for provide/inject
+const selfPersonNodeId = computed(() => {
+  const myId   = authStore.user?.id
+  const myName = currentPerson.value?.name || authStore.user?.name
+  const node = gNodesRef.value.find(n => {
+    if (n.type !== 'person') return false
+    const mb = n.data
+    if (myId != null && mb?.userId != null && String(mb.userId).replace(/\D/g, '') === String(myId)) return true
+    if (myName && n.label === myName) return true
+    return false
+  })
+  return node?.id ?? null
+})
 // ─── 로컬 관계 오버라이드: refreshArchive 후에도 유지 ────────
 // key 형식: "fromNodeId|toNodeId" (양방향 모두 등록)
 const localDeletedEdges = new Set()
@@ -1174,7 +1186,14 @@ async function doAddRel() {
 
 const connectableNodes = computed(() => {
   const groups = meetingGroups.value
-  const result = [{ id:'org-root', label:'나', typeLabel:'구성원', type:'person' }]
+  // '나' 노드: currentPerson.value.id = Neo4j User ID (e.g. 'p-123')
+  // buildGraphNodes에서 생성되는 person 노드 ID 포맷: `person-${mb.userId}` 와 일치
+  const result = []
+  const myNeo4jId = currentPerson.value?.id
+  const myLabel   = currentPerson.value?.name || authStore.user?.name || '나'
+  if (myNeo4jId) {
+    result.push({ id: `person-${myNeo4jId}`, label: `나 (${myLabel})`, typeLabel: '구성원', type: 'person', neo4jId: myNeo4jId })
+  }
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
   depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
@@ -1789,13 +1808,12 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetingsStore,
 })
 
-/** ConstellationView에서 MG 노드 클릭 시 사이드바 열기 */
 /** GraphView (PIXI) 노드 클릭 핸들러 */
 function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.type !== 'org-root') {
+  } else if (node.id !== 'org-node' && node.type !== 'org') {
     openNodeDetail(node)
   }
 }
@@ -2090,6 +2108,7 @@ provide('archiveSidebar', {
           :computeUrgency="computeUrgency"
           :relColors="REL_COLORS"
           :groupTodoRatio="groupTodoRatio"
+          :selfNodeId="selfPersonNodeId"
           @nodeClick="onGraphNodeClick"
           @bgClick="onGraphBgClick"
         />

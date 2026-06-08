@@ -186,7 +186,7 @@ function startResize(e, colIndex) {
 .app-table td {
   padding: 11px 16px;
   vertical-align: middle;
-  color: var(--dark-card);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

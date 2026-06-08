@@ -19,6 +19,7 @@ const props = defineProps({
   computeUrgency: { type: Function, required: true },
   relColors:      { type: Object,   default: () => ({}) },
   groupTodoRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
+  selfNodeId:     { type: String,   default: null },
 })
 const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
@@ -183,6 +184,7 @@ function buildSimulation(nodes, edges) {
   const chargeStr = (d) => {
     if (d.type === 'meeting_group') return -800
     if (d.type === 'dept')         return -300
+    if (d.type === 'org')          return -200
     if (d.type === 'org-root')     return -200
     return -160
   }
@@ -208,6 +210,9 @@ function buildSimulation(nodes, edges) {
     // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
     .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
       .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
+    // org-node(조직)는 항상 중심에 고정
+    .force('radial-org', forceRadial(0, w / 2, h / 2)
+      .strength(d => (d.id === 'org-node' || d.type === 'org') ? 0.6 : 0))
     .force('x', forceX(w / 2).strength(0.01))
     .force('y', forceY(h / 2).strength(0.01))
     .alphaDecay(0.04)
@@ -264,11 +269,13 @@ function rebuildNodeObjects() {
 }
 
 function drawNode(obj, sn) {
-  const { gfx, node, type, r } = obj
+  const { gfx, node, type } = obj
   const isDark  = props.nightMode
   const isFocus = focusedIdx === sn._idx
   const isHl    = props.queryHlIdxs?.has(sn._idx)
   const isSearch = props.searchHitMgIdxs?.includes(sn._idx)
+  const isSelf  = props.selfNodeId != null && node.id === props.selfNodeId
+  const r = isSelf ? obj.r + 3 : obj.r
   const urgency  = type === 'meeting_group' ? props.computeUrgency(node.data) : null
   const hubColor = type === 'meeting_group' ? hexToNum(props.getHubFill(node.data)) : (NODE_COLORS[type] ?? 0x3b82f6)
 
@@ -296,10 +303,10 @@ function drawNode(obj, sn) {
     gfx.fill({ color: NODE_COLORS[type] ?? 0x60a5fa, alpha: 1 })
   }
 
-  // '나' 노드 — 검정 테두리로 구분
-  if (type === 'org-root' && !isFocus && !obj.focused && !obj.hovered) {
+  // 자신 노드 — 검정 테두리로 구분
+  if (isSelf && !isFocus && !obj.focused && !obj.hovered) {
     gfx.circle(0, 0, r)
-    gfx.stroke({ color: 0x0f172a, width: 2.5, alpha: 0.9 })
+    gfx.stroke({ color: isDark ? 0x0f172a : 0x0f172a, width: 2.5, alpha: 0.9 })
   }
 
   // Focus / hover ring

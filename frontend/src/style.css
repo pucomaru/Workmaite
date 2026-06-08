@@ -182,6 +182,8 @@ html.night-mode {
   --border: var(--dark-border);
   --text: var(--dark-text);
   --text-muted: var(--dark-muted);
+  --surface: #1e2d3e;
+  --surface-2: var(--dark-subtle);
   --bs-body-color: var(--dark-text);
   --bs-body-bg: var(--dark-bg);
   --bs-border-color: var(--dark-border);
