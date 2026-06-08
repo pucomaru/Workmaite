@@ -1139,29 +1139,8 @@ async def archive_extract_agendas(
             else:
                 file_texts.append(f"[첨부: {upload.filename}] - 텍스트 추출 불가")
 
-            # R2 업로드 및 reports 테이블 저장
-            try:
-                from r2_storage import upload_bytes as _r2_upload, get_content_type as _r2_ct
-                import uuid
-                key = f"reports/{meeting_id}/{uuid.uuid4().hex}_{upload.filename}"
-                file_url = _r2_upload(raw, key, _r2_ct(upload.filename))
-                report = models.Report(
-                    meeting_id=meeting_id,
-                    upload_id=current_user.id,
-                    submitter_department=current_user.department or "미지정",
-                    file_name=upload.filename,
-                    file_path=file_url,
-                    human_status="pending",
-                )
-                db.add(report)
-                db.flush()
-            except Exception as e:
-                db.rollback()
-                print(f"[파일 저장 오류] {upload.filename}: {e}")
         except Exception as e:
             print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
-
-    db.commit()
 
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:

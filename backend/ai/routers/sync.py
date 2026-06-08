@@ -9,7 +9,6 @@ routers/sync.py — Neo4j 동기화 관련 API
   POST /api/sync/agenda/{id}        특정 Agenda 수동 동기화
   POST /api/sync/user/{id}          특정 User 수동 동기화
   POST /api/sync/member             MeetingMember 관계 수동 동기화
-  POST /api/sync/file               파일 업로드 → 임베딩 → Neo4j 저장
   POST /api/sync/search             벡터 유사도 검색
   POST /api/sync/all                전체 PostgreSQL→Neo4j 동기화
 """
@@ -18,7 +17,7 @@ import os
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, Header, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
@@ -32,6 +31,7 @@ _INTERNAL_SECRET = os.environ["INTERNAL_SECRET"]
 def verify_internal(x_internal_secret: Optional[str] = Header(None)):
     if x_internal_secret != _INTERNAL_SECRET:
         raise HTTPException(status_code=401, detail="Internal secret mismatch")
+
 from neo4j_sync import (
     sync_meeting,
     sync_session,
@@ -45,8 +45,7 @@ from neo4j_sync import (
     sync_all_from_pg,
     vector_search,
 )
-from file_embedder import process_and_embed_file, embed_query
-from r2_storage import upload_bytes, get_content_type, is_r2_url
+from file_embedder import embed_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -139,149 +138,6 @@ async def sync_session_manual(
         scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
     )
     return {"success": True, "session_id": session_id, "title": session.title}
-
-
-# ─── 파일 업로드 + 임베딩 ─────────────────────────────────────────────────────
-
-@router.post("/file")
-async def upload_and_embed_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    meeting_id: Optional[int] = Form(None),
-    session_id: Optional[int] = Form(None),
-    agenda_neo4j_id: Optional[str] = Form(None),
-    agenda_content: Optional[str] = Form(None),
-    file_label: Optional[str] = Form(None),
-    doc_type: Optional[str] = Form("보고자료"),
-    mg_id: Optional[str] = Form(None),
-    current_user: models.User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """
-    파일을 업로드합니다.
-    - PostgreSQL report_reviews 즉시 저장
-    - Neo4j Document 노드 즉시 생성 (map 즉시 갱신 가능)
-    - 텍스트 임베딩은 백그라운드에서 처리
-    """
-    import hashlib
-    from neo4j_sync import sync_document as _sync_doc
-
-    # 1. R2에 파일 업로드
-    safe_name = file.filename.replace(" ", "_")
-    content = await file.read()
-    r2_key = f"files/{meeting_id or 'general'}/{safe_name}"
-    r2_url = upload_bytes(content, r2_key, get_content_type(safe_name))
-
-    logger.info(
-        f"[Sync/file] 수신: file={safe_name}, meeting_id={meeting_id!r}, "
-        f"mg_id={mg_id!r}, agenda_neo4j_id={agenda_neo4j_id!r}, "
-        f"file_label={file_label!r}, doc_type={doc_type!r}, r2_url={r2_url}"
-    )
-
-    # 2. PostgreSQL reports 저장 (file_path = R2 URL)
-    if meeting_id:
-        try:
-            report = models.Report(
-                meeting_id=meeting_id,
-                upload_id=current_user.id,
-                file_name=file_label or safe_name,
-                file_path=r2_url,
-                human_status="pending",
-                submitter_department=current_user.department or "",
-            )
-            db.add(report)
-            db.commit()
-        except Exception as e:
-            logger.error(f"[Sync] reports 저장 실패: meeting_id={meeting_id}, error={e}")
-            db.rollback()
-        else:
-            logger.info(f"[Sync] reports 저장 성공: meeting_id={meeting_id}, file={safe_name}")
-
-    # 3. Neo4j Document 노드 즉시 생성 (map refresh가 문서를 즉시 보이게)
-    # - 먼저 Meeting 노드가 Neo4j에 존재하는지 보장 (없으면 첨부 관계 생성 불가)
-    if meeting_id:
-        try:
-            meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-            if meeting_obj:
-                await sync_meeting(
-                    meeting_id=meeting_obj.id,
-                    title=meeting_obj.title,
-                    description=meeting_obj.description,
-                    status=str(meeting_obj.status or "ACTIVE"),
-                    meeting_type=str(meeting_obj.type or ""),
-                )
-        except Exception as e:
-            logger.warning(f"[Sync] Meeting 노드 보장 실패 (무시): {e}")
-
-    file_hash = hashlib.md5(safe_name.encode()).hexdigest()[:8]
-    doc_id = f"doc-{file_hash}-{meeting_id or 'g'}"
-    try:
-        await _sync_doc(
-            doc_id=doc_id,
-            file_name=safe_name,
-            title=file_label or safe_name,
-            doc_type=doc_type or "보고자료",
-            meeting_id=meeting_id,
-            mg_id=mg_id,
-            agenda_neo4j_id=agenda_neo4j_id or None,
-            uploader_id=current_user.id,
-        )
-    except Exception as e:
-        logger.warning(f"[Sync] Document 즉시 생성 실패 (무시): {e}")
-
-    # 4. 백그라운드 임베딩 파이프라인
-    background_tasks.add_task(
-        _run_embed,
-        file_path=r2_url,
-        file_name=safe_name,
-        meeting_id=meeting_id,
-        session_id=session_id,
-        uploader_id=current_user.id,
-        agenda_neo4j_id=agenda_neo4j_id or None,
-        agenda_content=agenda_content or None,
-        file_label=file_label or None,
-        doc_type=doc_type or "보고자료",
-        mg_id=mg_id,
-    )
-
-    return {
-        "success": True,
-        "message": f"{safe_name} 저장 완료. 임베딩이 백그라운드에서 처리됩니다.",
-        "file_name": safe_name,
-        "doc_id": doc_id,
-        "meeting_id": meeting_id,
-    }
-
-
-async def _run_embed(
-    file_path: str,
-    file_name: str,
-    meeting_id: Optional[int],
-    session_id: Optional[int],
-    uploader_id: int,
-    agenda_neo4j_id: Optional[str] = None,
-    agenda_content: Optional[str] = None,
-    file_label: Optional[str] = None,
-    doc_type: str = "보고자료",
-    mg_id: Optional[str] = None,
-):
-    """BackgroundTask 래퍼 — 임베딩 파이프라인 실행."""
-    try:
-        result = await process_and_embed_file(
-            file_path=file_path,
-            file_name=file_name,
-            meeting_id=meeting_id,
-            session_id=session_id,
-            extra_meta={"uploader_id": uploader_id},
-            agenda_neo4j_id=agenda_neo4j_id,
-            agenda_content=agenda_content,
-            file_label=file_label,
-            doc_type=doc_type,
-            mg_id=mg_id,
-        )
-        logger.info(f"[Sync] 파일 임베딩 완료: {result}")
-    except Exception as e:
-        logger.error(f"[Sync] 파일 임베딩 실패: {e}")
 
 
 # ─── 벡터 유사도 검색 ─────────────────────────────────────────────────────────

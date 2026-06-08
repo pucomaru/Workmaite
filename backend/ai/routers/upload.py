@@ -7,18 +7,22 @@
 
 Ingress: /api/upload → FastAPI (workmaite-ai:8000)
 """
+import logging
 import uuid
 from datetime import datetime
+from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
-from weasyprint import CSS, HTML as WeasyHTML
+from xhtml2pdf import pisa
 
 import models
 from auth import get_current_user
 from database import get_db
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -32,32 +36,60 @@ def _unique_key(prefix: str, filename: str) -> tuple[str, str]:
     return f"{prefix}/{uid}_{safe}", f"{uid}_{safe}"
 
 
-_PDF_CSS = CSS(string="""
-    body {
-        font-family: 'Noto Sans CJK KR', 'NanumGothic', Arial, sans-serif;
-        font-size: 11pt; line-height: 1.8; color: #1e293b;
-        padding: 40px 50px; max-width: 680px; margin: 0 auto;
-    }
-    h1 { font-size: 17pt; font-weight: bold; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 14px; }
-    h2 { font-size: 13pt; font-weight: bold; color: #1e40af; margin-top: 18px; margin-bottom: 6px; }
-    h3 { font-size: 11pt; font-weight: bold; color: #475569; margin-top: 12px; margin-bottom: 4px; }
-    p  { margin: 0 0 6px; }
-    ul, ol { padding-left: 20px; margin: 4px 0; }
-    li { margin-bottom: 2px; }
-    table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10pt; }
-    th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
-    th { background: #f1f5f9; font-weight: bold; }
-    hr { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
-""")
+_KOREAN_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",               # Linux (Nanum)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",        # Linux (Noto)
+    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",            # macOS
+    "/System/Library/Fonts/Supplemental/NotoSansGothic-Regular.ttf", # macOS
+]
+
+def _korean_font_face() -> str:
+    import os
+    for path in _KOREAN_FONT_CANDIDATES:
+        if os.path.exists(path):
+            logger.info(f"[PDF폰트] 사용: {path}")
+            return f"@font-face {{ font-family: 'KoreanFont'; src: url('{path}'); }}\n"
+    logger.warning("[PDF폰트] 한글 폰트를 찾지 못했습니다.")
+    return ""
+
+_PDF_CSS_BASE = """
+body {
+    font-family: 'KoreanFont', sans-serif;
+    font-size: 11pt; line-height: 1.8; color: #1e293b;
+    padding: 40px 50px;
+}
+h1 { font-size: 17pt; font-weight: bold; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 14px; }
+h2 { font-size: 13pt; font-weight: bold; color: #1e40af; margin-top: 18px; margin-bottom: 6px; }
+h3 { font-size: 11pt; font-weight: bold; color: #475569; margin-top: 12px; margin-bottom: 4px; }
+p  { margin: 0 0 6px; }
+ul, ol { padding-left: 20px; margin: 4px 0; }
+li { margin-bottom: 2px; }
+table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10pt; }
+th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+th { background: #f1f5f9; font-weight: bold; }
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+"""
 
 
 def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
     """HTML 문자열을 PDF bytes로 변환합니다."""
+    logger.info(f"[PDF변환] 시작 — title={title!r}, HTML 길이={len(html_content)}자")
+    css = _korean_font_face() + _PDF_CSS_BASE
     full_html = (
-        f'<!DOCTYPE html><html><head><meta charset="utf-8"><title>{title}</title></head>'
-        f"<body>{html_content}</body></html>"
+        f'<!DOCTYPE html><html><head>'
+        f'<meta charset="utf-8"><title>{title}</title>'
+        f'<style>{css}</style>'
+        f'</head><body>{html_content}</body></html>'
     )
-    return WeasyHTML(string=full_html).write_pdf(stylesheets=[_PDF_CSS])
+    buf = BytesIO()
+    result = pisa.CreatePDF(full_html.encode("utf-8"), dest=buf, encoding="utf-8")
+    if result.err:
+        raise RuntimeError(f"xhtml2pdf 변환 오류: {result.err}")
+    pdf_bytes = buf.getvalue()
+    logger.info(f"[PDF변환] 완료 — PDF 크기={len(pdf_bytes)} bytes")
+    if len(pdf_bytes) == 0:
+        raise RuntimeError("PDF 변환 결과가 비어있습니다 (0 bytes)")
+    return pdf_bytes
 
 
 # ── 보고자료 업로드 ────────────────────────────────────────────────────────────
@@ -123,26 +155,31 @@ async def upload_minutes(
     key, stored_name = _unique_key(f"minutes/{session_id}", "minutes.pdf")
     r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
 
-    existing = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
-    if existing:
-        existing.file_name = stored_name
-        existing.file_path = r2_url
-        existing.recorder_id = current_user.id
-        existing.generated_at = datetime.utcnow()
-        existing.content_summary = content
-        minutes = existing
-    else:
-        minutes = models.Minutes(
-            session_id=session_id,
-            file_name=stored_name,
-            file_path=r2_url,
-            recorder_id=current_user.id,
-            content_summary=content,
-        )
-        db.add(minutes)
-
-    db.commit()
-    db.refresh(minutes)
+    try:
+        existing = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+        if existing:
+            existing.file_name = stored_name
+            existing.file_path = r2_url
+            existing.recorder_id = current_user.id
+            existing.generated_at = datetime.utcnow()
+            existing.content_summary = content
+            minutes = existing
+        else:
+            minutes = models.Minutes(
+                session_id=session_id,
+                file_name=stored_name,
+                file_path=r2_url,
+                recorder_id=current_user.id,
+                content_summary=content,
+            )
+            db.add(minutes)
+        db.commit()
+        db.refresh(minutes)
+        logger.info(f"[minutes upsert] 성공 — session_id={session_id}, file_path={r2_url}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[minutes upsert] 실패 — session_id={session_id}, error={e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"회의록 DB 저장 실패: {e}")
 
     return {
         "id": minutes.id,
