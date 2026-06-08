@@ -26,15 +26,19 @@ async def _transcribe_local(data: bytes, filename: str, lang_code: str) -> str:
         return resp.json().get("text", "").strip()
 
 
-async def _transcribe_external(data: bytes, filename: str, lang_code: str) -> str:
+async def _transcribe_external(data: bytes, filename: str, lang_code: str) -> list[dict]:
     import openai
     client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
     resp = await client.audio.transcriptions.create(
-        model="whisper-1",
+        model="gpt-4o-transcribe-diarize",
         file=(filename, io.BytesIO(data), "audio/webm"),
         language=lang_code,
+        response_format="diarized_json",
     )
-    return resp.text.strip()
+    return [
+        {"speaker": seg.speaker, "text": seg.text, "start": seg.start, "end": seg.end}
+        for seg in resp.segments
+    ]
 
 
 @router.post("/transcribe")
@@ -59,12 +63,13 @@ async def transcribe(
 
     try:
         if stt_type == "external":
-            full_text = await _transcribe_external(data, filename, lang_code)
-            logger.info(f"[STT] OpenAI Whisper API 완료: {len(full_text)}자")
+            segments = await _transcribe_external(data, filename, lang_code)
+            full_text = " ".join(seg["text"] for seg in segments)
+            logger.info(f"[STT] OpenAI diarize API 완료: {len(segments)}개 세그먼트")
         else:
             full_text = await _transcribe_local(data, filename, lang_code)
             logger.info(f"[STT] 로컬 Whisper 완료: {len(full_text)}자")
-        segments = [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
+            segments = [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
     except Exception as e:
         logger.error(f"[STT] 변환 실패 (type={stt_type}): {e}")
 

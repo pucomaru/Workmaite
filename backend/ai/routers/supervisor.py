@@ -1,5 +1,4 @@
 import json
-import re
 import os
 import uuid
 from datetime import datetime
@@ -27,8 +26,6 @@ import logging
 from .prompts import (
     make_llm,
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
-    extract_agendas_system,
-    chat_extract_system,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,6 +98,7 @@ _ROUTING_SYSTEM = """\
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
+
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1212,15 +1210,7 @@ async def archive_extract_agendas(
     dept_list = ", ".join(departments) if departments else "정보 없음"
 
     try:
-        response = await make_llm(temperature=0.15).ainvoke([
-            SystemMessage(content=extract_agendas_system(dept_list)),
-            HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
-        ])
-        raw_text = response.content.strip()
-        try:
-            parsed = _parse_json_response(raw_text)
-        except Exception:
-            parsed = {"agendas": []}
+        parsed = await task_agent.extract_agendas_from_context(context_parts, dept_list)
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
@@ -1402,8 +1392,7 @@ async def analyze_archive_file(
 
     # LangGraph 기반 아카이브 파일 검토 에이전트 실행
     try:
-        from agents.report_reviewer import analyze_archive_file as _analyze_graph
-        return await _analyze_graph(
+        return await task_agent.analyze_archive_file(
             file_name=file_name,
             file_type=file_type,
             dept_name=dept_name,
@@ -1461,9 +1450,8 @@ async def analyze_archive_file_stream_ep(
         file_content = "[파일 미첨부 — 이름만 입력됨]"
 
     async def stream():
-        from agents.report_reviewer import analyze_archive_file_stream as _stream_graph
         try:
-            async for event in _stream_graph(
+            async for event in task_agent.analyze_archive_file_stream(
                 file_name=file_name,
                 file_type=file_type,
                 dept_name=dept_name,
@@ -1502,10 +1490,16 @@ async def submit_agenda_feedback(
     import uuid as _uuid
     from datetime import datetime as _dt
 
-    agenda_id = data.get("agenda_id")
-    feedback  = data.get("feedback", "")
-    action    = data.get("action", "rejected")   # "rejected" | "edited"
-    meeting_id = data.get("meeting_id")
+    agenda_id  = data.get("agenda_id")
+    feedback   = data.get("feedback", "")
+    action     = data.get("action", "rejected")   # "rejected" | "edited"
+    meeting_id = data.get("meeting_id") or None   # 0 → None (FK-safe)
+
+    # agenda_id must be a valid integer for HitlReview.target_id (NOT NULL Integer)
+    try:
+        target_id = int(agenda_id)
+    except (TypeError, ValueError):
+        target_id = None
 
     log = models.AgentLog(
         task_id=str(_uuid.uuid4()),
@@ -1520,16 +1514,17 @@ async def submit_agenda_feedback(
     db.add(log)
     db.flush()
 
-    db.add(models.HitlReview(
-        agent_log_id=log.id,
-        target_type="agenda",
-        target_id=agenda_id,
-        review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
-        status=action,
-        reviewer_id=current_user.id,
-        review_comment=feedback or None,
-        reviewed_at=_dt.utcnow(),
-    ))
+    if target_id is not None:
+        db.add(models.HitlReview(
+            agent_log_id=log.id,
+            target_type="agenda",
+            target_id=target_id,
+            review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
+            status=action,
+            reviewer_id=current_user.id,
+            review_comment=feedback or None,
+            reviewed_at=_dt.utcnow(),
+        ))
     db.commit()
     return {"ok": True}
 

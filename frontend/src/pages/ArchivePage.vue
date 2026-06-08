@@ -1524,8 +1524,7 @@ function doAddFile() {
       const sessionNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
       const sessionId = sessionNode?.sessionId
       if (sessionId) {
-        fd.append('content', '')
-        apiAI.post(`/api/upload/minutes/${sessionId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        apiAI.post(`/api/upload/minutes/${sessionId}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
           .then(({ data }) => {
             newNode.filePath = data.file_path
             graphViewRef.value?.reloadGraph(gNodes, gEdges)
@@ -1739,6 +1738,8 @@ const groupHistoryMap = computed(() => {
     const items = []
     // 회의록
     g.minutes.forEach(m => {
+      const rawId = String(m.id || '')
+      const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
       items.push({
         type: 'minutes',
         desc: `${m.session_number ? m.session_number + '차 ' : ''}회의 진행 및 회의록 작성`,
@@ -1746,18 +1747,20 @@ const groupHistoryMap = computed(() => {
         date: m.ended_at,
         hasFile: true,
         fileName: m.session_title || '회의록',
+        sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
     // 보고서
     g.reports.forEach(r => {
-      const dept = r.submitted_by_dept || r.department || ''
+      const dept = r.submitted_by_dept || r.department || r.submitter_department || ''
       items.push({
         type: 'report',
         desc: dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`,
         manager: r.submitted_by || managerName,
         date: r.submitted_at,
-        hasFile: true,
+        hasFile: !!(r.file_path || r.file_url),
         fileName: r.file_name || '보고서',
+        filePath: r.file_path || r.file_url || null,
       })
       // 보고서 승인 이력 (상태가 있을 경우)
       if (r.status === 'approved') {
@@ -1930,7 +1933,37 @@ watch(() => neo4jMeetings.value.length, () => {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
-function downloadDummy(name){alert(`"${name}" 다운로드 기능은 준비 중입니다.`)}
+async function _openPresigned(filePath) {
+  const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
+  window.open(data.url, '_blank')
+}
+async function _fetchMinutesFilePath(sessionId) {
+  const res = await api.get(`/api/v1/sessions/${sessionId}/minutes`)
+  return res?.data?.data?.filePath || res?.data?.filePath || null
+}
+async function downloadFile(item) {
+  try {
+    let filePath = item?.filePath || null
+    if (!filePath && item?.sessionId) filePath = await _fetchMinutesFilePath(item.sessionId)
+    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    await _openPresigned(filePath)
+  } catch(e) { console.error('[download]', e); alert('파일 다운로드에 실패했습니다.') }
+}
+async function downloadNode(node) {
+  try {
+    let filePath = node?.data?.file_path || node?.data?.file_url || null
+    if (!filePath) {
+      const neoId = node?.data?.session_neo_id || (node?.type === 'session' ? node?.data?.id : null) || null
+      if (neoId) {
+        const rawId = String(neoId)
+        const sessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
+        if (Number.isFinite(sessionId)) filePath = await _fetchMinutesFilePath(sessionId)
+      }
+    }
+    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    await _openPresigned(filePath)
+  } catch(e) { console.error('[downloadNode]', e); alert('파일 다운로드에 실패했습니다.') }
+}
 const TYPES=['Draft','In Progress','Done','Pending']
 
 // ─── Provide for Canvas components (GraphLegend, GraphFloatBtns, FloatDragPreview) ─
@@ -1949,7 +1982,7 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy,
+  formatDate, downloadDummy: downloadFile,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
@@ -1987,7 +2020,7 @@ provide('archiveSidebar', {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy: downloadNode, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
 })
