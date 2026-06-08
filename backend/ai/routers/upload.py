@@ -22,7 +22,7 @@ from r2_storage import generate_presigned_url, get_content_type, upload_bytes, u
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
-_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _unique_key(prefix: str, filename: str) -> tuple[str, str]:
