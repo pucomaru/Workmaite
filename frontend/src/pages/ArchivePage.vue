@@ -43,6 +43,7 @@ const currentOrg = ref(null)    // 현재 조직 (Organization 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
 const neo4jError = ref('')
+const neo4jRetrying = ref(false)
 const search = ref('')
 const expandedMeeting = ref(null)
 
@@ -896,6 +897,18 @@ async function openDetail(groupData) {
 
 let gNodes = [], gEdges = []
 const gNodesRef = shallowRef([])  // reactive mirror for provide/inject
+const selfPersonNodeId = computed(() => {
+  const myId   = authStore.user?.id
+  const myName = currentPerson.value?.name || authStore.user?.name
+  const node = gNodesRef.value.find(n => {
+    if (n.type !== 'person') return false
+    const mb = n.data
+    if (myId != null && mb?.userId != null && String(mb.userId).replace(/\D/g, '') === String(myId)) return true
+    if (myName && n.label === myName) return true
+    return false
+  })
+  return node?.id ?? null
+})
 // ─── 로컬 관계 오버라이드: refreshArchive 후에도 유지 ────────
 // key 형식: "fromNodeId|toNodeId" (양방향 모두 등록)
 const localDeletedEdges = new Set()
@@ -1173,7 +1186,14 @@ async function doAddRel() {
 
 const connectableNodes = computed(() => {
   const groups = meetingGroups.value
-  const result = [{ id:'org-root', label:'나', typeLabel:'구성원', type:'person' }]
+  // '나' 노드: currentPerson.value.id = Neo4j User ID (e.g. 'p-123')
+  // buildGraphNodes에서 생성되는 person 노드 ID 포맷: `person-${mb.userId}` 와 일치
+  const result = []
+  const myNeo4jId = currentPerson.value?.id
+  const myLabel   = currentPerson.value?.name || authStore.user?.name || '나'
+  if (myNeo4jId) {
+    result.push({ id: `person-${myNeo4jId}`, label: `나 (${myLabel})`, typeLabel: '구성원', type: 'person', neo4jId: myNeo4jId })
+  }
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
   depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
@@ -1791,13 +1811,12 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetingsStore,
 })
 
-/** ConstellationView에서 MG 노드 클릭 시 사이드바 열기 */
 /** GraphView (PIXI) 노드 클릭 핸들러 */
 function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.type !== 'org-root') {
+  } else if (node.id !== 'org-node' && node.type !== 'org') {
     openNodeDetail(node)
   }
 }
@@ -1850,6 +1869,9 @@ onBeforeUnmount(()=>{
 
 // ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
 async function refreshArchive() {
+  neo4jRetrying.value = true
+  neo4jError.value = ''   // 즉시 오버레이 해제 → 로딩 상태로 전환
+  loading.value = true
   try {
     const res = await apiAI.get('/api/neo4j/archive')
     neo4jError.value = ''
@@ -1871,6 +1893,9 @@ async function refreshArchive() {
   } catch(e) {
     console.error('archive refresh error', e)
     neo4jError.value = '연결 실패'
+  } finally {
+    loading.value = false
+    neo4jRetrying.value = false
   }
 }
 
@@ -2096,7 +2121,10 @@ provide('archiveSidebar', {
           <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#f87171;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
           <div class="neo4j-error-title">그래프 연결 실패</div>
           <div class="neo4j-error-msg">{{ neo4jError }}</div>
-          <button class="neo4j-error-retry" @click="refreshArchive">다시 시도</button>
+          <button class="neo4j-error-retry" :disabled="neo4jRetrying" @click="refreshArchive">
+            <span v-if="neo4jRetrying" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px"></span>
+            {{ neo4jRetrying ? '연결 중...' : '다시 시도' }}
+          </button>
         </div>
         <GraphView
           v-if="!loading && viewMode==='graph' && !neo4jError"
@@ -2113,6 +2141,7 @@ provide('archiveSidebar', {
           :computeUrgency="computeUrgency"
           :relColors="REL_COLORS"
           :groupTodoRatio="groupTodoRatio"
+          :selfNodeId="selfPersonNodeId"
           @nodeClick="onGraphNodeClick"
           @bgClick="onGraphBgClick"
         />
