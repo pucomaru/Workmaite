@@ -5,6 +5,10 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
+try:
+    from jose.exceptions import ExpiredSignatureError as _ExpiredSignatureError
+except ImportError:
+    _ExpiredSignatureError = None
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -54,6 +58,12 @@ def get_current_user(
             logger.warning("[Auth] JWT에 sub 없음")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except JWTError as e:
+        if _ExpiredSignatureError and isinstance(e, _ExpiredSignatureError):
+            logger.warning("[Auth] JWT 만료됨")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token_expired")
+        if "Signature has expired" in str(e) or "expired" in str(e).lower():
+            logger.warning("[Auth] JWT 만료됨")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token_expired")
         logger.warning(f"[Auth] JWT 검증 실패: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 

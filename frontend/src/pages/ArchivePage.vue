@@ -43,6 +43,7 @@ const currentOrg = ref(null)    // 현재 조직 (Organization 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
 const neo4jError = ref('')
+const neo4jRetrying = ref(false)
 const search = ref('')
 const expandedMeeting = ref(null)
 
@@ -911,6 +912,18 @@ async function openDetail(groupData) {
 
 let gNodes = [], gEdges = []
 const gNodesRef = shallowRef([])  // reactive mirror for provide/inject
+const selfPersonNodeId = computed(() => {
+  const myId   = authStore.user?.id
+  const myName = currentPerson.value?.name || authStore.user?.name
+  const node = gNodesRef.value.find(n => {
+    if (n.type !== 'person') return false
+    const mb = n.data
+    if (myId != null && mb?.userId != null && String(mb.userId).replace(/\D/g, '') === String(myId)) return true
+    if (myName && n.label === myName) return true
+    return false
+  })
+  return node?.id ?? null
+})
 // ─── 로컬 관계 오버라이드: refreshArchive 후에도 유지 ────────
 // key 형식: "fromNodeId|toNodeId" (양방향 모두 등록)
 const localDeletedEdges = new Set()
@@ -1188,7 +1201,14 @@ async function doAddRel() {
 
 const connectableNodes = computed(() => {
   const groups = meetingGroups.value
-  const result = [{ id:'org-root', label:'나', typeLabel:'구성원', type:'person' }]
+  // '나' 노드: currentPerson.value.id = Neo4j User ID (e.g. 'p-123')
+  // buildGraphNodes에서 생성되는 person 노드 ID 포맷: `person-${mb.userId}` 와 일치
+  const result = []
+  const myNeo4jId = currentPerson.value?.id
+  const myLabel   = currentPerson.value?.name || authStore.user?.name || '나'
+  if (myNeo4jId) {
+    result.push({ id: `person-${myNeo4jId}`, label: `나 (${myLabel})`, typeLabel: '구성원', type: 'person', neo4jId: myNeo4jId })
+  }
   const depts = new Set()
   groups.forEach(g => (g.members||[]).forEach(mb => depts.add(mb.department||mb.dept||'미지정')))
   depts.forEach(d => result.push({ id:`dept-${d}`, label:d, typeLabel:'부서', type:'dept' }))
@@ -1197,7 +1217,7 @@ const connectableNodes = computed(() => {
     const mgId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
     result.push({ id: mgId, label:g.title, typeLabel:'회의체', type:'meeting_group' })
   })
-  groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
+  groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, sessionId: m.id, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
   return result
 })
 
@@ -1282,6 +1302,11 @@ const aiAnalyzing = ref(false)
 const aiResult = ref(null)  // { score, feedback, agendas, related_depts }
 const aiStreamText = ref('')   // 스트리밍 중 LLM 토큰 누적 텍스트
 const aiStreamStage = ref('')  // 현재 진행 단계 메시지
+const reportId = ref(null)        // AI 검토 시작 시 생성된 report ID
+const uploadedFilePath = ref('')  // R2 업로드된 파일 경로
+const isResubmit = ref(false)     // 재검토 모드 여부
+const rejectedReports = ref([])   // 반려된 보고서 목록
+const selectedParentId = ref(null) // 선택된 원본 report ID
 const selectedAgendas = ref([])      // indices of agendas to apply
 const selectedRelDepts = ref([])     // dept names to auto-connect
 
@@ -1294,6 +1319,10 @@ function openUploadModal(ctx = {}) {
   selectedAgendas.value = []
   selectedRelDepts.value = []
   customAgendas.value = []
+  reportId.value = null
+  uploadedFilePath.value = ''
+  isResubmit.value = false
+  selectedParentId.value = null
   // 드래그로 자동 입력된 필드 기록
   prefilledCtx.value = {
     meetingId: !!ctx.meetingId,
@@ -1334,14 +1363,37 @@ async function runAiAnalysis() {
   const deptNode = connectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
             || deptConnectableNodes.value.find(n => n.id === uploadForm.value.connectNodeId)
 
-  // 실제 파일을 백엔드로 전송 → 서버에서 PDF/DOCX 텍스트 추출 후 AI 검토 (스트리밍)
+  const _mid = String(uploadForm.value.meetingId || '').replace(/^mg-/, '')
+
+  // 파일을 먼저 R2에 업로드 → reports 테이블에 pending으로 저장
+  if (uploadForm.value.file && _mid && /^\d+$/.test(_mid)) {
+    try {
+      const uploadFd = new FormData()
+      uploadFd.append('file', uploadForm.value.file)
+      uploadFd.append('dept_name', deptNode?.label || '')
+      uploadFd.append('related_agenda_ids', JSON.stringify(uploadForm.value.relatedTodoIds || []))
+      if (selectedParentId.value) {
+        uploadFd.append('parent_report_id', String(selectedParentId.value))
+      }
+      const { data: uploadData } = await apiAI.post(
+        `/api/upload/reports/${_mid}`,
+        uploadFd,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      )
+      reportId.value = uploadData.id
+      uploadedFilePath.value = uploadData.file_path
+    } catch (e) {
+      console.warn('[runAiAnalysis] 파일 업로드 실패:', e)
+    }
+  }
+
+  // AI 검토 스트리밍 요청
   const fd = new FormData()
   if (uploadForm.value.file) fd.append('file', uploadForm.value.file)
   fd.append('file_name', uploadForm.value.label)
   fd.append('file_type', uploadForm.value.fileType)
   fd.append('dept_name', deptNode?.label || '')
   fd.append('graph_context', buildGraphContextStr())
-  const _mid = String(uploadForm.value.meetingId || '').replace(/^mg-/, '')
   if (_mid && /^\d+$/.test(_mid)) fd.append('meeting_id', _mid)
   fd.append('candidate_agendas', JSON.stringify(
     업로드회의체과제.value.map(t => ({
@@ -1393,6 +1445,14 @@ async function runAiAnalysis() {
   } finally {
     aiAnalyzing.value = false
     aiStreamStage.value = ''
+    // AI 결과를 report_scores에 저장
+    if (reportId.value && aiResult.value?.score != null) {
+      apiAI.post(`/api/upload/reports/${reportId.value}/score`, {
+        score: aiResult.value.score,
+        feedback: aiResult.value.feedback ?? [],
+        detail_scores: aiResult.value.detail_scores ?? {},
+      }).catch(e => console.warn('[runAiAnalysis] 점수 저장 실패:', e))
+    }
   }
 }
 
@@ -1459,6 +1519,8 @@ function doAddFile() {
     fileType: uploadForm.value.fileType,
     aiScore: aiResult.value?.score ?? null,
     aiReview: aiResult.value ? { ...aiResult.value } : null,
+    filePath: uploadedFilePath.value || null,
+    reportId: reportId.value || null,
     extractedAgendas: [],
     groupIdx: mgNode?.groupIdx,
     meetingGroupId: uploadForm.value.meetingId,
@@ -1471,6 +1533,16 @@ function doAddFile() {
     agendaNodes.forEach(ag => {
       const agIdx = gNodes.indexOf(ag)
       if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '첨부' })
+      // Neo4j에 파일-아젠다 관계 저장
+      if (reportId.value && ag.neo4jId) {
+        apiAI.post('/api/neo4j/relationships', {
+          from_id: `report-${reportId.value}`,
+          from_label: 'Document',
+          to_id: ag.neo4jId,
+          to_label: 'Agenda',
+          rel_type: '첨부',
+        }).catch(e => console.warn('[doAddFile] agenda 관계 Neo4j 저장 실패:', e))
+      }
     })
   } else if (anchorIdx >= 0) {
     gEdges.push({ from: fileIdx, to: anchorIdx, rel: autoRel(uploadForm.value.connectNodeId, 'file') })
@@ -1509,24 +1581,7 @@ function doAddFile() {
 
   showUploadModal.value = false
   graphViewRef.value?.reloadGraph(gNodes, gEdges)
-
-  // 백엔드 업로드 (R2) — file_path를 노드에 저장
-  const file = uploadForm.value.file
-  if (file) {
-    const rawMgId = uploadForm.value.meetingId
-    const mgNumId = rawMgId ? _toNumericId(rawMgId) : null
-    if (mgNumId) {
-      const fd = new FormData()
-      fd.append('file', file)
-      apiAI.post(`/api/upload/reports/${mgNumId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        .then(({ data }) => {
-          newNode.filePath = data.file_path
-          graphViewRef.value?.reloadGraph(gNodes, gEdges)
-          setTimeout(refreshArchive, 1200)
-        })
-        .catch(e => console.warn('[doAddFile] upload/reports 실패:', e))
-    }
-  }
+  setTimeout(refreshArchive, 1200)
 }
 
 
@@ -1719,6 +1774,8 @@ const groupHistoryMap = computed(() => {
     const items = []
     // 회의록
     g.minutes.forEach(m => {
+      const rawId = String(m.id || '')
+      const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
       items.push({
         type: 'minutes',
         desc: `${m.session_number ? m.session_number + '차 ' : ''}회의 진행 및 회의록 작성`,
@@ -1726,21 +1783,25 @@ const groupHistoryMap = computed(() => {
         date: m.ended_at,
         hasFile: true,
         fileName: m.session_title || '회의록',
+        sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
-    // 보고서
+    // 보고서 (rejected 포함, 상태 표시)
     g.reports.forEach(r => {
-      const dept = r.submitted_by_dept || r.department || ''
+      const dept = r.submitter_department || r.submitted_by_dept || r.department || ''
+      const isRejected = r.human_status === 'rejected' || r.status === 'rejected'
       items.push({
         type: 'report',
-        desc: dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`,
+        desc: (isRejected ? '[반려] ' : '') + (dept ? `${dept}에서 업로드한 보고서` : `보고서 업로드 (${r.file_name || '파일'})`),
         manager: r.submitted_by || managerName,
-        date: r.submitted_at,
-        hasFile: true,
+        date: r.created_at || r.submitted_at,
+        hasFile: !!(r.file_path || r.file_url),
         fileName: r.file_name || '보고서',
+        filePath: r.file_path || r.file_url || null,
+        rejected: isRejected,
       })
       // 보고서 승인 이력 (상태가 있을 경우)
-      if (r.status === 'approved') {
+      if (r.human_status === 'approved' || r.status === 'approved') {
         items.push({
           type: 'approved',
           desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 승인`,
@@ -1749,7 +1810,7 @@ const groupHistoryMap = computed(() => {
           hasFile: false,
           fileName: '',
         })
-      } else if (r.status === 'rejected') {
+      } else if (r.human_status === 'rejected' || r.status === 'rejected') {
         items.push({
           type: 'rejected',
           desc: `${dept ? dept + '에서 업로드한 ' : ''}보고서 반려`,
@@ -1788,13 +1849,12 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetingsStore,
 })
 
-/** ConstellationView에서 MG 노드 클릭 시 사이드바 열기 */
 /** GraphView (PIXI) 노드 클릭 핸들러 */
 function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.type !== 'org-root') {
+  } else if (node.id !== 'org-node' && node.type !== 'org') {
     openNodeDetail(node)
   }
 }
@@ -1847,6 +1907,9 @@ onBeforeUnmount(()=>{
 
 // ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
 async function refreshArchive() {
+  neo4jRetrying.value = true
+  neo4jError.value = ''   // 즉시 오버레이 해제 → 로딩 상태로 전환
+  loading.value = true
   try {
     const res = await apiAI.get('/api/neo4j/archive')
     neo4jError.value = ''
@@ -1868,6 +1931,9 @@ async function refreshArchive() {
   } catch(e) {
     console.error('archive refresh error', e)
     neo4jError.value = '연결 실패'
+  } finally {
+    loading.value = false
+    neo4jRetrying.value = false
   }
 }
 
@@ -1905,7 +1971,55 @@ watch(() => neo4jMeetings.value.length, () => {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'})}
-function downloadDummy(name){alert(`"${name}" 다운로드 기능은 준비 중입니다.`)}
+async function _openPresigned(filePath) {
+  const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
+  window.open(data.url, '_blank')
+}
+async function _fetchMinutesFilePath(sessionId) {
+  const res = await api.get(`/api/v1/sessions/${sessionId}/minutes`)
+  return res?.data?.data?.filePath || res?.data?.filePath || null
+}
+async function downloadFile(item) {
+  try {
+    let filePath = item?.filePath || null
+    if (!filePath && item?.sessionId) filePath = await _fetchMinutesFilePath(item.sessionId)
+    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    await _openPresigned(filePath)
+  } catch(e) { console.error('[download]', e); alert('파일 다운로드에 실패했습니다.') }
+}
+async function downloadNode(node) {
+  try {
+    let filePath = node?.data?.file_path || node?.data?.file_url || null
+    if (!filePath) {
+      const neoId = node?.data?.session_neo_id || (node?.type === 'session' ? node?.data?.id : null) || null
+      if (neoId) {
+        const rawId = String(neoId)
+        const sessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
+        if (Number.isFinite(sessionId)) filePath = await _fetchMinutesFilePath(sessionId)
+      }
+    }
+    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    await _openPresigned(filePath)
+  } catch(e) { console.error('[downloadNode]', e); alert('파일 다운로드에 실패했습니다.') }
+}
+const downloadDummy = downloadNode
+async function deleteReport(reportId) {
+  if (!reportId) return
+  if (!confirm('보고서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  try {
+    await apiAI.delete(`/api/upload/reports/${reportId}`)
+    // 그래프에서 노드 제거
+    const idx = gNodes.findIndex(n => n.reportId === reportId || n.id === `file-report-${reportId}`)
+    if (idx >= 0) {
+      gNodes.splice(idx, 1)
+      graphViewRef.value?.reloadGraph(gNodes, gEdges)
+    }
+    detailNode.value = null
+    setTimeout(refreshArchive, 600)
+  } catch (e) {
+    alert('삭제에 실패했습니다.')
+  }
+}
 const TYPES=['Draft','In Progress','Done','Pending']
 
 // ─── Provide for Canvas components (GraphLegend, GraphFloatBtns, FloatDragPreview) ─
@@ -1924,10 +2038,45 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy,
+  formatDate, downloadDummy: downloadFile,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
+async function fetchRejectedReports() {
+  try {
+    const { data } = await apiAI.get('/api/upload/reports/rejected')
+    rejectedReports.value = data || []
+  } catch (e) {
+    console.warn('[fetchRejectedReports] 실패:', e)
+  }
+}
+
+async function submitReview(action, feedback) {
+  if (action === 'rejected') {
+    showUploadModal.value = false
+  }
+  if (!reportId.value) {
+    if (action === 'approved') doAddFile()
+    return
+  }
+  try {
+    await apiAI.post(`/api/upload/reports/${reportId.value}/review`, {
+      action,
+      feedback,
+      ai_result: {
+        score: aiResult.value?.score,
+        detail_scores: aiResult.value?.detail_scores,
+      },
+      ai_rationale: (aiResult.value?.feedback ?? []).join('\n'),
+      related_agenda_ids: uploadForm.value.relatedTodoIds || [],
+    })
+  } catch (e) {
+    console.warn('[submitReview] hitl 저장 실패:', e)
+  } finally {
+    if (action === 'approved') doAddFile()
+  }
+}
+
 provide('archiveModals', {
   nightMode,
   showCreateModal, createForm, creating, doCreateMeeting, createMembers,
@@ -1937,7 +2086,8 @@ provide('archiveModals', {
   addCustomAgenda,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
   aiStreamText, aiStreamStage,
-  PRESENTATION_CRITERIA, doAddFile,
+  PRESENTATION_CRITERIA, doAddFile, submitReview, reportId,
+  isResubmit, rejectedReports, selectedParentId, fetchRejectedReports,
   settingsModal, closeSettings,
   settingsSearchQ, watchSettingsSearch, settingsSearchLoading,
   settingsSearchResults, addMemberToSettings, avatarColor, initials,
@@ -1962,7 +2112,7 @@ provide('archiveSidebar', {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
 })
@@ -2063,7 +2213,10 @@ provide('archiveSidebar', {
           <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#f87171;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
           <div class="neo4j-error-title">그래프 연결 실패</div>
           <div class="neo4j-error-msg">{{ neo4jError }}</div>
-          <button class="neo4j-error-retry" @click="refreshArchive">다시 시도</button>
+          <button class="neo4j-error-retry" :disabled="neo4jRetrying" @click="refreshArchive">
+            <span v-if="neo4jRetrying" class="spinner-border spinner-border-sm me-1" style="width:12px;height:12px;border-width:2px"></span>
+            {{ neo4jRetrying ? '연결 중...' : '다시 시도' }}
+          </button>
         </div>
         <GraphView
           v-if="!loading && viewMode==='graph' && !neo4jError"
@@ -2080,6 +2233,7 @@ provide('archiveSidebar', {
           :computeUrgency="computeUrgency"
           :relColors="REL_COLORS"
           :groupTodoRatio="groupTodoRatio"
+          :selfNodeId="selfPersonNodeId"
           @nodeClick="onGraphNodeClick"
           @bgClick="onGraphBgClick"
         />

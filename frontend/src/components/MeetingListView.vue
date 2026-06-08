@@ -72,17 +72,19 @@ const {
                   <tr v-if="!(filteredGroupHistoryMap.get(g.id) || []).length">
                     <td colspan="4" class="lv-hist-empty">{{ selectedHistoryType ? '해당 유형의 이력이 없습니다.' : '이력이 없습니다.' }}</td>
                   </tr>
-                  <tr v-for="(item, i) in (filteredGroupHistoryMap.get(g.id) || [])" :key="i" class="lv-hist-row">
+                  <tr v-for="(item, i) in (filteredGroupHistoryMap.get(g.id) || [])" :key="i"
+                    class="lv-hist-row" :class="{ 'lv-hist-rejected': item.rejected }">
                     <td class="lv-hist-desc">
                       <div class="lv-hist-desc-inner">
                         <span class="lv-hist-type-dot" :class="'ht-' + item.type"></span>
                         {{ item.desc }}
+                        <span v-if="item.rejected" class="lv-rejected-badge">반려</span>
                       </div>
                     </td>
                     <td class="lv-hist-manager">{{ item.manager }}</td>
                     <td class="lv-hist-date">{{ formatDate(item.date) }}</td>
                     <td class="lv-hist-file">
-                      <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item.fileName)" title="다운로드">
+                      <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item)" title="다운로드">
                         <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                       </button>
                       <span v-else class="lv-no-file">-</span>

@@ -9,25 +9,12 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
     const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12 }
     const TWO_PI = Math.PI * 2
 
-    // ── Person 노드 (현재 로그인 사용자, 중심) ────────────────────
-    const orgIdx = nodes.length
-    const orgLabel = currentPerson.value?.name || authStore.user?.name || authStore.user?.email?.split('@')[0] || '나'
-    const selfData = {
-      ...(currentOrg.value || {}),
-      name: orgLabel,
-      email: currentPerson.value?.email || authStore.user?.email || authStore.user?.employee_id || null,
-      organization: currentPerson.value?.organization || authStore.user?.company || currentOrg.value?.name || null,
-      department: currentPerson.value?.department || authStore.user?.department || null,
-      position: currentPerson.value?.position || authStore.user?.position || null,
-    }
-    nodes.push({ id: 'org-root', label: orgLabel, type: 'person', x: 0, y: Y.org, z: 0, data: selfData })
-
-    // 소속 회의체 없으면 본인 노드만 표시
-    if (!data.length) return { nodes, edges }
-
-    // ── Organization 노드 (회의체 클릭 시 하단에 표시) ───────────
+    // ── Organization 노드 (그래프 중심) ────────────────────────────
     const orgNodeIdx = nodes.length
-    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'org', x: 0, y: Y.meeting_group + 40, z: 0, data: currentOrg.value })
+    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'org', x: 0, y: Y.org, z: 0, data: currentOrg.value })
+
+    // 소속 회의체 없으면 조직 노드만 표시
+    if (!data.length) return { nodes, edges }
 
     const mgCount = data.length
     const sectorWidth = TWO_PI / Math.max(mgCount, 1)
@@ -49,20 +36,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
         data: g, groupIdx: gi, neo4jId,
       })
-      // person -[ADMIN_OF / MEMBER_OF]→ meetingGroup (본인 역할 기반)
-      // Neo4j 응답의 members 배열에서 현재 유저를 찾아 role을 우선 사용
-      // (meetingRoles는 PostgreSQL 기반이라 Neo4j와 불일치할 수 있음)
-      const myId = authStore.user?.id
-      const myName = currentPerson.value?.name || authStore.user?.name
-      const myEmail = currentPerson.value?.email || authStore.user?.email || authStore.user?.employee_id
-      const selfMember = g.members?.find(mb =>
-        (myId != null && mb.userId != null && String(mb.userId) === String(myId)) ||
-        (myEmail && mb.email && mb.email === myEmail) ||
-        (myName && (mb.userName === myName || mb.name === myName))
-      )
-      const selfRole = selfMember?.role ?? meetingsStore.meetingRoles?.[g.id]
-      const selfRel = selfRole === 'admin' ? '간사' : '구성원'
-      edges.push({ from: orgIdx, to: mgIdx, rel: selfRel })
+      // meetingGroup -[포함]→ org-node (조직 소속)
       edges.push({ from: mgIdx, to: orgNodeIdx, rel: '포함' })
 
       // ── Department 노드: 회의에 PARTICIPATES_IN ───────────────
@@ -89,16 +63,13 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
           neo4jId: deptIdByName.get(deptName) || null,
         })
-        // dept -[PARTICIPATES_IN]→ meetingGroup
+        // dept -[참여]→ meetingGroup
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
+        // dept -[소속]→ org-node
+        edges.push({ from: deptIdx, to: orgNodeIdx, rel: '소속' })
 
-        // ── Person 노드: 로그인 사용자는 org-root로 이미 표시 → 제외 ─
-        const deptMembers = (membersByDept.get(deptName) || []).filter(mb => {
-          if (myId != null && mb.userId != null && String(mb.userId) === String(myId)) return false
-          if (myEmail && mb.email && mb.email === myEmail) return false
-          if (myName && (mb.userName === myName || mb.name === myName)) return false
-          return true
-        })
+        // ── Person 노드 (로그인 사용자 포함, 모든 구성원 표시) ─
+        const deptMembers = membersByDept.get(deptName) || []
         const pCount = deptMembers.length
         deptMembers.forEach((mb, pi) => {
           const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
@@ -242,32 +213,42 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
             author: m.doc_author,
             created_at: m.doc_created_at || m.ended_at || m.date,
             file_name: m.file_name,
+            session_neo_id: m.id,
           }
         })
         edges.push({ from: sIdx, to: dIdx, rel: '산출' })
         if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
       })
 
-      // ── Document 노드 (보고자료): ATTACHED_TO meetingGroup ───
-      ;(g.reports || []).forEach((rp, ri) => {
-        const relTodoId = String(rp.related_todo_id || '')
-        let fromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
-        if (relTodoId && agendaIdxByTodoId.has(relTodoId)) fromIdx = agendaIdxByTodoId.get(relTodoId)
-        const fromNode = nodes[fromIdx]
+      // ── Document 노드 (보고자료): rejected 제외하고 그래프에 추가 ───
+      const visibleReports = (g.reports || []).filter(rp => rp.human_status !== 'rejected')
+      visibleReports.forEach((rp, ri) => {
+        const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
+        // 연결할 첫 번째 아젠다 노드 탐색
+        let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
+        for (const aid of agendaIds) {
+          if (agendaIdxByTodoId.has(aid)) { primaryFromIdx = agendaIdxByTodoId.get(aid); break }
+        }
+        const fromNode = nodes[primaryFromIdx]
         const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
-        const rAng = bAng + (ri - ((g.reports || []).length - 1) / 2) * 0.12
+        const rAng = bAng + (ri - (visibleReports.length - 1) / 2) * 0.12
         const rIdx = nodes.length
         nodes.push({
           id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
           x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi,
-          data: { ...rp, created_at: rp.submitted_at },
+          data: { ...rp },
           neo4jId: rp.id || null,
         })
-        // document → agenda 연결 (과제 지정 시 해당 agenda, 아니면 첫 agenda, 없으면 meetingGroup)
-        const docToIdx = (relTodoId && agendaIdxByTodoId.has(relTodoId))
-          ? agendaIdxByTodoId.get(relTodoId)
-          : (allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx)
-        edges.push({ from: rIdx, to: docToIdx, rel: '첨부' })
+        // 연결된 모든 아젠다에 엣지 생성, 없으면 meetingGroup에 연결
+        if (agendaIds.length > 0) {
+          agendaIds.forEach(aid => {
+            if (agendaIdxByTodoId.has(aid)) {
+              edges.push({ from: rIdx, to: agendaIdxByTodoId.get(aid), rel: '첨부' })
+            }
+          })
+        } else {
+          edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
+        }
       })
 
       // ── Minutes→Agenda 도출 연결 (회의→회의록→안건 생명주기) ──

@@ -12,7 +12,12 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
-from routers.prompts import task_system, task_extract_human
+from routers.prompts import (
+    task_system, task_extract_human,
+    ANALYZE_FILE_SYSTEM, analyze_file_human,
+    extract_agendas_system, chat_extract_system,
+)
+from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -308,3 +313,277 @@ async def confirm_extraction_review(
 
         return {"status": "confirmed", "extraction": extraction}
     return {"status": "rejected"}
+
+
+# ── 아카이브 파일 검토 그래프 (LangGraph) ──────────────────────────────────
+class ArchiveFileState(TypedDict):
+    file_name: str
+    file_type: str
+    dept_name: str
+    file_content: str
+    graph_context: str
+    candidate_agendas: List[dict]
+    retrieved_context: str
+    result: Optional[dict]
+
+
+def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
+    return ChatOpenAI(
+        model=MODEL,
+        temperature=temperature,
+        api_key=os.environ["OPENAI_API_KEY"],
+        streaming=True,
+    )
+
+
+def _candidate_agendas_to_str(candidate_agendas: List[dict]) -> str:
+    lines = []
+    for ag in candidate_agendas or []:
+        if not isinstance(ag, dict):
+            continue
+        ag_id = ag.get("id")
+        content = (ag.get("content") or "").strip()
+        if ag_id is None or not content:
+            continue
+        lines.append(f"- id={ag_id} | {content}")
+    return "\n".join(lines)
+
+
+async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
+    from agents.knowledge_manager import search_knowledge
+
+    query = " ".join(filter(None, [
+        state.get("file_name", ""),
+        (state.get("file_content", "") or "")[:500],
+    ])).strip()
+    if not query:
+        return {"retrieved_context": ""}
+
+    try:
+        minutes = await search_knowledge(query, node_type="Minutes", k=2)
+        agendas = await search_knowledge(query, node_type="Agenda", k=3)
+    except Exception as e:
+        return {"retrieved_context": f"[지식 검색 실패: {e}]"}
+
+    lines = []
+    for r in agendas:
+        lines.append(f"[안건] {r.get('title','?')}: {r.get('content','')[:150]}")
+    for r in minutes:
+        lines.append(f"[회의록] {r.get('title','?')}: {r.get('content','')[:150]}")
+    return {"retrieved_context": "\n".join(lines)}
+
+
+async def _archive_analyze_node(state: ArchiveFileState) -> dict:
+    llm = _make_llm(temperature=0.2)
+
+    candidate_str = _candidate_agendas_to_str(state.get("candidate_agendas", []))
+    graph_context = state.get("graph_context", "") or ""
+    retrieved = state.get("retrieved_context", "")
+    if retrieved:
+        graph_context = f"{graph_context}\n\n[관련 지식 검색 결과]\n{retrieved}".strip()
+
+    response = await llm.ainvoke([
+        SystemMessage(content=ANALYZE_FILE_SYSTEM),
+        HumanMessage(content=analyze_file_human(
+            state.get("file_name", ""),
+            state.get("file_type", ""),
+            state.get("dept_name", ""),
+            state.get("file_content", ""),
+            graph_context,
+            candidate_str,
+        )),
+    ])
+
+    text = (response.content or "").strip()
+    return {"result": _parse_archive_result(text, state.get("candidate_agendas", []))}
+
+
+def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
+    match = re.search(r'\{[\s\S]*\}', text or "")
+    parsed = {}
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+        except Exception:
+            parsed = {}
+
+    valid_ids = {
+        str(ag.get("id"))
+        for ag in candidate_agendas or []
+        if isinstance(ag, dict) and ag.get("id") is not None
+    }
+    raw_matched = parsed.get("matched_agendas")
+    if raw_matched is None:
+        single = parsed.get("matched_agenda")
+        raw_matched = [single] if isinstance(single, dict) else []
+    matched_agendas = []
+    seen_ids = set()
+    for m in raw_matched if isinstance(raw_matched, list) else []:
+        if not isinstance(m, dict):
+            continue
+        mid = str(m.get("id"))
+        if mid in valid_ids and mid not in seen_ids:
+            seen_ids.add(mid)
+            matched_agendas.append({
+                "id": mid,
+                "content": m.get("content"),
+                "reason": m.get("reason", ""),
+            })
+
+    return {
+        "score": int(parsed.get("score", 70)),
+        "feedback": parsed.get("feedback", []),
+        "matched_agendas": matched_agendas,
+        "agendas": parsed.get("agendas", []),
+        "related_depts": parsed.get("related_depts", []),
+    }
+
+
+def _build_archive_file_graph():
+    builder = StateGraph(ArchiveFileState)
+    builder.add_node("retrieve", _archive_retrieve_node)
+    builder.add_node("analyze", _archive_analyze_node)
+    builder.add_edge(START, "retrieve")
+    builder.add_edge("retrieve", "analyze")
+    builder.add_edge("analyze", END)
+    return builder.compile()
+
+
+_archive_file_graph = _build_archive_file_graph()
+
+
+@log_agent_run(
+    "archive_analyze",
+    user_id="user_id",
+    meeting_id="meeting_id",
+    capture_output=lambda r: r if isinstance(r, dict) else None,
+)
+async def analyze_archive_file(
+    file_name: str,
+    file_type: str,
+    dept_name: str,
+    file_content: str,
+    graph_context: str = "",
+    candidate_agendas: List[dict] = None,
+    user_id: Optional[int] = None,
+    meeting_id: Optional[int] = None,
+) -> dict:
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    final_state = await _archive_file_graph.ainvoke(
+        {
+            "file_name": file_name,
+            "file_type": file_type,
+            "dept_name": dept_name,
+            "file_content": file_content,
+            "graph_context": graph_context,
+            "candidate_agendas": candidate_agendas or [],
+            "retrieved_context": "",
+            "result": None,
+        },
+        config,
+    )
+    return final_state.get("result") or {
+        "score": 70,
+        "feedback": ["검토 결과를 생성하지 못했습니다."],
+        "matched_agendas": [],
+        "agendas": [],
+        "related_depts": [],
+    }
+
+
+@log_agent_run(
+    "archive_analyze_stream",
+    user_id="user_id",
+    meeting_id="meeting_id",
+    capture_output=lambda ev: ev.get("data") if isinstance(ev, dict) and ev.get("type") == "result" else None,
+)
+async def analyze_archive_file_stream(
+    file_name: str,
+    file_type: str,
+    dept_name: str,
+    file_content: str,
+    graph_context: str = "",
+    candidate_agendas: List[dict] = None,
+    user_id: Optional[int] = None,
+    meeting_id: Optional[int] = None,
+) -> AsyncGenerator[dict, None]:
+    candidate_agendas = candidate_agendas or []
+
+    yield {"type": "status", "stage": "retrieve", "message": "관련 회의록·안건을 검색하고 있습니다…"}
+    state = {
+        "file_name": file_name,
+        "file_type": file_type,
+        "dept_name": dept_name,
+        "file_content": file_content,
+        "graph_context": graph_context,
+        "candidate_agendas": candidate_agendas,
+        "retrieved_context": "",
+    }
+    try:
+        retrieved = await _archive_retrieve_node(state)
+        state.update(retrieved)
+    except Exception as e:
+        state["retrieved_context"] = f"[지식 검색 실패: {e}]"
+
+    yield {"type": "status", "stage": "analyze", "message": "자료를 분석하고 있습니다…"}
+
+    candidate_str = _candidate_agendas_to_str(candidate_agendas)
+    ctx = state.get("graph_context", "") or ""
+    retrieved_ctx = state.get("retrieved_context", "")
+    if retrieved_ctx:
+        ctx = f"{ctx}\n\n[관련 지식 검색 결과]\n{retrieved_ctx}".strip()
+
+    llm = _make_llm(temperature=0.2)
+    messages = [
+        SystemMessage(content=ANALYZE_FILE_SYSTEM),
+        HumanMessage(content=analyze_file_human(
+            file_name, file_type, dept_name, file_content, ctx, candidate_str,
+        )),
+    ]
+
+    full_text = ""
+    try:
+        async for chunk in llm.astream(messages):
+            token = chunk.content or ""
+            if token:
+                full_text += token
+                yield {"type": "token", "content": token}
+    except Exception as e:
+        yield {
+            "type": "result",
+            "data": {
+                "score": 70,
+                "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                "matched_agendas": [],
+                "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+                "related_depts": [],
+            },
+        }
+        return
+
+    result = _parse_archive_result(full_text, candidate_agendas)
+    yield {"type": "result", "data": result}
+
+
+# ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
+async def extract_agendas_from_context(context_parts: List[str], dept_list: str) -> dict:
+    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    response = await llm.ainvoke([
+        SystemMessage(content=extract_agendas_system(dept_list)),
+        HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
+    ])
+    return _parse_json_from_text(response.content.strip()) or {"agendas": []}
+
+
+async def chat_update_agendas(
+    message: str,
+    meeting_context: str,
+    dept_list: str,
+    current_agendas_text: str,
+) -> dict:
+    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    response = await llm.ainvoke([
+        SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
+        HumanMessage(content=message),
+    ])
+    return _parse_json_from_text(response.content.strip()) or {}

@@ -14,6 +14,55 @@ export function toWsUrl(path) {
   return `${base}${path}`
 }
 
+// ── 공유 토큰 갱신 헬퍼 ────────────────────────────────────────────────────
+let _refreshPromise = null
+
+function _clearSession() {
+  sessionStorage.removeItem('token')
+  sessionStorage.removeItem('refreshToken')
+  sessionStorage.removeItem('user')
+  window.location.href = '/landing'
+}
+
+/**
+ * Refresh Token으로 Access Token을 갱신합니다.
+ * 동시에 여러 401이 발생해도 단일 Promise를 공유해 중복 호출을 방지합니다.
+ */
+async function _doRefresh() {
+  if (!_refreshPromise) {
+    const refreshToken = sessionStorage.getItem('refreshToken')
+    if (!refreshToken) throw new Error('no_refresh_token')
+    _refreshPromise = axios
+      .post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
+      .then(({ data }) => {
+        const newToken = data.data?.accessToken || data.accessToken
+        const newRefresh = data.data?.refreshToken || data.refreshToken
+        if (!newToken) throw new Error('empty_token_response')
+        sessionStorage.setItem('token', newToken)
+        if (newRefresh) sessionStorage.setItem('refreshToken', newRefresh)
+        return newToken
+      })
+      .finally(() => { _refreshPromise = null })
+  }
+  return _refreshPromise
+}
+
+/**
+ * 토큰이 곧 만료될 경우(5분 이내) 갱신합니다.
+ * - streamPost / streamPostForm 진입 시 안전망으로 호출
+ * - useActivityRefresh 컴포저블이 사용자 인터랙션 시에도 호출
+ */
+export async function ensureFreshToken() {
+  const token = sessionStorage.getItem('token')
+  if (!token) return
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(b64))
+    const msLeft = payload.exp * 1000 - Date.now()
+    if (msLeft < 5 * 60 * 1000) await _doRefresh()
+  } catch { /* 파싱 실패 무시 — 요청 실패 시 인터셉터가 처리 */ }
+}
+
 // ── SpringBoot API ─────────────────────────────────────────────────────────
 const api = axios.create({ baseURL: BASE_URL, timeout: 10000 })
 
@@ -35,28 +84,15 @@ api.interceptors.response.use(
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
       return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
     }
-    if (err.response?.status === 401 || err.response?.status === 403) {
-      const refreshToken = sessionStorage.getItem('refreshToken')
-      const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
-      if (refreshToken && !err.config._retry && !isAuthRequest) {
-        err.config._retry = true
-        try {
-          const { data } = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
-          sessionStorage.setItem('token', data.data?.accessToken || data.accessToken)
-          sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken)
-          err.config.headers.Authorization = `Bearer ${sessionStorage.getItem('token')}`
-          return api(err.config)
-        } catch {
-          sessionStorage.removeItem('token')
-          sessionStorage.removeItem('refreshToken')
-          sessionStorage.removeItem('user')
-          window.location.href = '/landing'
-        }
-      } else if (!isAuthRequest) {
-        sessionStorage.removeItem('token')
-        sessionStorage.removeItem('refreshToken')
-        sessionStorage.removeItem('user')
-        window.location.href = '/landing'
+    const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
+    if ((err.response?.status === 401 || err.response?.status === 403) && !err.config._retry && !isAuthRequest) {
+      err.config._retry = true
+      try {
+        const newToken = await _doRefresh()
+        err.config.headers.Authorization = `Bearer ${newToken}`
+        return api(err.config)
+      } catch {
+        _clearSession()
       }
     }
     return Promise.reject(err)
@@ -74,9 +110,6 @@ apiAI.interceptors.request.use(config => {
   return config
 })
 
-// 동시 401 요청이 중복 refresh를 호출하지 않도록 단일 Promise로 공유
-let _aiRefreshPromise = null
-
 apiAI.interceptors.response.use(
   res => res,
   async err => {
@@ -84,31 +117,13 @@ apiAI.interceptors.response.use(
       return Promise.reject(new Error('AI 서버에 연결할 수 없습니다.'))
     }
     if (err.response?.status === 401 && !err.config._retry) {
-      const refreshToken = sessionStorage.getItem('refreshToken')
-      if (!refreshToken) {
-        sessionStorage.removeItem('token')
-        sessionStorage.removeItem('user')
-        window.location.href = '/landing'
-        return Promise.reject(err)
-      }
       err.config._retry = true
       try {
-        if (!_aiRefreshPromise) {
-          _aiRefreshPromise = axios.post(`${BASE_URL}/api/v1/auth/refresh`, { refreshToken })
-            .finally(() => { _aiRefreshPromise = null })
-        }
-        const { data } = await _aiRefreshPromise
-        const newToken = data.data?.accessToken || data.accessToken
-        if (!newToken) throw new Error('refresh returned no token')
-        sessionStorage.setItem('token', newToken)
-        sessionStorage.setItem('refreshToken', data.data?.refreshToken || data.refreshToken || refreshToken)
+        const newToken = await _doRefresh()
         err.config.headers.Authorization = `Bearer ${newToken}`
         return apiAI(err.config)
       } catch {
-        sessionStorage.removeItem('token')
-        sessionStorage.removeItem('refreshToken')
-        sessionStorage.removeItem('user')
-        window.location.href = '/landing'
+        _clearSession()
       }
     }
     return Promise.reject(err)
@@ -116,25 +131,10 @@ apiAI.interceptors.response.use(
 )
 
 // ── Streaming (FastAPI) ────────────────────────────────────────────────────
-export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight) {
-  const token = sessionStorage.getItem('token')
-  const response = await fetch(`${AI_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  }
-
+async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -147,6 +147,8 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
         if (data === '[DONE]') { onDone?.(); return }
         if (data.startsWith('[PLANNING] ') && onPlanning) {
           onPlanning(data.slice(11))
+        } else if (data.startsWith('[RESULT] ') && onResult) {
+          try { onResult(JSON.parse(data.slice(9))) } catch {}
         } else if (data.startsWith('[HIGHLIGHT] ') && onHighlight) {
           try { onHighlight(JSON.parse(data.slice(12))) } catch {}
         } else {
@@ -158,24 +160,63 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
   onDone?.()
 }
 
+export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult) {
+  // 만료 임박 시 미리 갱신 (스트림 도중 토큰 만료 방지)
+  await ensureFreshToken()
+
+  const doFetch = (tok) => fetch(`${AI_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+    body: JSON.stringify(body),
+  })
+
+  let token = sessionStorage.getItem('token')
+  let response = await doFetch(token)
+
+  if (response.status === 401) {
+    try {
+      token = await _doRefresh()
+      response = await doFetch(token)
+    } catch {
+      _clearSession()
+      return
+    }
+  }
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+
+  await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+}
+
 // ── Streaming with FormData (FastAPI SSE) ───────────────────────────────────
 // 각 SSE 라인의 data를 JSON으로 파싱해 onEvent(event)로 전달. data가 '[DONE]'이면 종료.
 export async function streamPostForm(path, formData, onEvent) {
-  const token = sessionStorage.getItem('token')
-  const response = await fetch(`${AI_BASE_URL}${path}`, {
+  await ensureFreshToken()
+
+  const doFetch = (tok) => fetch(`${AI_BASE_URL}${path}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${tok}` },
     body: formData,
   })
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  let token = sessionStorage.getItem('token')
+  let response = await doFetch(token)
+
+  if (response.status === 401) {
+    try {
+      token = await _doRefresh()
+      response = await doFetch(token)
+    } catch {
+      _clearSession()
+      return
+    }
   }
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -186,9 +227,7 @@ export async function streamPostForm(path, formData, onEvent) {
       if (!line.startsWith('data: ')) continue
       const data = line.slice(6)
       if (data === '[DONE]') return
-      try {
-        onEvent(JSON.parse(data))
-      } catch { /* 부분 데이터 무시 */ }
+      try { onEvent(JSON.parse(data)) } catch { /* 부분 데이터 무시 */ }
     }
   }
 }

@@ -89,6 +89,7 @@ class Report(Base):
     file_name            = Column(String(255), nullable=True)
     file_path            = Column(String(500), nullable=True)
     human_status         = Column(String(20), default="pending")
+    related_agenda_ids   = Column(JSON, nullable=True, default=list)
     created_at           = Column(DateTime, default=datetime.utcnow)
 
 
@@ -126,7 +127,7 @@ class Minutes(Base):
     recorder_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
     content_original = Column(Text, nullable=True)
     content_summary  = Column(Text, nullable=True)
-    status           = Column(String(20), default="draft")
+    status           = Column(String(20), default="DRAFT")
     generated_at     = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("MeetingSession", back_populates="minutes")

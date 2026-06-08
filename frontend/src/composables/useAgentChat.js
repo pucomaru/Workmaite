@@ -224,39 +224,46 @@ export function useAgentChat({
       detailMeeting.value
 
     if (isExtractMode) {
-      const mgTitle = detailMeeting.value?.title || '선택된 회의체'
-      const extractSteps = [
-        `추출 과제 컨텍스트 로드 중 (${extractResult.value.length}건)...`,
-        `MATCH (mg:MeetingGroup {title:"${mgTitle}"})-[:HAS_AGENDA]->(a:Agenda) 조회`,
-        `사용자 수정 요청 분석 중...`,
-        `응답 생성 중...`,
-      ]
       try {
-        await _runPlanningSteps(planningMsg, extractSteps)
-        const { data } = await apiAI.post('/api/agent/archive/chat-extract', {
-          meeting_id: toNumericId(detailMeeting.value.id),
-          message: content,
-          chat_history: [{ agendas: extractResult.value.map(({ title, department, priority, start_date, due_date }) => ({ title, department, priority, start_date, due_date })) }],
-        })
-        agentMsg.content = data.reply || '과제 목록을 업데이트했습니다.'
-        if (data.agendas && data.agendas.length) {
-          // 변경된 항목만 _state 리셋 — 승인/반려 상태 최대한 유지
-          const oldList = extractResult.value
-          extractResult.value = data.agendas.map((ag, i) => {
-            const old = oldList[i]
-            const unchanged = old &&
-              old.title === ag.title &&
-              JSON.stringify(old.bullets) === JSON.stringify(ag.bullets) &&
-              old.department === ag.department &&
-              old.priority === ag.priority
-            return unchanged
-              ? old  // 내용 동일 → 기존 _state 유지
-              : { ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: (ag.bullets || []).join('\n') }
-          })
-        }
+        await streamPost(
+          '/api/agent/archive/chat-extract',
+          {
+            meeting_id: toNumericId(detailMeeting.value.id),
+            message: content,
+            chat_history: [{ agendas: extractResult.value.map(({ title, department, priority, start_date, due_date }) => ({ title, department, priority, start_date, due_date })) }],
+          },
+          () => {},  // 텍스트 청크 없음
+          () => {
+            planningMsg.done = true
+            agentLoading.value = false
+            setTimeout(() => { planningMsg.open = false }, 1500)
+          },
+          (step) => {
+            planningMsg.steps.push(step)
+            nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
+          },
+          undefined,  // onHighlight
+          (result) => {
+            agentMsg.content = result.reply || '과제 목록을 업데이트했습니다.'
+            if (result.agendas && result.agendas.length) {
+              const oldList = extractResult.value
+              extractResult.value = result.agendas.map((ag, i) => {
+                const old = oldList[i]
+                const unchanged = old &&
+                  old.title === ag.title &&
+                  JSON.stringify(old.bullets) === JSON.stringify(ag.bullets) &&
+                  old.department === ag.department &&
+                  old.priority === ag.priority
+                return unchanged
+                  ? old
+                  : { ...ag, _state: null, _editing: false, _editTitle: ag.title, _editBullets: (ag.bullets || []).join('\n') }
+              })
+            }
+          },
+        )
       } catch {
         agentMsg.content = '과제 업데이트 중 오류가 발생했습니다.'
-      } finally {
+        planningMsg.done = true; planningMsg.open = false
         agentLoading.value = false
       }
       return

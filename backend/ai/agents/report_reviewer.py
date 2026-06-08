@@ -16,12 +16,7 @@ from routers.prompts import (
     REPORT_REVIEW_SYSTEM,
     review_propose_prompt,
     review_direct_prompt,
-    STATUS_STREAM_SYSTEM,
-    status_stream_context,
-    ANALYZE_FILE_SYSTEM,
-    analyze_file_human,
 )
-from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -338,7 +333,6 @@ async def confirm_report_review(
         return {"status": "confirmed", "review": review}
     return {"status": "rejected"}
 
-
 async def status_stream(
     meeting_status: dict,
     user_role: str,
@@ -460,6 +454,31 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
     return {"result": _parse_archive_result(text, state.get("candidate_agendas", []))}
 
 
+DETAIL_SCORE_SCHEMA = {
+    "목적및배경":   15,
+    "현황분석":     20,
+    "핵심내용":     20,
+    "실행계획":     20,
+    "기대효과":     15,
+    "리스크및대안": 10,
+}
+
+
+def _validate_detail_scores(raw: dict) -> dict:
+    """LLM이 반환한 detail_scores를 정해진 스키마로 검증·보정합니다."""
+    result = {}
+    for key, max_score in DETAIL_SCORE_SCHEMA.items():
+        item = raw.get(key, {}) if isinstance(raw, dict) else {}
+        score = item.get("score", 0) if isinstance(item, dict) else 0
+        comment = item.get("comment", "") if isinstance(item, dict) else ""
+        result[key] = {
+            "score": max(0, min(int(score), max_score)),
+            "max": max_score,
+            "comment": str(comment),
+        }
+    return result
+
+
 def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
     """LLM 응답 텍스트에서 JSON을 추출하고 matched_agendas를 후보로 검증합니다."""
     match = re.search(r'\{[\s\S]*\}', text or "")
@@ -470,7 +489,15 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
         except Exception:
             parsed = {}
 
-    # matched_agendas 환각 방지: 후보 목록에 있는 id만 허용 (다중 지원)
+    # detail_scores 검증·보정
+    raw_detail = parsed.get("detail_scores", {})
+    detail_scores = _validate_detail_scores(raw_detail)
+
+    # score는 detail_scores 합계로 재계산 (LLM 오류 방지)
+    computed_score = sum(v["score"] for v in detail_scores.values())
+    score = computed_score if raw_detail else int(parsed.get("score", 70))
+
+    # matched_agendas 환각 방지: 후보 목록에 있는 id만 허용
     valid_ids = {
         str(ag.get("id"))
         for ag in candidate_agendas or []
@@ -478,7 +505,6 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
     }
     raw_matched = parsed.get("matched_agendas")
     if raw_matched is None:
-        # 구버전 호환: 단일 matched_agenda 도 수용
         single = parsed.get("matched_agenda")
         raw_matched = [single] if isinstance(single, dict) else []
     matched_agendas = []
@@ -496,7 +522,8 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
             })
 
     return {
-        "score": int(parsed.get("score", 70)),
+        "score": score,
+        "detail_scores": detail_scores,
         "feedback": parsed.get("feedback", []),
         "matched_agendas": matched_agendas,
         "agendas": parsed.get("agendas", []),
@@ -633,4 +660,3 @@ async def analyze_archive_file_stream(
     # 3. 최종 결과 파싱·검증
     result = _parse_archive_result(full_text, candidate_agendas)
     yield {"type": "result", "data": result}
-

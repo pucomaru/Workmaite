@@ -202,7 +202,12 @@ function toggleRecording() {
   micError.value = ''
   if (recordingState.value === 'idle') {
     stt.start()
-      .then(() => { recordingState.value = 'recording' })
+      .then(() => {
+        recordingState.value = 'recording'
+        if (activeSession.value?.id) {
+          api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
+        }
+      })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
     recordingState.value = 'paused'; stt.stop(); fetchTranscriptSummary()
@@ -504,9 +509,19 @@ function deleteMinutes() {
   }
 }
 
-function endMeeting() {
+async function endMeeting() {
   if (!confirm('기록을 종료하시겠습니까?')) return
-  stopRecording(); activeSession.value = null
+  const sessionId = activeSession.value?.id
+  const meetingId = activeSession.value?.meeting_id
+  stopRecording()
+  if (sessionId) {
+    await api.post(`/api/v1/sessions/${sessionId}/end`).catch(() => {})
+    if (meetingId && sessionsCache.value[meetingId]) {
+      const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)
+      if (s) s.status = 'ended'
+    }
+  }
+  activeSession.value = null
 }
 
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
@@ -598,7 +613,7 @@ const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' 
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null })
+const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null, type: 'whisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
@@ -611,11 +626,12 @@ async function doCreateSessionForm() {
       title: createSessionForm.value.title,
       type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+      type: createSessionForm.value.type,
     })
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null }
+    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null, type: 'whisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -675,7 +691,7 @@ async function uploadMinutesFile(event) {
   const fd = new FormData()
   fd.append('file', file)
   try {
-    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}/file`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     minutesFileUrl.value = data.file_path
@@ -938,7 +954,7 @@ async function downloadMinutesFile() {
 
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div class="ctrl-group-left">
+          <div v-show="activeSession?.status !== 'ended'" class="ctrl-group-left">
             <!-- Mic settings -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
@@ -987,7 +1003,7 @@ async function downloadMinutesFile() {
               <i class="bi bi-stop-fill"></i>
             </button>
 
-            <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
+            <button v-if="recordingState!=='idle'" class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
@@ -1146,6 +1162,21 @@ async function downloadMinutesFile() {
             <label>회의 날짜</label>
             <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
           </div>
+          <div class="app-modal-field">
+            <label>STT 방식</label>
+            <div style="display:flex;gap:8px;">
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
+                @click="createSessionForm.type = 'whisper'">
+                Whisper 모델 (보안)
+              </button>
+              <button
+                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
+                @click="createSessionForm.type = 'external'">
+                Whisper API (빠름)
+              </button>
+            </div>
+          </div>
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="showCreateSession=false">취소</button>
@@ -1180,6 +1211,8 @@ async function downloadMinutesFile() {
 .sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
 .sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--primary);background:#eff6ff;color:var(--primary); }
+.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;transition:all .15s; }
+.stt-type-btn.active { border-color:var(--primary);background:#eff6ff;color:var(--primary);font-weight:600; }
 .sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
 .sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
 .sp-sm-role-tag { padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600; }
@@ -1300,6 +1333,7 @@ async function downloadMinutesFile() {
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;overflow:visible;border-radius:0 0 12px 12px; }
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
+.ctrl-group-right { margin-left:auto; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s; }
 .ctrl-btn:hover,.ctrl-active { background:var(--surface-2);border-color:var(--primary);color:var(--primary); }
@@ -1421,8 +1455,8 @@ async function downloadMinutesFile() {
 .spin { display:inline-block;animation:spin .7s linear infinite; }
 
 /* Minutes bottom bar */
-.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px; }
-.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px; }
+.sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;border-radius:0 0 12px 12px;flex-wrap:wrap;gap:8px; }
+.minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
 .mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
 .mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
