@@ -27,7 +27,7 @@ public class HitlReview {
     @Column(name = "target_id", nullable = false)
     private Long targetId;
 
-    @Column(name = "review_prompt", columnDefinition = "TEXT")
+    @Column(name = "review_prompt", columnDefinition = "jsonb")
     private String reviewPrompt;
 
     @Column(name = "ai_rationale", columnDefinition = "TEXT")
@@ -40,7 +40,7 @@ public class HitlReview {
     @Column(name = "reviewer_id")
     private Long reviewerId;
 
-    @Column(name = "review_comment", columnDefinition = "TEXT")
+    @Column(name = "review_comment", columnDefinition = "jsonb")
     private String reviewComment;
 
     @Column(name = "reviewed_at")

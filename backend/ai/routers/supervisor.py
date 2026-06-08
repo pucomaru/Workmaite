@@ -1217,6 +1217,7 @@ async def archive_extract_agendas(
         from datetime import datetime as _dt
         agendas_raw = parsed.get("agendas", [])
         draft_ids: list[int | None] = [None] * len(agendas_raw)
+        agent_log_id: int | None = None
         try:
             for idx, ag in enumerate(agendas_raw):
                 title = ag.get("title", "").strip()
@@ -1242,7 +1243,7 @@ async def archive_extract_agendas(
                 db.flush()
                 draft_ids[idx] = db_agenda.id
 
-            db.add(models.AgentLog(
+            agent_log = models.AgentLog(
                 task_id=str(_uuid.uuid4()),
                 context_type="agenda_extraction",
                 meeting_id=meeting_id,
@@ -1258,13 +1259,17 @@ async def archive_extract_agendas(
                     "agenda_titles": [ag.get("title") for ag in agendas_raw],
                 },
                 ended_at=_dt.utcnow(),
-            ))
+            )
+            db.add(agent_log)
+            db.flush()
+            agent_log_id = agent_log.id
             db.commit()
         except Exception as e:
             db.rollback()
             logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
 
         return {
+            "agent_log_id": agent_log_id,
             "agendas": [
                 {
                     "title": ag.get("title", ""),
@@ -1480,55 +1485,6 @@ async def analyze_archive_file_stream_ep(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# ─── 아젠다 피드백 저장 (HitlReview) ────────────────────────────────────────
-@router.post("/archive/agendas/feedback")
-async def submit_agenda_feedback(
-    data: dict,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    import uuid as _uuid
-    from datetime import datetime as _dt
-
-    agenda_id  = data.get("agenda_id")
-    feedback   = data.get("feedback", "")
-    action     = data.get("action", "rejected")   # "rejected" | "edited"
-    meeting_id = data.get("meeting_id") or None   # 0 → None (FK-safe)
-
-    # agenda_id must be a valid integer for HitlReview.target_id (NOT NULL Integer)
-    try:
-        target_id = int(agenda_id)
-    except (TypeError, ValueError):
-        target_id = None
-
-    log = models.AgentLog(
-        task_id=str(_uuid.uuid4()),
-        context_type="agenda_feedback",
-        meeting_id=meeting_id,
-        user_id=current_user.id,
-        status="success",
-        input_data={"agenda_id": agenda_id, "action": action},
-        output_data={"feedback": feedback},
-        ended_at=_dt.utcnow(),
-    )
-    db.add(log)
-    db.flush()
-
-    if target_id is not None:
-        db.add(models.HitlReview(
-            agent_log_id=log.id,
-            target_type="agenda",
-            target_id=target_id,
-            review_prompt=f"사용자가 AI 추출 아젠다를 {action}했습니다.",
-            status=action,
-            reviewer_id=current_user.id,
-            review_comment=feedback or None,
-            reviewed_at=_dt.utcnow(),
-        ))
-    db.commit()
-    return {"ok": True}
-
-
 # ─── 아젠다 commit (승인→ongoing 업데이트 / 반려→삭제) ────────────────────────
 @router.post("/archive/agendas/commit")
 async def commit_draft_agendas(
@@ -1704,3 +1660,36 @@ async def delete_agenda_item(
     except Exception:
         pass
     return {"ok": True}
+
+
+# ─── HITL 검토 저장 ──────────────────────────────────────────────────────────
+class HitlReviewCreate(BaseModel):
+    target_type: str
+    target_id: int
+    agent_log_id: Optional[int] = None
+    status: str = "edited"
+    review_prompt: Optional[dict] = None
+    review_comment: Optional[dict] = None
+
+
+@router.post("/hitl-reviews")
+async def create_hitl_review(
+    data: HitlReviewCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    review = models.HitlReview(
+        agent_log_id=data.agent_log_id,
+        target_type=data.target_type,
+        target_id=data.target_id,
+        status=data.status,
+        reviewer_id=current_user.id,
+        review_prompt=data.review_prompt,
+        review_comment=data.review_comment,
+        reviewed_at=datetime.utcnow(),
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    return {"id": review.id, "status": review.status}
+
