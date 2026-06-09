@@ -190,6 +190,39 @@ async def upload_report(
     }
 
 
+@router.get("/reports/{report_id}/score")
+async def get_report_score(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
+    rs = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+    if not rs:
+        raise HTTPException(status_code=404, detail="저장된 검토 결과가 없습니다.")
+
+    feedback = rs.feedback.split("\n") if rs.feedback else []
+    detail_scores = dict(rs.detail_scores or {})
+    top_improvements = detail_scores.pop("_top_improvements", [])
+    return {
+        "score": rs.total_score,
+        "detail_scores": detail_scores,
+        "top_improvements": top_improvements,
+        "feedback": feedback,
+        "report": {
+            "id": report.id,
+            "file_name": report.file_name,
+            "file_path": report.file_path,
+            "human_status": report.human_status,
+            "related_agenda_ids": report.related_agenda_ids or [],
+        }
+    }
+
+
 @router.post("/reports/{report_id}/score")
 async def save_report_score(
     report_id: int,
@@ -206,7 +239,10 @@ async def save_report_score(
 
     feedback = data.get("feedback", [])
     feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
-    detail_scores = data.get("detail_scores") or {}
+    detail_scores = dict(data.get("detail_scores") or {})
+    top_improvements = data.get("top_improvements") or []
+    if top_improvements:
+        detail_scores["_top_improvements"] = top_improvements
 
     existing = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
     if existing:

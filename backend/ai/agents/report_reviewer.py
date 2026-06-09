@@ -412,17 +412,43 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
 
 
 _DETAIL_SCORE_SCHEMA = {
-    "목적및배경": 15, "현황분석": 20, "핵심내용": 20,
-    "실행계획": 20, "기대효과": 15, "리스크및대안": 10,
+    "목적및배경":   {"max": 15, "subs": {"목적명확성": 5, "배경논리성": 5, "보고범위대상": 5}},
+    "현황분석":     {"max": 20, "subs": {"데이터신뢰성": 7, "문제핵심도출": 7, "내외부환경균형": 6}},
+    "핵심내용":     {"max": 20, "subs": {"논리구조": 7, "MECE충족도": 7, "핵심메시지전달": 6}},
+    "실행계획":     {"max": 20, "subs": {"SMART충족": 7, "일정자원계획": 7, "우선순위의존관계": 6}},
+    "기대효과":     {"max": 15, "subs": {"정량적효과": 5, "정성적효과": 5, "목적과연결성": 5}},
+    "리스크및대안": {"max": 10, "subs": {"리스크식별": 5, "대응방식대안": 5}},
 }
 
 
 def _validate_detail_scores(raw: dict) -> dict:
     result = {}
-    for key, max_score in _DETAIL_SCORE_SCHEMA.items():
+    for key, schema in _DETAIL_SCORE_SCHEMA.items():
+        max_score = schema["max"]
         item = raw.get(key, {}) if isinstance(raw, dict) else {}
-        score = item.get("score", 0) if isinstance(item, dict) else 0
-        result[key] = {"score": max(0, min(int(score), max_score)), "max": max_score}
+        if not isinstance(item, dict):
+            item = {}
+
+        raw_subs = item.get("sub_scores", {})
+        if not isinstance(raw_subs, dict):
+            raw_subs = {}
+        sub_scores = {}
+        for sub_key, sub_max in schema["subs"].items():
+            sub_item = raw_subs.get(sub_key, {})
+            sub_score = sub_item.get("score", 0) if isinstance(sub_item, dict) else 0
+            sub_scores[sub_key] = {"score": max(0, min(int(sub_score), sub_max)), "max": sub_max}
+
+        computed = sum(v["score"] for v in sub_scores.values())
+        raw_score = item.get("score", 0)
+        score = computed if raw_subs else max(0, min(int(raw_score if isinstance(raw_score, (int, float)) else 0), max_score))
+
+        result[key] = {
+            "score": score,
+            "max": max_score,
+            "sub_scores": sub_scores,
+            "strengths": item.get("strengths", []) if isinstance(item.get("strengths"), list) else [],
+            "improvements": item.get("improvements", []) if isinstance(item.get("improvements"), list) else [],
+        }
     return result
 
 
@@ -463,9 +489,15 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
                 "reason": m.get("reason", ""),
             })
 
+    top_improvements = [
+        t for t in parsed.get("top_improvements", [])
+        if isinstance(t, dict)
+    ]
+
     return {
         "score": score,
         "detail_scores": detail_scores,
+        "top_improvements": top_improvements,
         "feedback": parsed.get("feedback", []),
         "matched_agendas": matched_agendas,
         "agendas": parsed.get("agendas", []),
