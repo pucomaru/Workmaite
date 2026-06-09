@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stt", tags=["stt"])
 
 
-async def _transcribe_local(data: bytes, filename: str, lang_code: str) -> str:
+async def _transcribe_local(data: bytes, filename: str, lang_code: str) -> tuple[str, list[dict]]:
     whisper_url = os.environ.get("WHISPER_URL", "http://workmaite-whisper:9000")
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
@@ -23,7 +23,10 @@ async def _transcribe_local(data: bytes, filename: str, lang_code: str) -> str:
             files={"audio_file": (filename, data, "audio/webm")},
         )
         resp.raise_for_status()
-        return resp.json().get("text", "").strip()
+        body = resp.json()
+        text = body.get("text", "").strip()
+        segments = body.get("segments", [])
+        return text, segments
 
 
 async def _transcribe_external(data: bytes, filename: str, lang_code: str) -> list[dict]:
@@ -67,9 +70,9 @@ async def transcribe(
             full_text = " ".join(seg["text"] for seg in segments)
             logger.info(f"[STT] OpenAI diarize API 완료: {len(segments)}개 세그먼트")
         else:
-            full_text = await _transcribe_local(data, filename, lang_code)
-            logger.info(f"[STT] 로컬 Whisper 완료: {len(full_text)}자")
-            segments = [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
+            full_text, local_segments = await _transcribe_local(data, filename, lang_code)
+            logger.info(f"[STT] WhisperX 완료: {len(full_text)}자, {len(local_segments)}개 세그먼트")
+            segments = local_segments if local_segments else [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
     except Exception as e:
         logger.error(f"[STT] 변환 실패 (type={stt_type}): {e}")
 
