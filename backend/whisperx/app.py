@@ -21,7 +21,11 @@ HF_TOKEN = os.environ["HF_TOKEN"]
 logger.info(f"[WhisperX] device={DEVICE}, model={MODEL_SIZE}")
 
 model = whisperx.load_model(MODEL_SIZE, DEVICE, compute_type=COMPUTE_TYPE)
-diarize_model = whisperx.DiarizationPipeline(use_auth_token=HF_TOKEN, device=DEVICE)
+from pyannote.audio import Pipeline as _Pipeline
+diarize_model = _Pipeline.from_pretrained(
+    "pyannote/speaker-diarization-3.1",
+    use_auth_token=HF_TOKEN,
+).to(torch.device(DEVICE))
 
 logger.info("[WhisperX] 모델 로드 완료")
 
@@ -60,6 +64,7 @@ async def asr(
         # 화자 분리
         diarize_segments = diarize_model(tmp_path)
         result = whisperx.assign_word_speakers(diarize_segments, result)
+
 
         segments = []
         for seg in result["segments"]:
