@@ -85,4 +85,9 @@ public class MeetingSession {
         this.endedAt = LocalDateTime.now();
         this.status = SessionStatus.ENDED;
     }
+
+    // ENDED → ARCHIVED: 회의록 아카이브 저장 완료
+    public void archive() {
+        this.status = SessionStatus.ARCHIVED;
+    }
 }

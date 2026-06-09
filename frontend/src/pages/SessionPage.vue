@@ -534,6 +534,9 @@ async function saveMinutesToDB() {
     })
     minutesFileUrl.value = data.file_path
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    // 회의록 저장 완료 → 세션 archived 처리
+    await api.post(`/api/v1/sessions/${activeSession.value.id}/archive`)
+    if (activeSession.value) activeSession.value.status = 'archived'
   } catch (e) {
     alert('저장에 실패했습니다.')
   } finally {
@@ -697,8 +700,8 @@ function formatDate(d) {
   return new Date(d).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '종료' }
-const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' }
+const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '회의록 미생성', archived: '완료' }
+const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#ef4444', archived: '#94a3b8' }
 
 const showPastDateAlert = ref(false)
 
@@ -916,8 +919,8 @@ async function downloadMinutesFile() {
           </div>
           <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
-            <div v-else-if="!mtg.sessions.filter(s => s.status !== 'ended').length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
-            <div v-for="s in mtg.sessions.filter(s => s.status !== 'ended')" :key="s.id"
+            <div v-else-if="!mtg.sessions.filter(s => s.status !== 'archived').length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
+            <div v-for="s in mtg.sessions.filter(s => s.status !== 'archived')" :key="s.id"
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
@@ -1130,7 +1133,7 @@ async function downloadMinutesFile() {
 
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div v-show="activeSession?.status !== 'ended'" class="ctrl-group-left">
+          <div v-show="activeSession?.status !== 'ended' && activeSession?.status !== 'archived'" class="ctrl-group-left">
             <!-- Mic settings -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
