@@ -1,6 +1,7 @@
 import os
 import io
 import logging
+import subprocess
 import tempfile
 
 import torch
@@ -47,8 +48,18 @@ async def asr(
         f.write(data)
         tmp_path = f.name
 
+    wav_path = tmp_path.replace(".webm", ".wav")
     try:
-        result = model.transcribe(tmp_path, language=language)
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", wav_path],
+            capture_output=True, check=True,
+        )
+        wav_size = os.path.getsize(wav_path) if os.path.exists(wav_path) else 0
+        logger.info(f"[WhisperX] webm={os.path.getsize(tmp_path)}B wav={wav_size}B")
+        result = model.transcribe(
+            wav_path, language=language,
+            vad_options={"vad_onset": 0.3, "vad_offset": 0.1},
+        )
 
         if not result.get("segments"):
             return {"text": "", "segments": []}
@@ -58,11 +69,11 @@ async def asr(
             language_code=language, device=DEVICE
         )
         result = whisperx.align(
-            result["segments"], align_model, metadata, tmp_path, DEVICE
+            result["segments"], align_model, metadata, wav_path, DEVICE
         )
 
         # 화자 분리
-        diarize_segments = diarize_model(tmp_path)
+        diarize_segments = diarize_model(wav_path)
         result = whisperx.assign_word_speakers(diarize_segments, result)
 
 
@@ -84,3 +95,5 @@ async def asr(
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         os.unlink(tmp_path)
+        if os.path.exists(wav_path):
+            os.unlink(wav_path)

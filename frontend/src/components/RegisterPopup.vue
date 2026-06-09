@@ -8,7 +8,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const step = ref(1)
-const form = ref({ email: '', name: '', password: '', confirm: '', organization: '', department: '', position: '' })
+const form = ref({ email: '', name: '', password: '', confirm: '', company: '', department: '', position: '' })
 const error = ref('')
 const loading = ref(false)
 const showPw = ref(false)
@@ -32,7 +32,7 @@ const pwMatch = computed(() => form.value.confirm && form.value.password === for
 const formValid = computed(() =>
   emailValid.value &&
   form.value.name.trim() &&
-  form.value.organization.trim() &&
+  form.value.company.trim() &&
   form.value.department.trim() &&
   form.value.position.trim() &&
   form.value.password.length >= 8 &&
@@ -49,7 +49,7 @@ async function submit() {
       name: form.value.name,
       email: form.value.email,
       password: form.value.password,
-      company: form.value.organization,
+      company: form.value.company,
       department: form.value.department,
       position: form.value.position,
     })
@@ -109,8 +109,8 @@ async function submit() {
       <!-- 조직 / 부서 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="mb-3">
         <div>
-          <label class="form-label">조직 <span class="text-danger">*</span></label>
-          <input v-model="form.organization" type="text" class="form-control" placeholder="예: SK AX" />
+          <label class="form-label">회사 <span class="text-danger">*</span></label>
+          <input v-model="form.company" type="text" class="form-control" placeholder="예: SK AX" />
         </div>
         <div>
           <label class="form-label">부서명 <span class="text-danger">*</span></label>

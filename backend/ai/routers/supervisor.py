@@ -1012,11 +1012,25 @@ async def analyze_relationships_stream(
             lifecycle_n = len(lifecycle)
             stale_n     = len(stale)
 
+            # 세션→안건 미연결 건수 (원칙: 회의는 아젠다와 연결되어야 한다)
+            try:
+                _sa_rows = await run_cypher(
+                    "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings) "
+                    "WHERE (mg)<-[:`관할`]-(:Agenda) "
+                    "  AND NOT (s)-[:`진행`|`다룸멌`|`도출`]->(:Agenda) "
+                    "  AND NOT (:Agenda)-[:`발제세션`]->(s) "
+                    "RETURN count(s) AS cnt"
+                )
+                session_no_agenda_n = _sa_rows[0].get("cnt", 0) if _sa_rows else 0
+            except Exception:
+                session_no_agenda_n = 0
+
             # ── LLM이 분석 결과를 보고 현황·계획을 스스로 서술 ──────────
             findings_text = (
                 f"회의체 {counts['meetings']}개 / 세션 {counts['sessions']}개 / "
                 f"안건 {counts['agendas']}개 / 문서 {counts['documents']}개 스캔 완료.\n"
                 f"끊긴 세션 흐름: {missing_seq}건, "
+                f"세션→안건 미연결: {session_no_agenda_n}건, "
                 f"회의록→안건 미연결: {lifecycle_n}건, "
                 f"불필요 연결(이월·저유사도): {stale_n}건.\n"
                 f"회의 간 유사 안건: {len(ag_links)}쌍"
@@ -1041,7 +1055,8 @@ async def analyze_relationships_stream(
                 yield f"data: [PLANNING] {step}\n\n"
 
             # ── 실제 그래프 재구성 수행 ──────────────────────────────────
-            actionable = (missing_seq + lifecycle_n + stale_n + len(ag_links) + len(doc_links) +
+            actionable = (missing_seq + session_no_agenda_n + lifecycle_n + stale_n +
+                          len(ag_links) + len(doc_links) +
                           len(embeddable_orphans) + len(member.get("issues", [])))
 
             if actionable == 0:
@@ -1063,6 +1078,7 @@ async def analyze_relationships_stream(
                     label.format(stats[k])
                     for k, label in [
                         ("session_links", "끊긴 회의 흐름 {}건 → 시간순 연결"),
+                        ("session_agenda_links", "세션→안건 연결 {}건 생성"),
                         ("lifecycle_links", "회의록 {}개를 관련 안건과 연결"),
                         ("carry_links", "미해결 안건 {}건 다음 회차로 이월"),
                         ("related_agendas", "회의 간 유사 안건 링크 {}건 생성"),

@@ -522,6 +522,62 @@ async def sync_ai_judgment(
         _log_failure("sync_ai_judgment", "ai_judgment", str(report_id), e, params)
 
 
+# ─── Report 동기화 (PG reports → Neo4j Report 노드) ──────────────────────────
+
+async def sync_report(
+    report_id: int,
+    meeting_id: int,
+    file_name: str | None = None,
+    file_path: str | None = None,
+    submitter_department: str | None = None,
+    human_status: str = "pending",
+    related_agenda_ids: list | None = None,
+    created_at: str | None = None,
+) -> None:
+    """Report 노드를 upsert하고 Meetings에 [:첨부] 관계로 연결합니다."""
+    report_neo_id = f"report-{report_id}"
+    mg_id = f"mg-{meeting_id}"
+    cypher = """
+    MERGE (r:Report {id: $id})
+    SET r.pg_id                = $pg_id,
+        r.meeting_id           = $meeting_id,
+        r.file_name            = $file_name,
+        r.file_path            = $file_path,
+        r.submitter_department = $submitter_department,
+        r.human_status         = $human_status,
+        r.created_at           = $created_at,
+        r.updated_at           = $updated_at
+    WITH r
+    MATCH (mg:Meetings {id: $mg_id})
+    MERGE (r)-[:`첨부`]->(mg)
+    """
+    if related_agenda_ids:
+        for ag_id in related_agenda_ids:
+            cypher += f"""
+    WITH r
+    OPTIONAL MATCH (ag:Agenda {{id: '{ag_id}'}})
+    FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (r)-[:`첨부`]->(ag)
+    )"""
+    params = {
+        "id": report_neo_id, "pg_id": report_id,
+        "meeting_id": meeting_id,
+        "file_name": file_name or "",
+        "file_path": file_path or "",
+        "submitter_department": submitter_department or "",
+        "human_status": human_status,
+        "created_at": created_at or "",
+        "mg_id": mg_id,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        await run_cypher(cypher, params)
+        logger.debug(f"[Neo4jSync] Report {report_id} 동기화 완료")
+    except Exception as e:
+        logger.error(f"[Neo4jSync] Report {report_id} 실패: {e}")
+        _log_failure("sync_report", "report", str(report_id), e, params)
+
+
 # ─── HumanJudgment 동기화 (PG hitl_reviews) ──────────────────────────────────
 
 async def sync_human_judgment(
@@ -819,30 +875,18 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["minutes"] += 1
 
-        # 7. AIJudgment ← PG reports + report_scores
+        # 7. Report ← PG reports (Neo4j Report 노드)
         if hasattr(models, "Report"):
-            score_map: dict[int, Any] = {}
-            if hasattr(models, "ReportScore"):
-                for rs in db.query(models.ReportScore).all():
-                    score_map[rs.report_id] = rs
-
             for r in db.query(models.Report).all():
-                rs = score_map.get(r.id)
-                await sync_ai_judgment(
+                await sync_report(
                     report_id=r.id,
                     meeting_id=r.meeting_id,
-                    upload_id=r.upload_id,
-                    version=r.version,
-                    submitter_department=r.submitter_department,
                     file_name=r.file_name,
                     file_path=r.file_path,
+                    submitter_department=r.submitter_department,
                     human_status=r.human_status or "pending",
-                    parent_id=r.parent_id,
+                    related_agenda_ids=r.related_agenda_ids or [],
                     created_at=r.created_at.isoformat() if r.created_at else None,
-                    ai_status=rs.ai_status if rs else None,
-                    total_score=rs.total_score if rs else None,
-                    detail_scores=rs.detail_scores if rs else None,
-                    feedback=rs.feedback if rs else None,
                 )
                 stats["ai_judgments"] += 1
 
