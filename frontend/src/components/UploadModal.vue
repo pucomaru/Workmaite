@@ -548,16 +548,9 @@ function closeAgendaDropdown() {
 </template>
 
 <style scoped>
-/* ── 레이더 차트 ── */
-.radar-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.radar-svg  { width: 200px; height: 210px; }
-
-@keyframes dashRotate {
-  to { stroke-dashoffset: -30; }
-}
-.radar-loading-dash {
-  animation: dashRotate 1.2s linear infinite;
-}
+/* ── 레이더 차트 (모달 크기 고정 오버라이드) ── */
+.radar-svg { width: 200px; height: 210px; }
+.radar-loading-dash { animation: dashRotate 1.2s linear infinite; }
 .radar-score-poly { transition: all 0.1s; }
 
 .radar-stage {

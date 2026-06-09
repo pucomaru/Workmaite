@@ -37,6 +37,7 @@ from neo4j_sync import (
     sync_session,
     sync_agenda,
     sync_minutes,
+    sync_report,
     delete_meeting,
     retry_failed_syncs,
     sync_all_from_pg,
@@ -232,5 +233,30 @@ async def sync_minutes_manual(
         content_summary=m.content_summary,
     )
     return {"success": True, "minutes_id": minutes_id}
+
+
+# ─── Report 수동 동기화 ───────────────────────────────────────────────────────
+
+@router.post("/report/{report_id}")
+async def sync_report_manual(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """특정 Report를 Neo4j에 수동으로 동기화합니다."""
+    r = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Report를 찾을 수 없습니다.")
+    await sync_report(
+        report_id=r.id,
+        meeting_id=r.meeting_id,
+        file_name=r.file_name,
+        file_path=r.file_path,
+        submitter_department=r.submitter_department,
+        human_status=r.human_status or "pending",
+        related_agenda_ids=r.related_agenda_ids or [],
+        created_at=r.created_at.isoformat() if r.created_at else None,
+    )
+    return {"success": True, "report_id": report_id}
 
 

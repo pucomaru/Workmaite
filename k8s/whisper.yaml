@@ -17,14 +17,17 @@ spec:
     spec:
       containers:
         - name: whisper
-          image: onerahmet/openai-whisper-asr-webservice:latest
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-whisper:bf9312e
           ports:
             - containerPort: 9000
           env:
             - name: ASR_MODEL
               value: "small"
-            - name: ASR_ENGINE
-              value: "faster_whisper"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: whisperx-secret
+                  key: HF_TOKEN
           resources:
             requests:
               memory: "3Gi"

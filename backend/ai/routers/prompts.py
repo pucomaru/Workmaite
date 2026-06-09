@@ -356,6 +356,7 @@ def relationship_summary_human(
         f"- 담당자 없는 안건: {findings.get('ownerless',0)}건 / 고아 문서: {findings.get('orphans',0)}건\n\n"
         f"[KnowledgeAgent 재구성 통계]\n"
         f"- 회의 흐름(세션) '후속' 연결: {stats.get('session_links',0)}건\n"
+        f"- 세션→안건 직접 연결: {stats.get('session_agenda_links',0)}건\n"
         f"- 회의록→안건 연결(생명주기): {stats.get('lifecycle_links',0)}건\n"
         f"- 미해결 안건 다음 회차 이월: {stats.get('carry_links',0)}건\n"
         f"- 회의 간 '관련' 링크 생성: {stats.get('related_agendas',0)}건\n"

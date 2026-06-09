@@ -6,7 +6,7 @@ import AppTable from '../components/AppTable.vue'
 
 const orgColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
-  { label: '조직', width: '110px', sortKey: 'organization' },
+  { label: '회사', width: '110px', sortKey: 'company' },
   { label: '부서', width: '110px', sortKey: 'department' },
   { label: '직책', width: '80px', sortKey: 'position' },
   { label: '이메일', width: '180px', sortKey: 'email' },
@@ -34,7 +34,7 @@ const editModal = ref(null)  // { ...member }
 async function fetchAllMembers() {
   loadingMembers.value = true
   try {
-    const res = await apiAI.get('/api/ai/organization/members')
+    const res = await apiAI.get('/api/ai/company/members')
     myMeetings.value = res.data.meetings ?? []
     allMembers.value = (res.data.members ?? []).map(u => ({
       id: u.id,
@@ -42,7 +42,7 @@ async function fetchAllMembers() {
       email: u.email,
       employee_id: u.email,
       department: u.department,
-      organization: u.company,
+      company: u.company,
       position: u.position,
       meetings: u.meetings ?? [],
     }))
@@ -129,7 +129,7 @@ async function saveEdit() {
   try {
     await apiAI.patch(`/api/ai/users/${m.id}`, {
       name: m.name,
-      company: m.organization || null,
+      company: m.company || null,
       department: m.department || null,
       position: m.position || null,
     })
@@ -147,11 +147,11 @@ function toggleExpand(key) {
 
 // ── CSV 내보내기 ──────────────────────────────────────────
 function exportCSV() {
-  const headers = ['이름', '이메일', '조직', '부서', '직책']
+  const headers = ['이름', '이메일', '회사', '부서', '직책']
   const rows = filteredMembers.value.map(m => [
     m.name || '',
     m.email || '',
-    m.organization || '',
+    m.company || '',
     m.department || '',
     m.position || '',
   ])
@@ -208,7 +208,7 @@ function parseCSVLine(line) {
 const CSV_HEADER_MAP = {
   '이름': 'name', 'name': 'name',
   '이메일': 'email', 'email': 'email',
-  '조직': 'organization', '조직명': 'organization', 'organization': 'organization',
+  '회사': 'company', '회사명': 'company', 'company': 'company', 'organization': 'company',
   '부서': 'department', '부서명': 'department', 'department': 'department',
   '직책': 'position', 'position': 'position',
 }
@@ -259,7 +259,7 @@ async function parseAndImportCSV(text) {
       await api.post('/api/v1/auth/signup', {
         name: obj.name,
         email: obj.email,
-        company: obj.organization || null,
+        company: obj.company || null,
         department: obj.department || null,
         position: obj.position || null,
         password: generateTempPassword(),
@@ -325,7 +325,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
     <!-- Archive-style header -->
     <div class="archive-header">
       <div class="header-title-wrap">
-        <h1 class="archive-title">조직 관리</h1>
+        <h1 class="archive-title">회사 관리</h1>
       </div>
 
       <div class="search-wrap">
@@ -374,7 +374,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
-            <td class="cell-muted">{{ member.organization || '-' }}</td>
+            <td class="cell-muted">{{ member.company || '-' }}</td>
             <td class="cell-muted">{{ member.department || '-' }}</td>
             <td class="cell-muted">{{ member.position || '-' }}</td>
             <td class="cell-muted">{{ member.email || '-' }}</td>
@@ -511,8 +511,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>조직명</label>
-                <input v-model="editModal.organization" class="app-modal-input" placeholder="예: 워크메이트" />
+                <label>회사명</label>
+                <input v-model="editModal.company" class="app-modal-input" placeholder="예: 워크메이트" />
               </div>
               <div class="app-modal-field">
                 <label>부서명</label>

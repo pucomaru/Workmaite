@@ -18,9 +18,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from xhtml2pdf import pisa
 
+import json
 import models
 from auth import get_current_user
 from database import get_db
+from fastapi.responses import StreamingResponse
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
 
 logger = logging.getLogger(__name__)
@@ -181,6 +183,22 @@ async def upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+
+    try:
+        from neo4j_sync import sync_report as _sync_report
+        import asyncio
+        asyncio.create_task(_sync_report(
+            report_id=report.id,
+            meeting_id=meeting_id,
+            file_name=original_name,
+            file_path=r2_url,
+            submitter_department=report.submitter_department,
+            human_status="pending",
+            related_agenda_ids=agenda_ids,
+            created_at=report.created_at.isoformat() if report.created_at else None,
+        ))
+    except Exception:
+        pass
 
     return {
         "id": report.id,

@@ -421,12 +421,97 @@ function toNumericId(id) {
   return m ? parseInt(m[1], 10) : 0
 }
 
-function openNodeDetail(n) {
+async function openNodeDetail(n) {
   detailNode.value = n
   detailMeeting.value = null
   detailOpen.value = true
   nodeDetailTab.value = 'basic'
   relAddActive.value = false
+
+  if (n.type === 'report' && n.data?.id) {
+    const rawId = n.data.id
+    const reportId = typeof rawId === 'string'
+      ? parseInt(rawId.split('-').pop(), 10)
+      : Number(rawId)
+    if (reportId && !isNaN(reportId)) {
+      try {
+        const { data: score } = await apiAI.get(`/api/upload/reports/${reportId}/score`)
+        detailNode.value = { ...n, data: { ...n.data, ...score } }
+      } catch (e) { console.warn('[score fetch]', e) }
+    }
+  }
+}
+
+const nodeReviewing = ref(false)
+
+async function startNodeReview(reportId) {
+  if (!reportId || nodeReviewing.value) return
+
+  const fileName = detailNode.value?.data?.file_name || '보고자료'
+
+  // 에이전트 사이드바 열기
+  if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; initAgentGreeting() }
+  await nextTick()
+
+  allMessages.value['supervisor'].push({ role: 'user', content: `"${fileName}" 보고자료를 AI로 검토해줘` })
+  const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
+  allMessages.value['supervisor'].push(planningMsg)
+  const agentMsg = reactive({ role: 'agent', content: '' })
+  allMessages.value['supervisor'].push(agentMsg)
+  if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+
+  nodeReviewing.value = true
+  agentLoading.value = true
+
+  const planningSteps = [
+    `Report #${reportId} → R2 파일 다운로드`,
+    `파일 텍스트 추출 중...`,
+    `AI 평가 기준 적용 (목적/배경, 현황분석, 핵심내용 등)`,
+    `항목별 점수 산출 중...`,
+    `종합 점수 및 피드백 생성`,
+  ]
+  const planningPromise = _runPlanningSteps(planningMsg, planningSteps)
+
+  let resultData = null
+  try {
+    await streamPostForm(`/api/upload/reports/${reportId}/analyze`, new FormData(), (ev) => {
+      if (ev.type === 'result' && ev.data) {
+        resultData = ev.data
+        detailNode.value = {
+          ...detailNode.value,
+          data: {
+            ...detailNode.value?.data,
+            total_score: ev.data.score ?? null,
+            detail_scores: ev.data.detail_scores ?? null,
+            feedback: Array.isArray(ev.data.feedback) ? ev.data.feedback.join('\n') : (ev.data.feedback ?? null),
+          },
+        }
+      }
+    })
+  } catch (e) {
+    console.warn('[startNodeReview]', e)
+    agentMsg.content = '⚠️ AI 검토 중 오류가 발생했습니다.'
+    return
+  } finally {
+    nodeReviewing.value = false
+    agentLoading.value = false
+  }
+
+  await planningPromise
+
+  if (resultData) {
+    const score = resultData.score ?? 0
+    const feedback = Array.isArray(resultData.feedback) ? resultData.feedback : []
+    const icon = score >= 80 ? '🟢' : score >= 60 ? '🟡' : '🔴'
+    const reply = `${icon} **${fileName}** 검토 완료\n\n**종합 점수: ${score}/100**\n\n${feedback.map(f => `• ${f}`).join('\n')}`
+    for (let i = 0; i < reply.length; i++) {
+      agentMsg.content += reply[i]
+      if (i % 4 === 0) {
+        await new Promise(r => setTimeout(r, 8))
+        if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+      }
+    }
+  }
 }
 
 // 현재 회의체 참여 부서 목록
@@ -760,7 +845,7 @@ async function openGroupSetting() {
       name: mb.user?.name || mb.userName || mb.name || '?',
       email: mb.user?.email || mb.email || '',
       department: mb.user?.department || mb.department || '',
-      organization: mb.user?.organization || mb.organization || '',
+      company: mb.user?.company || mb.company || '',
       position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     }))
@@ -1022,6 +1107,8 @@ const REL_MATRIX = {
   'person→dept':                 '소속',
   'dept→file':                   '첨부',
   'org→file':                    '참조',
+  'org→minutes':                 '참조',
+  'org→report':                  '참조',
   // ── MeetingGroup ───────────────────────────────────────────
   'meeting_group→meeting_group': '참여',
   'person→meeting_group':        '구성원',
@@ -1034,12 +1121,30 @@ const REL_MATRIX = {
   'session→meeting_group':       '개최',
   'session→agenda':              '다룸멌',
   'session→file':                '산출',
+  'session→minutes':             '산출',
+  'session→report':              '산출',
   'session→session':             '후속',
   // ── Decision ───────────────────────────────────────────────
   'decision→session':            '근거',
   'decision→agenda':             '원인',
   'decision→meeting_group':      '근거',
-  // ── File / Document ────────────────────────────────────────
+  // ── Minutes (회의록) ────────────────────────────────────────
+  'minutes→meeting_group':       '첨부',
+  'minutes→agenda':              '도출',
+  'minutes→minutes':             '참조',
+  'minutes→session':             '참조',
+  'minutes→dept':                '첨부',
+  'person→minutes':              '첨부',
+  'dept→minutes':                '첨부',
+  // ── Report (보고자료) ───────────────────────────────────────
+  'report→meeting_group':        '첨부',
+  'report→agenda':               '첨부',
+  'report→report':               '참조',
+  'report→session':              '참조',
+  'report→dept':                 '첨부',
+  'person→report':               '첨부',
+  'dept→report':                 '첨부',
+  // ── File (하위호환) ─────────────────────────────────────────
   'file→file':                   '참조',
   'file→session':                '참조',
   'file→dept':                   '첨부',
@@ -1477,7 +1582,7 @@ function doAddFile() {
   const newNode = {
     id: fileNodeId,
     label: uploadForm.value.label,
-    type: 'file',
+    type: uploadForm.value.fileType === '회의록' ? 'minutes' : 'report',
     fileType: uploadForm.value.fileType,
     aiScore: aiResult.value?.score ?? null,
     aiReview: aiResult.value ? { ...aiResult.value } : null,
@@ -1818,7 +1923,7 @@ function onGraphNodeClick(node) {
   if (!node) return
   if (node.type === 'meeting_group' && node.data) {
     openDetail(node.data)
-  } else if (node.id !== 'org-node' && node.type !== 'company') {
+  } else {
     openNodeDetail(node)
   }
 }
@@ -2103,6 +2208,7 @@ provide('archiveSidebar', {
   detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
+  nodeReviewing, startNodeReview,
 })
 </script>
 

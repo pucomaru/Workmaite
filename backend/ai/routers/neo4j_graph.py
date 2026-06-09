@@ -105,7 +105,7 @@ async def get_archive(
                 {"email": user_email, "name": user_name},
             ),
             _run_cypher(
-                "MATCH (o:Company) RETURN o.id AS id, o.name AS name, o.org_type AS org_type LIMIT 1"
+                "MATCH (o:Company) RETURN o.id AS id, o.name AS name LIMIT 1"
             ),
             _run_cypher(
                 "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
@@ -192,6 +192,7 @@ async def get_archive(
                     ag.priority AS priority, ag.status AS status,
                     toString(ag.due_date) AS due_date,
                     toString(ag.created_at) AS created_at,
+                    ag.ai_evidence AS ai_evidence,
                     p.name AS assignee_name, coalesce(d.name, '') AS assignee_dept
                 """,
                 {"ids": mg_ids_list},
@@ -202,6 +203,7 @@ async def get_archive(
                 WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
                 OPTIONAL MATCH (s)-[:`산출`]->(doc) WHERE doc:Report OR doc:Minutes
+                OPTIONAL MATCH (mn:Minutes)-[:`생성`]->(s)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -209,13 +211,20 @@ async def get_archive(
                     s.title AS session_title,
                     s.session_number AS session_number,
                     toString(coalesce(s.date, s.scheduled_at)) AS date,
+                    toString(s.started_at) AS started_at,
                     s.session_type AS session_type,
                     s.description AS description,
+                    s.location AS location,
+                    s.status AS session_status,
                     toString(s.ended_at) AS ended_at,
                     doc.file_name AS file_name, doc.id AS doc_id,
                     doc.title AS doc_title, doc.doc_type AS doc_type,
                     doc.author AS doc_author,
-                    toString(doc.created_at) AS doc_created_at
+                    toString(doc.created_at) AS doc_created_at,
+                    mn.content_summary AS content_summary,
+                    mn.file_name AS minutes_file_name,
+                    mn.status AS minutes_status,
+                    toString(mn.generated_at) AS generated_at
                 """,
                 {"ids": mg_ids_list},
             ),
@@ -291,6 +300,7 @@ async def get_archive(
                 "status": row.get("status", "pending"),
                 "due_date": row.get("due_date"),
                 "created_at": row.get("created_at"),
+                "ai_evidence": row.get("ai_evidence"),
                 "assignee_names": [],   # 담당자 여러 명 지원
                 "assignee_dept": row.get("assignee_dept", ""),
             }
@@ -315,15 +325,34 @@ async def get_archive(
                 "session_title": row.get("session_title", ""),
                 "session_number": row.get("session_number"),
                 "date": row.get("date"),
+                "started_at": row.get("started_at"),
+                "ended_at": row.get("ended_at"),
                 "session_type": row.get("session_type"),
                 "description": row.get("description"),
-                "ended_at": row.get("ended_at"),
+                "location": row.get("location"),
+                "session_status": row.get("session_status"),
                 "file_name": row.get("file_name"),
                 "doc_title": row.get("doc_title"),
                 "doc_type": row.get("doc_type"),
                 "doc_author": row.get("doc_author"),
                 "doc_created_at": row.get("doc_created_at"),
+                "content_summary": row.get("content_summary"),
+                "minutes_file_name": row.get("minutes_file_name"),
+                "minutes_status": row.get("minutes_status"),
+                "generated_at": row.get("generated_at"),
             })
+
+    def _neo4j_report_pg_id(neo4j_id) -> int | None:
+        """'report-N' 형태 Neo4j ID에서 PostgreSQL 정수 ID 추출."""
+        if isinstance(neo4j_id, int):
+            return neo4j_id
+        if isinstance(neo4j_id, str):
+            parts = neo4j_id.split("-")
+            try:
+                return int(parts[-1])
+            except (ValueError, IndexError):
+                pass
+        return None
 
     seen_report_ids: dict[str, set] = {}
     for row in report_rows:
@@ -331,13 +360,16 @@ async def get_archive(
         doc_id = row.get("id")
         if not mg_id or mg_id not in meetings_map or not doc_id:
             continue
+        pg_id = _neo4j_report_pg_id(doc_id)
+        if not pg_id:
+            continue
         if mg_id not in seen_report_ids:
             seen_report_ids[mg_id] = set()
-        if doc_id in seen_report_ids[mg_id]:
+        if pg_id in seen_report_ids[mg_id]:
             continue
-        seen_report_ids[mg_id].add(doc_id)
+        seen_report_ids[mg_id].add(pg_id)
         meetings_map[mg_id]["reports"].append({
-            "id": doc_id, "meeting_id": mg_id,
+            "id": pg_id, "meeting_id": mg_id,
             "meeting_title": row.get("meetingTitle", ""),
             "title": row.get("title", ""),
             "file_name": row.get("file_name", ""),
@@ -427,22 +459,72 @@ async def get_archive(
         )
         for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
-            if sid in meetings_map:
-                meetings_map[sid]["reports"].append({
-                    "id": r.id,
-                    "parent_id": r.parent_id,
-                    "meetingId": sid,
-                    "file_name": r.file_name,
-                    "file_path": r.file_path,
-                    "human_status": r.human_status,
-                    "version": r.version,
-                    "submitter_department": r.submitter_department,
-                    "score": rs.total_score if rs and rs.total_score is not None else None,
-                    "ai_feedback": rs.feedback if rs and rs.feedback else None,
-                    "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
-                    "reviewed_at": hr.reviewed_at.isoformat() + 'Z' if hr and hr.reviewed_at else None,
-                    "related_agenda_ids": r.related_agenda_ids or [],
-                })
+            if sid not in meetings_map:
+                continue
+            pg_report = {
+                "id": r.id,
+                "meetingId": sid,
+                "file_name": r.file_name,
+                "file_path": r.file_path,
+                "human_status": r.human_status,
+                "version": r.version,
+                "submitter_department": r.submitter_department,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "reviewed_at": hr.reviewed_at.isoformat() if hr and hr.reviewed_at else None,
+                "related_agenda_ids": r.related_agenda_ids or [],
+                "ai_status": rs.ai_status if rs else None,
+                "total_score": rs.total_score if rs else None,
+                "detail_scores": rs.detail_scores if rs else None,
+                "feedback": rs.feedback if rs else None,
+                "score_created_at": rs.created_at.isoformat() if rs and rs.created_at else None,
+            }
+            existing = meetings_map[sid]["reports"]
+            idx = next((i for i, x in enumerate(existing) if _neo4j_report_pg_id(x.get("id")) == r.id), None)
+            if idx is not None:
+                existing[idx] = pg_report
+            else:
+                existing.append(pg_report)
+
+    # ── Postgres 보완: meeting_sessions + minutes 데이터로 session 정보 채움 ──
+    if all_raw_ids:
+        pg_sessions = (
+            db.query(models.MeetingSession, models.Minutes)
+            .outerjoin(
+                models.Minutes,
+                models.Minutes.session_id == models.MeetingSession.id,
+            )
+            .filter(models.MeetingSession.meeting_id.in_(all_raw_ids))
+            .all()
+        )
+        pg_session_map: dict[int, dict] = {}
+        for s, mn in pg_sessions:
+            pg_session_map[s.id] = {
+                "session_title":    s.title or "",
+                "description":      s.description or "",
+                "location":         s.location or "",
+                "session_type":     str(s.type) if s.type else "",
+                "date":             s.scheduled_at.isoformat() if s.scheduled_at else "",
+                "started_at":       s.started_at.isoformat() if s.started_at else "",
+                "ended_at":         s.ended_at.isoformat() if s.ended_at else "",
+                "session_status":   s.status or "",
+                "content_summary":  mn.content_summary if mn else "",
+                "minutes_file_name": mn.file_name if mn else "",
+                "minutes_status":   mn.status if mn else "",
+                "generated_at":     mn.generated_at.isoformat() if mn and mn.generated_at else "",
+            }
+        for mg_data in meetings_map.values():
+            for sess in mg_data.get("minutes", []):
+                sess_neo_id = sess.get("id", "")
+                pg_id = None
+                if isinstance(sess_neo_id, str) and "-" in sess_neo_id:
+                    try:
+                        pg_id = int(sess_neo_id.split("-")[-1])
+                    except (ValueError, IndexError):
+                        pass
+                elif isinstance(sess_neo_id, int):
+                    pg_id = sess_neo_id
+                if pg_id and pg_id in pg_session_map:
+                    sess.update(pg_session_map[pg_id])
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
