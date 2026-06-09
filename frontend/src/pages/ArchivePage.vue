@@ -838,14 +838,10 @@ async function openGroupSetting() {
   const m = detailMeeting.value
   const numId = toNumericId(m.id)
 
-  // DB에서 최신 회의체 정보 fetch (Neo4j 캐시 대신 PG 원본)
-  let freshMeeting = null
-  try {
-    const res = await apiAI.get(`/api/v1/meetings/${numId}`)
-    freshMeeting = res.data
-  } catch { /* 실패 시 graph 데이터로 fallback */ }
-
-  const src = freshMeeting || m
+  // PG 원본값을 meetingsStore(Spring Boot → PG 직접) 로 fetch
+  let pgMeeting = null
+  try { pgMeeting = await meetingsStore.fetchMeeting(numId) } catch { /* fallback */ }
+  const src = pgMeeting || m
 
   let members = []
   try {
