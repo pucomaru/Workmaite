@@ -1,11 +1,12 @@
 import os
-import io
 import logging
 import subprocess
 import tempfile
 
+import numpy as np
 import torch
 import whisperx
+from whisperx.diarize import DiarizationPipeline
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 
@@ -22,11 +23,7 @@ HF_TOKEN = os.environ["HF_TOKEN"]
 logger.info(f"[WhisperX] device={DEVICE}, model={MODEL_SIZE}")
 
 model = whisperx.load_model(MODEL_SIZE, DEVICE, compute_type=COMPUTE_TYPE)
-from pyannote.audio import Pipeline as _Pipeline
-diarize_model = _Pipeline.from_pretrained(
-    "pyannote/speaker-diarization-3.1",
-    token=HF_TOKEN,
-).to(torch.device(DEVICE))
+diarize_model = DiarizationPipeline(use_auth_token=HF_TOKEN, device=DEVICE)
 
 logger.info("[WhisperX] 모델 로드 완료")
 
@@ -50,29 +47,31 @@ async def asr(
 
     wav_path = tmp_path.replace(".webm", ".wav")
     try:
-        proc = subprocess.run(
+        subprocess.run(
             ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", wav_path],
             capture_output=True, check=True,
         )
         wav_size = os.path.getsize(wav_path) if os.path.exists(wav_path) else 0
-        logger.info(f"[WhisperX] webm={os.path.getsize(tmp_path)}B wav={wav_size}B")
-        result = model.transcribe(wav_path, language=language)
+
+        audio = whisperx.load_audio(wav_path)
+        rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+        logger.info(f"[WhisperX] webm={os.path.getsize(tmp_path)}B wav={wav_size}B rms={rms:.4f}")
+
+        result = model.transcribe(audio, language=language, batch_size=1)
 
         if not result.get("segments"):
+            logger.warning(f"[WhisperX] 세그먼트 없음 (rms={rms:.4f})")
             return {"text": "", "segments": []}
 
-        # forced alignment
         align_model, metadata = whisperx.load_align_model(
             language_code=language, device=DEVICE
         )
         result = whisperx.align(
-            result["segments"], align_model, metadata, wav_path, DEVICE
+            result["segments"], align_model, metadata, audio, DEVICE
         )
 
-        # 화자 분리
-        diarize_segments = diarize_model(wav_path)
+        diarize_segments = diarize_model(audio)
         result = whisperx.assign_word_speakers(diarize_segments, result)
-
 
         segments = []
         for seg in result["segments"]:
