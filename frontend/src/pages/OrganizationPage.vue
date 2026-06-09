@@ -333,13 +333,6 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
       </div>
 
-      <select v-model="selectedMeetingId" class="org-meeting-select app-select">
-        <option value="all">내 회의체 전체</option>
-        <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
-      </select>
-
-      <span class="member-count-text">({{ memberCount }}건)</span>
-
       <span class="org-scope-badge" title="본인이 속한 회의체의 구성원만 조회됩니다.">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       </span>
@@ -358,6 +351,20 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
           구성원 추가
         </button>
+      </div>
+    </div>
+
+    <!-- List header -->
+    <div class="lv-header">
+      <div class="lv-filter-wrap">
+        <select v-model="selectedMeetingId" class="lv-type-filter">
+          <option value="all">내 회의체 전체</option>
+          <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+        </select>
+      </div>
+      <div class="lv-header-right">
+        <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '전체 구성원' }}</span>
+        <span class="lv-count">{{ memberCount }}명</span>
       </div>
     </div>
 
@@ -546,6 +553,32 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .org-scope-badge svg { flex-shrink:0; }
 .day-mode .org-scope-badge { color:#0369a1;background:rgba(2,132,199,0.08);border-color:rgba(2,132,199,0.25); }
 .org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
+
+/* lv-header (아카이브 목록 스타일 재사용) */
+.lv-header { display:flex;align-items:center;justify-content:space-between;padding:8px 20px 10px; }
+.lv-filter-wrap { display:flex;gap:6px; }
+.lv-header-right { display:flex;align-items:center;gap:6px; }
+.lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }
+.lv-count { font-size:12px;color:var(--dark-muted); }
+.lv-type-filter {
+  appearance:none;-webkit-appearance:none;
+  background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 8px center;
+  background-size:10px 6px;
+  border:1px solid rgba(255,255,255,.12);border-radius:7px;
+  color:#cbd5e1;font-size:12px;padding:5px 26px 5px 10px;
+  cursor:pointer;outline:none;transition:border-color .15s,background-color .15s;
+}
+.lv-type-filter:hover { border-color:rgba(255,255,255,.22); }
+.lv-type-filter:focus { border-color:rgba(99,102,241,.6); }
+.day-mode .lv-type-filter {
+  background-color:#fff;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  border-color:var(--border);color:var(--dark-border);
+}
+.day-mode .lv-type-filter:hover { border-color:#cbd5e1; }
+.day-mode .lv-type-filter:focus { border-color:#6366f1; }
+.day-mode .lv-title { color:var(--text-muted); }
+.day-mode .lv-count { color:var(--dark-muted); }
 
 /* Table */
 .table-wrap { flex:1;overflow-y:auto;min-height:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
