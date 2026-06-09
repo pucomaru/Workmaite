@@ -825,13 +825,9 @@ function goToProcessStep(step) {
   }
 }
 
-// ─── 회의체 설정 모달 (MeetingGroupsPage 동일 패턴) ────────────
+// ─── 회의체 설정 모달 ────────────────────────────────────────────
 const settingsModal = ref(null)
-const settingsSearchQ = ref('')
-const settingsSearchResults = ref([])
-const settingsSearchLoading = ref(false)
 const savingSettings = ref(false)
-let settingsSearchTimer = null
 
 async function openGroupSetting() {
   if (!detailMeeting.value) return
@@ -863,43 +859,17 @@ async function openGroupSetting() {
       title: src.title || '',
       purpose: src.description || src.purpose || '',
       guidelines: src.guidelines || '',
+      meeting_type: src.meeting_type || src.type || 'Weekly',
+      start_date: src.start_date ? String(src.start_date).slice(0, 10) : '',
+      end_date: src.end_date ? String(src.end_date).slice(0, 10) : '',
     },
     members,
     removedIds: [],
   }
-  settingsSearchQ.value = ''
-  settingsSearchResults.value = []
 }
 
 function closeSettings() { settingsModal.value = null }
 
-function watchSettingsSearch(q) {
-  settingsSearchQ.value = q
-  clearTimeout(settingsSearchTimer)
-  if (!q.trim()) { settingsSearchResults.value = []; return }
-  settingsSearchTimer = setTimeout(async () => {
-    settingsSearchLoading.value = true
-    try {
-      const res = await api.get('/api/v1/users/search', { params: { q } })
-      settingsSearchResults.value = res.data
-    } catch { settingsSearchResults.value = [] }
-    finally { settingsSearchLoading.value = false }
-  }, 300)
-}
-
-function addMemberToSettings(user) {
-  if (!settingsModal.value) return
-  if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
-  settingsSearchQ.value = ''
-  settingsSearchResults.value = []
-}
-
-function removeMemberFromSettings(idx) {
-  const m = settingsModal.value.members[idx]
-  if (m.id) settingsModal.value.removedIds.push(m.id)
-  settingsModal.value.members.splice(idx, 1)
-}
 
 async function saveSettings() {
   if (!settingsModal.value) return
@@ -907,7 +877,7 @@ async function saveSettings() {
   const { meeting, form, members, removedIds } = settingsModal.value
   const numId = meeting._numId || toNumericId(meeting.id)
   try {
-    await apiAI.patch(`/api/v1/meetings/${numId}`, { title: form.title, description: form.purpose, guidelines: form.guidelines })
+    await apiAI.patch(`/api/v1/meetings/${numId}`, { title: form.title, description: form.purpose, guidelines: form.guidelines, start_date: form.start_date || null, end_date: form.end_date || null, meeting_type: form.meeting_type || null })
     for (const memberId of removedIds) {
       await apiAI.delete(`/api/v1/meetings/${numId}/members/${memberId}`)
     }
@@ -926,9 +896,6 @@ async function saveSettings() {
   } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
   finally { savingSettings.value = false }
 }
-
-const ROLE_MAP = { admin: '간사', member: '참여자' }
-function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 
 // ─── Role-based helpers ───────────────────────────────────────
 /** 현재 로그인 유저가 해당 회의체 members 배열에서 가지는 역할(admin/member)을 찾는다.
@@ -964,10 +931,6 @@ const isAnyAdmin = computed(() => {
     )
   )
 })
-const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
-function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
-function initials(name) { return (name || '?')[0] }
-
 function goToList(meetingId) {
   _listSnapshot.expandedMeeting = meetingId || null
   viewMode.value = 'list'
@@ -2212,10 +2175,7 @@ provide('archiveModals', {
   aiStreamText, aiStreamStage,
   PRESENTATION_CRITERIA, doAddFile, submitReview, reportId,
   isResubmit, rejectedReports, selectedParentId, fetchRejectedReports,
-  settingsModal, closeSettings,
-  settingsSearchQ, watchSettingsSearch, settingsSearchLoading,
-  settingsSearchResults, addMemberToSettings, avatarColor, initials,
-  removeMemberFromSettings, ROLE_MAP, savingSettings, saveSettings,
+  settingsModal, closeSettings, savingSettings, saveSettings,
 })
 
 // ─── Provide for DetailSidebar ────────────────────────────────

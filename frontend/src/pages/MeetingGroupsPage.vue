@@ -7,6 +7,7 @@ import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
 import DateInput from '../components/DateInput.vue'
+import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 
 const mgColumns = [
   { label: '', width: '28px' },
@@ -152,12 +153,13 @@ async function deleteMeeting(m) {
 
 // ── Settings ──────────────────────────────────────────────────
 const settingsModal = ref(null)
-const settingsSearchQ = ref('')
-const settingsSearchResults = ref([])
-const settingsSearchLoading = ref(false)
-let settingsSearchTimer = null
 
 async function openSettings(m) {
+  // PG 최신값 fetch (Spring Boot → PG 직접)
+  let pgMeeting = null
+  try { pgMeeting = (await api.get(`/api/v1/meetings/${m.id}`)).data } catch {}
+  const src = pgMeeting || m
+
   let members = membersCache.value[m.id] ? [...membersCache.value[m.id]] : []
   if (!members.length) {
     try {
@@ -168,49 +170,28 @@ async function openSettings(m) {
   }
   settingsModal.value = {
     meeting: m,
-    form: { title: m.title, purpose: m.purpose || '', start_date: m.start_date ? m.start_date.slice(0,10) : '', end_date: m.end_date ? m.end_date.slice(0,10) : '', guidelines: m.guidelines || '', meeting_type: m.meeting_type || 'Weekly' },
+    form: {
+      title: src.title || '',
+      purpose: src.description || '',
+      start_date: src.start_date ? String(src.start_date).slice(0, 10) : '',
+      end_date: src.end_date ? String(src.end_date).slice(0, 10) : '',
+      guidelines: src.guidelines || '',
+      meeting_type: src.meeting_type || src.type || 'Weekly',
+    },
     members: members.map(mb => ({
       id: mb.id,
       userId: mb.user?.id || mb.user_id,
       name: mb.user?.name || mb.userName || mb.name || '?',
       email: mb.user?.email || mb.email || '',
+      department: mb.user?.department || mb.department || '',
+      position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     })),
     removedIds: [],
   }
-  settingsSearchQ.value = ''
-  settingsSearchResults.value = []
 }
 
 function closeSettings() { settingsModal.value = null }
-
-function watchSettingsSearch(q) {
-  settingsSearchQ.value = q
-  clearTimeout(settingsSearchTimer)
-  if (!q.trim()) { settingsSearchResults.value = []; return }
-  settingsSearchTimer = setTimeout(async () => {
-    settingsSearchLoading.value = true
-    try {
-      const res = await api.get('/api/v1/users/search', { params: { q } })
-      settingsSearchResults.value = res.data
-    } catch { settingsSearchResults.value = [] }
-    finally { settingsSearchLoading.value = false }
-  }, 300)
-}
-
-function addMemberToSettings(user) {
-  if (!settingsModal.value) return
-  if (settingsModal.value.members.find(m => m.userId === user.id)) return
-  settingsModal.value.members.push({ id: null, userId: user.id, name: user.name || user.email, email: user.email, role: 'member' })
-  settingsSearchQ.value = ''
-  settingsSearchResults.value = []
-}
-
-function removeMemberFromSettings(idx) {
-  const m = settingsModal.value.members[idx]
-  if (m.id) settingsModal.value.removedIds.push(m.id)
-  settingsModal.value.members.splice(idx, 1)
-}
 
 const savingSettings = ref(false)
 async function saveSettings() {
@@ -236,20 +217,9 @@ async function saveSettings() {
   finally { savingSettings.value = false }
 }
 
-const ROLE_MAP = { admin: '간사', member: '참여자' }
-function roleLabel(r) { return ROLE_MAP[r] || r || '참여자' }
 function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
-function fmtDate(s) {
-  if (!s) return ''
-  const d = new Date(s)
-  return isNaN(d) ? s : `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`
-}
-function initials(name) { return (name || '?')[0] }
-const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
-function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
 function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.company || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
-function getPresenterCount(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role !== 'admin').length }
 
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
@@ -407,91 +377,13 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Settings modal -->
-      <div v-if="settingsModal" class="app-modal-backdrop">
-        <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
-          <div class="app-modal-header">
-            <span class="app-modal-title">회의체 설정</span>
-            <button class="app-modal-close" @click="closeSettings">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-            </button>
-          </div>
-          <div class="app-modal-body settings-body">
-            <div class="settings-section">
-              <div class="app-modal-field">
-                <label>회의체 이름 <span class="req">*</span></label>
-                <input v-model="settingsModal.form.title" class="app-modal-input" />
-              </div>
-              <div class="app-modal-field">
-                <label>소개</label>
-                <textarea v-model="settingsModal.form.purpose" class="app-modal-input" rows="2" placeholder="이 회의체의 목적이나 소개..."></textarea>
-              </div>
-              <div class="app-modal-field">
-                <label>유형</label>
-                <select v-model="settingsModal.form.meeting_type" class="app-modal-input">
-                  <option value="Weekly">Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Quarterly">Quarterly</option>
-                </select>
-              </div>
-              <div class="app-modal-field-row">
-                <div class="app-modal-field">
-                  <label>시작일</label>
-                  <DateInput v-model="settingsModal.form.start_date" class="app-modal-input" />
-                </div>
-                <div class="app-modal-field">
-                  <label>종료일</label>
-                  <DateInput v-model="settingsModal.form.end_date" class="app-modal-input" />
-                </div>
-              </div>
-              <div class="app-modal-field">
-                <label>회의체 지침</label>
-                <textarea v-model="settingsModal.form.guidelines" class="app-modal-input" rows="4" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...\n예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
-              </div>
-            </div>
-            <div class="settings-section">
-              <div class="settings-section-title">
-                참여자 <span class="member-cnt-badge">{{ settingsModal.members.length }}명</span>
-              </div>
-              <div class="member-search-wrap">
-                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input :value="settingsSearchQ" @input="watchSettingsSearch($event.target.value)" class="member-search-input" placeholder="이름 또는 이메일로 검색 후 추가..." />
-                <span v-if="settingsSearchLoading" class="search-spinner">↻</span>
-              </div>
-              <div v-if="settingsSearchResults.length" class="member-search-results">
-                <div v-for="u in settingsSearchResults" :key="u.id" class="member-search-item" @click="addMemberToSettings(u)">
-                  <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
-                  <div class="ms-info">
-                    <span class="ms-name">{{ u.name || '이름없음' }}</span>
-                    <span class="ms-email">{{ u.email }}</span>
-                  </div>
-                  <span class="ms-add-hint">+ 추가</span>
-                </div>
-              </div>
-              <div class="settings-member-list">
-                <div v-if="!settingsModal.members.length" class="settings-empty-members">참여자가 없습니다.</div>
-                <div v-for="(mb, idx) in settingsModal.members" :key="mb.userId" class="settings-member-row">
-                  <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
-                  <div class="sm-info">
-                    <span class="sm-name">{{ mb.name }}</span>
-                    <span class="sm-email">{{ mb.email }}</span>
-                  </div>
-                  <select v-model="mb.role" class="app-select">
-                    <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
-                  </select>
-                  <button class="sm-remove" @click="removeMemberFromSettings(idx)" title="제거">
-                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="app-modal-footer">
-            <button class="app-btn-cancel" @click="closeSettings">취소</button>
-            <button class="app-btn-primary" :disabled="!settingsModal.form.title.trim() || savingSettings" @click="saveSettings">{{ savingSettings ? '저장 중...' : '저장' }}</button>
-          </div>
-        </div>
-      </div>
+      <MeetingSettingsModal
+        :settings="settingsModal"
+        :night-mode="nightMode"
+        :saving="savingSettings"
+        @close="closeSettings"
+        @save="saveSettings"
+      />
     </Teleport>
   </div>
 </template>
@@ -542,51 +434,4 @@ onMounted(async () => {
 .mg-empty p { margin:0;font-size:14px; }
 
 .req { color:var(--danger); }
-
-/* 설정 모달 */
-.settings-body { gap:0; }
-.settings-section { padding:14px 0;border-bottom:1px solid var(--surface-2);display:flex;flex-direction:column;gap:10px; }
-.settings-section:last-child { border-bottom:none;padding-bottom:0; }
-.settings-section-title { font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px; }
-.member-cnt-badge { font-size:11px;font-weight:700;background:rgba(96,165,250,.15);color:#93c5fd;border-radius:99px;padding:1px 7px;text-transform:none;letter-spacing:0; }
-
-/* 멤버 검색 */
-.member-search-wrap { display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface); }
-.member-search-wrap svg { color:var(--dark-muted);flex-shrink:0; }
-.member-search-input { flex:1;border:none;background:none;color:var(--dark-card);font-size:12px;outline:none; }
-.member-search-input::placeholder { color:var(--dark-muted); }
-.search-spinner { color:var(--text-muted);font-size:14px;flex-shrink:0; }
-.member-search-results { border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff; }
-.member-search-item { display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;transition:background .1s; }
-.member-search-item:hover { background:var(--surface); }
-.ms-info { flex:1;display:flex;flex-direction:column; }
-.ms-name { font-size:13px;font-weight:600;color:var(--dark-card); }
-.ms-email { font-size:11px;color:var(--dark-muted); }
-.ms-add-hint { font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0; }
-
-/* 멤버 목록 */
-.settings-member-list { display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto; }
-.settings-empty-members { font-size:12px;color:var(--text-muted);padding:6px 0; }
-.settings-member-row { display:flex;align-items:center;gap:10px;padding:5px 6px;border-radius:7px;transition:background .1s; }
-.settings-member-row:hover { background:var(--surface); }
-.sm-info { flex:1;display:flex;flex-direction:column;min-width:0; }
-.sm-name { font-size:13px;font-weight:600;color:var(--dark-card);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sm-email { font-size:11px;color:var(--dark-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.sm-remove { width:22px;height:22px;border-radius:5px;border:none;background:rgba(239,68,68,.08);color:#f87171;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s; }
-.sm-remove:hover { background:rgba(239,68,68,.2); }
-
-/* Dark modal overrides */
-.app-modal.dark .settings-section { border-bottom-color:rgba(255,255,255,.07); }
-.app-modal.dark .settings-section-title { color:var(--text-dim); }
-.app-modal.dark .member-search-wrap { border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05); }
-.app-modal.dark .member-search-wrap svg { color:var(--text-dim); }
-.app-modal.dark .member-search-input { color:var(--surface-2); }
-.app-modal.dark .member-search-input::placeholder { color:var(--dark-border); }
-.app-modal.dark .member-search-results { border-color:rgba(255,255,255,.1);background:var(--dark-bg); }
-.app-modal.dark .member-search-item:hover { background:rgba(255,255,255,.06); }
-.app-modal.dark .ms-name { color:var(--surface-2); }
-.app-modal.dark .ms-email, .app-modal.dark .settings-empty-members { color:var(--text-dim); }
-.app-modal.dark .settings-member-row:hover { background:rgba(255,255,255,.04); }
-.app-modal.dark .sm-name { color:var(--surface-2); }
-.app-modal.dark .sm-email { color:var(--text-dim); }
 </style>
