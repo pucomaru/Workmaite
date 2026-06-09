@@ -50,11 +50,16 @@ async def asr(
 
     wav_path = tmp_path.replace(".webm", ".wav")
     try:
-        subprocess.run(
+        proc = subprocess.run(
             ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", wav_path],
             capture_output=True, check=True,
         )
-        result = model.transcribe(wav_path, language=language)
+        wav_size = os.path.getsize(wav_path) if os.path.exists(wav_path) else 0
+        logger.info(f"[WhisperX] webm={os.path.getsize(tmp_path)}B wav={wav_size}B")
+        result = model.transcribe(
+            wav_path, language=language,
+            vad_options={"vad_onset": 0.3, "vad_offset": 0.1},
+        )
 
         if not result.get("segments"):
             return {"text": "", "segments": []}
