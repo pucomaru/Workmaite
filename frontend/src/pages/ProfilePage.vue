@@ -7,7 +7,7 @@ const auth = useAuthStore()
 const form = ref({
   name: auth.user?.name || '',
   company: auth.user?.company || '',
-  department: auth.user?.department || ''
+  department: auth.user?.department || '',
   position: auth.user?.position || '',
   password: '',
   passwordConfirm: '',
