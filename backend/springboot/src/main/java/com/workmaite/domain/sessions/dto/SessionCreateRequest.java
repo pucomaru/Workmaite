@@ -22,9 +22,8 @@ public class SessionCreateRequest {
     private String type;
 
     @NotNull(message = "예정 일시는 필수입니다.")
-    @JsonAlias({"scheduled_at"})
+    @JsonProperty("scheduled_at")
     private LocalDateTime scheduledAt;
 
-    @JsonProperty("attendee_ids")
-    private List<Long> attendeeIds;
+    private List<AttendeeRequest> attendees;
 }

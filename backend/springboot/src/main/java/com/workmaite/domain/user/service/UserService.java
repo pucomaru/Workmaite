@@ -57,6 +57,10 @@ public class UserService {
                 .stream().map(UserResponse::from).toList();
     }
 
+    public List<UserResponse> getUsersByIds(List<Long> ids) {
+        return userRepository.findAllById(ids).stream().map(UserResponse::from).toList();
+    }
+
     /** 전체 사용자 목록 조회 (참여 회의체 title 포함) */
     public List<UserResponse> getAllUsers() {
         List<User> users = userRepository.findAll();
