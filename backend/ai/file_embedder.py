@@ -192,3 +192,82 @@ async def embed_query(text: str) -> list[float]:
         return [0.0] * EMBED_DIM
 
 
+# ─── 파일 → 청킹 → 임베딩 → Neo4j 저장 ─────────────────────────────────────
+
+async def embed_and_store(
+    file_path_or_url: str,
+    filename: str,
+    context_type: str = "document",
+    meeting_id: int | None = None,
+    source_id: str | None = None,
+) -> int:
+    """파일에서 텍스트 추출 → 청킹 → 임베딩 → Neo4j 저장.
+
+    context_type에 따라 노드 레이블이 결정됩니다:
+      report            → ReportChunk
+      minutes           → MinutesChunk
+      agenda / archive  → AgendaChunk
+      knowledge / 기타  → KnowledgeChunk
+    """
+    from neo4j_client import run_cypher
+
+    text = extract_text(file_path_or_url)
+    if not text.strip():
+        logger.warning(f"[Embedder] 텍스트 추출 결과 없음: {filename}")
+        return 0
+
+    chunks = chunk_text(text)
+    if not chunks:
+        return 0
+
+    embeddings = await embed_chunks(chunks)
+    base_id = (source_id or filename).replace(" ", "_")
+    mg_id   = f"mg-{meeting_id}" if meeting_id else None
+
+    if context_type == "report":
+        node_label = "ReportChunk"
+    elif context_type == "minutes":
+        node_label = "MinutesChunk"
+    elif context_type in ("agenda", "archive"):
+        node_label = "AgendaChunk"
+    else:
+        node_label = "KnowledgeChunk"
+
+    stored = 0
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        chunk_id = f"{base_id}-{i}"
+        cypher = f"""
+MERGE (c:{node_label} {{id: $id}})
+SET c.content     = $content,
+    c.source      = $source,
+    c.meeting_id  = $meeting_id,
+    c.chunk_index = $chunk_index
+CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
+"""
+        params: dict = {
+            "id": chunk_id,
+            "content": chunk[:500],
+            "source": filename,
+            "meeting_id": meeting_id,
+            "chunk_index": i,
+            "embedding": embedding,
+        }
+        if mg_id:
+            cypher += """
+WITH c
+OPTIONAL MATCH (mg:Meetings {id: $mg_id})
+FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:BELONGS_TO]->(mg)
+)"""
+            params["mg_id"] = mg_id
+
+        try:
+            await run_cypher(cypher, params)
+            stored += 1
+        except Exception as e:
+            logger.error(f"[Embedder] 청크 저장 실패 (id={chunk_id}): {e}")
+
+    logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (context_type={context_type})")
+    return stored
+
+

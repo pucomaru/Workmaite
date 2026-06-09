@@ -13,7 +13,7 @@ from datetime import datetime
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from xhtml2pdf import pisa
@@ -137,6 +137,7 @@ async def get_rejected_reports(
 @router.post("/reports/{meeting_id}")
 async def upload_report(
     meeting_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     dept_name: Optional[str] = Form(None),
     parent_report_id: Optional[int] = Form(None),
@@ -183,6 +184,11 @@ async def upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+
+    from file_embedder import embed_and_store as _embed_and_store
+    background_tasks.add_task(
+        _embed_and_store, r2_url, original_name, "report", meeting_id, f"report-{report.id}"
+    )
 
     try:
         from neo4j_sync import sync_report as _sync_report
@@ -490,6 +496,7 @@ async def upload_minutes(
 @router.post("/minutes/{session_id}/file")
 async def upload_minutes_file(
     session_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -533,6 +540,13 @@ async def upload_minutes_file(
         logger.error(f"[minutes/file] DB 저장 실패 — session_id={session_id}, error={e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"회의록 DB 저장 실패: {e}")
 
+    session_obj = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
+    meeting_id_for_embed = session_obj.meeting_id if session_obj else None
+    from file_embedder import embed_and_store as _embed_and_store
+    background_tasks.add_task(
+        _embed_and_store, r2_url, stored_name, "minutes", meeting_id_for_embed, f"minutes-{minutes_id}"
+    )
+
     return {
         "id": minutes_id,
         "file_name": stored_name,
@@ -545,6 +559,7 @@ async def upload_minutes_file(
 
 @router.post("/chat")
 async def upload_chat_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     thread_id: str = Form(...),
     context_type: Optional[str] = Form(None),
@@ -575,6 +590,11 @@ async def upload_chat_file(
     db.add(msg)
     db.commit()
     db.refresh(msg)
+
+    from file_embedder import embed_and_store as _embed_and_store
+    background_tasks.add_task(
+        _embed_and_store, r2_url, stored_name, context_type or "document", meeting_id, f"chat-{msg.id}"
+    )
 
     return {
         "id": msg.id,

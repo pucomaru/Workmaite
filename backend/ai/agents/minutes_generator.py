@@ -104,10 +104,13 @@ async def search_similar_minutes_tool(query: str) -> str:
     Args:
         query: 현재 회의 주제나 논의 내용 요약
     """
+    from agents.knowledge_manager import search_knowledge
     results = await _search_similar_minutes(query, k=3)
-    if not results:
+    chunk_results = await search_knowledge(query, node_type="MinutesChunk", k=2)
+    all_results = results + [r.get("content", "") for r in chunk_results if r.get("content")]
+    if not all_results:
         return "유사한 이전 회의록을 찾지 못했습니다."
-    return "\n\n---\n\n".join(results[:2])
+    return "\n\n---\n\n".join(all_results[:3])
 
 
 @tool

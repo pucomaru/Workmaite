@@ -98,11 +98,13 @@ async def search_related_agendas(query: str) -> str:
     """
     from agents.knowledge_manager import search_knowledge
     results = await search_knowledge(query, node_type="Agenda", k=5)
-    if not results:
+    doc_results = await search_knowledge(query, node_type="AgendaChunk", k=3)
+    all_results = results + doc_results
+    if not all_results:
         return "관련 안건을 찾지 못했습니다."
     lines = [
         f"- [{r.get('title','?')}]: {r.get('content','')[:150]}"
-        for r in results[:4]
+        for r in all_results[:5]
     ]
     return "\n".join(lines)
 
@@ -116,11 +118,13 @@ async def search_previous_minutes(query: str) -> str:
     """
     from agents.knowledge_manager import search_knowledge
     results = await search_knowledge(query, node_type="Minutes", k=3)
-    if not results:
+    doc_results = await search_knowledge(query, node_type="AgendaChunk", k=2)
+    all_results = results + doc_results
+    if not all_results:
         return "관련 회의록을 찾지 못했습니다."
     lines = [
         f"[{r.get('title','?')}]\n{r.get('content','')[:300]}"
-        for r in results[:2]
+        for r in all_results[:3]
     ]
     return "\n\n".join(lines)
 
