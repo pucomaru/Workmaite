@@ -836,9 +836,10 @@ let settingsSearchTimer = null
 async function openGroupSetting() {
   if (!detailMeeting.value) return
   const m = detailMeeting.value
+  const numId = toNumericId(m.id)
   let members = []
   try {
-    const res = await api.get(`/api/v1/meetings/${m.id}/members`)
+    const res = await apiAI.get(`/api/v1/meetings/${numId}/members`)
     members = res.data.map(mb => ({
       id: mb.id,
       userId: mb.user?.id || mb.user_id,
@@ -849,9 +850,9 @@ async function openGroupSetting() {
       position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     }))
-  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || '?', email: '', role: 'member' })) }
+  } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || mb.name || '?', email: mb.email || '', department: mb.department || '', position: mb.position || '', role: mb.role || 'member' })) }
   settingsModal.value = {
-    meeting: m,
+    meeting: { ...m, _numId: numId },
     form: { title: m.title || '', purpose: m.purpose || m.description || '', guidelines: m.guidelines || '' },
     members,
     removedIds: [],
@@ -894,16 +895,19 @@ async function saveSettings() {
   if (!settingsModal.value) return
   savingSettings.value = true
   const { meeting, form, members, removedIds } = settingsModal.value
+  const numId = meeting._numId || toNumericId(meeting.id)
   try {
-    await apiAI.patch(`/api/v1/meetings/${meeting.id}`, { title: form.title, description: form.purpose, guidelines: form.guidelines })
+    await apiAI.patch(`/api/v1/meetings/${numId}`, { title: form.title, description: form.purpose, guidelines: form.guidelines })
     for (const memberId of removedIds) {
-      await apiAI.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
+      await apiAI.delete(`/api/v1/meetings/${numId}/members/${memberId}`)
     }
     for (const mb of members.filter(m => m.id === null)) {
-      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+      await apiAI.post(`/api/v1/meetings/${numId}/members`, { userId: mb.userId, role: mb.role })
     }
     if (detailMeeting.value?.id === meeting.id) {
       detailMeeting.value.title = form.title
+      detailMeeting.value.purpose = form.purpose
+      detailMeeting.value.guidelines = form.guidelines
     }
     await meetingsStore.fetchMeetings()
     settingsModal.value = null
