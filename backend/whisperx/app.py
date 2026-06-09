@@ -1,6 +1,7 @@
 import os
 import io
 import logging
+import subprocess
 import tempfile
 
 import torch
@@ -47,8 +48,13 @@ async def asr(
         f.write(data)
         tmp_path = f.name
 
+    wav_path = tmp_path.replace(".webm", ".wav")
     try:
-        result = model.transcribe(tmp_path, language=language)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", tmp_path, "-ar", "16000", "-ac", "1", wav_path],
+            capture_output=True, check=True,
+        )
+        result = model.transcribe(wav_path, language=language)
 
         if not result.get("segments"):
             return {"text": "", "segments": []}
@@ -58,11 +64,11 @@ async def asr(
             language_code=language, device=DEVICE
         )
         result = whisperx.align(
-            result["segments"], align_model, metadata, tmp_path, DEVICE
+            result["segments"], align_model, metadata, wav_path, DEVICE
         )
 
         # 화자 분리
-        diarize_segments = diarize_model(tmp_path)
+        diarize_segments = diarize_model(wav_path)
         result = whisperx.assign_word_speakers(diarize_segments, result)
 
 
@@ -84,3 +90,5 @@ async def asr(
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         os.unlink(tmp_path)
+        if os.path.exists(wav_path):
+            os.unlink(wav_path)
