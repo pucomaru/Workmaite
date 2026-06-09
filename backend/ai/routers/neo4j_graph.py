@@ -438,6 +438,7 @@ async def get_archive(
                     "version": r.version,
                     "submitter_department": r.submitter_department,
                     "score": rs.total_score if rs and rs.total_score is not None else None,
+                    "ai_feedback": rs.feedback if rs and rs.feedback else None,
                     "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
                     "reviewed_at": hr.reviewed_at.isoformat() + 'Z' if hr and hr.reviewed_at else None,
                     "related_agenda_ids": r.related_agenda_ids or [],

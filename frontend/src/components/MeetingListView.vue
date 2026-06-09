@@ -21,6 +21,26 @@ function toggleVersions(key) {
 function versionKey(groupId, itemIdx) {
   return `${groupId}-${itemIdx}`
 }
+
+// ── 피드백 툴팁 ────────────────────────────────────────────────
+const tooltip = ref({ visible: false, text: '', x: 0, y: 0 })
+function showTooltip(e, text) {
+  const rect = e.currentTarget.getBoundingClientRect()
+  const tooltipW = 300
+  const spaceRight = window.innerWidth - rect.right
+  const x = spaceRight >= tooltipW + 16
+    ? rect.right + 10
+    : rect.left - tooltipW - 10
+  tooltip.value = {
+    visible: true,
+    text,
+    x,
+    y: rect.top - 8,
+  }
+}
+function hideTooltip() {
+  tooltip.value.visible = false
+}
 </script>
 
 <template>
@@ -120,6 +140,11 @@ function versionKey(groupId, itemIdx) {
                     <button v-if="item.reportId" class="lv-dl-btn lv-del-btn" @click.stop="deleteReport(item.reportId)" title="삭제">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                     </button>
+                    <span v-if="item.rejected && item.aiFeedback" class="lv-feedback-icon"
+                      @mouseenter="showTooltip($event, item.aiFeedback)"
+                      @mouseleave="hideTooltip">
+                      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -146,6 +171,11 @@ function versionKey(groupId, itemIdx) {
                       <button v-if="ver.reportId" class="lv-dl-btn lv-del-btn" @click.stop="deleteReport(ver.reportId)" title="삭제">
                         <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                       </button>
+                      <span v-if="ver.rejected && ver.aiFeedback" class="lv-feedback-icon"
+                        @mouseenter="showTooltip($event, ver.aiFeedback)"
+                        @mouseleave="hideTooltip">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                      </span>
                     </div>
                   </td>
                 </tr>
@@ -156,4 +186,12 @@ function versionKey(groupId, itemIdx) {
       </AppTable>
     </div>
   </div>
+
+  <!-- 피드백 툴팁 (body에 렌더링) -->
+  <Teleport to="body">
+    <div v-if="tooltip.visible" class="lv-feedback-bubble"
+      :style="{ left: tooltip.x + 10 + 'px', top: tooltip.y - 8 + 'px' }">
+      {{ tooltip.text }}
+    </div>
+  </Teleport>
 </template>
