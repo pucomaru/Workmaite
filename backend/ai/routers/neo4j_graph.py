@@ -445,7 +445,6 @@ async def get_archive(
     if all_raw_ids:
         rows = (
             db.query(models.Report, models.HitlReview, models.ReportScore)
-            db.query(models.Report, models.HitlReview, models.ReportScore)
             .outerjoin(
                 models.HitlReview,
                 (models.HitlReview.target_type == "report") &
@@ -455,14 +454,9 @@ async def get_archive(
                 models.ReportScore,
                 models.ReportScore.report_id == models.Report.id,
             )
-            .outerjoin(
-                models.ReportScore,
-                models.ReportScore.report_id == models.Report.id,
-            )
             .filter(models.Report.meeting_id.in_(all_raw_ids))
             .all()
         )
-        for r, hr, rs in rows:
         for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
             if sid not in meetings_map:
