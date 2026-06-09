@@ -127,7 +127,7 @@ async def sync_meeting_member(
     cypher = """
     MATCH (u:User {pg_id: $user_id})
     MATCH (mg:Meetings {id: $mg_id})
-    MERGE (u)-[r:참여]->(mg)
+    MERGE (u)-[r:구성원]->(mg)
     SET r.role = $role
     """
     try:
