@@ -837,6 +837,16 @@ async function openGroupSetting() {
   if (!detailMeeting.value) return
   const m = detailMeeting.value
   const numId = toNumericId(m.id)
+
+  // DB에서 최신 회의체 정보 fetch (Neo4j 캐시 대신 PG 원본)
+  let freshMeeting = null
+  try {
+    const res = await apiAI.get(`/api/v1/meetings/${numId}`)
+    freshMeeting = res.data
+  } catch { /* 실패 시 graph 데이터로 fallback */ }
+
+  const src = freshMeeting || m
+
   let members = []
   try {
     const res = await apiAI.get(`/api/v1/meetings/${numId}/members`)
@@ -853,7 +863,11 @@ async function openGroupSetting() {
   } catch { members = (m.members || []).map(mb => ({ id: null, userId: mb.userId, name: mb.userName || mb.name || '?', email: mb.email || '', department: mb.department || '', position: mb.position || '', role: mb.role || 'member' })) }
   settingsModal.value = {
     meeting: { ...m, _numId: numId },
-    form: { title: m.title || '', purpose: m.purpose || m.description || '', guidelines: m.guidelines || '' },
+    form: {
+      title: src.title || '',
+      purpose: src.description || src.purpose || '',
+      guidelines: src.guidelines || '',
+    },
     members,
     removedIds: [],
   }
