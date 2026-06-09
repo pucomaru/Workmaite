@@ -458,17 +458,21 @@ async def get_archive(
             .filter(models.Report.meeting_id.in_(all_raw_ids))
             .all()
         )
+        # PG가 보고서의 단일 출처 — Neo4j 데이터를 PG로 완전 교체
+        for sid in meetings_map:
+            meetings_map[sid]["reports"] = []
         for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
             if sid not in meetings_map:
                 continue
-            pg_report = {
+            meetings_map[sid]["reports"].append({
                 "id": r.id,
                 "meetingId": sid,
                 "file_name": r.file_name,
                 "file_path": r.file_path,
                 "human_status": r.human_status,
                 "version": r.version,
+                "parent_id": r.parent_id,
                 "submitter_department": r.submitter_department,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "reviewed_at": hr.reviewed_at.isoformat() if hr and hr.reviewed_at else None,
@@ -478,13 +482,7 @@ async def get_archive(
                 "detail_scores": rs.detail_scores if rs else None,
                 "feedback": rs.feedback if rs else None,
                 "score_created_at": rs.created_at.isoformat() if rs and rs.created_at else None,
-            }
-            existing = meetings_map[sid]["reports"]
-            idx = next((i for i, x in enumerate(existing) if _neo4j_report_pg_id(x.get("id")) == r.id), None)
-            if idx is not None:
-                existing[idx] = pg_report
-            else:
-                existing.append(pg_report)
+            })
 
     # ── Postgres 보완: meeting_sessions + minutes 데이터로 session 정보 채움 ──
     if all_raw_ids:

@@ -1596,26 +1596,42 @@ async def commit_draft_agendas(
             models.Agenda.status == "draft",
         ).delete(synchronize_session=False)
 
-    # 승인된 항목 업데이트
+    # 승인된 항목 업데이트 또는 신규 생성
     updated_ids = []
     for item in approved:
-        agenda = db.query(models.Agenda).filter(models.Agenda.id == item.get("db_id")).first()
-        if not agenda:
-            continue
-        assignee_id = None
-        if item.get("assignee_name"):
-            u = db.query(models.User).filter(models.User.name == item["assignee_name"]).first()
-            if u:
-                assignee_id = u.id
-        agenda.status = "ongoing"
-        agenda.assignee_id = assignee_id
-        if item.get("dept"):
-            agenda.department = [item["dept"]]
-        if item.get("due_date"):
-            try:
-                agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
-            except Exception:
-                pass
+        db_id = item.get("db_id")
+        agenda = db.query(models.Agenda).filter(models.Agenda.id == db_id).first() if db_id else None
+
+        if agenda:
+            # 기존 draft 업데이트
+            if item.get("title"):
+                agenda.title = item["title"]
+            agenda.status = "ongoing"
+            if item.get("dept"):
+                agenda.department = [item["dept"]]
+            if item.get("due_date"):
+                try:
+                    agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+                except Exception:
+                    pass
+        else:
+            # db_id 없는 신규 항목 직접 생성
+            if not item.get("title") or not meeting_id:
+                continue
+            agenda = models.Agenda(
+                meeting_id=meeting_id,
+                title=item["title"],
+                status="ongoing",
+                department=[item["dept"]] if item.get("dept") else [],
+            )
+            if item.get("due_date"):
+                try:
+                    agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+                except Exception:
+                    pass
+            db.add(agenda)
+            db.flush()
+
         updated_ids.append(agenda.id)
 
     # AgentLog 기록

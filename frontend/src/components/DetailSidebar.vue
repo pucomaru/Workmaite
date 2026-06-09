@@ -10,11 +10,11 @@ const {
   detailMeeting, isDetailAdmin, openGroupSetting,
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
-  groupHistoryMap, goToList, formatDate,
+  groupHistoryMap, goToList, formatDate, formatDateOnly,
   detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
-  runExtract, setExtractState, addExtractItem, finishExtract,
+  runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
@@ -219,8 +219,8 @@ const sbScoreColor = computed(() => {
                           <div class="detail-todo-info">
                             <div class="detail-todo-title">{{ todo.content || todo.title }}</div>
                             <div class="detail-todo-meta">
-                              <span v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">{{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</span>
-                              <span v-if="todo.due_date"> · {{ formatDate(todo.due_date) }}</span>
+                              <div v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">담당부서 - {{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</div>
+                              <div v-if="todo.due_date">마감기한 - {{ formatDateOnly(todo.due_date) }}</div>
                             </div>
                           </div>
                           <div class="detail-todo-actions">
@@ -298,6 +298,9 @@ const sbScoreColor = computed(() => {
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
                     과제 추출하기
                   </button>
+                  <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가
+                  </button>
                 </template><!-- /자료선정 단계 -->
 
                 <!-- 추출 결과: 로딩 중이거나 초안이 있을 때 -->
@@ -332,34 +335,29 @@ const sbScoreColor = computed(() => {
                             </div>
                             <div class="dei-actions">
                               <template v-if="!ag._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._editing=true; ag._feedbackVisible=true; ag._feedbackAction='edited'; ag._feedbackText=''"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                                <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected'); if(extractResult[i]._state==='rejected') { ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText='' }"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editTitle=ag.title; ag._editDept=ag.department; ag._editStartDate=ag.start_date; ag._editDueDate=ag.due_date; ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-approve" @click="ag._feedbackVisible=true; ag._feedbackAction='approved'; ag._feedbackText=''" title="등록"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-reject" @click="ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText=''" title="삭제"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                               <template v-else>
-                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; ag._feedbackVisible=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag.db_id ? (ag._feedbackVisible=true, ag._feedbackAction='edited', ag._feedbackText='') : approveItem(i)" title="저장"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; if(!ag.title) rejectItem(i)" title="취소"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                             </div>
                           </div>
-                          <!-- 인라인 피드백: 수정/반려 시 해당 아이템 바로 아래 -->
-                          <div v-if="ag._feedbackVisible && !ag._editing" class="dei-feedback-box">
+                          <!-- 피드백 박스 -->
+                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
                             <div class="dei-feedback-label">
-                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : '수정' }}</span>
+                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : ag._feedbackAction==='approved' ? '등록' : '수정' }}</span>
                               사유 입력 (선택)
                             </div>
-                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="이 과제를 수정/반려한 이유를 알려주세요" rows="2" />
+                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="피드백을 남겨주세요 (선택)" rows="2" />
                             <div class="dei-feedback-btns">
-                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag)">저장</button>
+                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">취소</button>
+                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag, i)">저장</button>
                             </div>
                           </div>
                         </template>
-                      </div>
-                      <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가</button>
-
-                      <div class="detail-extract-footer detail-extract-footer--col">
-                        <span class="dei-count">승인 {{ extractResult.filter(a=>a._state==='approved').length }} / 반려 {{ extractResult.filter(a=>a._state==='rejected').length }} / 미검토 {{ extractResult.filter(a=>!a._state).length }}</span>
-                        <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state!==null).length" @click="finishExtract">완료</button>
                       </div>
                     </template>
 
