@@ -4,7 +4,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useMeetingsStore } from '../stores/meetings'
 import AppHeader from '../components/AppHeader.vue'
-import HyeanAgent from '../components/HyeanAgent.vue'
 
 const router = useRouter()
 const route = useRoute()
