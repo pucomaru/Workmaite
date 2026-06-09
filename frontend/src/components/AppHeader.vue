@@ -449,7 +449,6 @@ async function saveProfileSettings() {
   color: rgba(255,255,255,.65);
   font-size: 13px;
   font-weight: 500;
-  transition: all .15s;
   white-space: nowrap;
   text-decoration: none;
 }
@@ -563,7 +562,6 @@ async function saveProfileSettings() {
 /* 개인설정 모달 */
 .ps-readonly-tag { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 99px; background: var(--surface-2); color: var(--dark-muted); }
 .ps-divider { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; padding: 4px 0 0; border-top: 1px solid var(--border); }
-.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>
 

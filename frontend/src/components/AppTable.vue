@@ -132,7 +132,7 @@ function startResize(e, colIndex) {
 }
 .app-table th {
   position: relative;
-  padding: 8px 16px;
+  padding: 8px 4px;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
@@ -160,7 +160,6 @@ function startResize(e, colIndex) {
   flex-direction: column;
   gap: 1px;
   opacity: 0.3;
-  transition: opacity 0.15s;
 }
 .sortable-th:hover .sort-icons {
   opacity: 0.6;
@@ -168,7 +167,6 @@ function startResize(e, colIndex) {
 .sort-icon {
   display: block;
   color: var(--dark-muted);
-  transition: color 0.15s;
 }
 .sort-icon.active {
   color: var(--accent);
@@ -184,7 +182,7 @@ function startResize(e, colIndex) {
   z-index: 2;
 }
 .app-table td {
-  padding: 4px 16px;
+  padding: 4px 4px;
   vertical-align: middle;
   color: var(--text);
   white-space: nowrap;
@@ -207,11 +205,10 @@ function startResize(e, colIndex) {
   right: 0;
   top: 0;
   height: 100%;
-  width: 2px;
+  width: 1px;
   background: var(--border);
   cursor: col-resize;
   z-index: 1;
-  transition: background 0.15s;
 }
 .col-resize-handle:hover,
 .col-resize-handle:active {

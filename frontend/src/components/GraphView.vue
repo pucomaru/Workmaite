@@ -25,26 +25,26 @@ const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
 // ─── Constants ────────────────────────────────────────────────
 const NODE_COLORS = {
-  'meeting_group': 0x3b82f6,
+  'Meetings':      0x3b82f6,
   'agenda':        0xf59e0b,
   'session':       0xf97316,
   'minutes':       0x60a5fa,
   'report':        0x34d399,
-  'file':          0x64748b,
   'dept':          0x8b5cf6,
   'person':        0xf472b6,
   'company':       0x0d9488,
+  'human_judgment': 0x22d3ee,
 }
 const NODE_RADIUS = {
-  'meeting_group': 11,
+  'Meetings':      11,
   'agenda':        10,
   'session':       10,
   'minutes':       10,
   'report':        10,
-  'file':          10,
   'dept':          10,
   'person':        10,
   'company':       10,
+  'human_judgment':  9,
 }
 // inbound 기반 노드 크기
 const BACKLINK_STEP = 2.4   // 백링크 1개당 가중치
@@ -211,7 +211,7 @@ function buildSimulation(nodes, edges) {
         const src = simNodes[d.source._idx ?? d.source]
         const tgt = simNodes[d.target._idx ?? d.target]
         if (!src || !tgt) return 120
-        if (src.type === 'meeting_group' || tgt.type === 'meeting_group') return 160
+        if (src.type === 'Meetings' || tgt.type === 'Meetings') return 160
         return 90
       })
       .strength(0.35)
@@ -221,7 +221,7 @@ function buildSimulation(nodes, edges) {
     .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.8))
     // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
     .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
-      .strength(d => d.type === 'meeting_group' ? 0.55 : 0))
+      .strength(d => d.type === 'Meetings' ? 0.55 : 0))
     // "나" 노드를 항상 중심에 고정 (없으면 조직 노드를 중심에)
     .force('radial-center', forceRadial(0, w / 2, h / 2)
       .strength(d => {
@@ -282,9 +282,9 @@ function rebuildNodeObjects() {
     const label = new PIXI.Text({
       text: (n.label || '').slice(0, 9),
       style: {
-        fontSize:   type === 'meeting_group' ? 13 : 10,
+        fontSize:   type === 'Meetings' ? 13 : 10,
         fontFamily: 'sans-serif',
-        fontWeight: type === 'meeting_group' ? 'bold' : 'normal',
+        fontWeight: type === 'Meetings' ? 'bold' : 'normal',
         fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
         align:      'center',
       },
@@ -306,8 +306,8 @@ function drawNode(obj, sn) {
   const isSearch = props.searchHitMgIdxs?.includes(sn._idx)
   const isSelf  = props.selfNodeId != null && node.id === props.selfNodeId
   const r = isSelf ? obj.r + 3 : obj.r
-  const urgency  = type === 'meeting_group' ? props.computeUrgency(node.data) : null
-  const hubColor = type === 'meeting_group' ? hexToNum(props.getHubFill(node.data)) : (NODE_COLORS[type] ?? 0x3b82f6)
+  const urgency  = type === 'Meetings' ? props.computeUrgency(node.data) : null
+  const hubColor = type === 'Meetings' ? hexToNum(props.getHubFill(node.data)) : (NODE_COLORS[type] ?? 0x3b82f6)
 
   gfx.clear()
 
@@ -348,8 +348,8 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
   }
 
-  // Todo progress arc (meeting_group)
-  const ratio = type === 'meeting_group'
+  // Todo progress arc (Meetings)
+  const ratio = type === 'Meetings'
     ? (props.groupTodoRatio?.get(node.data?.id ?? node.id) ?? null)
     : null
   if (ratio != null && ratio > 0) {
@@ -380,7 +380,7 @@ function drawIcon(gfx, type, r) {
     const cr = r * 0.09
     gfx.circle(fx + cw * 0.28, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
     gfx.circle(fx + cw * 0.72, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
-  } else if (type === 'file' || type === 'minutes' || type === 'report') {
+  } else if (type === 'minutes' || type === 'report') {
     // folded doc — minutes: plain, report: with line accent
     const fw = r * 0.44, fh = r * 0.56, fold = fw * 0.3
     const fx = -fw / 2, fy = -fh / 2
@@ -500,7 +500,7 @@ function tick() {
     }
 
     // Edge line (straight)
-    const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'file', props.gNodes[si]?.id) + 3
+    const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id) + 3
     const sx2 = sn.x + ux * sr, sy2 = sn.y + uy * sr
 
     edgeLayer.moveTo(sx2, sy2).lineTo(ex, ey)
@@ -536,14 +536,14 @@ function tick() {
         : 1.0
     const endedDim = sn.ended ? 0.45 : 1.0
     obj.gfx.alpha   = alphaVal * endedDim
-    obj.label.alpha = alphaVal * endedDim * (sn.type === 'meeting_group' ? 0 : 0.9)
+    obj.label.alpha = alphaVal * endedDim * (sn.type === 'Meetings' ? 0 : 0.9)
 
     // Redraw
     obj.focused = (i === focusedIdx)
     drawNode(obj, sn)
 
     // MG label — draw inside node via PIXI.Text offset
-    if (sn.type === 'meeting_group') {
+    if (sn.type === 'Meetings') {
       obj.label.y = sn.y   // center vertically
       obj.label.anchor.set(0.5, 0.5)
       obj.label.alpha = alphaVal * endedDim * 0.95

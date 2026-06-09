@@ -209,7 +209,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
   color: var(--surface-2);
   flex: 1;
-  transition: background 0.2s;
 }
 
 .lobby-ctrl-btn:hover {
@@ -248,7 +247,6 @@ onBeforeUnmount(() => {
   color: var(--dark-muted);
   cursor: pointer;
   font-size: 15px;
-  transition: background 0.2s;
 }
 
 .btn-cancel:hover {
@@ -265,7 +263,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 15px;
   font-weight: 600;
-  transition: background 0.2s;
 }
 
 .btn-join:hover {

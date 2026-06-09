@@ -207,12 +207,12 @@ async function deleteMeeting(id) {
 }
 .sidebar.open { transform: translateX(0); }
 .sidebar-nav { padding: 4px 12px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
-.nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; color: var(--text-muted); font-size: 13px; font-weight: 500; transition: all .15s; }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; color: var(--text-muted); font-size: 13px; font-weight: 500;}
 .nav-item:hover, .nav-item.active { background: #eff6ff; color: var(--primary); }
 .sidebar-section { padding: 12px; flex: 1; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; display: flex; align-items: center; user-select: none; }
 .meeting-list { display: flex; flex-direction: column; gap: 2px; }
-.meeting-item { display: flex; align-items: center; gap: 8px; padding: 7px 6px 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-muted); transition: all .15s; }
+.meeting-item { display: flex; align-items: center; gap: 8px; padding: 7px 6px 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-muted);}
 .meeting-item:hover, .meeting-item.active { background: #eff6ff; color: var(--primary); }
 .meeting-item:hover .ctx-btn { opacity: 1; }
 .meeting-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -232,7 +232,6 @@ async function deleteMeeting(id) {
   color: var(--text-muted);
   font-size: 13px;
   opacity: 0;
-  transition: opacity .15s, background .15s;
 }
 .ctx-btn:hover { background: rgba(0,0,0,.08); }
 

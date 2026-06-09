@@ -11,7 +11,7 @@ Neo4j 노드 유형:
   Session       ← PG meeting_sessions
   Agenda        ← PG agenda
   Minutes       ← PG minutes
-  AIJudgment    ← PG reports + report_scores
+  Report        ← PG reports (+ report_scores)
   HumanJudgment ← PG hitl_reviews
 """
 
@@ -39,7 +39,6 @@ _VECTOR_INDEXES: list[tuple[str, str, str]] = [
     ("Agenda",        "agendaEmbedding",        "embedding"),
     ("Session",       "sessionEmbedding",       "embedding"),
     ("Minutes",       "minutesEmbedding",       "embedding"),
-    ("AIJudgment",    "aiJudgmentEmbedding",    "embedding"),
     ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
     ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
     ("MinutesChunk",  "minutesChunkEmbedding",  "embedding"),
@@ -435,97 +434,6 @@ async def sync_minutes(
 
 # ─── MeetingMember 관계 동기화 ────────────────────────────────────────────────
 
-# ─── AIJudgment 동기화 (PG reports + report_scores) ──────────────────────────
-
-async def sync_ai_judgment(
-    report_id: int,
-    meeting_id: int,
-    # PG reports 필드
-    upload_id: int | None = None,
-    version: int = 1,
-    submitter_department: str | None = None,
-    file_name: str | None = None,
-    file_path: str | None = None,
-    human_status: str = "pending",
-    parent_id: int | None = None,
-    created_at: str | None = None,
-    # PG report_scores 필드 (있을 때만)
-    ai_status: str | None = None,
-    total_score: float | None = None,
-    detail_scores: dict | None = None,
-    feedback: str | None = None,
-    # AI 분석 레이어 (에이전트가 채우는 값)
-    summary: str | None = None,
-    recommendation: str | None = None,
-    confidence: float | None = None,
-) -> None:
-    """AIJudgment 노드를 upsert하고 Meetings / uploader User와 연결합니다."""
-    ai_id = f"ai-{report_id}"
-    mg_id = f"mg-{meeting_id}"
-    cypher = """
-    MERGE (ai:AIJudgment {id: $id})
-    SET ai.pg_id                = $pg_id,
-        ai.meeting_id           = $meeting_id,
-        ai.upload_id            = $upload_id,
-        ai.version              = $version,
-        ai.submitter_department = $submitter_department,
-        ai.file_name            = $file_name,
-        ai.file_path            = $file_path,
-        ai.human_status         = $human_status,
-        ai.parent_id            = $parent_id,
-        ai.ai_status            = $ai_status,
-        ai.total_score          = $total_score,
-        ai.detail_scores        = $detail_scores,
-        ai.feedback             = $feedback,
-        ai.summary              = $summary,
-        ai.recommendation       = $recommendation,
-        ai.confidence           = $confidence,
-        ai.created_at           = $created_at,
-        ai.updated_at           = $updated_at
-    WITH ai
-    MATCH (mg:Meetings {id: $mg_id})
-    MERGE (ai)-[:분석대상]->(mg)
-    WITH ai
-    OPTIONAL MATCH (uploader:User {pg_id: $upload_id})
-    FOREACH (_ IN CASE WHEN uploader IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (uploader)-[:제출]->(ai)
-    )
-    """
-    emb_text = " ".join(filter(None, [summary, recommendation, feedback, file_name]))
-    embedding = await _embed(emb_text)
-    if embedding:
-        cypher += "\n    WITH ai SET ai.embedding = $embedding"
-    params = {
-        "id": ai_id, "pg_id": report_id,
-        "meeting_id": meeting_id,
-        "upload_id": upload_id,
-        "version": version,
-        "submitter_department": submitter_department or "",
-        "file_name": file_name or "",
-        "file_path": file_path or "",
-        "human_status": human_status,
-        "parent_id": parent_id,
-        "ai_status": ai_status or "pending",
-        "total_score": total_score,
-        "detail_scores": json.dumps(detail_scores or {}),
-        "feedback": feedback or "",
-        "summary": summary or "",
-        "recommendation": recommendation or "",
-        "confidence": confidence or 0.0,
-        "created_at": created_at or "",
-        "mg_id": mg_id,
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-    if embedding:
-        params["embedding"] = embedding
-    try:
-        await run_cypher(cypher, params)
-        logger.debug(f"[Neo4jSync] AIJudgment {report_id} 동기화 완료")
-    except Exception as e:
-        logger.error(f"[Neo4jSync] AIJudgment {report_id} 실패: {e}")
-        _log_failure("sync_ai_judgment", "ai_judgment", str(report_id), e, params)
-
-
 # ─── Report 동기화 (PG reports → Neo4j Report 노드) ──────────────────────────
 
 async def sync_report(
@@ -666,7 +574,6 @@ _NODE_SEARCH_CONFIG: dict[str, tuple[str, list[str]]] = {
     "Agenda":        ("agendaEmbedding",         ["id", "pg_id", "title", "content", "status", "category", "priority", "department"]),
     "Session":       ("sessionEmbedding",        ["id", "pg_id", "title", "description", "scheduled_at", "started_at", "ended_at", "type", "location"]),
     "Minutes":       ("minutesEmbedding",        ["pg_id", "file_name", "content_summary", "status", "generated_at"]),
-    "AIJudgment":    ("aiJudgmentEmbedding",     ["id", "pg_id", "file_name", "summary", "recommendation", "confidence", "total_score", "human_status", "ai_status"]),
     "HumanJudgment": ("humanJudgmentEmbedding",  ["id", "pg_id", "judgment", "reason", "target_type", "judged_at"]),
 }
 
@@ -975,7 +882,7 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
 
     if hasattr(models, "Report"):
         pg_report_ids = [row[0] for row in db.query(models.Report.id).all()]
-        await _detach_missing("AIJudgment", pg_report_ids, "ai_judgments")
+        await _detach_missing("Report", pg_report_ids, "ai_judgments")
 
     if hasattr(models, "HitlReview"):
         pg_review_ids = [row[0] for row in db.query(models.HitlReview.id).all()]

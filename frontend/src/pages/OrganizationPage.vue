@@ -333,13 +333,6 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
       </div>
 
-      <select v-model="selectedMeetingId" class="org-meeting-select app-select">
-        <option value="all">내 회의체 전체</option>
-        <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
-      </select>
-
-      <span class="member-count-text">({{ memberCount }}건)</span>
-
       <span class="org-scope-badge" title="본인이 속한 회의체의 구성원만 조회됩니다.">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       </span>
@@ -359,6 +352,21 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
           구성원 추가
         </button>
       </div>
+    </div>
+
+    <!-- List header + Table (lv-inner: 28px 좌우 여백으로 ArchivePage와 동일) -->
+    <div class="lv-inner">
+      <div class="lv-header">
+        <div class="lv-filter-wrap">
+          <select v-model="selectedMeetingId" class="lv-type-filter">
+            <option value="all">내 회의체 전체</option>
+            <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+          </select>
+        </div>
+        <div class="lv-header-right">
+          <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '전체 구성원' }}</span>
+          <span class="lv-count">{{ memberCount }}명</span>
+        </div>
     </div>
 
     <!-- Table -->
@@ -417,7 +425,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </td>
           </tr>
       </AppTable>
-    </div>
+    </div><!-- /table-wrap -->
+    </div><!-- /lv-inner -->
 
     <!-- Add member modal -->
     <Teleport to="body">
@@ -538,7 +547,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 </template>
 
 <style scoped>
-.org-page { display:flex;flex-direction:column;height:100%; }
+.org-page { display:flex;flex-direction:column;margin:-24px -28px;height:calc(100% + 48px);overflow:hidden; }
 
 .member-count-text { font-size:13px;color:#c8d1dd;white-space:nowrap;flex-shrink:0; }
 .day-mode .member-count-text { color:#5a5f66; }
@@ -547,10 +556,40 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .day-mode .org-scope-badge { color:#0369a1;background:rgba(2,132,199,0.08);border-color:rgba(2,132,199,0.25); }
 .org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
 
+/* lv-inner: ArchivePage lv-inner와 동일한 28px 좌우 여백 */
+.lv-inner { flex:1;min-height:0;padding:6px 16px 0;display:flex;flex-direction:column;overflow:hidden; }
+.lv-inner { width:100%;padding:6px 16px;display:flex;flex-direction:column;gap:0; }
+
+/* lv-header (아카이브 목록 스타일 재사용) */
+.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0; }
+.lv-filter-wrap { display:flex;gap:6px; }
+.lv-header-right { display:flex;align-items:center;gap:6px; }
+.lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }
+.lv-count { font-size:12px;color:var(--dark-muted); }
+.lv-type-filter {
+  appearance:none;-webkit-appearance:none;
+  background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 8px center;
+  background-size:10px 6px;
+  border:1px solid rgba(255,255,255,.12);border-radius:7px;
+  color:#cbd5e1;font-size:12px;padding:5px 26px 5px 10px;
+  cursor:pointer;outline:none;
+}
+.lv-type-filter:hover { border-color:rgba(255,255,255,.22); }
+.lv-type-filter:focus { border-color:rgba(99,102,241,.6); }
+.day-mode .lv-type-filter {
+  background-color:#fff;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  border-color:var(--border);color:var(--dark-border);
+}
+.day-mode .lv-type-filter:hover { border-color:#cbd5e1; }
+.day-mode .lv-type-filter:focus { border-color:#6366f1; }
+.day-mode .lv-title { color:var(--text-muted); }
+.day-mode .lv-count { color:var(--dark-muted); }
+
 /* Table */
-.table-wrap { flex:1;overflow-y:auto;min-height:0;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
+.table-wrap { flex:1;overflow-y:auto;min-height:0;padding:0 0 16px 0;display:flex;flex-direction:column;gap:8px; }
 .table-loading { display:flex;align-items:center;justify-content:center;padding:48px; }
-.member-row { border-bottom:1px solid rgba(255,255,255,.06);transition:background .1s; }
+.member-row { border-bottom:1px solid rgba(255,255,255,.06); }
 .member-row:last-child { border-bottom:none; }
 .member-row:hover { background:rgba(255,255,255,.04); }
 .day-mode .member-row { border-bottom-color:var(--surface-2); }
@@ -559,22 +598,22 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .name-cell { display:flex;align-items:center;gap:10px; }
 .member-name-text { font-weight:600;color:var(--dark-text); }
 .day-mode .member-name-text { color:var(--dark-card); }
-.cell-muted { color:var(--text-muted); }
+.cell-muted { color:var(--text-muted); padding: 4px; }
 .day-mode .cell-muted { color:var(--text-dim); }
 .cell-meetings { display:flex;flex-wrap:nowrap;align-items:center;gap:4px;overflow:hidden;width:100%; }
 .meeting-tag { display:inline-block;padding:2px 8px;border-radius:4px;background:var(--surface-2);color:var(--text-dim);font-size:12px;white-space:nowrap; }
-.meeting-more-btn { border:none;background:none;color:var(--dark-muted);font-size:11px;font-weight:600;cursor:pointer;padding:2px 4px;border-radius:4px;transition:color .15s;white-space:nowrap;flex-shrink:0; }
+.meeting-more-btn { border:none;background:none;color:var(--dark-muted);font-size:11px;font-weight:600;cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;flex-shrink:0; }
 .meeting-more-btn:hover { color:var(--accent); }
 
 .action-btns { display:flex;gap:4px;width:fit-content;margin-left:auto; }
 :deep(td:last-child) { padding-left:6px;padding-right:6px; }
-.act-btn { width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.act-btn { width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
 .act-btn:hover { border-color:var(--primary);color:var(--primary);background:#eff6ff; }
 .act-btn.danger:hover { border-color:#fca5a5;color:#dc2626;background:#fef2f2; }
 
 .empty-row { padding:0 !important; }
 .req { color:var(--danger); }
 .dropdown-results { position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:10;overflow:hidden;max-height:200px;overflow-y:auto; }
-.dropdown-item-result { display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;transition:background .1s; }
+.dropdown-item-result { display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer; }
 .dropdown-item-result:hover { background:var(--surface-2); }
 </style>
