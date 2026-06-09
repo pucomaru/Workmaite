@@ -83,6 +83,18 @@ async def ensure_vector_indexes() -> None:
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
            }}""",
+        """CREATE VECTOR INDEX reportChunkEmbedding IF NOT EXISTS
+           FOR (c:ReportChunk) ON (c.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
+        """CREATE VECTOR INDEX minutesChunkEmbedding IF NOT EXISTS
+           FOR (c:MinutesChunk) ON (c.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
         """CREATE VECTOR INDEX sessionEmbedding IF NOT EXISTS
            FOR (m:Minutes) ON (m.embedding)
            OPTIONS {indexConfig: {
@@ -276,6 +288,8 @@ async def search_knowledge(
         "AIJudgment": "aiJudgmentEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
         "DocumentChunk": "documentChunkEmbedding",
+        "ReportChunk": "reportChunkEmbedding",
+        "MinutesChunk": "minutesChunkEmbedding",
     }
     index_name = index_map.get(node_type, "minutes_embedding_index")
     embedding = await _embed(query)
@@ -313,7 +327,7 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
 
     Args:
         query: 검색할 키워드 또는 자연어 쿼리
-        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment / DocumentChunk)
+        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment / DocumentChunk / ReportChunk / MinutesChunk)
     """
     # DocumentChunk 요청 시 source_type="knowledge" 로 필터
     src_type = "knowledge" if node_type == "DocumentChunk" else None

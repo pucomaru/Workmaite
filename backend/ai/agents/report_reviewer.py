@@ -94,7 +94,7 @@ async def search_review_references(query: str) -> str:
     from agents.knowledge_manager import search_knowledge
     minutes_results = await search_knowledge(query, node_type="Minutes", k=3)
     judgment_results = await search_knowledge(query, node_type="AIJudgment", k=2)
-    doc_results = await search_knowledge(query, node_type="DocumentChunk", source_type="report", k=3)
+    doc_results = await search_knowledge(query, node_type="ReportChunk", k=3)
     all_results = minutes_results + judgment_results + doc_results
     if not all_results:
         return "관련 참고 자료를 찾지 못했습니다."

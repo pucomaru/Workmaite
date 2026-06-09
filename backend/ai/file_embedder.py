@@ -221,11 +221,18 @@ async def embed_and_store(
     base_id = (source_id or filename).replace(" ", "_")
     mg_id   = f"mg-{meeting_id}" if meeting_id else None
 
+    if context_type == "report":
+        node_label = "ReportChunk"
+    elif context_type == "minutes":
+        node_label = "MinutesChunk"
+    else:
+        node_label = "DocumentChunk"
+
     stored = 0
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
         chunk_id = f"{base_id}-{i}"
-        cypher = """
-MERGE (c:DocumentChunk {id: $id})
+        cypher = f"""
+MERGE (c:{node_label} {{id: $id}})
 SET c.content     = $content,
     c.source      = $source,
     c.source_type = $source_type,
@@ -257,7 +264,7 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
         except Exception as e:
             logger.error(f"[Embedder] 청크 저장 실패 (id={chunk_id}): {e}")
 
-    logger.info(f"[Embedder] DocumentChunk {stored}/{len(chunks)}청크 저장 완료: {filename} (source_type={context_type})")
+    logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (source_type={context_type})")
     return stored
 
 
