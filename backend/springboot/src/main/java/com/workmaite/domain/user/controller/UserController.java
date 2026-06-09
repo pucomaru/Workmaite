@@ -11,6 +11,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 /**
  * 사용자 정보 관련 API
@@ -47,6 +49,15 @@ public class UserController {
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<UserResponse>>> searchUsers(@RequestParam String q) {
         return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(q)));
+    }
+
+    // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용
+    @GetMapping("/by-ids")
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByIds(@RequestParam String ids) {
+        List<Long> idList = Arrays.stream(ids.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .map(Long::parseLong).collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.ok(userService.getUsersByIds(idList)));
     }
 
     // 전체 사용자 목록

@@ -2,12 +2,14 @@ package com.workmaite.domain.sessions.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.workmaite.domain.sessions.entity.MeetingSession;
+import com.workmaite.domain.sessions.entity.SessionMember;
 import com.workmaite.domain.sessions.entity.SessionStatus;
 import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Builder
@@ -34,6 +36,8 @@ public class SessionResponse {
     @JsonProperty("attendee_ids")
     private List<Long> attendeeIds;
 
+    private List<Map<String, Object>> attendees;
+
     public static SessionResponse from(MeetingSession session) {
         return SessionResponse.builder()
                 .id(session.getId())
@@ -45,10 +49,15 @@ public class SessionResponse {
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())
                 .attendeeIds(List.of())
+                .attendees(List.of())
                 .build();
     }
 
-    public static SessionResponse from(MeetingSession session, List<Long> attendeeIds) {
+    public static SessionResponse from(MeetingSession session, List<SessionMember> members) {
+        List<Long> ids = members.stream().map(SessionMember::getUserId).toList();
+        List<Map<String, Object>> attendees = members.stream()
+                .map(m -> Map.<String, Object>of("userId", m.getUserId(), "role", m.getRole() != null ? m.getRole() : "member"))
+                .toList();
         return SessionResponse.builder()
                 .id(session.getId())
                 .meetingId(session.getMeetingId())
@@ -58,7 +67,8 @@ public class SessionResponse {
                 .scheduledAt(session.getScheduledAt())
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())
-                .attendeeIds(attendeeIds)
+                .attendeeIds(ids)
+                .attendees(attendees)
                 .build();
     }
 }

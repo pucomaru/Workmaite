@@ -21,10 +21,14 @@ public class SessionMember {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    public static SessionMember of(Long sessionId, Long userId) {
+    @Column(name = "role")
+    private String role;
+
+    public static SessionMember of(Long sessionId, Long userId, String role) {
         SessionMember m = new SessionMember();
         m.sessionId = sessionId;
         m.userId = userId;
+        m.role = role != null ? role : "member";
         return m;
     }
 }

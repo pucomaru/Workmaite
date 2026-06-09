@@ -24,7 +24,7 @@ const loadingMeetings = ref(false)
 const sessionsCache = ref({})     // { [meetingId]: SessionResponse[] }
 
 const selectedMeetingId = ref(null)
-const expandedMeetingId = ref(null)
+const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sidebarCollapsed = ref(false)
@@ -104,11 +104,12 @@ async function fetchMeetings() {
 }
 
 async function selectMeeting(m) {
-  if (expandedMeetingId.value === m.id) {
-    expandedMeetingId.value = null
+  if (expandedMeetingIds.value.has(m.id)) {
+    expandedMeetingIds.value.delete(m.id)
+    expandedMeetingIds.value = new Set(expandedMeetingIds.value)
     return
   }
-  expandedMeetingId.value = m.id
+  expandedMeetingIds.value = new Set([...expandedMeetingIds.value, m.id])
   selectedMeetingId.value = m.id
   await loadSessions(m.id)
 }
@@ -699,27 +700,98 @@ function formatDate(d) {
 const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '종료' }
 const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#94a3b8' }
 
+const showPastDateAlert = ref(false)
+
+// ─── Session edit modal ───────────────────────────────────────
+const showEditSession = ref(false)
+const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'whisper' })
+const editSessionMembers = ref([])
+const editingSession = ref(false)
+
+async function openEditSession(s, e) {
+  e.stopPropagation()
+  editSessionForm.value = {
+    id: s.id,
+    meetingId: s.meeting_id,
+    title: s.title,
+    dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
+    timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
+    type: s.type || 'whisper',
+  }
+  editSessionMembers.value = []
+  if (s.attendee_ids?.length) {
+    try {
+      const { data } = await api.get(`/api/v1/users/by-ids?ids=${s.attendee_ids.join(',')}`)
+      const roleMap = Object.fromEntries((s.attendees || []).map(a => [a.userId, a.role]))
+      editSessionMembers.value = (data.data ?? data).map(u => ({ userId: u.id, name: u.name, email: u.email, role: roleMap[u.id] || 'member' }))
+    } catch {}
+  }
+  showEditSession.value = true
+}
+
+async function doEditSession() {
+  if (!editSessionForm.value.title.trim()) return
+  if (editSessionForm.value.dateOnly) {
+    const scheduled = new Date(`${editSessionForm.value.dateOnly}T${editSessionForm.value.timeOnly || '00:00'}`)
+    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
+  }
+  editingSession.value = true
+  try {
+    const { id, meetingId } = editSessionForm.value
+    await api.patch(`/api/v1/sessions/${id}`, {
+      title: editSessionForm.value.title,
+      scheduled_at: editSessionForm.value.dateOnly ? `${editSessionForm.value.dateOnly}T${editSessionForm.value.timeOnly || '00:00'}:00` : null,
+      type: editSessionForm.value.type,
+      attendees: editSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+    })
+    delete sessionsCache.value[meetingId]
+    await loadSessions(meetingId)
+    showEditSession.value = false
+  } catch(e) {
+    alert(e.response?.data?.message || '수정 실패')
+  } finally {
+    editingSession.value = false
+  }
+}
+
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', date: '', meetingId: null, type: 'whisper' })
+const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
+function openCreateSession() {
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionMembers.value = []
+  showPastDateAlert.value = false
+  showCreateSession.value = true
+}
+function closeCreateSession() {
+  showCreateSession.value = false
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionMembers.value = []
+  showPastDateAlert.value = false
+}
+
 async function doCreateSessionForm() {
   if (!createSessionForm.value.title.trim() || !createSessionForm.value.meetingId) return
+  if (createSessionForm.value.dateOnly) {
+    const scheduled = new Date(`${createSessionForm.value.dateOnly}T${createSessionForm.value.timeOnly || '00:00'}`)
+    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
+  }
   creatingSessionForm.value = true
   try {
     const meetingId = createSessionForm.value.meetingId
     await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
-      scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
+      scheduled_at: createSessionForm.value.dateOnly ? `${createSessionForm.value.dateOnly}T${createSessionForm.value.timeOnly || '00:00'}:00` : null,
       type: createSessionForm.value.type,
-      attendee_ids: createSessionMembers.value.map(m => m.userId),
+      attendees: createSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', date: '', meetingId: null, type: 'whisper' }
+    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -823,7 +895,7 @@ async function downloadMinutesFile() {
       <div class="sp-sidebar-header">
         <div class="sp-header-top">
           <span class="sp-sidebar-title">회의</span>
-          <button class="create-btn" @click.stop="showCreateSession=true" title="회의 생성">
+          <button class="create-btn" @click.stop="openCreateSession()" title="회의 생성">
             <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             회의 생성
           </button>
@@ -838,12 +910,11 @@ async function downloadMinutesFile() {
         <div v-if="loadingMeetings" class="sp-search-empty">불러오는 중...</div>
         <div v-else-if="!filteredMeetings.length" class="sp-search-empty">{{ sidebarSearch ? '검색 결과 없음' : '참여 중인 회의체가 없습니다' }}</div>
         <div v-for="mtg in filteredMeetings" :key="mtg.id" class="sp-mtg-group">
-          <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingId === mtg.id }">
-            <div class="sp-mtg-dot"></div>
+          <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingIds.has(mtg.id) }">
             <span class="sp-mtg-title">{{ mtg.title }}</span>
-            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingId === mtg.id }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>
           </div>
-          <div v-if="expandedMeetingId === mtg.id" class="sp-session-list">
+          <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
             <div v-else-if="!mtg.sessions.filter(s => s.status !== 'ended').length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
             <div v-for="s in mtg.sessions.filter(s => s.status !== 'ended')" :key="s.id"
@@ -855,7 +926,10 @@ async function downloadMinutesFile() {
                 <div class="sp-session-name">{{ s.title }}</div>
                 <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
               </div>
-              <span class="sp-status-badge" :style="{ background: STATUS_CLS[s.status]+'22', color: STATUS_CLS[s.status] }">{{ STATUS_LABEL[s.status] }}</span>
+              <button v-if="s.status === 'scheduled'" class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <span v-else class="sp-status-badge" :style="{ background: STATUS_CLS[s.status]+'22', color: STATUS_CLS[s.status] }">{{ STATUS_LABEL[s.status] }}</span>
             </div>
           </div>
         </div>
@@ -1251,13 +1325,60 @@ async function downloadMinutesFile() {
 
   </div>
 
+
+  <!-- 회의 편집 모달 -->
+  <Teleport to="body">
+    <div v-if="showEditSession" class="app-modal-backdrop">
+      <div class="app-modal app-modal-sm">
+        <div class="app-modal-header">
+          <span class="app-modal-title">회의 편집</span>
+          <button class="app-modal-close" @click="showEditSession=false">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="app-modal-body">
+          <div class="app-modal-field">
+            <label>회의명 <span style="color:#ef4444">*</span></label>
+            <input v-model="editSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
+          </div>
+          <div class="app-modal-field">
+            <label>회의 날짜</label>
+            <div class="datetime-split-input">
+              <input type="date" v-model="editSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
+              <span class="datetime-split-sep"></span>
+              <input type="text" v-model="editSessionForm.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
+            </div>
+            <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
+          </div>
+          <div class="app-modal-field">
+            <label>STT 방식</label>
+            <div style="display:flex;gap:8px;">
+              <button :class="['stt-type-btn', editSessionForm.type === 'whisper' ? 'active' : '']" @click="editSessionForm.type = 'whisper'">Whisper 모델 (보안)</button>
+              <button :class="['stt-type-btn', editSessionForm.type === 'external' ? 'active' : '']" @click="editSessionForm.type = 'external'">Whisper API (빠름)</button>
+            </div>
+          </div>
+          <div class="app-modal-field">
+            <label>참석자</label>
+            <MemberInvite v-model="editSessionMembers" />
+          </div>
+        </div>
+        <div class="app-modal-footer">
+          <button class="app-btn-cancel" @click="showEditSession=false">취소</button>
+          <button class="app-btn-primary" :disabled="editingSession||!editSessionForm.title.trim()" @click="doEditSession">
+            {{ editingSession ? '수정 중...' : '수정' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
   <!-- 회의 생성 모달 -->
   <Teleport to="body">
     <div v-if="showCreateSession" class="app-modal-backdrop">
       <div class="app-modal app-modal-sm">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>
-          <button class="app-modal-close" @click="showCreateSession=false">
+          <button class="app-modal-close" @click="closeCreateSession()">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
@@ -1275,7 +1396,12 @@ async function downloadMinutesFile() {
           </div>
           <div class="app-modal-field">
             <label>회의 날짜</label>
-            <input type="datetime-local" v-model="createSessionForm.date" class="app-modal-input" />
+            <div class="datetime-split-input">
+              <input type="date" v-model="createSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
+              <span class="datetime-split-sep"></span>
+              <input type="text" v-model="createSessionForm.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
+            </div>
+            <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
             <label>STT 방식</label>
@@ -1298,7 +1424,7 @@ async function downloadMinutesFile() {
           </div>
         </div>
         <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="showCreateSession=false">취소</button>
+          <button class="app-btn-cancel" @click="closeCreateSession()">취소</button>
           <button class="app-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()||!createSessionForm.meetingId" @click="doCreateSessionForm">
             {{ creatingSessionForm ? '생성 중...' : '생성' }}
           </button>
@@ -1346,7 +1472,7 @@ async function downloadMinutesFile() {
 .sp-sm-rm:hover { color:var(--danger); }
 .sp-sidebar-title { font-size:16px;font-weight:700;color:var(--dark-text);margin:0; }
 .day-mode .sp-sidebar-title { color:var(--dark-card); }
-.sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
+.sp-sidebar-body { flex:1;overflow-y:auto;padding:0; }
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
@@ -1365,6 +1491,14 @@ async function downloadMinutesFile() {
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
+.sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
+.sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
+.datetime-split-input { display:flex;align-items:center;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:hidden; }
+.datetime-split-input:focus-within { border-color:rgba(96,165,250,.6); }
+.datetime-split-date, .datetime-split-time { border:none;background:transparent;outline:none;padding:8px 10px;font-size:13px;font-family:inherit;color:#1e293b; }
+.datetime-split-date { flex:1; }
+.datetime-split-time { width:130px; }
+.datetime-split-sep { width:1px;height:20px;background:#e2e8f0;flex-shrink:0; }
 
 /* ── Center panel ── */
 .sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0 3px;overflow:visible;min-width:0; }
