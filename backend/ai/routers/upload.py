@@ -231,7 +231,7 @@ async def analyze_report_stream(
         except Exception as e:
             file_content = f"[파일 추출 오류: {e}]"
 
-    from agents.task_extractor import analyze_archive_file_stream as _ai_analyze
+    from agents.report_reviewer import analyze_archive_file_stream as _ai_analyze
 
     async def stream():
         try:
@@ -268,6 +268,28 @@ async def analyze_report_stream(
                             feedback=feedback_text,
                         ))
                     db.commit()
+                    # Neo4j 동기화
+                    try:
+                        import asyncio as _asyncio
+                        from neo4j_sync import sync_ai_judgment as _sync_ai
+                        _asyncio.create_task(_sync_ai(
+                            report_id=report_id,
+                            meeting_id=report.meeting_id,
+                            upload_id=report.upload_id,
+                            version=report.version,
+                            submitter_department=report.submitter_department,
+                            file_name=report.file_name,
+                            file_path=report.file_path,
+                            human_status=report.human_status,
+                            parent_id=report.parent_id,
+                            created_at=report.created_at.isoformat() if report.created_at else None,
+                            ai_status="success",
+                            total_score=score,
+                            detail_scores=detail_scores,
+                            feedback=feedback_text,
+                        ))
+                    except Exception as _neo_e:
+                        logger.warning(f"[analyze] Neo4j sync 실패 (무시): {_neo_e}")
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
             err = {"type": "result", "data": {"score": 0, "feedback": [f"AI 분석 오류: {e}"], "agendas": [], "related_depts": []}}
