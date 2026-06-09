@@ -634,7 +634,7 @@ watch(detailTab, async (tab) => {
   }
 })
 
-async function saveAgendaFeedback(ag) {
+async function saveAgendaFeedback(ag, i) {
   if (ag.db_id) {
     try {
       await apiAI.post('/api/agent/hitl-reviews', {
@@ -660,9 +660,12 @@ async function saveAgendaFeedback(ag) {
   }
   ag._feedbackVisible = false
   ag._feedbackText = ''
+
+  const idx = i ?? extractResult.value.indexOf(ag)
   if (ag._feedbackAction === 'rejected') {
-    const idx = extractResult.value.indexOf(ag)
-    if (idx !== -1) extractResult.value.splice(idx, 1)
+    await rejectItem(idx)
+  } else {
+    await approveItem(idx)
   }
 }
 
@@ -787,7 +790,43 @@ function setExtractState(i, state) {
   extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
 }
 function addExtractItem() {
-  extractResult.value.push({ title: '', _state: null, _editing: true, _editTitle: '', _editStartDate: '', _editDueDate: '', _feedbackVisible: false, _feedbackAction: '', _feedbackText: '' })
+  extractResult.value.push({ title: '', department: '', db_id: null, _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editDueDate: '', _feedbackVisible: false, _feedbackAction: '', _feedbackText: '' })
+}
+
+async function approveItem(i) {
+  const ag = extractResult.value[i]
+  const meeting_id = toNumericId(detailMeeting.value.id)
+  try {
+    await apiAI.post('/api/agent/archive/agendas/commit', {
+      meeting_id,
+      approved: [{
+        db_id: ag.db_id || null,
+        title: ag.title,
+        dept: Array.isArray(ag.department) ? ag.department[0] : (ag.department || null),
+        start_date: ag.start_date || null,
+        due_date: ag.due_date || null,
+      }],
+      rejected_ids: [],
+    })
+    extractResult.value.splice(i, 1)
+    detailTodos.value = (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
+    setTimeout(refreshArchive, 600)
+  } catch (e) { console.error('[approveItem] 실패:', e) }
+}
+
+async function rejectItem(i) {
+  const ag = extractResult.value[i]
+  const meeting_id = toNumericId(detailMeeting.value.id)
+  try {
+    if (ag.db_id) {
+      await apiAI.post('/api/agent/archive/agendas/commit', {
+        meeting_id,
+        approved: [],
+        rejected_ids: [ag.db_id],
+      })
+    }
+    extractResult.value.splice(i, 1)
+  } catch (e) { console.error('[rejectItem] 실패:', e) }
 }
 
 async function finishExtract() {
@@ -2045,6 +2084,7 @@ watch(() => neo4jMeetings.value.length, () => {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function formatDate(d){if(!d)return'-';return new Date(d).toLocaleString('ko-KR',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+function formatDateOnly(d){if(!d)return'-';const dt=new Date(typeof d==='string'&&d.length<=10?d+'T09:00:00':d);return dt.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'})}
 async function _openPresigned(filePath) {
   const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
   window.open(data.url, '_blank')
@@ -2207,11 +2247,11 @@ provide('archiveSidebar', {
   detailMeeting, isDetailAdmin, isAnyAdmin, openGroupSetting, openNodeGroupSetting,
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
-  groupHistoryMap, goToList, formatDate,
+  groupHistoryMap, goToList, formatDate, formatDateOnly,
   detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
-  runExtract, setExtractState, addExtractItem, finishExtract,
+  runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,

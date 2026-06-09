@@ -98,7 +98,8 @@
 .day-mode .dei-feedback-box { background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.2); }
 .dei-feedback-btns { display:flex;gap:6px;margin-top:6px; }
 .dei-fb-submit { font-size:11px;padding:4px 12px;background:#6366f1;color:#fff;border:none;border-radius:5px;cursor:pointer; }
-.dei-fb-skip { font-size:11px;padding:4px 10px;background:transparent;color:var(--text-muted);border:1px solid rgba(255,255,255,.1);border-radius:5px;cursor:pointer; }
+.dei-fb-skip { font-size:11px;padding:4px 10px;background:transparent;color:var(--text-muted);border:1px solid rgba(255,255,255,.25);border-radius:5px;cursor:pointer; }
+.day-mode .dei-fb-skip { border-color:#94a3b8;color:#64748b; }
 .dei-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--dark-text);outline:none; }
 .dei-date-row { display:flex;gap:6px;margin-top:4px; }
 .dei-date-input { flex:1; }
