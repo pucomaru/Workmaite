@@ -710,11 +710,11 @@ async function doCreateSessionForm() {
   creatingSessionForm.value = true
   try {
     const meetingId = createSessionForm.value.meetingId
-    await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
+    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
-      type: 'offline',
       scheduled_at: createSessionForm.value.date ? createSessionForm.value.date + ':00' : null,
       type: createSessionForm.value.type,
+      attendee_ids: createSessionMembers.value.map(m => m.userId),
     })
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
@@ -1291,6 +1291,10 @@ async function downloadMinutesFile() {
                 Whisper API (빠름)
               </button>
             </div>
+          </div>
+          <div class="app-modal-field">
+            <label>참석자</label>
+            <MemberInvite v-model="createSessionMembers" />
           </div>
         </div>
         <div class="app-modal-footer">
