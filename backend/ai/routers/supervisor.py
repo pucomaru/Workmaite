@@ -98,8 +98,8 @@ _ROUTING_SYSTEM = """\
 - task_extractor: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비, 아카이브 파일 분석
 - minutes_generator: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
 - report_reviewer: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
-- knowledge_manager: 지식 베이스 관리, 관계 그래프 조회·저장, HITL 검토·승인, 과거 회의 지식 검색
-- supervisor_direct: 회의체 현황 조회, 구성원 안내, 인사·일반 질문
+- knowledge_manager: 과거 회의 내용 검색, 지식 베이스 저장·관리, HITL 검토·승인, 관계 그래프 조회
+- supervisor_direct: 회의체 현황 조회(Neo4j), 구성원 안내, 인사·일반 질문
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
@@ -383,22 +383,28 @@ async def supervisor_chat(
     except Exception:
         pass
 
+    _thread_id = f"supervisor-{data.meeting_id or 0}"
+
     async def stream():
+        print(f"DEBUG: stream() started, _route={_route!r}")
         neo4j_ctx = {}
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
+            print(f"DEBUG: outer try entered, meeting_id={data.meeting_id!r}")
             for _s in (_route_steps or [_route_thinking]):
                 yield f"data: [PLANNING] {_s}\n\n"
 
+            print(f"DEBUG: after planning steps")
             if data.meeting_id:
-                mid_neo4j = f"mg-sqlite-{int(data.meeting_id)}"
+                mid_neo4j = f"mg-{int(data.meeting_id)}"
 
                 if not is_admin:
                     has_access = (
                         mid_neo4j in user_allowed_mg_ids if user_allowed_mg_ids
                         else int(data.meeting_id) in pg_meeting_ids
                     )
+                    print(f"DEBUG: mid_neo4j={mid_neo4j!r}, user_allowed_mg_ids={user_allowed_mg_ids}, pg_meeting_ids={pg_meeting_ids}, has_access={has_access}")
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
@@ -455,7 +461,8 @@ async def supervisor_chat(
                 except Exception:
                     pass
 
-        except Exception:
+        except Exception as _outer_e:
+            print(f"DEBUG: outer except caught: {type(_outer_e).__name__}: {_outer_e}")
             yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
 
         _user_scope_header = (
@@ -472,100 +479,177 @@ async def supervisor_chat(
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
 
-        # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────────
-        if _route in ('supervisor_direct', 'knowledge_manager'):
-            yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+        # ── 라우팅 공통: assistant 응답 수집 (finally에서 저장) ─────────────
+        _assistant_chunks: list[str] = []
 
-            _kb_results: list[dict] = []
-            # knowledge_manager 라우팅 시 안건·AI판단까지 폭넓게 검색
-            _node_type_map = [("Minutes", "회의록", 5)]
-            if _route == "knowledge_manager":
-                _node_type_map += [("Agenda", "안건", 3), ("AIJudgment", "AI 판단", 3)]
-            try:
-                for node_type, type_label, k in _node_type_map:
-                    for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):
-                        if r.get("title") or r.get("content"):
-                            _kb_results.append({
-                                "type": type_label,
-                                "title": r.get("title") or r.get("content", "")[:40],
-                                "content": r.get("content", "")[:300],
-                            })
-            except Exception:
-                pass
+        try:
+            # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
+            print(f"DEBUG: routing block entered, _route={_route!r}")
+            if _route in ('supervisor_direct', 'knowledge_manager'):
+                yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
 
-            if _kb_results:
-                yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+                _kb_results: list[dict] = []
+                _node_type_map = [("Minutes", "회의록", 5)]
+                if _route == "knowledge_manager":
+                    _node_type_map += [("Agenda", "안건", 3), ("AIJudgment", "AI 판단", 3)]
+                try:
+                    for node_type, type_label, k in _node_type_map:
+                        for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):
+                            if r.get("title") or r.get("content"):
+                                _kb_results.append({
+                                    "type": type_label,
+                                    "title": r.get("title") or r.get("content", "")[:40],
+                                    "content": r.get("content", "")[:300],
+                                })
+                except Exception:
+                    pass
 
-            _ctx_parts: list[str] = [_user_scope_header]
-            if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
-                _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
-            if _kb_results:
-                _ctx_parts.append(
-                    "[Knowledge Base 관련 자료]\n" + "\n".join(
-                        f"- [{r['type']}] {r['title']}: {r['content'][:200]}" for r in _kb_results
+                if _kb_results:
+                    yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+
+                _ctx_parts: list[str] = [_user_scope_header]
+                if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
+                    _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
+                if _kb_results:
+                    _ctx_parts.append(
+                        "[Knowledge Base 관련 자료]\n" + "\n".join(
+                            f"- [{r['type']}] {r['title']}: {r['content'][:200]}" for r in _kb_results
+                        )
                     )
+
+                _sup_llm = make_llm(temperature=0.2, streaming=True)
+                async for chunk in _sup_llm.astream([
+                    SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM),
+                    HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts))),
+                ]):
+                    if chunk.content:
+                        _assistant_chunks.append(chunk.content)
+                        yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+
+                if hl_candidates and _assistant_chunks:
+                    _sup_full = "".join(_assistant_chunks)
+                    matched = [c for c in hl_candidates if c and c in _sup_full]
+                    if matched:
+                        yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
+
+                yield "data: [DONE]\n\n"
+                return
+
+            # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
+            if _route == 'task_extractor':
+                gen = task_agent.chat_stream(
+                    message=msg, chat_history=data.chat_history or [],
+                    previous_minutes=_get_previous_minutes(db, data.meeting_id),
+                    knowledge=[],
+                    departments=_get_member_departments(db, data.meeting_id),
+                    meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
+                )
+            elif _route == 'minutes_generator':
+                agendas = db.query(models.Agenda).filter(
+                    models.Agenda.meeting_id == data.meeting_id,
+                    models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
+                ).all()
+                gen = minutes_agent.chat_stream(
+                    message=msg, chat_history=data.chat_history or [],
+                    previous_minutes=_get_previous_minutes(db, data.meeting_id),
+                    current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
+                    meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
+                )
+            else:  # report_reviewer
+                gen = report_agent.chat_stream(
+                    message=msg, chat_history=data.chat_history or [],
+                    knowledge=[],
+                    meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
                 )
 
-            _sup_llm = make_llm(temperature=0.2, streaming=True)
-            _sup_collected: list[str] = []
-            async for chunk in _sup_llm.astream([
-                SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM),
-                HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts))),
-            ]):
-                if chunk.content:
-                    _sup_collected.append(chunk.content)
-                    yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+            async for chunk in gen:
+                _assistant_chunks.append(chunk)
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
 
-            if hl_candidates and _sup_collected:
-                _sup_full = "".join(_sup_collected)
-                matched = [c for c in hl_candidates if c and c in _sup_full]
+            if hl_candidates and _assistant_chunks:
+                full_text = "".join(_assistant_chunks)
+                matched = [c for c in hl_candidates if c and c in full_text]
                 if matched:
                     yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
 
             yield "data: [DONE]\n\n"
-            return
 
-        # ── A 유형: 서브에이전트 라우팅 ─────────────────────────────────────
-        if _route == 'task_extractor':
-            gen = task_agent.chat_stream(
-                message=msg, chat_history=data.chat_history or [],
-                previous_minutes=_get_previous_minutes(db, data.meeting_id),
-                knowledge=[],
-                departments=_get_member_departments(db, data.meeting_id),
-                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
-            )
-        elif _route == 'minutes_generator':
-            agendas = db.query(models.Agenda).filter(
-                models.Agenda.meeting_id == data.meeting_id,
-                models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
-            ).all()
-            gen = minutes_agent.chat_stream(
-                message=msg, chat_history=data.chat_history or [],
-                previous_minutes=_get_previous_minutes(db, data.meeting_id),
-                current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
-                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
-            )
-        else:  # report_reviewer
-            gen = report_agent.chat_stream(
-                message=msg, chat_history=data.chat_history or [],
-                knowledge=[],
-                meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
-            )
+        finally:
+            # GeneratorExit·예외·정상 종료 모두에서 assistant 메시지 저장
+            _assistant_text = "".join(_assistant_chunks)
+            if _assistant_text:
+                _save_db = SessionLocal()
+                try:
+                    _save_db.add(models.ChatMessage(
+                        thread_id=_thread_id,
+                        user_id=current_user.id,
+                        role="assistant",
+                        content=_assistant_text,
+                        context_type="supervisor",
+                        meeting_id=data.meeting_id,
+                    ))
+                    _save_db.commit()
+                except Exception as _e:
+                    logger.warning(f"[supervisor_chat] AI 응답 저장 실패: {_e}")
+                    _save_db.rollback()
+                finally:
+                    _save_db.close()
 
-        collected: list[str] = []
-        async for chunk in gen:
-            collected.append(chunk)
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
-
-        if hl_candidates and collected:
-            full_text = "".join(collected)
-            matched = [c for c in hl_candidates if c and c in full_text]
-            if matched:
-                yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
-
-        yield "data: [DONE]\n\n"
+    # 사용자 메시지 저장
+    if msg:
+        try:
+            db.add(models.ChatMessage(
+                thread_id=_thread_id,
+                user_id=current_user.id,
+                role="user",
+                content=msg,
+                context_type="supervisor",
+                meeting_id=data.meeting_id,
+            ))
+            db.commit()
+        except Exception as _e:
+            logger.warning(f"[supervisor_chat] 사용자 메시지 저장 실패: {_e}")
+            db.rollback()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+# ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────
+@router.get("/supervisor/chat/history")
+async def supervisor_chat_history(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_admin = current_user.position in ("대표", "CEO", "임원")
+    if not is_admin:
+        member = db.query(models.MeetingMember).filter(
+            models.MeetingMember.meeting_id == meeting_id,
+            models.MeetingMember.user_id == current_user.id,
+        ).first()
+        if not member:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="이 회의체에 대한 접근 권한이 없습니다.")
+
+    messages = (
+        db.query(models.ChatMessage)
+        .filter(
+            models.ChatMessage.meeting_id == meeting_id,
+            models.ChatMessage.context_type == "supervisor",
+        )
+        .order_by(models.ChatMessage.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "user_id": m.user_id,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in messages
+    ]
 
 
 # ─── Supervisor 그래프 분석 ───────────────────────────────────────────────────
