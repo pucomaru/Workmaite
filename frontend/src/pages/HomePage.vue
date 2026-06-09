@@ -315,7 +315,6 @@ const meetingColumns = [
   { label: '유형', width: '90px', sortKey: 'meeting_type' },
   { label: '담당자', width: '90px', sortKey: 'owner_name' },
   { label: '마감일', width: '110px', sortKey: 'due_date' },
-  { label: '우선순위', width: '80px', sortKey: 'priority' },
 ]
 
 const upcomingSessions = computed(() => {
@@ -555,7 +554,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--border);
-  transition: background .1s;
+ 
 }
 .todo-row:hover { background: var(--surface-2); }
 .todo-row.done .todo-content { text-decoration: line-through; color: var(--text-muted); }
@@ -569,7 +568,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .todo-row.pinned { background: #fffbeb; border-color: #fde68a; }
 .todo-row.pinned:hover { background: #fef3c7; }
 .pin-fixed-icon { font-size: 13px; flex-shrink: 0; opacity: 0.8; }
-.pin-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0.3; transition: opacity .15s, transform .15s; flex-shrink: 0; }
+.pin-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0.3; flex-shrink: 0; }
 .pin-btn:hover { opacity: 0.8; }
 .pin-btn.active { opacity: 1; transform: rotate(-30deg); }
 
@@ -598,7 +597,6 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background .15s, color .15s;
   line-height: 1.5;
 }
 .btn-meeting-end:hover:not(:disabled) { background: var(--danger); color: #fff; }
@@ -606,29 +604,29 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 
 /* ── 달력 ──────────────────────────────────────────────────── */
 .cal-card { display: flex; flex-direction: column; }
-.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; }
+.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; font-size: 11px;}
 .cal-title { font-size: 13px; font-weight: 600; flex: 1; text-align: center; white-space: nowrap; }
 .cal-nav { display: flex; align-items: center; gap: 4px; }
-.nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 16px; color: var(--text-muted); cursor: pointer; transition: all .15s; line-height: 1; }
+.nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 16px; color: var(--text-muted); cursor: pointer;  line-height: 1; }
 .nav-btn:hover { background: var(--bg); color: var(--text); }
-.today-btn { padding: 4px 10px; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-muted); cursor: pointer; transition: all .15s; }
+.today-btn { padding: 4px 10px; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-muted); cursor: pointer;  }
 .today-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 .view-switch { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.view-btn { padding: 4px 8px; font-size: 12px; font-weight: 500; background: none; border: none; color: var(--text-muted); cursor: pointer; transition: all .15s; }
+.view-btn { padding: 4px 8px; font-size: 12px; font-weight: 500; background: none; border: none; color: var(--text-muted); cursor: pointer;  }
 .view-btn:hover { background: var(--bg); color: var(--text); }
 .view-btn.active { background: var(--primary); color: #fff; }
 .cal-body { padding: 12px; }
 .cal-weekrow { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 4px; }
 .wd-cell { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
 .month-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
-.month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .1s; min-width: 0; overflow: hidden; }
+.month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
 .month-cell:not(.empty):hover { background: var(--surface-2); }
 .month-cell.empty { cursor: default; }
 .month-cell.today .day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
 .day-num { font-size: 12px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
 .month-evts { display: flex; flex-direction: column; gap: 1px; min-width: 0; width: 100%; }
 .week-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; min-height: 160px; }
-.week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; transition: background .1s; overflow: hidden; min-width: 0; }
+.week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; overflow: hidden; min-width: 0; }
 .week-col:hover { background: var(--surface); }
 .week-col.today { border-color: var(--primary); }
 .week-col-header { padding: 6px 6px 4px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface); flex-shrink: 0; }
@@ -645,7 +643,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .day-evt-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .day-evt-title { font-size: 13px; font-weight: 500; }
 .year-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
-.mini-month { border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; transition: box-shadow .15s; }
+.mini-month { border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer;}
 .mini-month:hover { box-shadow: var(--shadow-md); }
 .mini-month-title { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 4px; text-align: center; }
 .mini-weekrow { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 2px; }

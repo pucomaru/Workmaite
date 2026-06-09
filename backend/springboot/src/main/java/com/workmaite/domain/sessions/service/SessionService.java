@@ -7,7 +7,9 @@ import com.workmaite.domain.sessions.dto.SessionResponse;
 import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
 import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.MeetingSession;
+import com.workmaite.domain.sessions.entity.SessionMember;
 import com.workmaite.domain.sessions.entity.SessionStatus;
+import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -34,6 +36,7 @@ import java.util.stream.Collectors;
 public class SessionService {
 
     private final SessionRepository sessionRepository;
+    private final SessionMemberRepository sessionMemberRepository;
     private final MeetingRepository meetingRepository;
     private final NeoSyncService neoSyncService;
 
@@ -57,7 +60,11 @@ public class SessionService {
                 ? sessionRepository.findByMeetingIdAndStatus(meetingId, status)
                 : sessionRepository.findByMeetingId(meetingId);
         return sessions.stream()
-                .map(SessionResponse::from)
+                .map(s -> {
+                    List<Long> attendeeIds = sessionMemberRepository.findBySessionId(s.getId())
+                            .stream().map(SessionMember::getUserId).toList();
+                    return SessionResponse.from(s, attendeeIds);
+                })
                 .toList();
     }
 
@@ -71,14 +78,26 @@ public class SessionService {
                 request.getType(),
                 request.getScheduledAt()
         );
-        SessionResponse response = SessionResponse.from(sessionRepository.save(session));
-        neoSyncService.syncSession(response.getId());
-        return response;
+        sessionRepository.save(session);
+
+        // 참석자 저장
+        List<Long> attendeeIds = request.getAttendeeIds() != null ? request.getAttendeeIds() : List.of();
+        if (!attendeeIds.isEmpty()) {
+            List<SessionMember> members = attendeeIds.stream()
+                    .map(uid -> SessionMember.of(session.getId(), uid))
+                    .toList();
+            sessionMemberRepository.saveAll(members);
+        }
+
+        neoSyncService.syncSession(session.getId());
+        return SessionResponse.from(session, attendeeIds);
     }
 
     public SessionResponse getSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
-        return SessionResponse.from(session);
+        List<Long> attendeeIds = sessionMemberRepository.findBySessionId(sessionId)
+                .stream().map(SessionMember::getUserId).toList();
+        return SessionResponse.from(session, attendeeIds);
     }
 
     @Transactional
@@ -93,7 +112,21 @@ public class SessionService {
         }
 
         session.update(request.getTitle(), request.getDescription(), request.getLocation(), request.getType(), request.getScheduledAt());
-        return SessionResponse.from(session);
+
+        List<Long> attendeeIds = request.getAttendeeIds();
+        if (attendeeIds != null) {
+            sessionMemberRepository.deleteBySessionId(sessionId);
+            if (!attendeeIds.isEmpty()) {
+                List<SessionMember> members = attendeeIds.stream()
+                        .map(uid -> SessionMember.of(sessionId, uid))
+                        .toList();
+                sessionMemberRepository.saveAll(members);
+            }
+        }
+
+        List<Long> updatedAttendeeIds = sessionMemberRepository.findBySessionId(sessionId)
+                .stream().map(SessionMember::getUserId).toList();
+        return SessionResponse.from(session, updatedAttendeeIds);
     }
 
     @Transactional

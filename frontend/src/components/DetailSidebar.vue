@@ -7,14 +7,14 @@ import DateInput from './DateInput.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
-  detailMeeting, isDetailAdmin, openGroupSetting,
+  detailMeeting, isDetailAdmin, isAnyAdmin, openGroupSetting, openNodeGroupSetting,
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
-  groupHistoryMap, goToList, formatDate,
+  groupHistoryMap, goToList, formatDate, formatDateOnly,
   detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
-  runExtract, setExtractState, addExtractItem, finishExtract,
+  runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
@@ -22,10 +22,13 @@ const {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks, reportRelatedAgendas,
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
+  agendaEditModal, closeAgendaEdit, savingAgendaEdit, saveAgendaEdit,
+  reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
+  minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 } = inject('archiveSidebar')
 
 // ── 보고자료 레이더 차트 ─────────────────────────────────────────
@@ -64,6 +67,12 @@ const sbScoreColor = computed(() => {
   const s = detailNode.value?.data?.total_score ?? 0
   return s >= 80 ? '#10b981' : s >= 60 ? '#f59e0b' : '#ef4444'
 })
+
+// 우선 개선 과제: 실시간 검토 결과(top_improvements) 또는 그래프 로드 데이터(detail_scores._top_improvements)
+const sbTopImprovements = computed(() => {
+  const d = detailNode.value?.data
+  return d?.detail_scores?._top_improvements || d?.top_improvements || []
+})
 </script>
 
 <template>
@@ -71,7 +80,7 @@ const sbScoreColor = computed(() => {
           <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
 
-          <!-- ── Header: meeting_group ── -->
+          <!-- ── Header: Meetings ── -->
           <template v-if="detailMeeting">
           <div class="detail-header">
             <div class="detail-header-icon">
@@ -219,8 +228,8 @@ const sbScoreColor = computed(() => {
                           <div class="detail-todo-info">
                             <div class="detail-todo-title">{{ todo.content || todo.title }}</div>
                             <div class="detail-todo-meta">
-                              <span v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">{{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</span>
-                              <span v-if="todo.due_date"> · {{ formatDate(todo.due_date) }}</span>
+                              <div v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">담당부서 - {{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</div>
+                              <div v-if="todo.due_date">마감기한 - {{ formatDateOnly(todo.due_date) }}</div>
                             </div>
                           </div>
                           <div class="detail-todo-actions">
@@ -298,6 +307,9 @@ const sbScoreColor = computed(() => {
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
                     과제 추출하기
                   </button>
+                  <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가
+                  </button>
                 </template><!-- /자료선정 단계 -->
 
                 <!-- 추출 결과: 로딩 중이거나 초안이 있을 때 -->
@@ -332,34 +344,29 @@ const sbScoreColor = computed(() => {
                             </div>
                             <div class="dei-actions">
                               <template v-if="!ag._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._editing=true; ag._feedbackVisible=true; ag._feedbackAction='edited'; ag._feedbackText=''"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                                <button class="gm-ei-btn" :class="ag._state==='approved' ? 'gm-ei-approved-active' : 'gm-ei-approve'" @click="setExtractState(i,'approved')"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn" :class="ag._state==='rejected' ? 'gm-ei-rejected-active' : 'gm-ei-reject'" @click="setExtractState(i,'rejected'); if(extractResult[i]._state==='rejected') { ag._origTitle=ag.title; ag._origDept=ag.department; ag._origStartDate=ag.start_date; ag._origEndDate=ag.due_date; ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText='' }"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editTitle=ag.title; ag._editDept=ag.department; ag._editStartDate=ag.start_date; ag._editDueDate=ag.due_date; ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-approve" @click="ag._feedbackVisible=true; ag._feedbackAction='approved'; ag._feedbackText=''" title="등록"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-reject" @click="ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText=''" title="삭제"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                               <template v-else>
-                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag._state='approved'"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; ag._feedbackVisible=false"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag.db_id ? (ag._feedbackVisible=true, ag._feedbackAction='edited', ag._feedbackText='') : approveItem(i)" title="저장"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
+                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; if(!ag.title) rejectItem(i)" title="취소"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
                               </template>
                             </div>
                           </div>
-                          <!-- 인라인 피드백: 수정/반려 시 해당 아이템 바로 아래 -->
-                          <div v-if="ag._feedbackVisible && !ag._editing" class="dei-feedback-box">
+                          <!-- 피드백 박스 -->
+                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
                             <div class="dei-feedback-label">
-                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : '수정' }}</span>
+                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : ag._feedbackAction==='approved' ? '등록' : '수정' }}</span>
                               사유 입력 (선택)
                             </div>
-                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="이 과제를 수정/반려한 이유를 알려주세요" rows="2" />
+                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="피드백을 남겨주세요 (선택)" rows="2" />
                             <div class="dei-feedback-btns">
-                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag)">저장</button>
+                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">취소</button>
+                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag, i)">저장</button>
                             </div>
                           </div>
                         </template>
-                      </div>
-                      <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가</button>
-
-                      <div class="detail-extract-footer detail-extract-footer--col">
-                        <span class="dei-count">승인 {{ extractResult.filter(a=>a._state==='approved').length }} / 반려 {{ extractResult.filter(a=>a._state==='rejected').length }} / 미검토 {{ extractResult.filter(a=>!a._state).length }}</span>
-                        <button class="detail-action-btn btn-assign" :disabled="!extractResult.filter(a=>a._state!==null).length" @click="finishExtract">완료</button>
                       </div>
                     </template>
 
@@ -474,20 +481,20 @@ const sbScoreColor = computed(() => {
               <svg v-else-if="detailNode.type==='minutes'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <!-- 보고자료 -->
               <svg v-else-if="detailNode.type==='report'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-              <!-- 파일(하위호환) -->
-              <svg v-else-if="detailNode.type==='file'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <!-- 의사결정 -->
+              <svg v-else-if="detailNode.type==='human_judgment'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               <!-- 사람 -->
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
-              <button class="detail-icon-btn" @click="detailOpen=false" title="닫기">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              <button v-if="isAnyAdmin" class="detail-icon-btn" @click="openNodeGroupSetting" title="회의체 설정">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
             </div>
           </div>
@@ -564,15 +571,24 @@ const sbScoreColor = computed(() => {
                     <span class="detail-info-key">상태</span>
                     <span class="detail-info-val">
                       <span class="status-badge" :class="{
-                        'sb-done': detailNode.data?.status==='완료' || detailNode.data?.status==='done',
-                        'sb-progress': detailNode.data?.status==='진행' || detailNode.data?.status==='진행중' || detailNode.data?.status==='in_progress',
-                        'sb-pending': detailNode.data?.status==='대기' || detailNode.data?.status==='pending' || !detailNode.data?.status
-                      }">{{ detailNode.data?.status || '-' }}</span>
+                        'sb-done':     detailNode.data?.status==='완료' || detailNode.data?.status==='done',
+                        'sb-progress': detailNode.data?.status==='진행' || detailNode.data?.status==='진행중' || detailNode.data?.status==='in_progress' || detailNode.data?.status==='ongoing',
+                        'sb-pending':  detailNode.data?.status==='대기' || detailNode.data?.status==='pending' || !detailNode.data?.status
+                      }">{{ { done:'완료', ongoing:'진행중', in_progress:'진행중', pending:'대기', 완료:'완료', 진행중:'진행중', 진행:'진행중', 대기:'대기' }[detailNode.data?.status] || detailNode.data?.status || '-' }}</span>
                     </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">우선순위</span>
-                    <span class="detail-info-val">{{ { high:'상', medium:'중', low:'하', 상:'상', 중:'중', 하:'하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                    <span class="detail-info-val">
+                      <span class="status-badge" :class="{
+                        'sb-critical': detailNode.data?.priority==='critical',
+                        'sb-high':     detailNode.data?.priority==='high' || detailNode.data?.priority==='상',
+                        'sb-medium':   detailNode.data?.priority==='medium' || detailNode.data?.priority==='중',
+                        'sb-low':      detailNode.data?.priority==='low' || detailNode.data?.priority==='하',
+                        'sb-minimal':  detailNode.data?.priority==='minimal',
+                        'sb-pending':  !detailNode.data?.priority
+                      }">{{ { critical:'^^  최상', high:'^   상', medium:'-   중', low:'v   하', minimal:'vv  최하', 상:'^   상', 중:'-   중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                    </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">발생일</span>
@@ -688,7 +704,7 @@ const sbScoreColor = computed(() => {
             </template>
 
             <!-- 파일(보고자료) -->
-            <template v-else-if="detailNode.type==='report' || detailNode.type==='file'">
+            <template v-else-if="detailNode.type==='report'">
               <div class="detail-section">
                 <div class="detail-info-grid">
                   <div class="detail-info-item">
@@ -777,6 +793,39 @@ const sbScoreColor = computed(() => {
                 <div class="detail-section-label">AI 피드백</div>
                 <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
               </div>
+
+              <!-- 우선 개선 과제 -->
+              <div v-if="detailNode.type==='report' && sbTopImprovements.length" class="detail-section">
+                <div class="detail-section-label">
+                  <svg width="11" height="11" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-1px;margin-right:3px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                  우선 개선 과제
+                </div>
+                <div class="sb-top-improvements">
+                  <div v-for="(imp, i) in sbTopImprovements" :key="i" class="sb-top-item">
+                    <span class="sb-top-num">{{ i + 1 }}</span>
+                    <span class="sb-top-cat">[{{ imp.category }}]</span>
+                    <span class="sb-top-action">{{ imp.action }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 연관 과제 -->
+              <div v-if="detailNode.type==='report'" class="detail-section">
+                <div class="detail-section-label">연관 과제</div>
+                <template v-if="reportRelatedAgendas(detailNode).length">
+                  <div class="detail-info-grid">
+                    <div v-for="ag in reportRelatedAgendas(detailNode)" :key="ag.data?.id" class="detail-info-item">
+                      <span class="detail-info-key">
+                        <span class="status-badge" :class="{'sb-done': ag.data?.status==='done'||ag.data?.status==='완료', 'sb-progress': ag.data?.status==='in_progress'||ag.data?.status==='ongoing'||ag.data?.status==='진행', 'sb-pending': !ag.data?.status||ag.data?.status==='pending'||ag.data?.status==='대기'}">
+                          {{ {done:'완료',in_progress:'진행',ongoing:'진행',pending:'대기',진행:'진행',완료:'완료',대기:'대기'}[ag.data?.status] || '대기' }}
+                        </span>
+                      </span>
+                      <span class="detail-info-val detail-info-val--wrap">{{ ag.data?.content || ag.label }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="detail-log-empty">연관된 과제가 없습니다.</div>
+              </div>
             </template>
 
             <!-- 구성원 (person) -->
@@ -818,6 +867,38 @@ const sbScoreColor = computed(() => {
                   </div>
                 </div>
                 <div v-else class="detail-log-empty">할당된 과제 없음</div>
+              </div>
+            </template>
+
+            <!-- 의사결정 (human_judgment) -->
+            <template v-else-if="detailNode.type==='human_judgment'">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">결정유형</span>
+                    <span class="detail-info-val">
+                      <span class="status-badge" :class="{
+                        'sb-done':     detailNode.data?.judgment==='approved',
+                        'sb-progress': detailNode.data?.judgment==='edited',
+                        'sb-pending':  detailNode.data?.judgment==='pending' || !detailNode.data?.judgment,
+                      }" :style="detailNode.data?.judgment==='rejected' ? 'background:rgba(239,68,68,.18);color:#f87171' : ''">
+                        {{ { approved:'승인', rejected:'반려', edited:'수정', pending:'검토중' }[detailNode.data?.judgment] || detailNode.data?.judgment || '-' }}
+                      </span>
+                    </span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">결정일시</span>
+                    <span class="detail-info-val">{{ detailNode.data?.judged_at ? formatDate(detailNode.data.judged_at) : '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">버전</span>
+                    <span class="detail-info-val">v{{ detailNode.data?.version || 1 }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="detailNode.data?.reason" class="detail-section">
+                <div class="detail-section-label">결정 사유</div>
+                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
               </div>
             </template>
 

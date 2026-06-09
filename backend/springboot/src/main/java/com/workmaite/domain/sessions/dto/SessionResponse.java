@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Builder
@@ -30,6 +31,9 @@ public class SessionResponse {
     @JsonProperty("ended_at")
     private LocalDateTime endedAt;
 
+    @JsonProperty("attendee_ids")
+    private List<Long> attendeeIds;
+
     public static SessionResponse from(MeetingSession session) {
         return SessionResponse.builder()
                 .id(session.getId())
@@ -40,6 +44,21 @@ public class SessionResponse {
                 .scheduledAt(session.getScheduledAt())
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())
+                .attendeeIds(List.of())
+                .build();
+    }
+
+    public static SessionResponse from(MeetingSession session, List<Long> attendeeIds) {
+        return SessionResponse.builder()
+                .id(session.getId())
+                .meetingId(session.getMeetingId())
+                .title(session.getTitle())
+                .location(session.getLocation())
+                .status(session.getStatus())
+                .scheduledAt(session.getScheduledAt())
+                .startedAt(session.getStartedAt())
+                .endedAt(session.getEndedAt())
+                .attendeeIds(attendeeIds)
                 .build();
     }
 }

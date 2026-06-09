@@ -22,7 +22,7 @@ ALLOWED_REL_TYPES = {
     "소속", "참여", "간사", "구성원", "포함",
     "관할", "담당", "첨부", "제출",
     "개최", "도출", "산출", "근거", "원인",
-    "추천", "참조", "후속", "다룸멌",
+    "추천", "참조", "후속", "다룸멌", "판단",
     # 프론트 자유 관계 타입
     "연결", "협업", "공유", "지원", "검토", "상위", "관련", "후속회의", "출처", "생성", "세션출처",
 }
@@ -168,6 +168,7 @@ async def get_archive(
                     coalesce(mg.meeting_type, mg.type) AS meeting_type,
                     coalesce(mg.status, 'active') AS status,
                     coalesce(mg.description, mg.purpose, '') AS purpose,
+                    coalesce(mg.guidelines, '') AS guidelines,
                     mg.start_date AS start_date,
                     mg.end_date AS end_date,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
@@ -225,6 +226,7 @@ async def get_archive(
                     mn.content_summary AS content_summary,
                     mn.file_name AS minutes_file_name,
                     mn.status AS minutes_status,
+                    mn.pg_id AS minutes_pg_id,
                     toString(mn.generated_at) AS generated_at
                 """,
                 {"ids": mg_ids_list},
@@ -266,10 +268,11 @@ async def get_archive(
                 "meeting_type": row.get("meeting_type"),
                 "status": row.get("status", "active"),
                 "purpose": row.get("purpose"),
+                "guidelines": row.get("guidelines", ""),
                 "start_date": row.get("start_date"),
                 "end_date": row.get("end_date"),
                 "members": [], "tasks": [], "minutes": [], "reports": [],
-                "minutes_agendas": [], "session_agendas": [], "derivations": [],
+                "minutes_agendas": [], "session_agendas": [], "derivations": [], "human_judgments": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
@@ -340,6 +343,7 @@ async def get_archive(
                 "content_summary": row.get("content_summary"),
                 "minutes_file_name": row.get("minutes_file_name"),
                 "minutes_status": row.get("minutes_status"),
+                "minutes_pg_id": row.get("minutes_pg_id"),
                 "generated_at": row.get("generated_at"),
             })
 
@@ -387,9 +391,8 @@ async def get_archive(
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`진행`|`다룸멌`|`도출`]->(ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
-                MATCH (mn)-[:`생성`]->(s:Session)
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -398,7 +401,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (s:Session)-[:`다룸멌`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (s:Session)-[:`다룸멌`|`진행`]->(ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -458,17 +461,21 @@ async def get_archive(
             .filter(models.Report.meeting_id.in_(all_raw_ids))
             .all()
         )
+        # PG가 보고서의 단일 출처 — Neo4j 데이터를 PG로 완전 교체
+        for sid in meetings_map:
+            meetings_map[sid]["reports"] = []
         for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
             if sid not in meetings_map:
                 continue
-            pg_report = {
+            meetings_map[sid]["reports"].append({
                 "id": r.id,
                 "meetingId": sid,
                 "file_name": r.file_name,
                 "file_path": r.file_path,
                 "human_status": r.human_status,
                 "version": r.version,
+                "parent_id": r.parent_id,
                 "submitter_department": r.submitter_department,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "reviewed_at": hr.reviewed_at.isoformat() if hr and hr.reviewed_at else None,
@@ -478,13 +485,7 @@ async def get_archive(
                 "detail_scores": rs.detail_scores if rs else None,
                 "feedback": rs.feedback if rs else None,
                 "score_created_at": rs.created_at.isoformat() if rs and rs.created_at else None,
-            }
-            existing = meetings_map[sid]["reports"]
-            idx = next((i for i, x in enumerate(existing) if _neo4j_report_pg_id(x.get("id")) == r.id), None)
-            if idx is not None:
-                existing[idx] = pg_report
-            else:
-                existing.append(pg_report)
+            })
 
     # ── Postgres 보완: meeting_sessions + minutes 데이터로 session 정보 채움 ──
     if all_raw_ids:
@@ -526,6 +527,49 @@ async def get_archive(
                     pg_id = sess_neo_id
                 if pg_id and pg_id in pg_session_map:
                     sess.update(pg_session_map[pg_id])
+
+    # ── HumanJudgment (의사결정) 노드 조회 ────────────────────────
+    try:
+        hj_rows = await _run_cypher(
+            """
+            MATCH (hj:HumanJudgment)
+            WHERE hj.target_type = 'agenda'
+            MATCH (ag:Agenda)-[:`관할`]->(mg)
+            WHERE mg.id IN $ids AND ag.pg_id = hj.target_id
+            RETURN
+                mg.id AS meetingId,
+                hj.id AS id,
+                hj.pg_id AS pg_id,
+                hj.judgment AS judgment,
+                hj.reason AS reason,
+                hj.target_id AS target_id,
+                coalesce(ag.id, toString(ag.pg_id)) AS agenda_id,
+                toString(hj.judged_at) AS judged_at,
+                hj.version AS version
+            """,
+            {"ids": mg_ids_list},
+        )
+        seen_hj: set[str] = set()
+        for row in hj_rows:
+            mg_id = row.get("meetingId")
+            hj_id = row.get("id")
+            if not mg_id or mg_id not in meetings_map or not hj_id:
+                continue
+            if hj_id in seen_hj:
+                continue
+            seen_hj.add(hj_id)
+            meetings_map[mg_id]["human_judgments"].append({
+                "id":        hj_id,
+                "pg_id":     row.get("pg_id"),
+                "judgment":  row.get("judgment"),
+                "reason":    row.get("reason") or "",
+                "target_id": row.get("target_id"),
+                "agenda_id": row.get("agenda_id"),
+                "judged_at": row.get("judged_at"),
+                "version":   row.get("version"),
+            })
+    except Exception:
+        pass  # HumanJudgment 없어도 그래프 정상 반환
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()

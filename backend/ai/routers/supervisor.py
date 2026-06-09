@@ -491,7 +491,7 @@ async def supervisor_chat(
                 _kb_results: list[dict] = []
                 _node_type_map = [("Minutes", "회의록", 5)]
                 if _route == "knowledge_manager":
-                    _node_type_map += [("Agenda", "안건", 3), ("AIJudgment", "AI 판단", 3)]
+                    _node_type_map += [("Agenda", "안건", 3)]
                 try:
                     for node_type, type_label, k in _node_type_map:
                         for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):
@@ -1361,6 +1361,20 @@ async def archive_extract_agendas(
             db.flush()
             agent_log_id = agent_log.id
             db.commit()
+            # ── draft Agenda 를 Neo4j에 즉시 동기화 (background) ────────────────────────
+            try:
+                import asyncio as _asyncio
+                from neo4j_sync import sync_agenda as _sync_ag
+                for idx, ag_raw_id in enumerate(draft_ids):
+                    if ag_raw_id:
+                        _asyncio.ensure_future(_sync_ag(
+                            agenda_id=ag_raw_id,
+                            meeting_id=meeting_id,
+                            title=agendas_raw[idx].get("title", ""),
+                            status="draft",
+                        ))
+            except Exception as _se:
+                logger.warning(f"[extract-agendas] Neo4j draft sync 실패: {_se}")
         except Exception as e:
             db.rollback()
             logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
@@ -1596,26 +1610,42 @@ async def commit_draft_agendas(
             models.Agenda.status == "draft",
         ).delete(synchronize_session=False)
 
-    # 승인된 항목 업데이트
+    # 승인된 항목 업데이트 또는 신규 생성
     updated_ids = []
     for item in approved:
-        agenda = db.query(models.Agenda).filter(models.Agenda.id == item.get("db_id")).first()
-        if not agenda:
-            continue
-        assignee_id = None
-        if item.get("assignee_name"):
-            u = db.query(models.User).filter(models.User.name == item["assignee_name"]).first()
-            if u:
-                assignee_id = u.id
-        agenda.status = "ongoing"
-        agenda.assignee_id = assignee_id
-        if item.get("dept"):
-            agenda.department = [item["dept"]]
-        if item.get("due_date"):
-            try:
-                agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
-            except Exception:
-                pass
+        db_id = item.get("db_id")
+        agenda = db.query(models.Agenda).filter(models.Agenda.id == db_id).first() if db_id else None
+
+        if agenda:
+            # 기존 draft 업데이트
+            if item.get("title"):
+                agenda.title = item["title"]
+            agenda.status = "ongoing"
+            if item.get("dept"):
+                agenda.department = [item["dept"]]
+            if item.get("due_date"):
+                try:
+                    agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+                except Exception:
+                    pass
+        else:
+            # db_id 없는 신규 항목 직접 생성
+            if not item.get("title") or not meeting_id:
+                continue
+            agenda = models.Agenda(
+                meeting_id=meeting_id,
+                title=item["title"],
+                status="ongoing",
+                department=[item["dept"]] if item.get("dept") else [],
+            )
+            if item.get("due_date"):
+                try:
+                    agenda.due_date = _dt.strptime(item["due_date"], "%Y-%m-%d")
+                except Exception:
+                    pass
+            db.add(agenda)
+            db.flush()
+
         updated_ids.append(agenda.id)
 
     # AgentLog 기록
@@ -1717,6 +1747,63 @@ async def get_meeting_agendas(
     ]
 
 
+# ─── 아젠다 상세 수정 (제목/부서/마감일/우선순위) ───────────────────────────
+@router.patch("/archive/agendas/{agenda_id}")
+async def update_agenda(
+    agenda_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
+    if not agenda:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Agenda not found")
+    if "title" in data and data["title"] is not None:
+        agenda.title = data["title"]
+    if "department" in data:
+        raw_dept = data["department"]
+        agenda.department = [raw_dept] if raw_dept else None
+    if "due_date" in data:
+        if data["due_date"]:
+            from datetime import datetime as _dt
+            try:
+                agenda.due_date = _dt.strptime(data["due_date"][:10], "%Y-%m-%d")
+            except Exception:
+                pass
+        else:
+            agenda.due_date = None
+    if "priority" in data and data["priority"] is not None:
+        agenda.priority = data["priority"]
+    if "status" in data and data["status"] is not None:
+        agenda.status = data["status"]
+    db.commit()
+    db.refresh(agenda)
+    # Neo4j 동기화
+    from neo4j_sync import sync_agenda as _sync_ag
+    dept_str = (agenda.department[0] if isinstance(agenda.department, list) and agenda.department else (agenda.department or ""))
+    background_tasks.add_task(
+        _sync_ag,
+        agenda_id=agenda.id,
+        meeting_id=agenda.meeting_id,
+        title=agenda.title,
+        status=agenda.status or "ongoing",
+        priority=agenda.priority or "medium",
+        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
+        department=dept_str,
+    )
+    return {
+        "ok": True,
+        "id": agenda.id,
+        "title": agenda.title,
+        "department": agenda.department,
+        "due_date": agenda.due_date.isoformat() if agenda.due_date else None,
+        "priority": agenda.priority,
+        "status": agenda.status,
+    }
+
+
 # ─── 아젠다 상태 변경 (완료/진행 등) ─────────────────────────────────────────
 @router.patch("/archive/agendas/{agenda_id}/status")
 async def update_agenda_status(
@@ -1733,6 +1820,125 @@ async def update_agenda_status(
     agenda.status = new_status
     db.commit()
     return {"ok": True, "status": new_status}
+
+
+# ─── 보고자료 편집 ────────────────────────────────────────────────────────────
+@router.patch("/archive/reports/{report_id}")
+async def update_report(
+    report_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if "file_name" in data and data["file_name"] is not None:
+        report.file_name = data["file_name"]
+    if "submitter_department" in data and data["submitter_department"] is not None:
+        report.submitter_department = data["submitter_department"]
+    if "human_status" in data and data["human_status"] is not None:
+        report.human_status = data["human_status"]
+    db.commit()
+    db.refresh(report)
+    from neo4j_sync import sync_report as _sync_rp
+    background_tasks.add_task(
+        _sync_rp,
+        report_id=report.id,
+        meeting_id=report.meeting_id,
+        file_name=report.file_name,
+        file_path=report.file_path,
+        submitter_department=report.submitter_department,
+        human_status=report.human_status,
+        related_agenda_ids=report.related_agenda_ids or [],
+    )
+    return {
+        "ok": True,
+        "id": report.id,
+        "file_name": report.file_name,
+        "submitter_department": report.submitter_department,
+        "human_status": report.human_status,
+    }
+
+
+# ─── 회의록 편집 (session_id 기반 lookup) ────────────────────────────────────
+@router.patch("/archive/minutes/by-session/{session_id}")
+async def update_minutes_by_session(
+    session_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="Minutes not found for session")
+    if "file_name" in data and data["file_name"] is not None:
+        minutes.file_name = data["file_name"]
+    if "status" in data and data["status"] is not None:
+        minutes.status = data["status"]
+    db.commit()
+    db.refresh(minutes)
+    from neo4j_sync import sync_minutes as _sync_mn
+    background_tasks.add_task(
+        _sync_mn,
+        minutes_id=minutes.id,
+        session_id=minutes.session_id,
+        file_name=minutes.file_name,
+        file_path=minutes.file_path,
+        recorder_id=minutes.recorder_id,
+        content_summary=minutes.content_summary,
+        content_original=minutes.content_original,
+        status=minutes.status,
+    )
+    return {
+        "ok": True,
+        "id": minutes.id,
+        "file_name": minutes.file_name,
+        "status": minutes.status,
+    }
+
+
+# ─── 회의록 편집 ──────────────────────────────────────────────────────────────
+@router.patch("/archive/minutes/{minutes_id}")
+async def update_minutes(
+    minutes_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    minutes = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="Minutes not found")
+    if "file_name" in data and data["file_name"] is not None:
+        minutes.file_name = data["file_name"]
+    if "status" in data and data["status"] is not None:
+        minutes.status = data["status"]
+    db.commit()
+    db.refresh(minutes)
+    from neo4j_sync import sync_minutes as _sync_mn
+    background_tasks.add_task(
+        _sync_mn,
+        minutes_id=minutes.id,
+        session_id=minutes.session_id,
+        file_name=minutes.file_name,
+        file_path=minutes.file_path,
+        recorder_id=minutes.recorder_id,
+        content_summary=minutes.content_summary,
+        content_original=minutes.content_original,
+        status=minutes.status,
+    )
+    return {
+        "ok": True,
+        "id": minutes.id,
+        "file_name": minutes.file_name,
+        "status": minutes.status,
+    }
 
 
 # ─── 아젠다 삭제 ──────────────────────────────────────────────────────────────
@@ -1765,6 +1971,7 @@ class HitlReviewCreate(BaseModel):
 @router.post("/hitl-reviews")
 async def create_hitl_review(
     data: HitlReviewCreate,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1781,6 +1988,30 @@ async def create_hitl_review(
     db.add(review)
     db.commit()
     db.refresh(review)
+
+    # ── Neo4j HumanJudgment 즉시 동기화 ──────────────────────────────────────
+    try:
+        from neo4j_sync import sync_human_judgment as _sync_hj
+        meeting_id_for_sync: int | None = None
+        if review.target_type == "agenda" and review.target_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+            if _ag:
+                meeting_id_for_sync = _ag.meeting_id
+        background_tasks.add_task(
+            _sync_hj,
+            review_id=review.id,
+            meeting_id=meeting_id_for_sync,
+            judgment=review.status,
+            reason=str(review.review_comment) if review.review_comment else None,
+            target_type=review.target_type,
+            target_id=review.target_id,
+            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
+            created_at=review.created_at.isoformat() if review.created_at else None,
+        )
+    except Exception as _se:
+        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+
     return {"id": review.id, "status": review.status}
 
 

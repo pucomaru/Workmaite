@@ -25,6 +25,7 @@ from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
 from routers import upload as upload_router
+from routers import usage as usage_router
 from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ async def _cleanup_stale_neo4j_nodes() -> None:
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
+            "   OR (n:AIJudgment) "
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
             "   OR (n:Agenda AND n.status = 'draft') "
             "DETACH DELETE n"
@@ -110,6 +112,7 @@ app.include_router(meetings_router.ai_router)
 app.include_router(sessions_router.router)
 app.include_router(stt_router.router)
 app.include_router(upload_router.router)
+app.include_router(usage_router.router)
 
 
 # WebSocket endpoints
