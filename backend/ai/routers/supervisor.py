@@ -1544,7 +1544,7 @@ async def commit_draft_agendas(
                     title=ag.title, status=ag.status,
                     assignee_id=ag.assignee_id,
                     priority=ag.priority or "medium",
-                    due_date=ag.due_date.isoformat() if ag.due_date else None,
+                    due_date=ag.due_date.isoformat() + 'Z' if ag.due_date else None,
                     department=dept_str,
                 )
             except Exception as e:
@@ -1611,7 +1611,7 @@ async def get_meeting_agendas(
             "assignee_id": a.assignee_id,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
             "ai_evidence": a.ai_evidence,
-            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "created_at": a.created_at.isoformat() + 'Z' if a.created_at else None,
         }
         for a in agendas
     ]
