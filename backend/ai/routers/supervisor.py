@@ -1387,7 +1387,7 @@ async def analyze_archive_file(
 
     # LangGraph 기반 아카이브 파일 검토 에이전트 실행
     try:
-        return await task_agent.analyze_archive_file(
+        return await report_agent.analyze_archive_file(
             file_name=file_name,
             file_type=file_type,
             dept_name=dept_name,
@@ -1446,7 +1446,7 @@ async def analyze_archive_file_stream_ep(
 
     async def stream():
         try:
-            async for event in task_agent.analyze_archive_file_stream(
+            async for event in report_agent.analyze_archive_file_stream(
                 file_name=file_name,
                 file_type=file_type,
                 dept_name=dept_name,
@@ -1682,4 +1682,170 @@ async def create_hitl_review(
     db.commit()
     db.refresh(review)
     return {"id": review.id, "status": review.status}
+
+
+# ─── 보고서 종합 검토 (스트리밍) ──────────────────────────────────────────────
+class GlobalReviewRequest(BaseModel):
+    meeting_id: int
+    reports_info: List[dict]
+    chat_history: Optional[List[dict]] = []
+
+
+@router.post("/reports/global-review/stream")
+async def global_review_stream_ep(
+    data: GlobalReviewRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting_context = _get_meeting_context(db, data.meeting_id)
+
+    async def stream():
+        try:
+            async for chunk in report_agent.global_review_stream(
+                reports_info=data.reports_info,
+                chat_history=data.chat_history or [],
+                meeting_id=data.meeting_id,
+                meeting_context=meeting_context,
+            ):
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        except Exception as e:
+            yield f"data: [오류] {str(e)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+# ─── 보고서 단건 검토 ─────────────────────────────────────────────────────────
+class ReviewReportRequest(BaseModel):
+    report_content: str
+    agenda: Optional[str] = ""
+
+
+@router.post("/reports/review")
+async def review_report_ep(
+    data: ReviewReportRequest,
+    current_user: models.User = Depends(get_current_user),
+):
+    result = await report_agent.review_report(
+        report_content=data.report_content,
+        agenda=data.agenda or "",
+    )
+    return result
+
+
+# ─── 보고서 HITL 검토 시작 ────────────────────────────────────────────────────
+class StartReportReviewRequest(BaseModel):
+    thread_id: str
+    report_content: str
+    agenda: Optional[str] = ""
+
+
+@router.post("/reports/review/start")
+async def start_report_review_ep(
+    data: StartReportReviewRequest,
+    current_user: models.User = Depends(get_current_user),
+):
+    result = await report_agent.start_report_review(
+        thread_id=data.thread_id,
+        report_content=data.report_content,
+        agenda=data.agenda or "",
+    )
+    return result
+
+
+# ─── 보고서 HITL 검토 확정 ────────────────────────────────────────────────────
+class ConfirmReportReviewRequest(BaseModel):
+    thread_id: str
+    approved: bool
+    title: Optional[str] = ""
+    content: Optional[str] = ""
+    meeting_id: Optional[int] = None
+
+
+@router.post("/reports/review/confirm")
+async def confirm_report_review_ep(
+    data: ConfirmReportReviewRequest,
+    current_user: models.User = Depends(get_current_user),
+):
+    result = await report_agent.confirm_report_review(
+        thread_id=data.thread_id,
+        approved=data.approved,
+        title=data.title or "",
+        content=data.content or "",
+        meeting_id=data.meeting_id,
+    )
+    return result
+
+
+# ─── 과제 추출 HITL 시작 ──────────────────────────────────────────────────────
+class StartExtractionRequest(BaseModel):
+    thread_id: str
+    content: str
+    departments: Optional[List[str]] = []
+
+
+@router.post("/extraction/review/start")
+async def start_extraction_review_ep(
+    data: StartExtractionRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    departments = data.departments or _get_member_departments(db, 0)
+    result = await task_agent.start_extraction_review(
+        thread_id=data.thread_id,
+        content=data.content,
+        departments=departments,
+    )
+    return result
+
+
+# ─── 과제 추출 HITL 확정 ──────────────────────────────────────────────────────
+class ConfirmExtractionRequest(BaseModel):
+    thread_id: str
+    approved: bool
+    meeting_id: Optional[int] = None
+
+
+@router.post("/extraction/review/confirm")
+async def confirm_extraction_review_ep(
+    data: ConfirmExtractionRequest,
+    current_user: models.User = Depends(get_current_user),
+):
+    result = await task_agent.confirm_extraction_review(
+        thread_id=data.thread_id,
+        approved=data.approved,
+        meeting_id=data.meeting_id,
+    )
+    return result
+
+
+# ─── 지식 관리 채팅 (스트리밍) ───────────────────────────────────────────────
+class KnowledgeChatRequest(BaseModel):
+    message: str
+    chat_history: Optional[List[dict]] = []
+    meeting_id: Optional[int] = 0
+
+
+@router.post("/knowledge/chat/stream")
+async def knowledge_chat_stream_ep(
+    data: KnowledgeChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
+
+    async def stream():
+        try:
+            async for chunk in knowledge_agent.chat_stream(
+                message=data.message,
+                chat_history=data.chat_history or [],
+                meeting_id=data.meeting_id or 0,
+                meeting_context=meeting_context,
+            ):
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        except Exception as e:
+            yield f"data: [오류] {str(e)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
