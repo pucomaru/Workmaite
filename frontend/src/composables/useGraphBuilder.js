@@ -5,8 +5,8 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
 
     // ── 반경 정의 (Neo4j 그래프 온톨로지 계층 반영) ─────────────
     // Organization(중심) → MeetingGroup → Department/Person → Agenda/Session → Minutes(file)
-    const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920, minutes: 920, report: 920 }
-    const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12, minutes: 12, report: -3 }
+    const R = { Meetings: 240, dept: 400, person: 340, agenda: 580, session: 750, minutes: 920, report: 920 }
+    const Y = { org: 0, Meetings: 0, dept: -15, person: -50, agenda: 20, session: 30, minutes: 12, report: -3 }
     const TWO_PI = Math.PI * 2
 
     // ── Organization 노드 (그래프 중심) ────────────────────────────
@@ -32,8 +32,8 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       // ── MeetingGroup 노드 ─────────────────────────────────────
       const mgIdx = nodes.length
       nodes.push({
-        id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'meeting_group',
-        x: Math.cos(ang) * R.meeting_group, y: Y.meeting_group, z: Math.sin(ang) * R.meeting_group,
+        id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'Meetings',
+        x: Math.cos(ang) * R.Meetings, y: Y.Meetings, z: Math.sin(ang) * R.Meetings,
         data: g, groupIdx: gi, neo4jId,
       })
       // meetingGroup -[포함]→ org-node (조직 소속)
@@ -284,6 +284,45 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined
         const agIdx = d.agenda_id  != null ? agendaIdxByTodoId.get(String(d.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '도출' })
+      })
+
+      // ── HumanJudgment (의사결정) 노드: agenda→session 역방향으로 회의록에 연결 ──
+      // agenda_id → minutes 노드 인덱스 역방향 매핑
+      const agendaToMinutesIdx = new Map()
+      ;(g.minutes_agendas || []).forEach(ma => {
+        if (!ma.agenda_id || !ma.session_id) return
+        const mIdx = minutesFileIdxBySessionNeoId.get(String(ma.session_id))
+        if (mIdx != null) agendaToMinutesIdx.set(String(ma.agenda_id), mIdx)
+      })
+      ;(g.session_agendas || []).forEach(sa => {
+        if (!sa.agenda_id || !sa.session_id) return
+        const mIdx = minutesFileIdxBySessionNeoId.get(String(sa.session_id))
+        if (mIdx != null) agendaToMinutesIdx.set(String(sa.agenda_id), mIdx)
+      })
+      const decisionR = 1050
+      const hjLabelMap = { approved: '승인', rejected: '반려', edited: '수정', pending: '검토중' }
+      ;(g.human_judgments || []).forEach((hj, hi) => {
+        const agId = String(hj.agenda_id || `ag-${hj.target_id}`)
+        const agendaDirectIdx = agendaIdxByTodoId.get(agId)
+        const linkedMinutesIdx = agendaToMinutesIdx.get(agId)
+        // Agenda 노드에 직접 연결 → 없으면 Minutes → 없으면 Meetings 폴백
+        const refIdx = agendaDirectIdx ?? linkedMinutesIdx ?? mgIdx
+        const refNode = nodes[refIdx]
+        const refAng = refNode ? Math.atan2(refNode.z, refNode.x) : ang
+        const spread = 0.10
+        const dAng = refAng + (hi - (g.human_judgments.length - 1) / 2) * spread
+        const hjIdx = nodes.length
+        nodes.push({
+          id: `human_judgment-${g.id || gi}-${hj.id || hi}`,
+          label: hjLabelMap[hj.judgment] || '의사결정',
+          type: 'human_judgment',
+          x: Math.cos(dAng) * decisionR,
+          y: 0,
+          z: Math.sin(dAng) * decisionR,
+          groupIdx: gi, data: hj, meetingGroupId: mgNodeId,
+          neo4jId: hj.id || null,
+        })
+        edges.push({ from: hjIdx, to: refIdx, rel: '판단' })
       })
     })
 

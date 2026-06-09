@@ -1361,6 +1361,20 @@ async def archive_extract_agendas(
             db.flush()
             agent_log_id = agent_log.id
             db.commit()
+            # ── draft Agenda 를 Neo4j에 즉시 동기화 (background) ────────────────────────
+            try:
+                import asyncio as _asyncio
+                from neo4j_sync import sync_agenda as _sync_ag
+                for idx, ag_raw_id in enumerate(draft_ids):
+                    if ag_raw_id:
+                        _asyncio.ensure_future(_sync_ag(
+                            agenda_id=ag_raw_id,
+                            meeting_id=meeting_id,
+                            title=agendas_raw[idx].get("title", ""),
+                            status="draft",
+                        ))
+            except Exception as _se:
+                logger.warning(f"[extract-agendas] Neo4j draft sync 실패: {_se}")
         except Exception as e:
             db.rollback()
             logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
@@ -1765,6 +1779,7 @@ class HitlReviewCreate(BaseModel):
 @router.post("/hitl-reviews")
 async def create_hitl_review(
     data: HitlReviewCreate,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1781,6 +1796,30 @@ async def create_hitl_review(
     db.add(review)
     db.commit()
     db.refresh(review)
+
+    # ── Neo4j HumanJudgment 즉시 동기화 ──────────────────────────────────────
+    try:
+        from neo4j_sync import sync_human_judgment as _sync_hj
+        meeting_id_for_sync: int | None = None
+        if review.target_type == "agenda" and review.target_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+            if _ag:
+                meeting_id_for_sync = _ag.meeting_id
+        background_tasks.add_task(
+            _sync_hj,
+            review_id=review.id,
+            meeting_id=meeting_id_for_sync,
+            judgment=review.status,
+            reason=str(review.review_comment) if review.review_comment else None,
+            target_type=review.target_type,
+            target_id=review.target_id,
+            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
+            created_at=review.created_at.isoformat() if review.created_at else None,
+        )
+    except Exception as _se:
+        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+
     return {"id": review.id, "status": review.status}
 
 

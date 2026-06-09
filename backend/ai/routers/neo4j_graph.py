@@ -22,7 +22,7 @@ ALLOWED_REL_TYPES = {
     "소속", "참여", "간사", "구성원", "포함",
     "관할", "담당", "첨부", "제출",
     "개최", "도출", "산출", "근거", "원인",
-    "추천", "참조", "후속", "다룸멌",
+    "추천", "참조", "후속", "다룸멌", "판단",
     # 프론트 자유 관계 타입
     "연결", "협업", "공유", "지원", "검토", "상위", "관련", "후속회의", "출처", "생성", "세션출처",
 }
@@ -270,7 +270,7 @@ async def get_archive(
                 "start_date": row.get("start_date"),
                 "end_date": row.get("end_date"),
                 "members": [], "tasks": [], "minutes": [], "reports": [],
-                "minutes_agendas": [], "session_agendas": [], "derivations": [],
+                "minutes_agendas": [], "session_agendas": [], "derivations": [], "human_judgments": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
@@ -388,9 +388,8 @@ async def get_archive(
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`진행`|`다룸멌`|`도출`]->(ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
-                MATCH (mn)-[:`생성`]->(s:Session)
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -399,7 +398,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (s:Session)-[:`다룸멌`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (s:Session)-[:`다룸멌`|`진행`]->(ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -527,6 +526,49 @@ async def get_archive(
                     pg_id = sess_neo_id
                 if pg_id and pg_id in pg_session_map:
                     sess.update(pg_session_map[pg_id])
+
+    # ── HumanJudgment (의사결정) 노드 조회 ────────────────────────
+    try:
+        hj_rows = await _run_cypher(
+            """
+            MATCH (hj:HumanJudgment)
+            WHERE hj.target_type = 'agenda'
+            MATCH (ag:Agenda)-[:`관할`]->(mg)
+            WHERE mg.id IN $ids AND ag.pg_id = hj.target_id
+            RETURN
+                mg.id AS meetingId,
+                hj.id AS id,
+                hj.pg_id AS pg_id,
+                hj.judgment AS judgment,
+                hj.reason AS reason,
+                hj.target_id AS target_id,
+                coalesce(ag.id, toString(ag.pg_id)) AS agenda_id,
+                toString(hj.judged_at) AS judged_at,
+                hj.version AS version
+            """,
+            {"ids": mg_ids_list},
+        )
+        seen_hj: set[str] = set()
+        for row in hj_rows:
+            mg_id = row.get("meetingId")
+            hj_id = row.get("id")
+            if not mg_id or mg_id not in meetings_map or not hj_id:
+                continue
+            if hj_id in seen_hj:
+                continue
+            seen_hj.add(hj_id)
+            meetings_map[mg_id]["human_judgments"].append({
+                "id":        hj_id,
+                "pg_id":     row.get("pg_id"),
+                "judgment":  row.get("judgment"),
+                "reason":    row.get("reason") or "",
+                "target_id": row.get("target_id"),
+                "agenda_id": row.get("agenda_id"),
+                "judged_at": row.get("judged_at"),
+                "version":   row.get("version"),
+            })
+    except Exception:
+        pass  # HumanJudgment 없어도 그래프 정상 반환
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
