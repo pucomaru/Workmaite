@@ -259,7 +259,7 @@ function closeAgendaDropdown() {
               <select v-model="uploadForm.meetingId" class="app-modal-input"
                 @change="prefilledCtx.meetingId = false; prefilledCtx.connectNodeId = false">
                 <option value="">회의체 선택...</option>
-                <option v-for="n in gNodes.filter(n => n.type === 'meeting_group')" :key="n.id" :value="n.id">{{ n.label }}</option>
+                <option v-for="n in gNodes.filter(n => n.type === 'Meetings')" :key="n.id" :value="n.id">{{ n.label }}</option>
               </select>
             </div>
             <div class="app-modal-field">

@@ -7,7 +7,7 @@ import DateInput from './DateInput.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
-  detailMeeting, isDetailAdmin, openGroupSetting,
+  detailMeeting, isDetailAdmin, isAnyAdmin, openGroupSetting, openNodeGroupSetting,
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate,
@@ -77,7 +77,7 @@ const sbTopImprovements = computed(() => {
           <div v-if="detailOpen" class="detail-sidebar" :style="{ width: sidebarW+'px' }">
           <div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
 
-          <!-- ── Header: meeting_group ── -->
+          <!-- ── Header: Meetings ── -->
           <template v-if="detailMeeting">
           <div class="detail-header">
             <div class="detail-header-icon">
@@ -480,20 +480,20 @@ const sbTopImprovements = computed(() => {
               <svg v-else-if="detailNode.type==='minutes'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <!-- 보고자료 -->
               <svg v-else-if="detailNode.type==='report'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-              <!-- 파일(하위호환) -->
-              <svg v-else-if="detailNode.type==='file'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <!-- 의사결정 -->
+              <svg v-else-if="detailNode.type==='human_judgment'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               <!-- 사람 -->
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
-              <button class="detail-icon-btn" @click="detailOpen=false" title="닫기">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              <button v-if="isAnyAdmin" class="detail-icon-btn" @click="openNodeGroupSetting" title="회의체 설정">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
             </div>
           </div>
@@ -694,7 +694,7 @@ const sbTopImprovements = computed(() => {
             </template>
 
             <!-- 파일(보고자료) -->
-            <template v-else-if="detailNode.type==='report' || detailNode.type==='file'">
+            <template v-else-if="detailNode.type==='report'">
               <div class="detail-section">
                 <div class="detail-info-grid">
                   <div class="detail-info-item">
@@ -857,6 +857,38 @@ const sbTopImprovements = computed(() => {
                   </div>
                 </div>
                 <div v-else class="detail-log-empty">할당된 과제 없음</div>
+              </div>
+            </template>
+
+            <!-- 의사결정 (human_judgment) -->
+            <template v-else-if="detailNode.type==='human_judgment'">
+              <div class="detail-section">
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">결정유형</span>
+                    <span class="detail-info-val">
+                      <span class="status-badge" :class="{
+                        'sb-done':     detailNode.data?.judgment==='approved',
+                        'sb-progress': detailNode.data?.judgment==='edited',
+                        'sb-pending':  detailNode.data?.judgment==='pending' || !detailNode.data?.judgment,
+                      }" :style="detailNode.data?.judgment==='rejected' ? 'background:rgba(239,68,68,.18);color:#f87171' : ''">
+                        {{ { approved:'승인', rejected:'반려', edited:'수정', pending:'검토중' }[detailNode.data?.judgment] || detailNode.data?.judgment || '-' }}
+                      </span>
+                    </span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">결정일시</span>
+                    <span class="detail-info-val">{{ detailNode.data?.judged_at ? formatDate(detailNode.data.judged_at) : '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">버전</span>
+                    <span class="detail-info-val">v{{ detailNode.data?.version || 1 }}</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="detailNode.data?.reason" class="detail-section">
+                <div class="detail-section-label">결정 사유</div>
+                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
               </div>
             </template>
 

@@ -220,8 +220,24 @@ async def get_report_score(
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
 
     rs = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+
+    report_info = {
+        "id": report.id,
+        "file_name": report.file_name,
+        "file_path": report.file_path,
+        "human_status": report.human_status,
+        "related_agenda_ids": report.related_agenda_ids or [],
+    }
+
+    # 아직 AI 검토가 없으면 빈 결과 반환 (404 대신 200)
     if not rs:
-        raise HTTPException(status_code=404, detail="저장된 검토 결과가 없습니다.")
+        return {
+            "score": None,
+            "detail_scores": {},
+            "top_improvements": [],
+            "feedback": [],
+            "report": report_info,
+        }
 
     feedback = rs.feedback.split("\n") if rs.feedback else []
     detail_scores = dict(rs.detail_scores or {})
@@ -231,13 +247,7 @@ async def get_report_score(
         "detail_scores": detail_scores,
         "top_improvements": top_improvements,
         "feedback": feedback,
-        "report": {
-            "id": report.id,
-            "file_name": report.file_name,
-            "file_path": report.file_path,
-            "human_status": report.human_status,
-            "related_agenda_ids": report.related_agenda_ids or [],
-        }
+        "report": report_info,
     }
 
 

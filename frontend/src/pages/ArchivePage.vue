@@ -79,7 +79,7 @@ function toggleGraphPanOnly() {
   graphPanOnly.value = graphViewRef.value?.togglePanOnly?.() ?? false
 }
 
-// ─── Search highlight (meeting_group nodes containing match) ──
+// ─── Search highlight (Meetings nodes containing match) ──
 const searchHitMgIdxs = ref([])
 
 function _recomputeSearchHits() {
@@ -90,7 +90,7 @@ function _recomputeSearchHits() {
   gNodes.forEach((n, i) => {
     const label = (n.label || '').toLowerCase()
     if (label.includes(lower)) { hits.push(i); return }
-    if (n.type === 'meeting_group' && n.data) {
+    if (n.type === 'Meetings' && n.data) {
       const g = n.data
       const inMinutes = (g.minutes || []).some(m => (m.session_title || '').toLowerCase().includes(lower))
       const inReports = (g.reports || []).some(r => (r.file_name || r.title || '').toLowerCase().includes(lower))
@@ -105,7 +105,7 @@ function _recomputeSearchHits() {
 watch(search, _recomputeSearchHits)
 
 // ─── Node type visibility (eye toggle) ───────────────────────
-const hiddenNodeTypes = ref([])  // array of type keys: 'org-root'|'meeting_group'|'dept'|'agenda'|'session'|'file'
+const hiddenNodeTypes = ref([])  // array of type keys: 'org-root'|'Meetings'|'dept'|'agenda'|'session'|'minutes'|'report'
 function toggleNodeType(typeKey) {
   const idx = hiddenNodeTypes.value.indexOf(typeKey)
   if (idx >= 0) hiddenNodeTypes.value.splice(idx, 1)
@@ -145,9 +145,9 @@ function _applyQueryHL(step) {
     }
     // 2) 타입 키워드 → 해당 타입만 flash (노드 확장 없음, PLANNING 시각 피드백용)
     if (newSet.size === 0) {
-      if (step.includes('회의체') || step.includes('라우팅')) gNodes.forEach((n,i)=>{ if(n.type==='meeting_group') newSet.add(i) })
+      if (step.includes('회의체') || step.includes('라우팅')) gNodes.forEach((n,i)=>{ if(n.type==='Meetings') newSet.add(i) })
       else if (step.includes('아젠다')) gNodes.forEach((n,i)=>{ if(n.type==='agenda') newSet.add(i) })
-      else if (step.includes('의사결정')) gNodes.forEach((n,i)=>{ if(n.type==='decision') newSet.add(i) })
+      else if (step.includes('의사결정')) gNodes.forEach((n,i)=>{ if(n.type==='human_judgment') newSet.add(i) })
       else if (step.includes('구성원') || step.includes('소속')) gNodes.forEach((n,i)=>{ if(n.type==='person') newSet.add(i) })
       else if (step.includes('세션') || step.includes('회의록')) gNodes.forEach((n,i)=>{ if(n.type==='session') newSet.add(i) })
     }
@@ -346,9 +346,9 @@ let floatDragStartX = 0, floatDragStartY = 0
 let floatDragMoved  = false
 
 const FLOAT_VALID_TYPES = {
-  meeting: ['meeting_group'],
-  session: ['meeting_group'],
-  doc:     ['meeting_group', 'dept', 'agenda'],
+  meeting: ['Meetings'],
+  session: ['Meetings'],
+  doc:     ['Meetings', 'dept', 'agenda'],
 }
 
 function onFloatBtnMouseDown(type, e) {
@@ -387,7 +387,7 @@ function _onFloatDragEnd() {
   if (type === 'meeting') {
     openCreateModal()
   } else if (type === 'session') {
-    const mgId = target?.type === 'meeting_group' ? toNumericId(target.id) : null
+    const mgId = target?.type === 'Meetings' ? toNumericId(target.id) : null
     openSessionModal(mgId ? meetingGroups.value.find(g => toNumericId(g.id) === mgId) : null)
   } else if (type === 'doc') {
     const ctx = {}
@@ -399,7 +399,7 @@ function _onFloatDragEnd() {
     } else if (target?.type === 'dept') {
       ctx.connectNodeId = target.id
       ctx.meetingId     = target.meetingGroupId || ''
-    } else if (target?.type === 'meeting_group') {
+    } else if (target?.type === 'Meetings') {
       ctx.meetingId = target.id
     }
     openUploadModal(ctx)
@@ -1037,11 +1037,11 @@ watch(() => uploadForm.value.meetingId, (id) => {
   if (pendingTodo) uploadForm.value.relatedTodoIds = [pendingTodo]
 })
 
-// connectNodeId가 meeting_group이면 meetingId 자동 동기화
+// connectNodeId가 Meetings이면 meetingId 자동 동기화
 watch(() => uploadForm.value.connectNodeId, (nodeId) => {
   if (!nodeId) return
   const node = gNodes.find(n => n.id === nodeId)
-  if (node?.type === 'meeting_group') {
+  if (node?.type === 'Meetings') {
     const mgData = node.data
     const rawId = mgData?.id ?? nodeId
     uploadForm.value.meetingId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
@@ -1072,6 +1072,7 @@ const REL_COLORS = {
   '생성':   '#c4b5fd',  // minutes → session
   '상위':   '#f9a8d4',  // meeting hierarchy
   '관련':   '#fcd34d',  // meeting → meeting
+  '판단':   '#22d3ee',  // human_judgment → minutes (의사결정)
 }
 // ── 소스 타입 × 대상 타입 → Neo4j 관계 자동 추론 ──────────────
 // 정방향 키 (from→to)로 관계와 Neo4j 방향 정의
@@ -1102,10 +1103,11 @@ const REL_MATRIX = {
   'session→minutes':             '산출',
   'session→report':              '산출',
   'session→session':             '후속',
-  // ── Decision ───────────────────────────────────────────────
-  'decision→session':            '근거',
-  'decision→agenda':             '원인',
-  'decision→meeting_group':      '근거',
+  // ── HumanJudgment ─────────────────────────────────────────
+  'human_judgment→session':      '근거',
+  'human_judgment→agenda':       '원인',
+  'human_judgment→meeting_group':'근거',
+  'human_judgment→minutes':      '판단',
   // ── Minutes (회의록) ────────────────────────────────────────
   'minutes→meeting_group':       '첨부',
   'minutes→agenda':              '도출',
@@ -1302,13 +1304,13 @@ const connectableNodes = computed(() => {
   groups.forEach(g => {
     const rawId = g.id
     const mgId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
-    result.push({ id: mgId, label:g.title, typeLabel:'회의체', type:'meeting_group' })
+    result.push({ id: mgId, label:g.title, typeLabel:'회의체', type:'Meetings' })
   })
   groups.forEach(g => (g.minutes||[]).forEach((m,i) => result.push({ id:`session-${g.id}-${i}`, sessionId: m.id, label:m.session_title||`${m.session_number||i+1}차 회의`, typeLabel:'회의', type:'session' })))
   return result
 })
 
-// ─── Upload: connectable nodes (meeting_group / dept / agenda) ──────────────
+// ─── Upload: connectable nodes (Meetings / dept / agenda) ──────────────
 const deptConnectableNodes = computed(() => {
   const seen = new Set()
   // 회의체 선택 시: 해당 회의체에 연결된 dept 노드만
@@ -1338,7 +1340,7 @@ const 업로드회의체과제 = computed(() => {
       agenda_id: n.data?.pg_id ?? null,
     }))
   }
-  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
+  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'Meetings')
   if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
   return []
 })
@@ -1549,8 +1551,8 @@ function doAddFile() {
   const fromIdx = fromNode ? gNodes.indexOf(fromNode) : -1
   const fileNodeId = `file-new-${Date.now()}`
 
-  // 연결 노드의 meeting_group을 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
-  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
+  // 연결 노드의 Meetings를 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
+  const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'Meetings')
 
   // 연관 과제(복수)가 선택된 경우 agenda 노드들에 연결, 아니면 부서 노드에 연결
   const relTodoIds = uploadForm.value.relatedTodoIds || []
@@ -1598,7 +1600,7 @@ function doAddFile() {
       }
     })
   } else if (anchorIdx >= 0) {
-    gEdges.push({ from: fileIdx, to: anchorIdx, rel: autoRel(uploadForm.value.connectNodeId, 'file') })
+    gEdges.push({ from: fileIdx, to: anchorIdx, rel: autoRel(uploadForm.value.connectNodeId, 'report') })
   }
 
   // AI가 추천한 유관부서 자동 연결
@@ -1907,7 +1909,7 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
 /** GraphView (PIXI) 노드 클릭 핸들러 */
 function onGraphNodeClick(node) {
   if (!node) return
-  if (node.type === 'meeting_group' && node.data) {
+  if (node.type === 'Meetings' && node.data) {
     openDetail(node.data)
   } else {
     openNodeDetail(node)
@@ -2170,10 +2172,22 @@ provide('archiveModals', {
   settingsModal, closeSettings, savingSettings, saveSettings,
 })
 
+/** 비-Meetings 노드(dept/agenda/세션 등) 헤더의 설정 버튼: 노드의 부모 회의체를 자동으로 찾아 설정을 엙니다. */
+async function openNodeGroupSetting() {
+  if (!detailNode.value) return
+  const mgId = detailNode.value.meetingGroupId || detailNode.value.neo4jId
+  if (!mgId) return
+  const mg = neo4jMeetings.value.find(m => m.id === mgId)
+  if (!mg) return
+  // detailMeeting을 일시적으로 설정하고 설정 모달 오픈
+  detailMeeting.value = mg
+  await openGroupSetting()
+}
+
 // ─── Provide for DetailSidebar ────────────────────────────────
 provide('archiveSidebar', {
   detailOpen, sidebarW, onSidebarResizeStart,
-  detailMeeting, isDetailAdmin, openGroupSetting,
+  detailMeeting, isDetailAdmin, isAnyAdmin, openGroupSetting, openNodeGroupSetting,
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate,
