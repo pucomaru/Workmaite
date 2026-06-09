@@ -1815,6 +1815,7 @@ const groupHistoryMap = computed(() => {
       rejected: r.human_status === 'rejected' || r.status === 'rejected',
       approved: r.human_status === 'approved' || r.status === 'approved',
       reportId: r.id,
+      aiFeedback: r.ai_feedback || null,
     })
     Object.values(rGroups).forEach(group => {
       group.sort((a, b) => (b.version || 1) - (a.version || 1))

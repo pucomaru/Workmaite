@@ -120,7 +120,23 @@
 .lv-sub-td-name { }
 .lv-sub-td { color:var(--dark-muted); }
 .lv-sub-td-etc { display:flex;align-items:center;gap:8px;white-space:nowrap; }
-.lv-sub-date { font-size:11px;color:var(--dark-muted); }
+.lv-sub-date { font-size:11px;color:var(--dark-muted);margin-right:12px; }
+.lv-feedback-icon { display:inline-flex;align-items:center;color:#f87171;cursor:default; }
+.lv-feedback-bubble {
+  position:fixed;
+  width:300px;
+  background:#0f172a;
+  border:1.5px solid #f87171;
+  border-radius:8px;
+  padding:12px 14px;
+  font-size:12px;
+  line-height:1.7;
+  color:#f1f5f9;
+  white-space:pre-wrap;
+  z-index:9999;
+  box-shadow:0 8px 32px rgba(0,0,0,.85);
+  pointer-events:none;
+}
 .lv-hist-rejected td { opacity:.55; }
 .lv-status-badge { display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600; }
 .lv-badge-rejected { background:#fef2f2;color:#ef4444;border:1px solid #fecaca; }
