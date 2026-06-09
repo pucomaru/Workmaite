@@ -845,8 +845,8 @@ async function downloadMinutesFile() {
           </div>
           <div v-if="expandedMeetingId === mtg.id" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
-            <div v-else-if="!mtg.sessions.length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
-            <div v-for="s in mtg.sessions" :key="s.id"
+            <div v-else-if="!mtg.sessions.filter(s => s.status !== 'ended').length" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">등록된 회의가 없습니다</div>
+            <div v-for="s in mtg.sessions.filter(s => s.status !== 'ended')" :key="s.id"
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
