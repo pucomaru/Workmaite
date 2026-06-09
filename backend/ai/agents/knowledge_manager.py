@@ -77,6 +77,18 @@ async def ensure_vector_indexes() -> None:
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
            }}""",
+        """CREATE VECTOR INDEX documentChunkEmbedding IF NOT EXISTS
+           FOR (c:DocumentChunk) ON (c.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
+        """CREATE VECTOR INDEX sessionEmbedding IF NOT EXISTS
+           FOR (m:Minutes) ON (m.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
     ]
     for q in index_queries:
         try:
@@ -249,7 +261,12 @@ async def store_report(
 
 
 
-async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -> List[dict]:
+async def search_knowledge(
+    query: str,
+    node_type: str = "Minutes",
+    k: int = 5,
+    source_type: Optional[str] = None,
+) -> List[dict]:
     from neo4j_client import run_cypher
 
     # PM 스키마 기준 인덱스명으로 통일
@@ -258,19 +275,32 @@ async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -
         "Agenda": "agendaEmbedding",
         "AIJudgment": "aiJudgmentEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
+        "DocumentChunk": "documentChunkEmbedding",
     }
     index_name = index_map.get(node_type, "minutes_embedding_index")
     embedding = await _embed(query)
 
     try:
-        rows = await run_cypher(
-            f"""CALL db.index.vector.queryNodes('{index_name}', $k, $embedding)
-                YIELD node, score
-                RETURN node.title AS title, node.content AS content,
-                       node.meeting_id AS meeting_id, score
-                ORDER BY score DESC""",
-            {"k": k, "embedding": embedding},
-        )
+        if source_type:
+            rows = await run_cypher(
+                f"""CALL db.index.vector.queryNodes('{index_name}', 50, $embedding)
+                    YIELD node, score
+                    WHERE node.source_type = $source_type
+                    RETURN node.title AS title, node.content AS content,
+                           node.meeting_id AS meeting_id, score
+                    ORDER BY score DESC
+                    LIMIT $k""",
+                {"k": k, "embedding": embedding, "source_type": source_type},
+            )
+        else:
+            rows = await run_cypher(
+                f"""CALL db.index.vector.queryNodes('{index_name}', $k, $embedding)
+                    YIELD node, score
+                    RETURN node.title AS title, node.content AS content,
+                           node.meeting_id AS meeting_id, score
+                    ORDER BY score DESC""",
+                {"k": k, "embedding": embedding},
+            )
         return rows
     except Exception:
         return []
@@ -283,17 +313,31 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
 
     Args:
         query: 검색할 키워드 또는 자연어 쿼리
-        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment)
+        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment / DocumentChunk)
     """
-    results = await search_knowledge(query, node_type=node_type, k=5)
-    if not results:
-        return "관련 자료를 찾지 못했습니다."
+    # DocumentChunk 요청 시 source_type="knowledge" 로 필터
+    src_type = "knowledge" if node_type == "DocumentChunk" else None
+    results = await search_knowledge(query, node_type=node_type, k=5, source_type=src_type)
+
+    # 업로드된 지식 문서(DocumentChunk/knowledge)를 항상 보조 검색
+    extra: List[dict] = []
+    if node_type != "DocumentChunk":
+        extra = await search_knowledge(query, node_type="DocumentChunk", source_type="knowledge", k=2)
+
     parts = []
-    for r in results[:5]:
+    for r in results[:4]:
         title = r.get("title") or ""
         content = r.get("content", "")[:250]
         score = float(r.get("score") or 0)
         parts.append(f"[{node_type}] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+    for r in extra[:2]:
+        title = r.get("title") or ""
+        content = r.get("content", "")[:250]
+        score = float(r.get("score") or 0)
+        parts.append(f"[DocumentChunk] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+
+    if not parts:
+        return "관련 자료를 찾지 못했습니다."
     return "\n\n---\n\n".join(parts)
 
 
