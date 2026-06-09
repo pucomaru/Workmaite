@@ -65,7 +65,7 @@ async def create_session(
         meeting_id=meeting_id,
         title=session.title or "",
         status=str(session.status or "scheduled"),
-        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        scheduled_at=session.scheduled_at.isoformat() + 'Z' if session.scheduled_at else None,
         location=session.location,
         description=session.description,
     )
@@ -102,7 +102,7 @@ async def update_session(
         meeting_id=meeting_id,
         title=session.title or "",
         status=str(session.status or "scheduled"),
-        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        scheduled_at=session.scheduled_at.isoformat() + 'Z' if session.scheduled_at else None,
         location=session.location,
         description=session.description,
     )

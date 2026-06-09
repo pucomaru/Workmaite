@@ -411,30 +411,35 @@ async def get_archive(
     # ── Postgres 보완: 모든 회의체의 reports를 PostgreSQL에서 채움 ──
     all_raw_ids = [int(mid.replace("mg-", "")) for mid in meetings_map.keys() if mid.replace("mg-", "").isdigit()]
     if all_raw_ids:
-        from sqlalchemy import outerjoin
         rows = (
-            db.query(models.Report, models.HitlReview)
+            db.query(models.Report, models.HitlReview, models.ReportScore)
             .outerjoin(
                 models.HitlReview,
                 (models.HitlReview.target_type == "report") &
                 (models.HitlReview.target_id == models.Report.id),
             )
+            .outerjoin(
+                models.ReportScore,
+                models.ReportScore.report_id == models.Report.id,
+            )
             .filter(models.Report.meeting_id.in_(all_raw_ids))
             .all()
         )
-        for r, hr in rows:
+        for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
             if sid in meetings_map:
                 meetings_map[sid]["reports"].append({
                     "id": r.id,
+                    "parent_id": r.parent_id,
                     "meetingId": sid,
                     "file_name": r.file_name,
                     "file_path": r.file_path,
                     "human_status": r.human_status,
                     "version": r.version,
                     "submitter_department": r.submitter_department,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "reviewed_at": hr.reviewed_at.isoformat() if hr and hr.reviewed_at else None,
+                    "score": rs.total_score if rs and rs.total_score is not None else None,
+                    "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
+                    "reviewed_at": hr.reviewed_at.isoformat() + 'Z' if hr and hr.reviewed_at else None,
                     "related_agenda_ids": r.related_agenda_ids or [],
                 })
 
@@ -457,8 +462,8 @@ async def get_archive(
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
                 "description": m.description,
-                "start_date": m.start_date.isoformat() if m.start_date else None,
-                "end_date": m.end_date.isoformat() if m.end_date else None,
+                "start_date": m.start_date.isoformat() + 'Z' if m.start_date else None,
+                "end_date": m.end_date.isoformat() + 'Z' if m.end_date else None,
                 "members": [
                     {
                         "meetingId": sid, "userId": f"user-{u.id}",
@@ -478,7 +483,7 @@ async def get_archive(
                         "file_path": r.file_path,
                         "human_status": r.human_status,
                         "submitter_department": r.submitter_department,
-                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                        "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
                         "related_agenda_ids": r.related_agenda_ids or [],
                     }
                     for r in db.query(models.Report).filter(
