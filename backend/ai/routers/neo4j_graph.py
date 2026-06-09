@@ -226,6 +226,7 @@ async def get_archive(
                     mn.content_summary AS content_summary,
                     mn.file_name AS minutes_file_name,
                     mn.status AS minutes_status,
+                    mn.pg_id AS minutes_pg_id,
                     toString(mn.generated_at) AS generated_at
                 """,
                 {"ids": mg_ids_list},
@@ -342,6 +343,7 @@ async def get_archive(
                 "content_summary": row.get("content_summary"),
                 "minutes_file_name": row.get("minutes_file_name"),
                 "minutes_status": row.get("minutes_status"),
+                "minutes_pg_id": row.get("minutes_pg_id"),
                 "generated_at": row.get("generated_at"),
             })
 

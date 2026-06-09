@@ -26,6 +26,9 @@ const {
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
+  agendaEditModal, closeAgendaEdit, savingAgendaEdit, saveAgendaEdit,
+  reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
+  minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 } = inject('archiveSidebar')
 
 // ── 보고자료 레이더 차트 ─────────────────────────────────────────
@@ -568,15 +571,24 @@ const sbTopImprovements = computed(() => {
                     <span class="detail-info-key">상태</span>
                     <span class="detail-info-val">
                       <span class="status-badge" :class="{
-                        'sb-done': detailNode.data?.status==='완료' || detailNode.data?.status==='done',
-                        'sb-progress': detailNode.data?.status==='진행' || detailNode.data?.status==='진행중' || detailNode.data?.status==='in_progress',
-                        'sb-pending': detailNode.data?.status==='대기' || detailNode.data?.status==='pending' || !detailNode.data?.status
-                      }">{{ detailNode.data?.status || '-' }}</span>
+                        'sb-done':     detailNode.data?.status==='완료' || detailNode.data?.status==='done',
+                        'sb-progress': detailNode.data?.status==='진행' || detailNode.data?.status==='진행중' || detailNode.data?.status==='in_progress' || detailNode.data?.status==='ongoing',
+                        'sb-pending':  detailNode.data?.status==='대기' || detailNode.data?.status==='pending' || !detailNode.data?.status
+                      }">{{ { done:'완료', ongoing:'진행중', in_progress:'진행중', pending:'대기', 완료:'완료', 진행중:'진행중', 진행:'진행중', 대기:'대기' }[detailNode.data?.status] || detailNode.data?.status || '-' }}</span>
                     </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">우선순위</span>
-                    <span class="detail-info-val">{{ { high:'상', medium:'중', low:'하', 상:'상', 중:'중', 하:'하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                    <span class="detail-info-val">
+                      <span class="status-badge" :class="{
+                        'sb-critical': detailNode.data?.priority==='critical',
+                        'sb-high':     detailNode.data?.priority==='high' || detailNode.data?.priority==='상',
+                        'sb-medium':   detailNode.data?.priority==='medium' || detailNode.data?.priority==='중',
+                        'sb-low':      detailNode.data?.priority==='low' || detailNode.data?.priority==='하',
+                        'sb-minimal':  detailNode.data?.priority==='minimal',
+                        'sb-pending':  !detailNode.data?.priority
+                      }">{{ { critical:'^^  최상', high:'^   상', medium:'-   중', low:'v   하', minimal:'vv  최하', 상:'^   상', 중:'-   중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                    </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">발생일</span>

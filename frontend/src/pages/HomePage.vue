@@ -315,7 +315,6 @@ const meetingColumns = [
   { label: '유형', width: '90px', sortKey: 'meeting_type' },
   { label: '담당자', width: '90px', sortKey: 'owner_name' },
   { label: '마감일', width: '110px', sortKey: 'due_date' },
-  { label: '우선순위', width: '80px', sortKey: 'priority' },
 ]
 
 const upcomingSessions = computed(() => {

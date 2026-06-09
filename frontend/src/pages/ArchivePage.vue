@@ -11,6 +11,9 @@ import CreateMeetingModal from '../components/CreateMeetingModal.vue'
 import CreateSessionModal from '../components/CreateSessionModal.vue'
 import UploadModal from '../components/UploadModal.vue'
 import SettingsModal from '../components/SettingsModal.vue'
+import AgendaEditModal from '../components/AgendaEditModal.vue'
+import ReportEditModal from '../components/ReportEditModal.vue'
+import MinutesEditModal from '../components/MinutesEditModal.vue'
 import { useRouter } from 'vue-router'
 import api, { apiAI, streamPostForm } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
@@ -2229,9 +2232,185 @@ provide('archiveModals', {
   settingsModal, closeSettings, savingSettings, saveSettings,
 })
 
-/** 비-Meetings 노드(dept/agenda/세션 등) 헤더의 설정 버튼: 노드의 부모 회의체를 자동으로 찾아 설정을 엙니다. */
+// ─── Agenda 편집 모달 ─────────────────────────────────────────
+const agendaEditModal = ref(null)  // { agendaId, form: { title, department, due_date, priority } }
+const savingAgendaEdit = ref(false)
+
+function openAgendaEditModal() {
+  if (!detailNode.value || detailNode.value.type !== 'agenda') return
+  const d = detailNode.value.data || {}
+  const deptVal = Array.isArray(d.department) ? (d.department[0] || '') : (d.department || d.assignee_dept || '')
+  agendaEditModal.value = {
+    agendaId: d.id || detailNode.value.neo4jId,
+    form: {
+      title:      d.content || d.title || detailNode.value.label || '',
+      department: deptVal,
+      due_date:   d.due_date ? String(d.due_date).slice(0, 10) : '',
+      priority:   d.priority || 'medium',
+      status:     ['pending','ongoing','done'].includes(d.status) ? d.status : 'pending',
+    },
+  }
+}
+
+function closeAgendaEdit() { agendaEditModal.value = null }
+
+async function saveAgendaEdit() {
+  if (!agendaEditModal.value) return
+  const { agendaId, form } = agendaEditModal.value
+  const numId = typeof agendaId === 'string'
+    ? parseInt(agendaId.replace('agenda-', ''), 10)
+    : Number(agendaId)
+  if (!numId || isNaN(numId)) return
+  savingAgendaEdit.value = true
+  try {
+    const { data } = await apiAI.patch(`/api/agent/archive/agendas/${numId}`, {
+      title:      form.title.trim(),
+      department: form.department.trim() || null,
+      due_date:   form.due_date || null,
+      priority:   form.priority || 'medium',
+      status:     form.status || 'ongoing',
+    })
+    // detailNode 즉시 업데이트
+    if (detailNode.value) {
+      detailNode.value = {
+        ...detailNode.value,
+        label: data.title,
+        data: {
+          ...detailNode.value.data,
+          content:    data.title,
+          title:      data.title,
+          department: data.department,
+          due_date:   data.due_date,
+          priority:   data.priority,
+          status:     data.status,
+        },
+      }
+    }
+    agendaEditModal.value = null
+    setTimeout(refreshArchive, 600)
+  } catch (e) {
+    console.error('[saveAgendaEdit]', e)
+  } finally {
+    savingAgendaEdit.value = false
+  }
+}
+
+// ─── 보고자료 편집 모달 ───────────────────────────────────────────────────────
+const reportEditModal = ref(null)
+const savingReportEdit = ref(false)
+
+function openReportEditModal() {
+  if (!detailNode.value || detailNode.value.type !== 'report') return
+  const d = detailNode.value.data || {}
+  reportEditModal.value = {
+    reportId: d.id,
+    form: {
+      file_name:            d.file_name || detailNode.value.label || '',
+      submitter_department: d.submitter_department || d.department || '',
+      human_status:         ['pending','approved','rejected'].includes(d.human_status) ? d.human_status : 'pending',
+    },
+  }
+}
+
+function closeReportEdit() { reportEditModal.value = null }
+
+async function saveReportEdit() {
+  if (!reportEditModal.value) return
+  const { reportId, form } = reportEditModal.value
+  const numId = Number(reportId)
+  if (!numId || isNaN(numId)) return
+  savingReportEdit.value = true
+  try {
+    const { data } = await apiAI.patch(`/api/agent/archive/reports/${numId}`, {
+      file_name:            form.file_name.trim() || null,
+      submitter_department: form.submitter_department.trim() || null,
+      human_status:         form.human_status || 'pending',
+    })
+    if (detailNode.value) {
+      detailNode.value = {
+        ...detailNode.value,
+        label: data.file_name || detailNode.value.label,
+        data: { ...detailNode.value.data, file_name: data.file_name, submitter_department: data.submitter_department, human_status: data.human_status },
+      }
+    }
+    reportEditModal.value = null
+    setTimeout(refreshArchive, 600)
+  } catch (e) {
+    console.error('[saveReportEdit]', e)
+  } finally {
+    savingReportEdit.value = false
+  }
+}
+
+// ─── 회의록 편집 모달 ─────────────────────────────────────────────────────────
+const minutesEditModal = ref(null)
+const savingMinutesEdit = ref(false)
+
+function openMinutesEditModal() {
+  if (!detailNode.value || detailNode.value.type !== 'minutes') return
+  const d = detailNode.value.data || {}
+  // session_neo_id 형식: "session-{pg_id}" → pg session id 추출
+  const sessionNeoId = d.session_neo_id || ''
+  const sessionPgId = parseInt(String(sessionNeoId).replace('session-', ''), 10) || null
+  minutesEditModal.value = {
+    minutesId: d.minutes_pg_id || null,
+    sessionId: sessionPgId,
+    form: {
+      file_name: d.file_name || d.minutes_file_name || detailNode.value.label || '',
+      status:    ['DRAFT','completed'].includes(d.minutes_status) ? d.minutes_status : 'DRAFT',
+    },
+  }
+}
+
+function closeMinutesEdit() { minutesEditModal.value = null }
+
+async function saveMinutesEdit() {
+  if (!minutesEditModal.value) return
+  const { minutesId, sessionId, form } = minutesEditModal.value
+  const numId = Number(minutesId)
+  const numSessionId = Number(sessionId)
+  // minutesId 또는 sessionId 중 하나라도 있어야 저장 가능
+  if ((!numId || isNaN(numId)) && (!numSessionId || isNaN(numSessionId))) return
+  savingMinutesEdit.value = true
+  const endpoint = (numId && !isNaN(numId))
+    ? `/api/agent/archive/minutes/${numId}`
+    : `/api/agent/archive/minutes/by-session/${numSessionId}`
+  try {
+    const { data } = await apiAI.patch(endpoint, {
+      file_name: form.file_name.trim() || null,
+      status:    form.status || 'DRAFT',
+    })
+    if (detailNode.value) {
+      detailNode.value = {
+        ...detailNode.value,
+        label: data.file_name || detailNode.value.label,
+        data: { ...detailNode.value.data, file_name: data.file_name, minutes_status: data.status },
+      }
+    }
+    minutesEditModal.value = null
+    setTimeout(refreshArchive, 600)
+  } catch (e) {
+    console.error('[saveMinutesEdit]', e)
+  } finally {
+    savingMinutesEdit.value = false
+  }
+}
+
+/** 비-Meetings 노드(dept/agenda/세션 등) 헤더의 설정 버튼: 아젠다면 아젠다 편집 모달, 아니면 부모 회의체 설정 모달 */
 async function openNodeGroupSetting() {
   if (!detailNode.value) return
+  if (detailNode.value.type === 'agenda') {
+    openAgendaEditModal()
+    return
+  }
+  if (detailNode.value.type === 'report') {
+    openReportEditModal()
+    return
+  }
+  if (detailNode.value.type === 'minutes') {
+    openMinutesEditModal()
+    return
+  }
   const mgId = detailNode.value.meetingGroupId || detailNode.value.neo4jId
   if (!mgId) return
   const mg = neo4jMeetings.value.find(m => m.id === mgId)
@@ -2263,6 +2442,9 @@ provide('archiveSidebar', {
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
+  agendaEditModal, closeAgendaEdit, savingAgendaEdit, saveAgendaEdit,
+  reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
+  minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 })
 </script>
 
@@ -2422,6 +2604,27 @@ provide('archiveSidebar', {
   </div><!-- /archive-page -->
   <UploadModal />
   <SettingsModal />
+  <AgendaEditModal
+    :modal="agendaEditModal"
+    :night-mode="nightMode"
+    :saving="savingAgendaEdit"
+    @close="closeAgendaEdit"
+    @save="saveAgendaEdit"
+  />
+  <ReportEditModal
+    :modal="reportEditModal"
+    :night-mode="nightMode"
+    :saving="savingReportEdit"
+    @close="closeReportEdit"
+    @save="saveReportEdit"
+  />
+  <MinutesEditModal
+    :modal="minutesEditModal"
+    :night-mode="nightMode"
+    :saving="savingMinutesEdit"
+    @close="closeMinutesEdit"
+    @save="saveMinutesEdit"
+  />
 </template>
 
 <style>
