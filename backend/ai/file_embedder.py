@@ -201,10 +201,13 @@ async def embed_and_store(
     meeting_id: int | None = None,
     source_id: str | None = None,
 ) -> int:
-    """파일에서 텍스트 추출 → 청킹 → 임베딩 → Neo4j DocumentChunk 저장.
+    """파일에서 텍스트 추출 → 청킹 → 임베딩 → Neo4j 저장.
 
-    모든 context_type을 DocumentChunk 노드 / documentChunkEmbedding 인덱스에 저장.
-    source_type 프로퍼티에 context_type 값을 그대로 기록.
+    context_type에 따라 노드 레이블이 결정됩니다:
+      report            → ReportChunk
+      minutes           → MinutesChunk
+      agenda / archive  → AgendaChunk
+      knowledge / 기타  → KnowledgeChunk
     """
     from neo4j_client import run_cypher
 
@@ -225,8 +228,10 @@ async def embed_and_store(
         node_label = "ReportChunk"
     elif context_type == "minutes":
         node_label = "MinutesChunk"
+    elif context_type in ("agenda", "archive"):
+        node_label = "AgendaChunk"
     else:
-        node_label = "DocumentChunk"
+        node_label = "KnowledgeChunk"
 
     stored = 0
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
@@ -235,7 +240,6 @@ async def embed_and_store(
 MERGE (c:{node_label} {{id: $id}})
 SET c.content     = $content,
     c.source      = $source,
-    c.source_type = $source_type,
     c.meeting_id  = $meeting_id,
     c.chunk_index = $chunk_index
 CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
@@ -244,7 +248,6 @@ CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
             "id": chunk_id,
             "content": chunk[:500],
             "source": filename,
-            "source_type": context_type,
             "meeting_id": meeting_id,
             "chunk_index": i,
             "embedding": embedding,
@@ -264,7 +267,7 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
         except Exception as e:
             logger.error(f"[Embedder] 청크 저장 실패 (id={chunk_id}): {e}")
 
-    logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (source_type={context_type})")
+    logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (context_type={context_type})")
     return stored
 
 
