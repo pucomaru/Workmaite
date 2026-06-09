@@ -8,7 +8,7 @@ const {
 } = inject('archiveModals')
 </script>
 
-<template>
+<template> 
   <Teleport to="body">
     <div v-if="settingsModal" class="app-modal-backdrop">
       <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
