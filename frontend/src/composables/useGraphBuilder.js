@@ -227,6 +227,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
             // minutes 정보
             content_summary: m.content_summary,
             minutes_status: m.minutes_status,
+            minutes_pg_id: m.minutes_pg_id,
             generated_at: m.generated_at,
           }
         })

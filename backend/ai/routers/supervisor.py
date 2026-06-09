@@ -1747,6 +1747,63 @@ async def get_meeting_agendas(
     ]
 
 
+# ─── 아젠다 상세 수정 (제목/부서/마감일/우선순위) ───────────────────────────
+@router.patch("/archive/agendas/{agenda_id}")
+async def update_agenda(
+    agenda_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
+    if not agenda:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Agenda not found")
+    if "title" in data and data["title"] is not None:
+        agenda.title = data["title"]
+    if "department" in data:
+        raw_dept = data["department"]
+        agenda.department = [raw_dept] if raw_dept else None
+    if "due_date" in data:
+        if data["due_date"]:
+            from datetime import datetime as _dt
+            try:
+                agenda.due_date = _dt.strptime(data["due_date"][:10], "%Y-%m-%d")
+            except Exception:
+                pass
+        else:
+            agenda.due_date = None
+    if "priority" in data and data["priority"] is not None:
+        agenda.priority = data["priority"]
+    if "status" in data and data["status"] is not None:
+        agenda.status = data["status"]
+    db.commit()
+    db.refresh(agenda)
+    # Neo4j 동기화
+    from neo4j_sync import sync_agenda as _sync_ag
+    dept_str = (agenda.department[0] if isinstance(agenda.department, list) and agenda.department else (agenda.department or ""))
+    background_tasks.add_task(
+        _sync_ag,
+        agenda_id=agenda.id,
+        meeting_id=agenda.meeting_id,
+        title=agenda.title,
+        status=agenda.status or "ongoing",
+        priority=agenda.priority or "medium",
+        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
+        department=dept_str,
+    )
+    return {
+        "ok": True,
+        "id": agenda.id,
+        "title": agenda.title,
+        "department": agenda.department,
+        "due_date": agenda.due_date.isoformat() if agenda.due_date else None,
+        "priority": agenda.priority,
+        "status": agenda.status,
+    }
+
+
 # ─── 아젠다 상태 변경 (완료/진행 등) ─────────────────────────────────────────
 @router.patch("/archive/agendas/{agenda_id}/status")
 async def update_agenda_status(
@@ -1763,6 +1820,125 @@ async def update_agenda_status(
     agenda.status = new_status
     db.commit()
     return {"ok": True, "status": new_status}
+
+
+# ─── 보고자료 편집 ────────────────────────────────────────────────────────────
+@router.patch("/archive/reports/{report_id}")
+async def update_report(
+    report_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if "file_name" in data and data["file_name"] is not None:
+        report.file_name = data["file_name"]
+    if "submitter_department" in data and data["submitter_department"] is not None:
+        report.submitter_department = data["submitter_department"]
+    if "human_status" in data and data["human_status"] is not None:
+        report.human_status = data["human_status"]
+    db.commit()
+    db.refresh(report)
+    from neo4j_sync import sync_report as _sync_rp
+    background_tasks.add_task(
+        _sync_rp,
+        report_id=report.id,
+        meeting_id=report.meeting_id,
+        file_name=report.file_name,
+        file_path=report.file_path,
+        submitter_department=report.submitter_department,
+        human_status=report.human_status,
+        related_agenda_ids=report.related_agenda_ids or [],
+    )
+    return {
+        "ok": True,
+        "id": report.id,
+        "file_name": report.file_name,
+        "submitter_department": report.submitter_department,
+        "human_status": report.human_status,
+    }
+
+
+# ─── 회의록 편집 (session_id 기반 lookup) ────────────────────────────────────
+@router.patch("/archive/minutes/by-session/{session_id}")
+async def update_minutes_by_session(
+    session_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="Minutes not found for session")
+    if "file_name" in data and data["file_name"] is not None:
+        minutes.file_name = data["file_name"]
+    if "status" in data and data["status"] is not None:
+        minutes.status = data["status"]
+    db.commit()
+    db.refresh(minutes)
+    from neo4j_sync import sync_minutes as _sync_mn
+    background_tasks.add_task(
+        _sync_mn,
+        minutes_id=minutes.id,
+        session_id=minutes.session_id,
+        file_name=minutes.file_name,
+        file_path=minutes.file_path,
+        recorder_id=minutes.recorder_id,
+        content_summary=minutes.content_summary,
+        content_original=minutes.content_original,
+        status=minutes.status,
+    )
+    return {
+        "ok": True,
+        "id": minutes.id,
+        "file_name": minutes.file_name,
+        "status": minutes.status,
+    }
+
+
+# ─── 회의록 편집 ──────────────────────────────────────────────────────────────
+@router.patch("/archive/minutes/{minutes_id}")
+async def update_minutes(
+    minutes_id: int,
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    minutes = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="Minutes not found")
+    if "file_name" in data and data["file_name"] is not None:
+        minutes.file_name = data["file_name"]
+    if "status" in data and data["status"] is not None:
+        minutes.status = data["status"]
+    db.commit()
+    db.refresh(minutes)
+    from neo4j_sync import sync_minutes as _sync_mn
+    background_tasks.add_task(
+        _sync_mn,
+        minutes_id=minutes.id,
+        session_id=minutes.session_id,
+        file_name=minutes.file_name,
+        file_path=minutes.file_path,
+        recorder_id=minutes.recorder_id,
+        content_summary=minutes.content_summary,
+        content_original=minutes.content_original,
+        status=minutes.status,
+    )
+    return {
+        "ok": True,
+        "id": minutes.id,
+        "file_name": minutes.file_name,
+        "status": minutes.status,
+    }
 
 
 # ─── 아젠다 삭제 ──────────────────────────────────────────────────────────────

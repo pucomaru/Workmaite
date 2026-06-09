@@ -199,6 +199,11 @@
 .sb-done { background:rgba(16,185,129,.18);color:#10b981; }
 .sb-progress { background:rgba(59,130,246,.18);color:var(--accent); }
 .sb-pending { background:rgba(100,116,139,.18);color:var(--dark-muted); }
+.sb-critical { background:rgba(239,68,68,.18);color:#ef4444; }
+.sb-high { background:rgba(249,115,22,.18);color:#f97316; }
+.sb-medium { background:rgba(245,158,11,.18);color:#f59e0b; }
+.sb-low { background:rgba(16,185,129,.18);color:#10b981; }
+.sb-minimal { background:rgba(107,114,128,.18);color:#6b7280; }
 .node-feedback-list { margin:4px 0 0 12px;padding:0;list-style:disc;display:flex;flex-direction:column;gap:4px; }
 .node-feedback-list li { font-size:12px;color:var(--dark-muted);line-height:1.45; }
 .day-mode .node-member-name { color:var(--dark-card); }

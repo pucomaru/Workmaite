@@ -390,7 +390,7 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
 .app-modal-close { width:28px;height:28px;border-radius:7px;border:none;background:#f1f5f9;color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0; }
 .app-modal-close:hover { background:#e2e8f0;color:#1e293b; }
 .app-modal-body { padding:8px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:72vh; }
-.app-modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:12px 20px 16px;border-top:1px solid #e2e8f0;flex-shrink:0; }
+.app-modal-footer { display:flex;gap:8px;justify-content:flex-end;padding:8px 20px 8px;border-top:1px solid #e2e8f0;flex-shrink:0; }
 .app-modal-field { display:flex;flex-direction:column;gap:5px; }
 .app-modal-field label { font-size:12px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.04em; }
 .app-modal-field-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }

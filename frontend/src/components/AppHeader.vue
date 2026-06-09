@@ -367,7 +367,7 @@ async function saveProfileSettings() {
               </div>
               <!-- 이메일 (readonly) -->
               <div class="app-modal-field">
-                <label>이메일 <span class="ps-readonly-tag">변경 불가</span></label>
+                <label>이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
                 <input :value="auth.user?.email" class="form-control" readonly style="background:var(--surface);color:var(--dark-muted)" />
               </div>
               <!-- 비밀번호 -->
