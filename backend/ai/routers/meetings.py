@@ -394,8 +394,8 @@ def my_role(
 ai_router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
-@ai_router.get("/organization/members")
-def organization_members(
+@ai_router.get("/company/members")
+def company_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

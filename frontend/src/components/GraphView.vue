@@ -25,29 +25,31 @@ const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
 // ─── Constants ────────────────────────────────────────────────
 const NODE_COLORS = {
-  'org-root':      0xf472b6,
   'meeting_group': 0x3b82f6,
   'agenda':        0xf59e0b,
   'session':       0xf97316,
+  'minutes':       0x60a5fa,
+  'report':        0x34d399,
   'file':          0x64748b,
   'dept':          0x8b5cf6,
   'person':        0xf472b6,
   'company':       0x0d9488,
 }
 const NODE_RADIUS = {
-  'org-root':      13,
-  'meeting_group': 13,
-  'agenda':        12,
-  'session':       12,
-  'file':          12,
-  'dept':          12,
-  'person':        12,
-  'company':       12,
+  'meeting_group': 11,
+  'agenda':        10,
+  'session':       10,
+  'minutes':       10,
+  'report':        10,
+  'file':          10,
+  'dept':          10,
+  'person':        10,
+  'company':       10,
 }
-// 백링크(inbound) 기반 노드 크기 (옵시디언 스타일)
+// inbound 기반 노드 크기
 const BACKLINK_STEP = 2.4   // 백링크 1개당 가중치
-const BACKLINK_MAX  = 18    // 최대 추가 반경
-const SELF_RADIUS   = 16    // "나" 노드 고정 반경
+const BACKLINK_MAX  = 28    // 최대 추가 반경
+const SELF_RADIUS   = 11    // "나" 노드 고정 반경
 
 // ─── Refs ─────────────────────────────────────────────────────
 const containerRef = ref(null)
@@ -172,7 +174,7 @@ function buildSimulation(nodes, edges) {
     return {
       _idx:  i,
       id:    n.id,
-      type:  n.id === 'org-root' ? 'org-root' : n.type,
+      type:  n.type,
       ended: n.ended ?? false,
       x:    prev ? prev.x : w / 2 + (Math.random() - 0.5) * 200,
       y:    prev ? prev.y : h / 2 + (Math.random() - 0.5) * 200,
@@ -194,12 +196,8 @@ function buildSimulation(nodes, edges) {
 
   if (sim) sim.stop()
 
-  // Strength per node type — org-root는 자유롭게 이동
+  // Strength per node type
   const chargeStr = (d) => {
-    if (d.type === 'meeting_group') return -800
-    if (d.type === 'dept')         return -300
-    if (d.type === 'company')      return -200
-    if (d.type === 'org-root')     return -200
     return -160
   }
 
@@ -265,7 +263,7 @@ function rebuildNodeObjects() {
   nodeObjs.clear()
 
   props.gNodes.forEach((n, i) => {
-    const type = n.id === 'org-root' ? 'org-root' : n.type
+    const type = n.type
     const r = nodeRadiusForIdx(i, type, n.id)
 
     // Graphics
@@ -365,12 +363,7 @@ function drawNode(obj, sn) {
 
 function drawIcon(gfx, type, r) {
   const ic = 0xffffff
-  if (type === 'org-root') {
-    // person silhouette
-    gfx.circle(0, -r * 0.22, r * 0.22).fill({ color: ic, alpha: 0.9 })
-    gfx.arc(0, r * 0.08 + r * 0.29 * 0.7, r * 0.29, Math.PI, Math.PI * 2)
-    gfx.fill({ color: ic, alpha: 0.9 })
-  } else if (type === 'meeting_group') {
+  if (type === 'meeting_group') {
     // no extra icon — label centered inside
   } else if (type === 'agenda') {
     // checkmark
@@ -387,13 +380,19 @@ function drawIcon(gfx, type, r) {
     const cr = r * 0.09
     gfx.circle(fx + cw * 0.28, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
     gfx.circle(fx + cw * 0.72, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
-  } else if (type === 'file') {
-    // folded doc
+  } else if (type === 'file' || type === 'minutes' || type === 'report') {
+    // folded doc — minutes: plain, report: with line accent
     const fw = r * 0.44, fh = r * 0.56, fold = fw * 0.3
     const fx = -fw / 2, fy = -fh / 2
     gfx.moveTo(fx, fy).lineTo(fx + fw - fold, fy).lineTo(fx + fw, fy + fold)
       .lineTo(fx + fw, fy + fh).lineTo(fx, fy + fh).closePath()
     gfx.stroke({ color: ic, width: Math.max(1, r * 0.08), alpha: 0.9 })
+    if (type === 'report') {
+      // 가로선 2개로 보고서 느낌
+      const lx1 = fx + fw * 0.18, lx2 = fx + fw * 0.82, ly1 = fy + fh * 0.52, ly2 = fy + fh * 0.7
+      gfx.moveTo(lx1, ly1).lineTo(lx2, ly1).stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.7 })
+      gfx.moveTo(lx1, ly2).lineTo(lx2, ly2).stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.7 })
+    }
   } else if (type === 'dept') {
     // two-people icon
     const shr = r * 0.13, sbr = r * 0.16, shx = -r * 0.24, shy = -r * 0.14
@@ -467,7 +466,7 @@ function tick() {
   const hidSet = new Set(props.hiddenNodeTypes)
   const isHidden = (i) => {
     const n = props.gNodes[i]; if (!n) return false
-    return hidSet.has(n.id === 'org-root' ? 'org-root' : n.type)
+    return hidSet.has(n.type)
   }
 
   simEdges.forEach((e, ei) => {

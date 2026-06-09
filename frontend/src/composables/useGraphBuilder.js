@@ -5,8 +5,8 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
 
     // ── 반경 정의 (Neo4j 그래프 온톨로지 계층 반영) ─────────────
     // Organization(중심) → MeetingGroup → Department/Person → Agenda/Session → Minutes(file)
-    const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920 }
-    const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12 }
+    const R = { meeting_group: 240, dept: 400, person: 340, agenda: 580, session: 750, file: 920, minutes: 920, report: 920 }
+    const Y = { org: 0, meeting_group: 0, dept: -15, person: -50, agenda: 20, session: 30, file: 12, minutes: 12, report: -3 }
     const TWO_PI = Math.PI * 2
 
     // ── Organization 노드 (그래프 중심) ────────────────────────────
@@ -188,7 +188,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const sIdx = nodes.length
         nodes.push({
           id: `session-${g.id || gi}-${mi}`,
-          label: m.session_title || `${m.session_number || mi + 1}차 회의`, type: 'session',
+          label: m.session_title || `${mi + 1}차 회의`, type: 'session',
           x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
           groupIdx: gi, data: { ...m, participants: g.members || [] },
           neo4jId: m.id || null,
@@ -204,16 +204,30 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         // ── Document 노드 (회의록): session -[PRODUCED]→ document
         const dIdx = nodes.length
         nodes.push({
-          id: `file-min-${g.id || gi}-${mi}`,
-          label: m.session_title || `${m.session_number || mi + 1}차 회의록`, type: 'file', fileType: '회의록',
-          x: Math.cos(sAng) * R.file, y: Y.file, z: Math.sin(sAng) * R.file, groupIdx: gi,
+          id: `minutes-${g.id || gi}-${mi}`,
+          label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`, type: 'minutes',
+          x: Math.cos(sAng) * R.minutes, y: Y.minutes, z: Math.sin(sAng) * R.minutes, groupIdx: gi,
           data: {
             title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
-            doc_type: m.doc_type || '회의록',
+            doc_type: '회의록',
             author: m.doc_author,
             created_at: m.doc_created_at || m.ended_at || m.date,
-            file_name: m.file_name,
+            file_name: m.minutes_file_name || m.file_name,
             session_neo_id: m.id,
+            // meeting_sessions 정보
+            session_title: m.session_title,
+            session_number: m.session_number,
+            date: m.date,
+            started_at: m.started_at,
+            ended_at: m.ended_at,
+            session_type: m.session_type,
+            description: m.description,
+            location: m.location,
+            session_status: m.session_status,
+            // minutes 정보
+            content_summary: m.content_summary,
+            minutes_status: m.minutes_status,
+            generated_at: m.generated_at,
           }
         })
         edges.push({ from: sIdx, to: dIdx, rel: '산출' })
@@ -234,8 +248,8 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const rAng = bAng + (ri - (visibleReports.length - 1) / 2) * 0.12
         const rIdx = nodes.length
         nodes.push({
-          id: `file-rep-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'file', fileType: '보고자료',
-          x: Math.cos(rAng) * R.file, y: Y.file - 15, z: Math.sin(rAng) * R.file, groupIdx: gi,
+          id: `report-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'report',
+          x: Math.cos(rAng) * R.report, y: Y.report, z: Math.sin(rAng) * R.report, groupIdx: gi,
           data: { ...rp },
           neo4jId: rp.id || null,
         })

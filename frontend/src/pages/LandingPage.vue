@@ -31,7 +31,7 @@ function buildGraph() {
     { label: '회의록', type: 'hub' },
     { label: '의사결정', type: 'hub' },
     { label: '아젠다', type: 'hub' },
-    { label: '조직', type: 'hub' },
+    { label: '회사', type: 'hub' },
     { label: '보고서', type: 'hub' },
   ]
   hubs.forEach((h, i) => {

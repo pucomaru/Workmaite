@@ -18,9 +18,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from xhtml2pdf import pisa
 
+import json
 import models
 from auth import get_current_user
 from database import get_db
+from fastapi.responses import StreamingResponse
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
 
 logger = logging.getLogger(__name__)
@@ -182,11 +184,114 @@ async def upload_report(
     db.commit()
     db.refresh(report)
 
+    try:
+        from neo4j_sync import sync_report as _sync_report
+        import asyncio
+        asyncio.create_task(_sync_report(
+            report_id=report.id,
+            meeting_id=meeting_id,
+            file_name=original_name,
+            file_path=r2_url,
+            submitter_department=report.submitter_department,
+            human_status="pending",
+            related_agenda_ids=agenda_ids,
+            created_at=report.created_at.isoformat() if report.created_at else None,
+        ))
+    except Exception:
+        pass
+
     return {
         "id": report.id,
         "file_name": original_name,
         "file_path": r2_url,
         "meeting_id": meeting_id,
+    }
+
+
+@router.post("/reports/{report_id}/analyze")
+async def analyze_report_stream(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """기존 보고서를 R2에서 다운받아 AI로 재검토 후 report_scores에 저장합니다."""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
+    # R2에서 파일 다운로드 + 텍스트 추출
+    file_content = "[파일 미첨부]"
+    if report.file_path:
+        try:
+            from r2_storage import download_bytes as _r2_dl, url_to_key as _r2_key
+            from routers.supervisor import _extract_text_from_file
+            raw = _r2_dl(_r2_key(report.file_path))
+            extracted = _extract_text_from_file(raw, (report.file_name or "").lower())
+            file_content = (extracted or "").strip()[:8000] or "[파일에서 텍스트를 추출하지 못했습니다]"
+        except Exception as e:
+            file_content = f"[파일 추출 오류: {e}]"
+
+    from agents.task_extractor import analyze_archive_file_stream as _ai_analyze
+
+    async def stream():
+        try:
+            async for event in _ai_analyze(
+                file_name=report.file_name or "",
+                file_type="발표자료",
+                dept_name=report.submitter_department or "",
+                file_content=file_content,
+                graph_context="",
+                candidate_agendas=[],
+                user_id=current_user.id if current_user else None,
+                meeting_id=report.meeting_id,
+            ):
+                if event.get("type") == "result":
+                    data = event.get("data", {})
+                    score = data.get("score")
+                    detail_scores = data.get("detail_scores") or {}
+                    feedback = data.get("feedback", [])
+                    feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
+                    existing = db.query(models.ReportScore).filter(
+                        models.ReportScore.report_id == report_id
+                    ).first()
+                    if existing:
+                        existing.ai_status = "success"
+                        existing.total_score = score
+                        existing.detail_scores = detail_scores
+                        existing.feedback = feedback_text
+                    else:
+                        db.add(models.ReportScore(
+                            report_id=report_id,
+                            ai_status="success",
+                            total_score=score,
+                            detail_scores=detail_scores,
+                            feedback=feedback_text,
+                        ))
+                    db.commit()
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            err = {"type": "result", "data": {"score": 0, "feedback": [f"AI 분석 오류: {e}"], "agendas": [], "related_depts": []}}
+            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.get("/reports/{report_id}/score")
+async def get_report_score(
+    report_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """보고서의 AI 검토 점수를 반환합니다."""
+    rs = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+    if not rs:
+        return {"total_score": None, "detail_scores": None, "feedback": None, "ai_status": None}
+    return {
+        "total_score": rs.total_score,
+        "detail_scores": rs.detail_scores,
+        "feedback": rs.feedback,
+        "ai_status": rs.ai_status,
     }
 
 
