@@ -8,7 +8,7 @@ const {
 } = inject('archiveModals')
 </script>
 
-<template>
+<template> 
   <Teleport to="body">
     <div v-if="settingsModal" class="app-modal-backdrop">
       <div class="app-modal app-modal-lg" :class="{ dark: nightMode }">
@@ -19,7 +19,7 @@ const {
           </button>
         </div>
         <div class="app-modal-body settings-body">
-          <div class="settings-section">
+          <div class="settings-section"> 
             <div class="settings-section-title">기본 정보</div>
             <div class="app-modal-field">
               <label>회의체 이름 <span class="req">*</span></label>
