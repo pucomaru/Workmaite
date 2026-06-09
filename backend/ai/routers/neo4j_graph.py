@@ -445,6 +445,7 @@ async def get_archive(
     if all_raw_ids:
         rows = (
             db.query(models.Report, models.HitlReview, models.ReportScore)
+            db.query(models.Report, models.HitlReview, models.ReportScore)
             .outerjoin(
                 models.HitlReview,
                 (models.HitlReview.target_type == "report") &
@@ -454,9 +455,14 @@ async def get_archive(
                 models.ReportScore,
                 models.ReportScore.report_id == models.Report.id,
             )
+            .outerjoin(
+                models.ReportScore,
+                models.ReportScore.report_id == models.Report.id,
+            )
             .filter(models.Report.meeting_id.in_(all_raw_ids))
             .all()
         )
+        for r, hr, rs in rows:
         for r, hr, rs in rows:
             sid = f"mg-{r.meeting_id}"
             if sid not in meetings_map:
@@ -545,8 +551,8 @@ async def get_archive(
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
                 "description": m.description,
-                "start_date": m.start_date.isoformat() if m.start_date else None,
-                "end_date": m.end_date.isoformat() if m.end_date else None,
+                "start_date": m.start_date.isoformat() + 'Z' if m.start_date else None,
+                "end_date": m.end_date.isoformat() + 'Z' if m.end_date else None,
                 "members": [
                     {
                         "meetingId": sid, "userId": f"user-{u.id}",
@@ -566,7 +572,7 @@ async def get_archive(
                         "file_path": r.file_path,
                         "human_status": r.human_status,
                         "submitter_department": r.submitter_department,
-                        "created_at": r.created_at.isoformat() if r.created_at else None,
+                        "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
                         "related_agenda_ids": r.related_agenda_ids or [],
                     }
                     for r in db.query(models.Report).filter(

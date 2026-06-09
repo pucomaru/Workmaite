@@ -20,11 +20,11 @@ import { useAgentChat } from '../composables/useAgentChat'
 import { useGraphBuilder } from '../composables/useGraphBuilder'
 
 const lvColumns = [
-  { label: '회의체명', width: '100px', sortKey: 'title' },
-  { label: '유형', width: '10px', sortKey: 'meeting_type' },
-  { label: '역할', width: '10px', sortKey: '_role' },
-  { label: '간사', width: '10px', sortKey: '_adminName' },
-  { label: '이력', width: '10px', sortKey: '_histCount' }
+  { label: '회의체명', width: '480px', sortKey: 'title' },
+  { label: '유형',    width: '160px', sortKey: 'meeting_type' },
+  { label: '역할',   width: '110px', sortKey: '_role' },
+  { label: '간사',   width: '300px', sortKey: '_adminName' },
+  { label: '이력',   width: '160px', sortKey: '_histCount' }
 ]
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
@@ -1887,50 +1887,49 @@ const groupHistoryMap = computed(() => {
       const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
       items.push({
         type: 'minutes',
-        desc: `${m.session_number ? m.session_number + '차 ' : ''}회의 진행 및 회의록 작성`,
-        manager: managerName,
+        fileName: m.session_title || '회의록',
+        score: null,
+        dept: null,
         date: m.ended_at,
         hasFile: true,
-        fileName: m.session_title || '회의록',
+        filePath: null,
         sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
-    // 보고서 (rejected 포함, 상태 표시)
+    // 보고서 — parent_id 기준으로 버전 그룹핑
+    const rMap = {}
+    g.reports.forEach(r => { rMap[r.id] = r })
+    function getRootId(r) {
+      if (!r.parent_id || !rMap[r.parent_id]) return r.id
+      return getRootId(rMap[r.parent_id])
+    }
+    const rGroups = {}
     g.reports.forEach(r => {
-      const dept = r.submitter_department || r.submitted_by_dept || r.department || ''
-      const isRejected = r.human_status === 'rejected' || r.status === 'rejected'
-      const versionSuffix = r.version ? ` (v${r.version})` : ''
+      const rootId = getRootId(r)
+      if (!rGroups[rootId]) rGroups[rootId] = []
+      rGroups[rootId].push(r)
+    })
+    const toReportItem = (r) => ({
+      type: 'report',
+      fileName: (r.file_name || '파일') + (r.version ? ` (v${r.version})` : ''),
+      score: r.score ?? null,
+      dept: r.submitter_department || null,
+      date: r.created_at || r.submitted_at,
+      hasFile: !!(r.file_path || r.file_url),
+      filePath: r.file_path || r.file_url || null,
+      rejected: r.human_status === 'rejected' || r.status === 'rejected',
+      approved: r.human_status === 'approved' || r.status === 'approved',
+      reportId: r.id,
+      aiFeedback: r.ai_feedback || null,
+    })
+    Object.values(rGroups).forEach(group => {
+      group.sort((a, b) => (b.version || 1) - (a.version || 1))
+      const latest = group[0]
+      const older = group.slice(1)
       items.push({
-        type: 'report',
-        desc: (isRejected ? '[반려] ' : '') + (r.file_name || '파일') + versionSuffix,
-        manager: r.submitted_by || managerName,
-        date: r.created_at || r.submitted_at,
-        hasFile: !!(r.file_path || r.file_url),
-        fileName: r.file_name || '보고서',
-        filePath: r.file_path || r.file_url || null,
-        rejected: isRejected,
-        reportId: r.id,
+        ...toReportItem(latest),
+        olderVersions: older.slice().reverse().map(toReportItem),
       })
-      // 보고서 승인/반려 이력
-      if (r.human_status === 'approved' || r.status === 'approved') {
-        items.push({
-          type: 'approved',
-          desc: `[승인] ${r.file_name || '파일'}${versionSuffix}`,
-          manager: managerName,
-          date: r.reviewed_at || r.approved_at || null,
-          hasFile: false,
-          fileName: '',
-        })
-      } else if (r.human_status === 'rejected' || r.status === 'rejected') {
-        items.push({
-          type: 'rejected',
-          desc: `[반려] ${r.file_name || '파일'}${versionSuffix}`,
-          manager: managerName,
-          date: r.reviewed_at || r.rejected_at || null,
-          hasFile: false,
-          fileName: '',
-        })
-      }
     })
     items.sort((a, b) => {
       const da = a.date ? new Date(a.date) : new Date(0)

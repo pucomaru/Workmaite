@@ -87,7 +87,7 @@ async def sync_user_manual(
         company=user.company,
         department=user.department,
         position=user.position,
-        created_at=user.created_at.isoformat() if user.created_at else None,
+        created_at=user.created_at.isoformat() + 'Z' if user.created_at else None,
     )
     return {"success": True, "user_id": user_id}
 
@@ -156,7 +156,7 @@ async def sync_session_manual(
         meeting_id=session.meeting_id,
         title=session.title or "",
         status=str(session.status or "scheduled"),
-        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        scheduled_at=session.scheduled_at.isoformat() + 'Z' if session.scheduled_at else None,
     )
     return {"success": True, "session_id": session_id, "title": session.title}
 
@@ -207,10 +207,10 @@ async def sync_agenda_manual(
         status=str(agenda.status or "draft"),
         assignee_id=agenda.assignee_id,
         priority=agenda.priority or "medium",
-        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
+        due_date=agenda.due_date.isoformat() + 'Z' if agenda.due_date else None,
         session_id=agenda.session_id,
         ai_evidence=agenda.ai_evidence,
-        created_at=agenda.created_at.isoformat() if agenda.created_at else None,
+        created_at=agenda.created_at.isoformat() + 'Z' if agenda.created_at else None,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
 
