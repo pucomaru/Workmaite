@@ -49,7 +49,7 @@ const sortedGroups = computed(() => {
   const enriched = filteredGroups.value.map(g => {
     const members = membersCache.value[g.id] || []
     const admins = members.filter(mb => mb.role === 'admin')
-    const orgs = [...new Set(members.map(mb => mb.user?.organization || mb.organization).filter(Boolean))]
+    const orgs = [...new Set(members.map(mb => mb.user?.company || mb.company).filter(Boolean))]
     return {
       ...g,
       _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자',
@@ -248,7 +248,7 @@ function initials(name) { return (name || '?')[0] }
 const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
 function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
 function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
-function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.organization || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
+function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.company || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
 function getPresenterCount(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role !== 'admin').length }
 
 onMounted(async () => {

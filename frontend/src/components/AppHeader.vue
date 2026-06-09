@@ -227,9 +227,9 @@ async function saveProfileSettings() {
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
         아카이브
       </router-link>
-      <router-link to="/organization" class="center-nav-item" :class="{ active: route.path === '/organization' }">
+      <router-link to="/company" class="center-nav-item" :class="{ active: route.path === '/company' }">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-        조직
+        회사
       </router-link>
       <router-link to="/meeting-groups" class="center-nav-item" :class="{ active: route.path === '/meeting-groups' }">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
@@ -429,7 +429,7 @@ async function saveProfileSettings() {
 }
 .btn-icon { padding: 6px; border-radius: 6px; color: rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center; }
 .btn-icon:hover { background: rgba(255,255,255,.1); color: #fff; }
-.header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; }
+.header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; padding: 0;}
 
 /* ── 중앙 네비게이션 ── */
 .header-center-nav {
@@ -455,7 +455,7 @@ async function saveProfileSettings() {
 }
 .center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
 .center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
-.logo { display: flex; align-items: center; color: #fff; margin-left: 6px; flex-shrink: 0; }
+.logo { display: flex; align-items: center; color: #fff; margin-left: 0px; flex-shrink: 0; }
 .logo-img { height: 15px; width: auto; }
 .header-divider { width: 1px; height: 18px; background: rgba(255,255,255,.25); margin: 0 4px; flex-shrink: 0; }
 .meeting-title-inline {

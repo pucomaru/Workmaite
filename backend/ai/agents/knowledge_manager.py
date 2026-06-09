@@ -540,6 +540,7 @@ async def reconcile_graph(analysis: dict) -> dict:
 
     actions: List[dict] = []
     stats = {"session_links": 0, "lifecycle_links": 0, "carry_links": 0,
+             "session_agenda_links": 0,
              "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
              "pruned_links": 0}
     ts = datetime.utcnow().isoformat()
@@ -626,6 +627,45 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "kind": "lifecycle",
                 "detail": f"미해결 안건 {n}건을 다음 회차로 이월",
                 "evidence": "아직 끝나지 않은 안건을 가장 최근 회차와 연결해 생명주기를 다음 회의로 이어줬습니다(안건→회의).",
+                "highlight": None,
+            })
+    except Exception:
+        pass
+
+    # ①-c 세션 → 안건 직접 연결 보완 (원칙: 회의는 아젠다와 연결되어야 한다)
+    try:
+        # 1단계: 발제세션 역방향 보완 — (ag)-[:발제세션]->(s) 가 있으면 (s)-[:진행]->(ag) 도 있어야 함
+        direct_rows = await run_cypher(
+            "MATCH (ag:Agenda)-[:`발제세션`]->(s:Session) "
+            "WHERE NOT (s)-[:`진행`]->(ag) "
+            "MERGE (s)-[r:`진행`]->(ag) "
+            "SET r.kind='session_agenda_direct', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
+            "RETURN count(r) AS n",
+            {"ts": ts},
+        )
+        direct_n = direct_rows[0].get("n", 0) if direct_rows else 0
+
+        # 2단계: 발제세션 링크 없이 회의체 내 떠 있는 안건을 같은 회의체의 세션과 연결
+        floating_rows = await run_cypher(
+            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
+            "WHERE NOT (ag)-[:`발제세션`]->(:Session) "
+            "  AND NOT (s)-[:`진행`|`다룸멌`|`도출`]->(ag) "
+            "  AND NOT coalesce(ag.status,'') IN ['DONE','COMPLETED','CLOSED','RESOLVED'] "
+            "WITH s, ag LIMIT 200 "
+            "MERGE (s)-[r:`진행`]->(ag) "
+            "SET r.kind='session_agenda_group', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
+            "RETURN count(r) AS n",
+            {"ts": ts},
+        )
+        floating_n = floating_rows[0].get("n", 0) if floating_rows else 0
+
+        total_n = direct_n + floating_n
+        if total_n:
+            stats["session_agenda_links"] = total_n
+            actions.append({
+                "kind": "session_agenda",
+                "detail": f"세션→안건 연결 {total_n}건 (직접 {direct_n}건 + 그룹 {floating_n}건)",
+                "evidence": "회의(세션)는 아젠다와 연결되어야 한다는 원칙에 따라 미연결 세션-안건 쌍을 이어줬습니다.",
                 "highlight": None,
             })
     except Exception:

@@ -410,36 +410,10 @@ function submitCustomAgenda() {
 </template>
 
 <style scoped>
-/* ── 레이더 차트 ── */
-.radar-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.radar-svg  { width: 200px; height: 210px; }
-
-@keyframes dashRotate {
-  to { stroke-dashoffset: -30; }
-}
-.radar-loading-dash {
-  animation: dashRotate 1.2s linear infinite;
-}
+/* ── 레이더 차트 (모달 크기 고정 오버라이드) ── */
+.radar-svg { width: 200px; height: 210px; }
+.radar-loading-dash { animation: dashRotate 1.2s linear infinite; }
 .radar-score-poly { transition: all 0.1s; }
-
-.radar-stage {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: #64748b;
-}
-.radar-stage-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #a78bfa;
-  animation: pulse 1s ease-in-out infinite;
-}
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-
-/* ── 항목별 점수 바 ── */
-.criteria-scores { width: 100%; max-width: 260px; display: flex; flex-direction: column; gap: 5px; }
-.cs-row { display: flex; align-items: center; gap: 6px; }
-.cs-label { font-size: 10px; color: #64748b; width: 52px; flex-shrink: 0; text-align: right; }
-.cs-bar-wrap { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
-.cs-bar { height: 100%; border-radius: 3px; }
-.cs-num { font-size: 10px; color: #94a3b8; width: 28px; flex-shrink: 0; }
 
 /* ── 피드백 입력 ── */
 .hitl-feedback-wrap { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }

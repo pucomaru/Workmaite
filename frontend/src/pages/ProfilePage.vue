@@ -6,8 +6,8 @@ const auth = useAuthStore()
 
 const form = ref({
   name: auth.user?.name || '',
-  organization: auth.user?.organization || '',
-  department: auth.user?.department || '',
+  company: auth.user?.company || '',
+  department: auth.user?.department || ''
   position: auth.user?.position || '',
   password: '',
   passwordConfirm: '',
@@ -26,7 +26,7 @@ async function save() {
   try {
     const payload = {
       name: form.value.name,
-      organization: form.value.organization || null,
+      company: form.value.company || null,
       department: form.value.department || null,
       position: form.value.position || null,
     }
@@ -61,8 +61,8 @@ async function save() {
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label class="form-label">조직명</label>
-            <input v-model="form.organization" class="form-input" placeholder="예: 워크메이트" />
+            <label class="form-label">회사명</label>
+            <input v-model="form.company" class="form-input" placeholder="예: 워크메이트" />
           </div>
           <div class="form-group">
             <label class="form-label">부서명</label>

@@ -1,5 +1,5 @@
 <script setup>
-import { inject } from 'vue'
+import { inject, computed } from 'vue'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
@@ -25,7 +25,45 @@ const {
   detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
   meetingGroups,
   viewMode,
+  nodeReviewing, startNodeReview,
 } = inject('archiveSidebar')
+
+// ── 보고자료 레이더 차트 ─────────────────────────────────────────
+const SB_CX = 90, SB_CY = 95, SB_R = 60
+const SB_CRITERIA = [
+  { key: '목적및배경',   label: '목적/배경',  max: 15 },
+  { key: '현황분석',     label: '현황분석',   max: 20 },
+  { key: '핵심내용',     label: '핵심내용',   max: 20 },
+  { key: '실행계획',     label: '실행계획',   max: 20 },
+  { key: '기대효과',     label: '기대효과',   max: 15 },
+  { key: '리스크및대안', label: '리스크/대안', max: 10 },
+]
+function sbPt(angleDeg, r) {
+  const a = angleDeg * Math.PI / 180
+  return `${(SB_CX + r * Math.cos(a)).toFixed(1)},${(SB_CY + r * Math.sin(a)).toFixed(1)}`
+}
+const sbGridPoly  = SB_CRITERIA.map((_, i) => sbPt(i * 60 - 90, SB_R)).join(' ')
+const sbGridPoly2 = SB_CRITERIA.map((_, i) => sbPt(i * 60 - 90, SB_R * 0.66)).join(' ')
+const sbGridPoly3 = SB_CRITERIA.map((_, i) => sbPt(i * 60 - 90, SB_R * 0.33)).join(' ')
+const sbAxisLines = SB_CRITERIA.map((_, i) => {
+  const a = (i * 60 - 90) * Math.PI / 180
+  return { x2: (SB_CX + SB_R * Math.cos(a)).toFixed(1), y2: (SB_CY + SB_R * Math.sin(a)).toFixed(1) }
+})
+const sbLabelPos = SB_CRITERIA.map((c, i) => {
+  const a = (i * 60 - 90) * Math.PI / 180
+  return { x: (SB_CX + (SB_R + 22) * Math.cos(a)).toFixed(1), y: (SB_CY + (SB_R + 22) * Math.sin(a)).toFixed(1), label: c.label }
+})
+const sbScorePoly = computed(() => {
+  const scores = detailNode.value?.data?.detail_scores || {}
+  return SB_CRITERIA.map((c, i) => {
+    const s = scores[c.key]?.score ?? 0
+    return sbPt(i * 60 - 90, (s / c.max) * SB_R)
+  }).join(' ')
+})
+const sbScoreColor = computed(() => {
+  const s = detailNode.value?.data?.total_score ?? 0
+  return s >= 80 ? '#10b981' : s >= 60 ? '#f59e0b' : '#ef4444'
+})
 </script>
 
 <template>
@@ -432,7 +470,11 @@ const {
               <svg v-else-if="detailNode.type==='agenda'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
               <!-- 회의(session) -->
               <svg v-else-if="detailNode.type==='session'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-              <!-- 파일 -->
+              <!-- 회의록 -->
+              <svg v-else-if="detailNode.type==='minutes'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <!-- 보고자료 -->
+              <svg v-else-if="detailNode.type==='report'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+              <!-- 파일(하위호환) -->
               <svg v-else-if="detailNode.type==='file'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <!-- 사람 -->
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -440,7 +482,7 @@ const {
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', person:'구성원', company:'조직' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', file:'문서', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
@@ -473,16 +515,16 @@ const {
               </div>
               <div class="detail-section">
                 <div class="detail-section-label">부서 구성원</div>
-                <div v-if="detailNode.members?.length" class="node-member-list">
-                  <div v-for="mb in detailNode.members" :key="mb.userId||mb.userName" class="node-member-row">
-                    <div class="node-avatar" :style="{ background: mb.role==='admin' ? 'var(--accent)' : 'var(--text-dim)' }">{{ (mb.userName||mb.name||'?')[0] }}</div>
-                    <div class="node-member-info">
-                      <span class="node-member-name">{{ mb.userName || mb.name || '-' }}</span>
-                      <span class="node-member-role">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
+                <div v-if="detailNode.members?.length" class="detail-member-list">
+                  <div v-for="mb in detailNode.members" :key="mb.userId||mb.userName" class="detail-member-row">
+                    <div class="detail-member-avatar" :style="{ background: mb.role==='admin' ? 'var(--accent)' : 'var(--text-dim)' }">{{ (mb.userName||mb.name||'?')[0] }}</div>
+                    <div class="detail-member-info">
+                      <span class="detail-member-name">{{ mb.userName || mb.name || '-' }}</span>
+                      <span class="detail-member-dept">{{ mb.role==='admin' ? '간사' : '참여자' }}</span>
                     </div>
                   </div>
                 </div>
-                <div v-else class="node-empty">구성원 정보 없음</div>
+                <div v-else class="detail-log-empty">구성원 정보 없음</div>
               </div>
             </template>
 
@@ -490,20 +532,16 @@ const {
             <template v-else-if="detailNode.type==='company'">
               <div class="detail-section">
                 <div class="detail-info-grid">
-                  <div class="detail-info-item" style="grid-column:span 2">
-                    <span class="detail-info-key">조직명</span>
-                    <span class="detail-info-val">{{ detailNode.data?.name || detailNode.label }}</span>
-                  </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">타입</span>
-                    <span class="detail-info-val">{{ detailNode.data?.org_type || '-' }}</span>
+                    <span class="detail-info-key">회사명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.name || detailNode.label }}</span>
                   </div>
                 </div>
               </div>
               <div v-if="meetingGroups.length" class="detail-section">
                 <div class="detail-section-label">회의체 목록 ({{ meetingGroups.length }}개)</div>
                 <div class="detail-info-grid">
-                  <div v-for="mg in meetingGroups" :key="mg.id" class="detail-info-item" style="grid-column:span 2">
+                  <div v-for="mg in meetingGroups" :key="mg.id" class="detail-info-item">
                     <span class="detail-info-val">{{ mg.title }}</span>
                   </div>
                 </div>
@@ -512,9 +550,13 @@ const {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
+              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+                <div class="detail-section-label">AI 추천 아젠다</div>
+                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+              </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
-                  <div class="detail-info-item" style="grid-column:span 2">
+                  <div class="detail-info-item">
                     <span class="detail-info-key">아젠다명</span>
                     <span class="detail-info-val">{{ detailNode.data?.content || detailNode.label }}</span>
                   </div>
@@ -548,75 +590,192 @@ const {
             <template v-else-if="detailNode.type==='session'">
               <div class="detail-section">
                 <div class="detail-info-grid">
-                  <div class="detail-info-item" style="grid-column:span 2">
+                  <div class="detail-info-item">
                     <span class="detail-info-key">회의명</span>
                     <span class="detail-info-val">{{ detailNode.data?.session_title || detailNode.label }}</span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">회의일자</span>
-                    <span class="detail-info-val">{{ detailNode.data?.date ? formatDate(detailNode.data.date) : (detailNode.data?.ended_at ? formatDate(detailNode.data.ended_at) : '-') }}</span>
+                    <span class="detail-info-key">일시</span>
+                    <span class="detail-info-val">{{ detailNode.data?.date ? formatDate(detailNode.data.date) : '-' }}</span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">타입</span>
-                    <span class="detail-info-val">{{ detailNode.data?.session_type || '-' }}</span>
+                    <span class="detail-info-key">장소</span>
+                    <span class="detail-info-val">{{ detailNode.data?.location || '-' }}</span>
                   </div>
-                  <div class="detail-info-item" style="grid-column:span 2">
-                    <span class="detail-info-key">회의소개</span>
-                    <span class="detail-info-val">{{ detailNode.data?.description || '-' }}</span>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">상태</span>
+                    <span class="detail-info-val">{{ { scheduled:'예정', in_progress:'진행중', completed:'완료', cancelled:'취소' }[detailNode.data?.session_status] || detailNode.data?.session_status || '-' }}</span>
                   </div>
-                  <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
-                    <span class="detail-info-key">회의록</span>
-                    <button class="dl-icon-btn" :title="detailNode.data?.doc_title || detailNode.data?.file_name || '회의록 다운로드'" @click="downloadDummy(detailNode)">
-                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    </button>
+                  <div v-if="detailNode.data?.description" class="detail-info-item">
+                    <span class="detail-info-key">설명</span>
+                    <span class="detail-info-val detail-info-val--wrap">{{ detailNode.data.description }}</span>
                   </div>
                 </div>
               </div>
               <div v-if="detailNode.data?.participants?.length" class="detail-section">
                 <div class="detail-section-label">참여자</div>
-                <div class="node-member-list">
-                  <div v-for="p in detailNode.data.participants" :key="p.userId||p.userName" class="node-member-row">
-                    <div class="node-avatar" style="background:var(--text-dim)">{{ (p.userName||p.name||'?')[0] }}</div>
-                    <div class="node-member-info">
-                      <span class="node-member-name">{{ p.userName || p.name }}</span>
-                      <span v-if="p.department" class="node-member-role">{{ p.department }}</span>
+                <div class="detail-member-list">
+                  <div v-for="p in detailNode.data.participants" :key="p.userId||p.userName" class="detail-member-row">
+                    <div class="detail-member-avatar" style="background:var(--text-dim)">{{ (p.userName||p.name||'?')[0] }}</div>
+                    <div class="detail-member-info">
+                      <span class="detail-member-name">{{ p.userName || p.name }}</span>
+                      <span v-if="p.department" class="detail-member-dept">{{ p.department }}</span>
                     </div>
                   </div>
                 </div>
               </div>
             </template>
 
-            <!-- 파일(문서/회의록) -->
-            <template v-else-if="detailNode.type==='file'">
+            <!-- 회의록 (minutes) -->
+            <template v-else-if="detailNode.type==='minutes'">
+              <!-- 회의 정보 (meeting_sessions) -->
+              <div class="detail-section">
+                <div class="detail-section-label">회의 정보</div>
+                <div class="detail-info-grid">
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">회의명</span>
+                    <span class="detail-info-val">{{ detailNode.data?.session_title || detailNode.label }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">회의일자</span>
+                    <span class="detail-info-val">{{ detailNode.data?.date ? formatDate(detailNode.data.date) : '-' }}</span>
+                  </div>
+                  <div v-if="detailNode.data?.ended_at" class="detail-info-item">
+                    <span class="detail-info-key">종료</span>
+                    <span class="detail-info-val">{{ formatDate(detailNode.data.ended_at) }}</span>
+                  </div>
+                  <div v-if="detailNode.data?.location" class="detail-info-item">
+                    <span class="detail-info-key">장소</span>
+                    <span class="detail-info-val">{{ detailNode.data.location }}</span>
+                  </div>
+                  <div v-if="detailNode.data?.session_status" class="detail-info-item">
+                    <span class="detail-info-key">상태</span>
+                    <span class="detail-info-val">{{ { scheduled:'예정', in_progress:'진행중', completed:'완료', cancelled:'취소' }[detailNode.data.session_status] || detailNode.data.session_status }}</span>
+                  </div>
+                  <div v-if="detailNode.data?.description" class="detail-info-item">
+                    <span class="detail-info-key">설명</span>
+                    <span class="detail-info-val detail-info-val--wrap">{{ detailNode.data.description }}</span>
+                  </div>
+                </div>
+              </div>
+              <!-- 회의록 정보 (minutes) -->
+              <div class="detail-section">
+                <div class="detail-section-label">회의록</div>
+                <div class="detail-info-grid">
+                  <div v-if="detailNode.data?.minutes_status" class="detail-info-item">
+                    <span class="detail-info-key">작성상태</span>
+                    <span class="detail-info-val">{{ { draft:'초안', completed:'완료', published:'배포' }[detailNode.data.minutes_status] || detailNode.data.minutes_status }}</span>
+                  </div>
+                  <div v-if="detailNode.data?.generated_at" class="detail-info-item">
+                    <span class="detail-info-key">생성일</span>
+                    <span class="detail-info-val">{{ formatDate(detailNode.data.generated_at) }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">파일</span>
+                    <span class="detail-info-val">
+                      <button class="dl-icon-btn" :title="detailNode.data?.file_name || '회의록 다운로드'" @click="downloadDummy(detailNode)">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <!-- 내용 요약 -->
+              <div v-if="detailNode.data?.content_summary" class="detail-section">
+                <div class="detail-section-label">AI 요약</div>
+                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+              </div>
+            </template>
+
+            <!-- 파일(보고자료) -->
+            <template v-else-if="detailNode.type==='report' || detailNode.type==='file'">
               <div class="detail-section">
                 <div class="detail-info-grid">
-                  <div class="detail-info-item" style="grid-column:span 2">
+                  <div class="detail-info-item">
                     <span class="detail-info-key">파일명</span>
                     <span class="detail-info-val">{{ detailNode.data?.file_name || detailNode.data?.title || detailNode.label }}</span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">종류</span>
-                    <span class="detail-info-val">{{ detailNode.data?.doc_type || detailNode.fileType || '-' }}</span>
+                    <span class="detail-info-key">파일</span>
+                    <span class="detail-info-val detail-btn-row">
+                      <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode)">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      </button>
+                      <button class="dl-icon-btn delete" title="삭제"
+                        @click="deleteReport(detailNode.data?.id || detailNode.reportId)">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                      </button>
+                    </span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">업로드일</span>
                     <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : (detailNode.data?.submitted_at ? formatDate(detailNode.data.submitted_at) : '-') }}</span>
                   </div>
-                  <div class="detail-info-item" style="grid-column:span 2">
+                  <div class="detail-info-item">
                     <span class="detail-info-key">작성부서</span>
                     <span class="detail-info-val">{{ detailNode.data?.submitter_department || detailNode.data?.department || '-' }}</span>
                   </div>
-                  <div class="detail-info-item" style="grid-column:span 2; display:flex; align-items:center; gap:8px">
-                    <span class="detail-info-key">파일</span>
-                    <button class="dl-icon-btn" :title="detailNode.data?.title || detailNode.data?.file_name || '파일 다운로드'" @click="downloadDummy(detailNode)">
-                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    </button>
-                    <button class="dl-icon-btn delete" title="삭제"
-                      @click="deleteReport(detailNode.data?.id || detailNode.reportId)">
-                      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
-                    </button>
+                  <div v-if="detailNode.type==='report'" class="detail-info-item">
+                    <span class="detail-info-key">검토상태</span>
+                    <span class="detail-info-val">{{ { pending:'검토중', approved:'승인', rejected:'반려' }[detailNode.data?.human_status] || detailNode.data?.human_status || '-' }}</span>
                   </div>
                 </div>
+              </div>
+
+              <!-- AI 검토 결과 — 레이더 차트 (report 타입) -->
+              <div v-if="detailNode.type==='report'" class="detail-section">
+                <div class="detail-section-label">AI 검토 결과</div>
+                <div class="radar-wrap">
+                  <div class="radar-svg-pos">
+                    <svg viewBox="0 0 180 190" class="radar-svg" style="overflow:visible">
+                      <polygon :points="sbGridPoly"  fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1"/>
+                      <polygon :points="sbGridPoly2" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="0.7"/>
+                      <polygon :points="sbGridPoly3" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="0.7"/>
+                      <line v-for="(ax, i) in sbAxisLines" :key="'ax'+i"
+                        :x1="SB_CX" :y1="SB_CY" :x2="ax.x2" :y2="ax.y2"
+                        stroke="rgba(255,255,255,.09)" stroke-width="0.8"/>
+                      <polygon v-if="detailNode.data?.total_score != null"
+                        :points="sbScorePoly"
+                        :fill="sbScoreColor + '2e'" :stroke="sbScoreColor" stroke-width="1.8"/>
+                      <text v-for="(lp, i) in sbLabelPos" :key="'lb'+i"
+                        :x="lp.x" :y="lp.y"
+                        text-anchor="middle" dominant-baseline="middle"
+                        font-size="10" fill="#aaa" font-family="sans-serif">{{ lp.label }}</text>
+                      <circle :cx="SB_CX" :cy="SB_CY" r="26" class="radar-center-bg"/>
+                      <text v-if="detailNode.data?.total_score != null"
+                        :x="SB_CX" :y="SB_CY - 6" text-anchor="middle" dominant-baseline="middle"
+                        font-size="22" font-weight="700" :fill="sbScoreColor">{{ detailNode.data.total_score }}</text>
+                      <text v-if="detailNode.data?.total_score != null"
+                        :x="SB_CX" :y="SB_CY + 13" text-anchor="middle" dominant-baseline="middle"
+                        font-size="10" fill="#888">/ 100</text>
+                    </svg>
+                    <!-- 검토하기 버튼: SVG 중앙에 절대 위치 오버레이 -->
+                    <button v-if="detailNode.data?.total_score == null"
+                      class="sb-review-btn sb-review-btn--center"
+                      :disabled="nodeReviewing"
+                      @click="startNodeReview(detailNode.data?.id)">
+                      <span v-if="nodeReviewing" class="sb-review-spinner"></span>
+                      <svg v-else width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path d="M4 4l16 8-16 8V4z"/>
+                      </svg>
+                      {{ nodeReviewing ? 'AI 검토 중...' : 'AI 검토' }}
+                    </button>
+                  </div>
+                  <div v-if="detailNode.data?.total_score != null && detailNode.data?.detail_scores" class="criteria-scores">
+                    <div v-for="c in SB_CRITERIA" :key="c.key" class="cs-row">
+                      <span class="cs-label">{{ c.label }}</span>
+                      <div class="cs-bar-wrap">
+                        <div class="cs-bar"
+                          :style="{ width: ((detailNode.data.detail_scores[c.key]?.score ?? 0) / c.max * 100) + '%', background: sbScoreColor }"/>
+                      </div>
+                      <span class="cs-num">{{ detailNode.data.detail_scores[c.key]?.score ?? 0 }}/{{ c.max }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
+                <div class="detail-section-label">AI 피드백</div>
+                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
               </div>
             </template>
 
@@ -624,32 +783,41 @@ const {
             <template v-else-if="detailNode.type==='person'">
               <div class="detail-section">
                 <div class="detail-info-grid">
-                  <SidebarInfoRow label="조직" :value="detailNode.data?.organization || currentOrg?.name || '-'" />
-                  <SidebarInfoRow label="부서" :value="detailNode.data?.department || '-'" />
-                  <SidebarInfoRow label="직책" :value="detailNode.data?.position || '-'" />
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">회사</span>
+                    <span class="detail-info-val">{{ detailNode.data?.company || currentOrg?.name || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">부서</span>
+                    <span class="detail-info-val">{{ detailNode.data?.department || '-' }}</span>
+                  </div>
+                  <div class="detail-info-item">
+                    <span class="detail-info-key">직책</span>
+                    <span class="detail-info-val">{{ detailNode.data?.position || '-' }}</span>
+                  </div>
                 </div>
               </div>
               <div class="detail-section">
                 <div class="detail-section-label">참여 회의체</div>
                 <div v-if="personMeetingGroups(detailNode).length" class="detail-info-grid">
-                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="detail-info-item" style="grid-column:span 2">
+                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="detail-info-item">
                     <span class="detail-info-key">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
                     <span class="detail-info-val">{{ mg.title }}</span>
                   </div>
                 </div>
-                <div v-else class="node-empty">회의체 정보 없음</div>
+                <div v-else class="detail-log-empty">회의체 정보 없음</div>
               </div>
               <div class="detail-section">
                 <div class="detail-section-label">할당된 과제</div>
                 <div v-if="personTasks(detailNode).length" class="detail-info-grid">
-                  <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item" style="grid-column:span 2">
+                  <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item">
                     <span class="detail-info-key">
                       <span class="status-badge" :class="{'sb-done':t.status==='done','sb-progress':t.status==='in_progress','sb-pending':!t.status||t.status==='pending'}">{{ {done:'완료',in_progress:'진행',pending:'대기'}[t.status]||t.status }}</span>
                     </span>
-                    <span class="detail-info-val" style="white-space:normal;line-height:1.4">{{ t.content }}</span>
+                    <span class="detail-info-val detail-info-val--wrap">{{ t.content }}</span>
                   </div>
                 </div>
-                <div v-else class="node-empty">할당된 과제 없음</div>
+                <div v-else class="detail-log-empty">할당된 과제 없음</div>
               </div>
             </template>
 
