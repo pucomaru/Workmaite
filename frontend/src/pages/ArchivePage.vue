@@ -483,6 +483,7 @@ async function startNodeReview(reportId) {
             ...detailNode.value?.data,
             total_score: ev.data.score ?? null,
             detail_scores: ev.data.detail_scores ?? null,
+            top_improvements: ev.data.top_improvements ?? [],
             feedback: Array.isArray(ev.data.feedback) ? ev.data.feedback.join('\n') : (ev.data.feedback ?? null),
           },
         }
@@ -1363,6 +1364,14 @@ function personTasks(node) {
   )
 }
 
+// report 노드 → 연관 과제(아젠다) 목록
+function reportRelatedAgendas(node) {
+  if (!node) return []
+  const ids = (node.data?.related_agenda_ids || []).map(String)
+  if (!ids.length) return []
+  return gNodesRef.value.filter(n => n.type === 'agenda' && ids.includes(String(n.data?.id)))
+}
+
 // ─── Upload: AI analysis state ────────────────────────────────
 const uploadStep = ref(1)  // 1=manual input, 2=AI analysis result
 const aiAnalyzing = ref(false)
@@ -2179,7 +2188,7 @@ provide('archiveSidebar', {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks, reportRelatedAgendas,
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,

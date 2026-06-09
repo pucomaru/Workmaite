@@ -1309,15 +1309,15 @@ async function downloadMinutesFile() {
 .sp-layout { display:flex;flex-direction:row !important;gap:0; }
 
 /* ── Left sidebar (session selector) ── */
-.sp-sidebar { position:relative;width:220px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg-card);height:100%;transition:width .25s cubic-bezier(.22,.68,0,1.2); }
+.sp-sidebar { position:relative;width:220px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg-card);height:100%; }
 .sp-sidebar.collapsed { width:0;border-right:none; }
 .sp-sidebar-inner { display:flex;flex-direction:column;height:100%;overflow:hidden; }
 .sp-sidebar.collapsed .sp-sidebar-inner { opacity:0;pointer-events:none; }
-.sp-toggle-handle { position:absolute;top:50%;left:100%;transform:translateY(-50%);width:16px;height:48px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;background:var(--bg-card);color:var(--text-muted);cursor:pointer;z-index:25;transition:background .15s,color .15s; }
+.sp-toggle-handle { position:absolute;top:50%;left:100%;transform:translateY(-50%);width:16px;height:48px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;background:var(--bg-card);color:var(--text-muted);cursor:pointer;z-index:25; }
 .sp-toggle-handle:hover { background:var(--surface-2);color:var(--primary); }
-.sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent;transition:background .15s; }
+.sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-resize-handle:hover { background:rgba(59,130,246,.25); }
-.sp-sidebar-header { padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-sidebar-header { padding:7px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
@@ -1331,7 +1331,7 @@ async function downloadMinutesFile() {
 .sp-ms-email { color:var(--dark-muted);font-size:11px;display:block; }
 .sp-ms-role { padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:11px;font-weight:600;cursor:pointer; }
 .sp-ms-role.admin { border-color:var(--accent);background:rgba(59,130,246,.1);color:var(--accent); }
-.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;transition:all .15s; }
+.stt-type-btn { flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;cursor:pointer; }
 .stt-type-btn.active { border-color:var(--accent);background:rgba(59,130,246,.1);color:var(--accent);font-weight:600; }
 .sp-sm-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
 .sp-sm-name { flex:1;font-weight:600;color:var(--dark-card); }
@@ -1345,7 +1345,7 @@ async function downloadMinutesFile() {
 .sp-sidebar-body { flex:1;overflow-y:auto;padding:8px 0; }
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
-.sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;transition:background .15s;user-select:none; }
+.sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
 .sp-mtg-header:hover,.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -1353,7 +1353,7 @@ async function downloadMinutesFile() {
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
 .sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
-.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer;transition:background .15s; }
+.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer; }
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
@@ -1456,7 +1456,7 @@ async function downloadMinutesFile() {
 .ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
 .ctrl-group-right { margin-left:auto; }
 .ctrl-pop-wrap { position:relative; }
-.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s; }
+.ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:13px;cursor:pointer; }
 .ctrl-btn:hover,.ctrl-active { background:var(--surface-2);border-color:var(--primary);color:var(--primary); }
 .ctrl-lang { font-size:12px;gap:4px; }
 .ctrl-chev { font-size:9px;opacity:.6; }
@@ -1469,14 +1469,14 @@ async function downloadMinutesFile() {
 .cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
 .cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:rgba(59,130,246,.1);color:var(--accent);font-weight:600; }
-.ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;box-shadow:0 2px 8px rgba(59,130,246,.3); }
+.ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3); }
 .ctrl-rec-btn.recording { background:var(--danger);box-shadow:0 2px 8px rgba(239,68,68,.35); }
 .ctrl-rec-btn:hover { opacity:.85; }
 .ctrl-stop { color:var(--danger);border-color:#fca5a5; }
 .ctrl-stop:hover { background:#fef2f2;border-color:var(--danger); }
-.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s; }
+.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer; }
 .ctrl-end:hover { background:var(--danger);color:#fff;border-color:var(--danger); }
-.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s; }
+.ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
@@ -1491,14 +1491,14 @@ async function downloadMinutesFile() {
 
 /* ── Right: 워크메이트 AI ── */
 .sp-agent-right-sidebar { position:relative;width:290px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg-card);overflow:hidden;height:100%; }
-.sp-agent-resize-handle { position:absolute;top:0;left:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent;transition:background .15s; }
+.sp-agent-resize-handle { position:absolute;top:0;left:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-agent-resize-handle:hover { background:rgba(59,130,246,.25); }
 
 /* ── Minutes action row ── */
 .minutes-action-row { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0 2px;border-top:1px solid var(--border);flex-shrink:0; }
 .minutes-action-left,.minutes-action-right { display:flex;align-items:center;gap:6px; }
 .minutes-download-group { display:flex;gap:4px; }
-.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.minutes-action-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap; }
 .minutes-action-btn:hover { background:var(--surface-2); }
 .minutes-action-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .minutes-action-btn.primary:hover { opacity:.88; }
@@ -1510,7 +1510,7 @@ async function downloadMinutesFile() {
 /* Minutes bottom bar */
 .sp-minutes-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg-card);border-radius:0;flex-wrap:wrap;gap:8px; }
 .minutes-bar-left,.minutes-bar-right { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
-.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap; }
+.mbar-btn { display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap; }
 .mbar-btn:hover { background:var(--surface-2); }
 .mbar-btn.primary { background:var(--primary);color:#fff;border-color:var(--primary); }
 .mbar-btn.primary:hover { opacity:.88; }
@@ -1518,7 +1518,7 @@ async function downloadMinutesFile() {
 .mbar-btn.regen:hover { background:#eef2ff; }
 .mbar-btn:disabled { opacity:.45;cursor:not-allowed; }
 .mbar-saved-label { font-size:11px;color:#22c55e;display:flex;align-items:center;gap:4px; }
-.sp-attach-btn { display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;flex-shrink:0;transition:all .15s; }
+.sp-attach-btn { display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;flex-shrink:0; }
 .sp-attach-btn:hover { background:var(--surface-2);color:var(--primary); }
 .sp-attach-btn:disabled { opacity:.35;cursor:not-allowed; }
 .sp-file-dl-btn { display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:4px;border-radius:4px;border:none;background:rgba(255,255,255,.25);color:inherit;cursor:pointer;vertical-align:middle; }
@@ -1547,7 +1547,7 @@ async function downloadMinutesFile() {
 .nab-date-input { flex:1;min-width:0; }
 .nab-input { width:100%;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--text);outline:none; }
 .nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
-.nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s; }
+.nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center; }
 .nab-btn-edit { background:var(--surface-2);color:var(--text-muted); }
 .nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
 .nab-btn-approved { background:#22c55e;color:#fff; }
@@ -1567,6 +1567,6 @@ async function downloadMinutesFile() {
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
 .nab-count { font-size:11px;color:var(--text-muted); }
 .nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
-.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer;transition:opacity .15s; }
+.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer; }
 .nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>

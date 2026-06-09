@@ -491,7 +491,7 @@ async def supervisor_chat(
                 _kb_results: list[dict] = []
                 _node_type_map = [("Minutes", "회의록", 5)]
                 if _route == "knowledge_manager":
-                    _node_type_map += [("Agenda", "안건", 3), ("AIJudgment", "AI 판단", 3)]
+                    _node_type_map += [("Agenda", "안건", 3)]
                 try:
                     for node_type, type_label, k in _node_type_map:
                         for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):

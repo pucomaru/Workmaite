@@ -22,7 +22,7 @@ const {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks, reportRelatedAgendas,
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
@@ -63,6 +63,12 @@ const sbScorePoly = computed(() => {
 const sbScoreColor = computed(() => {
   const s = detailNode.value?.data?.total_score ?? 0
   return s >= 80 ? '#10b981' : s >= 60 ? '#f59e0b' : '#ef4444'
+})
+
+// 우선 개선 과제: 실시간 검토 결과(top_improvements) 또는 그래프 로드 데이터(detail_scores._top_improvements)
+const sbTopImprovements = computed(() => {
+  const d = detailNode.value?.data
+  return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
 </script>
 
@@ -776,6 +782,39 @@ const sbScoreColor = computed(() => {
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
                 <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+              </div>
+
+              <!-- 우선 개선 과제 -->
+              <div v-if="detailNode.type==='report' && sbTopImprovements.length" class="detail-section">
+                <div class="detail-section-label">
+                  <svg width="11" height="11" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-1px;margin-right:3px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                  우선 개선 과제
+                </div>
+                <div class="sb-top-improvements">
+                  <div v-for="(imp, i) in sbTopImprovements" :key="i" class="sb-top-item">
+                    <span class="sb-top-num">{{ i + 1 }}</span>
+                    <span class="sb-top-cat">[{{ imp.category }}]</span>
+                    <span class="sb-top-action">{{ imp.action }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 연관 과제 -->
+              <div v-if="detailNode.type==='report'" class="detail-section">
+                <div class="detail-section-label">연관 과제</div>
+                <template v-if="reportRelatedAgendas(detailNode).length">
+                  <div class="detail-info-grid">
+                    <div v-for="ag in reportRelatedAgendas(detailNode)" :key="ag.data?.id" class="detail-info-item">
+                      <span class="detail-info-key">
+                        <span class="status-badge" :class="{'sb-done': ag.data?.status==='done'||ag.data?.status==='완료', 'sb-progress': ag.data?.status==='in_progress'||ag.data?.status==='ongoing'||ag.data?.status==='진행', 'sb-pending': !ag.data?.status||ag.data?.status==='pending'||ag.data?.status==='대기'}">
+                          {{ {done:'완료',in_progress:'진행',ongoing:'진행',pending:'대기',진행:'진행',완료:'완료',대기:'대기'}[ag.data?.status] || '대기' }}
+                        </span>
+                      </span>
+                      <span class="detail-info-val detail-info-val--wrap">{{ ag.data?.content || ag.label }}</span>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="detail-log-empty">연관된 과제가 없습니다.</div>
               </div>
             </template>
 

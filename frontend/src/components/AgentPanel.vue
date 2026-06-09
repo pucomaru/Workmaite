@@ -257,7 +257,6 @@ defineExpose({ scrollBottom })
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background .15s, color .15s, border-color .15s;
 }
 .ap-new-chat-btn:hover {
   background: var(--ap-accent-bg, #fffbeb);
@@ -282,7 +281,6 @@ defineExpose({ scrollBottom })
   font-size: 12px;
   color: var(--ap-accent, #f59e0b);
   cursor: pointer;
-  transition: filter .15s;
   line-height: 1.4;
   font-weight: 500;
 }
@@ -447,7 +445,6 @@ defineExpose({ scrollBottom })
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity .15s;
   align-self: flex-end;
   white-space: nowrap;
 }
@@ -470,7 +467,6 @@ defineExpose({ scrollBottom })
   line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s, color .15s, border-color .15s;
   align-self: flex-end;
   margin-bottom: 2px;
 }
@@ -508,7 +504,6 @@ defineExpose({ scrollBottom })
   width: 5px; height: 100%;
   cursor: ew-resize;
   background: transparent;
-  transition: background .15s;
   z-index: 10;
 }
 .ap-resize-handle:hover { background: rgba(99,102,241,.35); }

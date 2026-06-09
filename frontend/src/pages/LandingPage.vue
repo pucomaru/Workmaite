@@ -472,7 +472,7 @@ const features = [
 /* Features */
 .py-6 { padding-top: 80px; padding-bottom: 80px; }
 .features-section { background: var(--bg-card); }
-.feature-card { border: 1px solid var(--border) !important; transition: transform .2s, box-shadow .2s; }
+.feature-card { border: 1px solid var(--border) !important;  }
 .feature-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg) !important; }
 .feature-icon { width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 
@@ -482,7 +482,7 @@ const features = [
 .popup-box { position: relative; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; background: var(--bg-card); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
 .popup-close { position: absolute; top: 14px; right: 16px; z-index: 10; background: none; border: none; font-size: 18px; color: var(--dark-muted); cursor: pointer; padding: 4px; line-height: 1; transition: color .15s; }
 .popup-close:hover { color: var(--text-dim); }
-.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s, transform .2s; }
+.modal-fade-enter-active, .modal-fade-leave-active { }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 .modal-fade-enter-from .popup-box, .modal-fade-leave-to .popup-box { transform: scale(.95) translateY(8px); }
 

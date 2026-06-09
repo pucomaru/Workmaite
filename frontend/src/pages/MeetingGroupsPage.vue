@@ -393,7 +393,7 @@ onMounted(async () => {
 .mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
 
 /* 테이블 행 */
-.mg-row { border-bottom:1px solid rgba(255,255,255,.06);transition:background .1s;cursor:default;background:transparent; }
+.mg-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:default;background:transparent; }
 .mg-row:hover { background:rgba(255,255,255,.04); }
 .mg-row-title { font-size:13px;font-weight:600;color:var(--dark-text); }
 .day-mode .mg-row { border-bottom-color:var(--surface-2);background:#fff; }
@@ -415,7 +415,7 @@ onMounted(async () => {
 
 /* 아이콘 버튼 */
 .action-btns { display:flex;gap:4px;align-items:center; }
-.mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s; }
+.mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
 .mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:#93c5fd;background:rgba(96,165,250,.1); }
 .mg-icon-btn.end:hover { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
 .mg-icon-btn.delete:hover { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }

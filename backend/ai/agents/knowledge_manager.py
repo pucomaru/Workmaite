@@ -65,12 +65,6 @@ async def ensure_vector_indexes() -> None:
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
            }}""",
-        """CREATE VECTOR INDEX aiJudgmentEmbedding IF NOT EXISTS
-           FOR (r:AIJudgment) ON (r.embedding)
-           OPTIONS {indexConfig: {
-             `vector.dimensions`: 1536,
-             `vector.similarity_function`: 'cosine'
-           }}""",
         """CREATE VECTOR INDEX humanJudgmentEmbedding IF NOT EXISTS
            FOR (hj:HumanJudgment) ON (hj.embedding)
            OPTIONS {indexConfig: {
@@ -256,7 +250,6 @@ async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -
     index_map = {
         "Minutes": "minutes_embedding_index",
         "Agenda": "agendaEmbedding",
-        "AIJudgment": "aiJudgmentEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
     }
     index_name = index_map.get(node_type, "minutes_embedding_index")
@@ -283,7 +276,7 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
 
     Args:
         query: 검색할 키워드 또는 자연어 쿼리
-        node_type: 검색 대상 노드 타입 (Minutes / Agenda / AIJudgment / HumanJudgment)
+        node_type: 검색 대상 노드 타입 (Minutes / Agenda / HumanJudgment)
     """
     results = await search_knowledge(query, node_type=node_type, k=5)
     if not results:
@@ -326,14 +319,13 @@ async def propose_relationships(
     from neo4j_client import run_cypher
 
     if node_types is None:
-        node_types = ["Agenda", "AIJudgment", "Minutes"]
+        node_types = ["Agenda", "Minutes"]
 
     # 해당 회의체의 노드 수집
     nodes: List[dict] = []
     queries = {
-        "Agenda":      "MATCH (n:Agenda {meeting_id: $mid}) RETURN n.id AS id, n.content AS content, 'Agenda' AS type",
-        "AIJudgment":  "MATCH (n:AIJudgment {meeting_id: $mid}) RETURN n.id AS id, n.title AS content, 'AIJudgment' AS type",
-        "Minutes":     "MATCH (n:Minutes {meeting_id: $mid}) RETURN n.id AS id, n.title AS content, 'Minutes' AS type",
+        "Agenda":  "MATCH (n:Agenda {meeting_id: $mid}) RETURN n.id AS id, n.content AS content, 'Agenda' AS type",
+        "Minutes": "MATCH (n:Minutes {meeting_id: $mid}) RETURN n.id AS id, n.title AS content, 'Minutes' AS type",
     }
     for ntype in node_types:
         if ntype in queries:

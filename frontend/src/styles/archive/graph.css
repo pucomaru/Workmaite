@@ -5,14 +5,10 @@
 }
 .float-btn-item {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
-  cursor: grab; user-select: none; transition: transform .15s, opacity .15s;
-}
+  cursor: grab; user-select: none; }
 .float-btn-item:hover { transform: scale(1.1); opacity: 1; }
 .float-btn-item:active { cursor: grabbing; transform: scale(1.05); }
-.float-node-preview {
-  display: flex; align-items: center; justify-content: center;
-  transition: box-shadow .15s;
-}
+.float-node-preview {display: flex; align-items: center; justify-content: center;}
 .meeting-preview {
   width: 46px; height: 46px; border-radius: 50%;
   background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.55) 100%);
@@ -45,7 +41,6 @@
 .float-drag-ghost {
   position: fixed; z-index: 9999; pointer-events: none;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
-  transition: none;
   filter: drop-shadow(0 4px 14px rgba(0,0,0,.6));
 }
 .ghost-node {
