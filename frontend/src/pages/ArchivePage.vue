@@ -1035,6 +1035,15 @@ watch(() => uploadForm.value.meetingId, (id) => {
   uploadForm.value.relatedTodoIds = []
   if (!id) return
   if (pendingTodo) uploadForm.value.relatedTodoIds = [pendingTodo]
+
+  // dept 노드가 없으면 PostgreSQL에서 멤버 fetch (새 회의체 대응)
+  const numericId = toNumericId(id)
+  const hasDeptNodes = gNodesRef.value.some(
+    n => n.type === 'dept' && n.meetingGroupId === id
+  )
+  if (!hasDeptNodes && numericId) {
+    meetingsStore.fetchMembers(numericId)
+  }
 })
 
 // connectNodeId가 Meetings이면 meetingId 자동 동기화
@@ -1312,16 +1321,23 @@ const connectableNodes = computed(() => {
 
 // ─── Upload: connectable nodes (Meetings / dept / agenda) ──────────────
 const deptConnectableNodes = computed(() => {
+  const nodes = gNodesRef.value
   const seen = new Set()
-  // 회의체 선택 시: 해당 회의체에 연결된 dept 노드만
   if (uploadForm.value.meetingId) {
-    return gNodes
+    const fromGraph = nodes
       .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
       .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
       .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
+    if (fromGraph.length > 0) return fromGraph
+
+    // Neo4j에 dept 노드가 없는 경우(새 회의체 등) → PostgreSQL 멤버 데이터로 폴백
+    const deptSeen = new Set()
+    return meetingsStore.currentMembers
+      .map(m => m.user?.department || m.department || '')
+      .filter(d => d && !deptSeen.has(d) && deptSeen.add(d))
+      .map(d => ({ id: `dept-${d}`, label: d, typeLabel: '부서', type: 'dept' }))
   }
-  // 회의체 미선택 시: 전체 dept 노드
-  return gNodes
+  return nodes
     .filter(n => n.type === 'dept')
     .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
     .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
@@ -1329,8 +1345,9 @@ const deptConnectableNodes = computed(() => {
 
 // 선택된 회의체 노드에 연결된 과제 목록
 const 업로드회의체과제 = computed(() => {
+  const nodes = gNodesRef.value
   if (!uploadForm.value.meetingId) return []
-  const mapAgendas = gNodes.filter(
+  const mapAgendas = nodes.filter(
     n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId
   )
   if (mapAgendas.length > 0) {

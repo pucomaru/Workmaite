@@ -243,14 +243,21 @@ async def store_report(
 
 
 
-async def search_knowledge(query: str, node_type: str = "Minutes", k: int = 5) -> List[dict]:
+async def search_knowledge(
+    query: str,
+    node_type: str = "Minutes",
+    k: int = 5,
+) -> List[dict]:
     from neo4j_client import run_cypher
 
-    # PM 스키마 기준 인덱스명으로 통일
     index_map = {
         "Minutes": "minutes_embedding_index",
         "Agenda": "agendaEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
+        "ReportChunk":   "reportChunkEmbedding",
+        "MinutesChunk":  "minutesChunkEmbedding",
+        "AgendaChunk":   "agendaChunkEmbedding",
+        "KnowledgeChunk":"knowledgeChunkEmbedding",
     }
     index_name = index_map.get(node_type, "minutes_embedding_index")
     embedding = await _embed(query)
@@ -279,14 +286,26 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
         node_type: 검색 대상 노드 타입 (Minutes / Agenda / HumanJudgment)
     """
     results = await search_knowledge(query, node_type=node_type, k=5)
-    if not results:
-        return "관련 자료를 찾지 못했습니다."
+
+    # KnowledgeChunk를 항상 보조 검색 (업로드된 지식 문서)
+    extra: List[dict] = []
+    if node_type != "KnowledgeChunk":
+        extra = await search_knowledge(query, node_type="KnowledgeChunk", k=2)
+
     parts = []
-    for r in results[:5]:
+    for r in results[:4]:
         title = r.get("title") or ""
         content = r.get("content", "")[:250]
         score = float(r.get("score") or 0)
         parts.append(f"[{node_type}] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+    for r in extra[:2]:
+        title = r.get("title") or ""
+        content = r.get("content", "")[:250]
+        score = float(r.get("score") or 0)
+        parts.append(f"[KnowledgeChunk] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+
+    if not parts:
+        return "관련 자료를 찾지 못했습니다."
     return "\n\n---\n\n".join(parts)
 
 

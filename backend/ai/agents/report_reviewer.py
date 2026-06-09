@@ -86,7 +86,7 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
 # ── Tools ──────────────────────────────────────────────────────────────────────
 @tool
 async def search_review_references(query: str) -> str:
-    """보고서 검토에 필요한 관련 회의록·판단 기준을 검색합니다.
+    """보고서 검토에 필요한 관련 회의록·판단 기준·업로드 보고서를 검색합니다.
 
     Args:
         query: 검색할 내용 (보고서 주제, 검토 기준 등)
@@ -98,7 +98,7 @@ async def search_review_references(query: str) -> str:
         return "관련 참고 자료를 찾지 못했습니다."
     lines = [
         f"[{r.get('title','?')}]: {r.get('content','')[:200]}"
-        for r in all_results[:4]
+        for r in all_results[:5]
     ]
     return "\n\n".join(lines)
 

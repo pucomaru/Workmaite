@@ -160,7 +160,7 @@ async def get_archive(
                 """
                 MATCH (mg) WHERE (mg:Meetings OR mg:Meeting_session)
                   AND mg.id IN $ids
-                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`]->(mg)
+                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`|`참여`]->(mg)
                 OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,
@@ -173,7 +173,8 @@ async def get_archive(
                     mg.end_date AS end_date,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
-                    p.position AS position, type(rel) AS role, d.name AS department
+                    p.position AS position, type(rel) AS role,
+                    coalesce(d.name, p.department, '') AS department
                 ORDER BY mg_id
                 """,
                 {"ids": mg_ids_list},

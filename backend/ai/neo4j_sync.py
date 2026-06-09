@@ -40,6 +40,10 @@ _VECTOR_INDEXES: list[tuple[str, str, str]] = [
     ("Session",       "sessionEmbedding",       "embedding"),
     ("Minutes",       "minutesEmbedding",       "embedding"),
     ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
+    ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
+    ("MinutesChunk",  "minutesChunkEmbedding",  "embedding"),
+    ("AgendaChunk",   "agendaChunkEmbedding",   "embedding"),
+    ("KnowledgeChunk","knowledgeChunkEmbedding","embedding"),
 ]
 
 
