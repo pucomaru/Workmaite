@@ -11,6 +11,8 @@ routers/sync.py — Neo4j 동기화 관련 API
   POST /api/sync/minutes/{id}       특정 Minutes 수동 동기화
   DELETE /api/sync/meeting/{id}     Meeting 삭제 동기화
   POST /api/sync/all                전체 PostgreSQL→Neo4j 동기화
+  POST /api/sync/member             특정 User를 Meeting에 참여 관계로 추가 (Spring Boot 내부 호출)
+  DELETE /api/sync/member/delete    특정 User를 Meeting에서 참여 관계 삭제 (Spring Boot 내부 호출)
 """
 
 import os
@@ -34,6 +36,8 @@ def verify_internal(x_internal_secret: Optional[str] = Header(None)):
 from neo4j_sync import (
     sync_user,
     sync_meeting,
+    sync_meeting_member,
+    delete_meeting_member,
     sync_session,
     sync_agenda,
     sync_minutes,
@@ -233,6 +237,37 @@ async def sync_minutes_manual(
         content_summary=m.content_summary,
     )
     return {"success": True, "minutes_id": minutes_id}
+
+
+# ─── Member 동기화 (SpringBoot → FastAPI → Neo4j) ────────────────────────────
+
+@router.post("/member")
+async def sync_member_manual(
+    meetingId: int,
+    userId: int,
+    _: None = Depends(verify_internal),
+):
+    """Spring Boot에서 회의 멤버 추가 시 Neo4j에 (User)-[:참여]->(Meetings) 관계를 동기화합니다."""
+    await sync_meeting_member(
+        meeting_id=meetingId,
+        user_id=userId,
+        role="member",
+    )
+    return {"status": "ok"}
+
+
+@router.delete("/member/delete")
+async def delete_member_manual(
+    meetingId: int,
+    userId: int,
+    _: None = Depends(verify_internal),
+):
+    """Spring Boot에서 회의 멤버 삭제 시 Neo4j의 (User)-[:참여]->(Meetings) 관계를 제거합니다."""
+    await delete_meeting_member(
+        meeting_id=meetingId,
+        user_id=userId,
+    )
+    return {"status": "ok"}
 
 
 # ─── Report 수동 동기화 ───────────────────────────────────────────────────────
