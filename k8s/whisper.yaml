@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: whisper
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-whisper:653692f
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-whisper:bf9312e
           ports:
             - containerPort: 9000
           env:
