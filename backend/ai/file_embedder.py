@@ -209,7 +209,6 @@ async def embed_and_store(
       agenda / archive  → AgendaChunk
       knowledge / 기타  → KnowledgeChunk
     """
-    print("[Embedder] embed_and_store 시작")
     from neo4j_client import run_cypher
 
     text = extract_text(file_path_or_url)
@@ -263,12 +262,10 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
 )"""
             params["mg_id"] = mg_id
 
-        print("[Embedder] 청크 저장 시도 중")
         try:
             await run_cypher(cypher, params)
             stored += 1
         except Exception as e:
-            print(f"[Embedder] 에러: {e}")
             logger.error(f"[Embedder] 청크 저장 실패 (id={chunk_id}): {e}")
 
     logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (context_type={context_type})")
