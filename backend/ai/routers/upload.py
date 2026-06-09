@@ -208,112 +208,36 @@ async def upload_report(
     }
 
 
-@router.post("/reports/{report_id}/analyze")
-async def analyze_report_stream(
-    report_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """기존 보고서를 R2에서 다운받아 AI로 재검토 후 report_scores에 저장합니다."""
-    report = db.query(models.Report).filter(models.Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
-
-    # R2에서 파일 다운로드 + 텍스트 추출
-    file_content = "[파일 미첨부]"
-    if report.file_path:
-        try:
-            from r2_storage import download_bytes as _r2_dl, url_to_key as _r2_key
-            from routers.supervisor import _extract_text_from_file
-            raw = _r2_dl(_r2_key(report.file_path))
-            extracted = _extract_text_from_file(raw, (report.file_name or "").lower())
-            file_content = (extracted or "").strip()[:8000] or "[파일에서 텍스트를 추출하지 못했습니다]"
-        except Exception as e:
-            file_content = f"[파일 추출 오류: {e}]"
-
-    from agents.report_reviewer import analyze_archive_file_stream as _ai_analyze
-
-    async def stream():
-        try:
-            async for event in _ai_analyze(
-                file_name=report.file_name or "",
-                file_type="발표자료",
-                dept_name=report.submitter_department or "",
-                file_content=file_content,
-                graph_context="",
-                candidate_agendas=[],
-                user_id=current_user.id if current_user else None,
-                meeting_id=report.meeting_id,
-            ):
-                if event.get("type") == "result":
-                    data = event.get("data", {})
-                    score = data.get("score")
-                    detail_scores = data.get("detail_scores") or {}
-                    feedback = data.get("feedback", [])
-                    feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
-                    existing = db.query(models.ReportScore).filter(
-                        models.ReportScore.report_id == report_id
-                    ).first()
-                    if existing:
-                        existing.ai_status = "success"
-                        existing.total_score = score
-                        existing.detail_scores = detail_scores
-                        existing.feedback = feedback_text
-                    else:
-                        db.add(models.ReportScore(
-                            report_id=report_id,
-                            ai_status="success",
-                            total_score=score,
-                            detail_scores=detail_scores,
-                            feedback=feedback_text,
-                        ))
-                    db.commit()
-                    # Neo4j 동기화
-                    try:
-                        import asyncio as _asyncio
-                        from neo4j_sync import sync_ai_judgment as _sync_ai
-                        _asyncio.create_task(_sync_ai(
-                            report_id=report_id,
-                            meeting_id=report.meeting_id,
-                            upload_id=report.upload_id,
-                            version=report.version,
-                            submitter_department=report.submitter_department,
-                            file_name=report.file_name,
-                            file_path=report.file_path,
-                            human_status=report.human_status,
-                            parent_id=report.parent_id,
-                            created_at=report.created_at.isoformat() if report.created_at else None,
-                            ai_status="success",
-                            total_score=score,
-                            detail_scores=detail_scores,
-                            feedback=feedback_text,
-                        ))
-                    except Exception as _neo_e:
-                        logger.warning(f"[analyze] Neo4j sync 실패 (무시): {_neo_e}")
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            err = {"type": "result", "data": {"score": 0, "feedback": [f"AI 분석 오류: {e}"], "agendas": [], "related_depts": []}}
-            yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
-
-
 @router.get("/reports/{report_id}/score")
 async def get_report_score(
     report_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """보고서의 AI 검토 점수를 반환합니다."""
+    """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+
     rs = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
     if not rs:
-        return {"total_score": None, "detail_scores": None, "feedback": None, "ai_status": None}
+        raise HTTPException(status_code=404, detail="저장된 검토 결과가 없습니다.")
+
+    feedback = rs.feedback.split("\n") if rs.feedback else []
+    detail_scores = dict(rs.detail_scores or {})
+    top_improvements = detail_scores.pop("_top_improvements", [])
     return {
-        "total_score": rs.total_score,
-        "detail_scores": rs.detail_scores,
-        "feedback": rs.feedback,
-        "ai_status": rs.ai_status,
+        "score": rs.total_score,
+        "detail_scores": detail_scores,
+        "top_improvements": top_improvements,
+        "feedback": feedback,
+        "report": {
+            "id": report.id,
+            "file_name": report.file_name,
+            "file_path": report.file_path,
+            "human_status": report.human_status,
+            "related_agenda_ids": report.related_agenda_ids or [],
+        }
     }
 
 
@@ -333,7 +257,10 @@ async def save_report_score(
 
     feedback = data.get("feedback", [])
     feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
-    detail_scores = data.get("detail_scores") or {}
+    detail_scores = dict(data.get("detail_scores") or {})
+    top_improvements = data.get("top_improvements") or []
+    if top_improvements:
+        detail_scores["_top_improvements"] = top_improvements
 
     existing = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
     if existing:

@@ -1347,42 +1347,23 @@ const deptConnectableNodes = computed(() => {
     .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
 })
 
-// 선택된 회의체 노드에 연결된 과제들만 드롭다운에 표시 (맵 상 agenda 노드 기준)
-// 사용자가 직접 추가한 과제(customAgendas)도 포함
-const customAgendas = ref([])
+// 선택된 회의체 노드에 연결된 과제 목록
 const 업로드회의체과제 = computed(() => {
   if (!uploadForm.value.meetingId) return []
-  const custom = customAgendas.value.map(c => ({ ...c, isCustom: true }))
-  // 맵 상에서 해당 회의체에 연결된 agenda 노드 우선
   const mapAgendas = gNodes.filter(
     n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId
   )
   if (mapAgendas.length > 0) {
-    return [
-      ...mapAgendas.map(n => ({
-        id: n.neo4jId || n.id,
-        content: n.data?.content || n.label,  // 전체 내용 (맵은 12자 truncate)
-        agenda_id: n.data?.pg_id ?? null,
-      })),
-      ...custom,
-    ]
+    return mapAgendas.map(n => ({
+      id: n.neo4jId || n.id,
+      content: n.data?.content || n.label,
+      agenda_id: n.data?.pg_id ?? null,
+    }))
   }
-  // fallback: 맵에 없으면 meeting_group 노드의 tasks
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
-  if (mgNode?.data?.tasks?.length) return [...mgNode.data.tasks, ...custom]
-  return custom
+  if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
+  return []
 })
-
-// 사용자가 직접 과제를 입력 → 후보 목록에 추가하고 자동 선택
-function addCustomAgenda(content) {
-  const text = (content || '').trim()
-  if (!text) return
-  const id = `agenda-custom-${Date.now()}`
-  customAgendas.value.push({ id, content: text, agenda_id: null })
-  if (!uploadForm.value.relatedTodoIds.includes(id)) {
-    uploadForm.value.relatedTodoIds.push(id)
-  }
-}
 
 // person 노드 → 참여 회의체 목록
 function personMeetingGroups(node) {
@@ -1414,6 +1395,7 @@ const aiStreamStage = ref('')  // 현재 진행 단계 메시지
 const reportId = ref(null)        // AI 검토 시작 시 생성된 report ID
 const uploadedFilePath = ref('')  // R2 업로드된 파일 경로
 const isResubmit = ref(false)     // 재검토 모드 여부
+const isResultReadOnly = ref(false) // 이미 결정된 보고서 결과 보기 전용
 const rejectedReports = ref([])   // 반려된 보고서 목록
 const selectedParentId = ref(null) // 선택된 원본 report ID
 const selectedAgendas = ref([])      // indices of agendas to apply
@@ -1427,7 +1409,6 @@ function openUploadModal(ctx = {}) {
   aiStreamStage.value = ''
   selectedAgendas.value = []
   selectedRelDepts.value = []
-  customAgendas.value = []
   reportId.value = null
   uploadedFilePath.value = ''
   isResubmit.value = false
@@ -1464,6 +1445,7 @@ function buildGraphContextStr() {
 
 async function runAiAnalysis() {
   if (!uploadForm.value.label.trim() || !uploadForm.value.connectNodeId) return
+  isResultReadOnly.value = false
   aiAnalyzing.value = true
   uploadStep.value = 2
   aiResult.value = null
@@ -1560,6 +1542,7 @@ async function runAiAnalysis() {
         score: aiResult.value.score,
         feedback: aiResult.value.feedback ?? [],
         detail_scores: aiResult.value.detail_scores ?? {},
+        top_improvements: aiResult.value.top_improvements ?? [],
       }).catch(e => console.warn('[runAiAnalysis] 점수 저장 실패:', e))
     }
   }
@@ -1583,33 +1566,8 @@ function doAddFile() {
   // 연결 노드의 meeting_group을 찾아 groupIdx 상속 (getVisibleSet에서 가시성 포함되도록)
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'meeting_group')
 
-  // 사용자가 직접 입력한 과제 → 그래프 agenda 노드 생성 + Neo4j Agenda 노드 생성
-  const relTodoIds = uploadForm.value.relatedTodoIds || []
-  customAgendas.value
-    .filter(c => relTodoIds.includes(c.id))
-    .forEach((c, i) => {
-      // 이미 그래프에 있으면 건너뜀
-      if (gNodes.some(n => n.id === c.id)) return
-      const angle = Math.random() * Math.PI * 2
-      gNodes.push({
-        id: c.id,
-        neo4jId: c.id,
-        label: c.content.slice(0, 12) + (c.content.length > 12 ? '…' : ''),
-        type: 'agenda',
-        data: { content: c.content },
-        groupIdx: mgNode?.groupIdx,
-        meetingGroupId: uploadForm.value.meetingId,
-        x: Math.cos(angle) * 110, y: 10, z: Math.sin(angle) * 110,
-      })
-      // Neo4j Agenda 노드 생성 (회의체에 관할 연결)
-      apiAI.post('/api/neo4j/agendas', {
-        id: c.id,
-        content: c.content,
-        mg_id: uploadForm.value.meetingId,
-      }).catch(e => console.warn('[doAddFile] agenda 생성 실패:', e))
-    })
-
   // 연관 과제(복수)가 선택된 경우 agenda 노드들에 연결, 아니면 부서 노드에 연결
+  const relTodoIds = uploadForm.value.relatedTodoIds || []
   const agendaNodes = relTodoIds
     .map(id => gNodes.find(n => n.type === 'agenda' && (n.neo4jId === id || n.id === id)))
     .filter(Boolean)
@@ -1919,6 +1877,7 @@ const groupHistoryMap = computed(() => {
       filePath: r.file_path || r.file_url || null,
       rejected: r.human_status === 'rejected' || r.status === 'rejected',
       approved: r.human_status === 'approved' || r.status === 'approved',
+      pending: !r.human_status || r.human_status === 'pending',
       reportId: r.id,
       aiFeedback: r.ai_feedback || null,
     })
@@ -2132,6 +2091,30 @@ async function deleteReport(reportId) {
 }
 const TYPES=['Draft','In Progress','Done','Pending']
 
+async function resumePendingReport(rId, readOnly = false) {
+  try {
+    const { data } = await apiAI.get(`/api/upload/reports/${rId}/score`)
+    aiResult.value = {
+      score: data.score,
+      detail_scores: data.detail_scores,
+      feedback: data.feedback,
+      top_improvements: data.top_improvements || [],
+      matched_agendas: [],
+      agendas: [],
+      related_depts: [],
+    }
+    reportId.value = data.report.id
+    uploadedFilePath.value = data.report.file_path
+    uploadForm.value.label = data.report.file_name || ''
+    uploadForm.value.relatedTodoIds = data.report.related_agenda_ids || []
+    isResultReadOnly.value = readOnly
+    uploadStep.value = 2
+    showUploadModal.value = true
+  } catch (e) {
+    alert('검토 결과를 불러오지 못했습니다.')
+  }
+}
+
 // ─── Provide for Canvas components (GraphLegend, GraphFloatBtns, FloatDragPreview) ─
 provide('archiveCanvas', {
   loading, viewMode, detailOpen, sidebarW,
@@ -2148,7 +2131,7 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap,
-  formatDate, downloadDummy: downloadFile, deleteReport,
+  formatDate, downloadDummy: downloadFile, deleteReport, resumePendingReport,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
@@ -2193,11 +2176,11 @@ provide('archiveModals', {
   showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession,
   showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
   deptConnectableNodes, 업로드회의체과제, prefilledCtx,
-  addCustomAgenda,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
   aiStreamText, aiStreamStage,
   PRESENTATION_CRITERIA, doAddFile, submitReview, reportId,
   isResubmit, rejectedReports, selectedParentId, fetchRejectedReports,
+  isResultReadOnly,
   settingsModal, closeSettings,
   settingsSearchQ, watchSettingsSearch, settingsSearchLoading,
   settingsSearchResults, addMemberToSettings, avatarColor, initials,

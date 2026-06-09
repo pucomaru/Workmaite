@@ -6,11 +6,11 @@ import FileUploadArea from './FileUploadArea.vue'
 const {
   showUploadModal, nightMode, uploadStep, uploadForm,
   gNodes, deptConnectableNodes, 업로드회의체과제, prefilledCtx,
-  addCustomAgenda,
   REL_COLORS, autoRel, runAiAnalysis,
   aiAnalyzing, aiResult, aiStreamText, aiStreamStage,
   PRESENTATION_CRITERIA, doAddFile, submitReview,
   isResubmit, rejectedReports, selectedParentId, fetchRejectedReports,
+  isResultReadOnly,
 } = inject('archiveModals')
 
 function onResubmitToggle() {
@@ -74,7 +74,7 @@ watch(aiResult, (val) => {
     const duration = 900
     animTimer = setInterval(() => {
       const t = Math.min((Date.now() - start) / duration, 1)
-      animProgress.value = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t // ease in-out
+      animProgress.value = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
       if (animProgress.value >= 1) {
         animProgress.value = 1
         clearInterval(animTimer)
@@ -82,7 +82,47 @@ watch(aiResult, (val) => {
     }, 16)
   }
 })
-onUnmounted(() => clearInterval(animTimer))
+onUnmounted(() => { clearInterval(animTimer) })
+
+// ── AI 분석 단계별 메시지 ──────────────────────────────────────
+const EVAL_STEPS = [
+  { message: '관련 회의록·안건을 검색하고 있습니다…',       category: null },
+  { message: '보고서 내용을 파악하고 있습니다…',             category: null },
+  { message: '목적 및 배경을 검토하고 있습니다…',           category: '목적및배경' },
+  { message: '현황 분석 데이터를 확인하고 있습니다…',       category: '현황분석' },
+  { message: '핵심 내용의 논리 구조를 파악하고 있습니다…', category: '핵심내용' },
+  { message: '실행 계획의 구체성을 평가하고 있습니다…',     category: '실행계획' },
+  { message: '기대효과와 목적 연결성을 검토하고 있습니다…', category: '기대효과' },
+  { message: '리스크와 대안을 분석하고 있습니다…',           category: '리스크및대안' },
+  { message: '종합 점수를 산출하고 있습니다…',               category: null },
+]
+const CATEGORY_ORDER = ['목적및배경', '현황분석', '핵심내용', '실행계획', '기대효과', '리스크및대안']
+const currentEvalStep = ref(0)
+
+watch(aiAnalyzing, (val) => { if (!val) currentEvalStep.value = 0 })
+
+watch(aiStreamStage, (msg) => {
+  if (!msg) return
+  if (msg.includes('분석')) currentEvalStep.value = Math.max(currentEvalStep.value, 1)
+})
+
+watch(aiStreamText, (text) => {
+  if (!aiAnalyzing.value || !text) return
+  if (CATEGORY_ORDER.every(c => text.includes(c))) {
+    currentEvalStep.value = 8
+    return
+  }
+  for (let i = CATEGORY_ORDER.length - 1; i >= 0; i--) {
+    if (text.includes(CATEGORY_ORDER[i])) {
+      currentEvalStep.value = Math.max(currentEvalStep.value, i + 2)
+      return
+    }
+  }
+})
+
+const activeCategory = computed(() =>
+  aiAnalyzing.value ? EVAL_STEPS[currentEvalStep.value]?.category : null
+)
 
 // 점수 다각형
 const scorePoly = computed(() => {
@@ -104,6 +144,14 @@ const streamScore = computed(() => {
   const m = (aiStreamText.value || '').match(/"score"\s*:\s*(\d+)/)
   return m ? parseInt(m[1]) : null
 })
+
+// ── 카테고리 펼치기/접기 ───────────────────────────────────────
+const expandedCriteria = ref(new Set())
+function toggleCriteria(key) {
+  const s = new Set(expandedCriteria.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  expandedCriteria.value = s
+}
 
 // ── 피드백 단계 ───────────────────────────────────────────────
 const showFeedback = ref(false)
@@ -134,25 +182,27 @@ async function onSubmitFeedback() {
   showFeedback.value = false
 }
 
-// ── 과제 추가 ─────────────────────────────────────────────────
+// ── 과제 선택 ─────────────────────────────────────────────────
 function aiMatchReason(t) {
   const id = String(t.agenda_id ?? t.id)
   const m = (aiResult.value?.matched_agendas || []).find(x => String(x.id) === id)
   return m ? (m.reason || 'AI가 관련 과제로 추천') : ''
 }
-const newAgendaText = ref('')
-function submitCustomAgenda() {
-  const text = newAgendaText.value.trim()
-  if (!text) return
-  addCustomAgenda(text)
-  newAgendaText.value = ''
+const agendaSearch = ref('')
+const agendaDropdownOpen = ref(false)
+function toggleAgendaDropdown() {
+  agendaDropdownOpen.value = !agendaDropdownOpen.value
+  if (agendaDropdownOpen.value) agendaSearch.value = ''
+}
+function closeAgendaDropdown() {
+  agendaDropdownOpen.value = false
 }
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="showUploadModal" class="app-modal-backdrop">
-      <div class="app-modal app-modal-md" :class="{ dark: nightMode }">
+      <div class="app-modal" :class="[uploadStep === 2 ? 'app-modal-lg' : 'app-modal-md', { dark: nightMode }]">
 
         <div class="upload-step-bar">
           <ProcessStepBar
@@ -266,7 +316,9 @@ function submitCustomAgenda() {
                 <!-- 축 -->
                 <line v-for="(ax, i) in axisLines" :key="i"
                   :x1="CX" :y1="CY" :x2="ax.x2" :y2="ax.y2"
-                  stroke="#e2e8f0" stroke-width="0.8"/>
+                  :stroke="activeCategory && CRITERIA_DEF[i].key === activeCategory ? '#a78bfa' : '#e2e8f0'"
+                  :stroke-width="activeCategory && CRITERIA_DEF[i].key === activeCategory ? 2 : 0.8"
+                  style="transition: stroke 0.4s, stroke-width 0.4s"/>
 
                 <!-- 로딩 중: 점선 애니메이션 -->
                 <polygon v-if="aiAnalyzing" :points="gridPoly"
@@ -282,7 +334,11 @@ function submitCustomAgenda() {
                 <text v-for="(lp, i) in labelPos" :key="i"
                   :x="lp.x" :y="lp.y"
                   text-anchor="middle" dominant-baseline="middle"
-                  font-size="8.5" fill="#64748b" font-family="sans-serif">
+                  font-size="8.5"
+                  :fill="activeCategory && CRITERIA_DEF[i].key === activeCategory ? '#7c3aed' : '#64748b'"
+                  :font-weight="activeCategory && CRITERIA_DEF[i].key === activeCategory ? '700' : '400'"
+                  font-family="sans-serif"
+                  style="transition: fill 0.4s">
                   {{ lp.label }}
                 </text>
 
@@ -302,34 +358,74 @@ function submitCustomAgenda() {
               <!-- 로딩 상태 메시지 -->
               <div v-if="aiAnalyzing" class="radar-stage">
                 <div class="radar-stage-dot"></div>
-                {{ aiStreamStage || '항목별로 평가하고 있습니다…' }}
+                {{ EVAL_STEPS[currentEvalStep]?.message }}
               </div>
 
               <!-- 항목별 점수 바 -->
               <div v-if="aiResult && !aiAnalyzing" class="criteria-scores">
-                <div v-for="c in CRITERIA_DEF" :key="c.key" class="cs-row">
-                  <span class="cs-label">{{ c.label }}</span>
-                  <div class="cs-bar-wrap">
-                    <div class="cs-bar"
-                      :style="{
-                        width: ((aiResult.detail_scores?.[c.key]?.score ?? 0) / c.max * 100) + '%',
-                        background: scoreColor,
-                        transition: 'width 0.8s ease',
-                      }"/>
+                <div v-for="c in CRITERIA_DEF" :key="c.key" class="cs-block">
+                  <!-- 카테고리 행 -->
+                  <div class="cs-row" @click="toggleCriteria(c.key)" style="cursor:pointer">
+                    <span class="cs-label">{{ c.label }}</span>
+                    <div class="cs-bar-wrap">
+                      <div class="cs-bar"
+                        :style="{
+                          width: ((aiResult.detail_scores?.[c.key]?.score ?? 0) / c.max * 100) + '%',
+                          background: scoreColor,
+                          transition: 'width 0.8s ease',
+                        }"/>
+                    </div>
+                    <span class="cs-num">{{ aiResult.detail_scores?.[c.key]?.score ?? 0 }}/{{ c.max }}</span>
+                    <svg class="cs-toggle-icon" :style="{ transform: expandedCriteria.has(c.key) ? 'rotate(90deg)' : '' }"
+                      width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path d="M9 18l6-6-6-6"/>
+                    </svg>
                   </div>
-                  <span class="cs-num">{{ aiResult.detail_scores?.[c.key]?.score ?? 0 }}/{{ c.max }}</span>
+
+                  <!-- 펼쳐진 세부 항목 -->
+                  <div v-if="expandedCriteria.has(c.key)" class="cs-detail">
+                    <!-- sub_scores -->
+                    <div v-for="(sub, subKey) in aiResult.detail_scores?.[c.key]?.sub_scores" :key="subKey" class="cs-sub-row">
+                      <span class="cs-sub-label">{{ subKey }}</span>
+                      <div class="cs-sub-bar-wrap">
+                        <div class="cs-sub-bar" :style="{ width: (sub.score / sub.max * 100) + '%', background: scoreColor + 'aa' }"/>
+                      </div>
+                      <span class="cs-sub-num">{{ sub.score }}/{{ sub.max }}</span>
+                    </div>
+                    <!-- 잘된 점 -->
+                    <div v-if="aiResult.detail_scores?.[c.key]?.strengths?.length" class="cs-feedback-section">
+                      <span class="cs-fb-label cs-fb-good">✅ 잘된 점</span>
+                      <ul class="cs-fb-list">
+                        <li v-for="(s, i) in aiResult.detail_scores[c.key].strengths" :key="i" class="cs-fb-item">{{ s }}</li>
+                      </ul>
+                    </div>
+                    <!-- 개선 방향 -->
+                    <div v-if="aiResult.detail_scores?.[c.key]?.improvements?.length" class="cs-feedback-section">
+                      <span class="cs-fb-label cs-fb-warn">⚠️ 개선 방향</span>
+                      <ul class="cs-fb-list">
+                        <li v-for="(imp, i) in aiResult.detail_scores[c.key].improvements" :key="i" class="cs-fb-item cs-fb-item-warn">{{ imp }}</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- 피드백 목록 -->
-            <template v-if="aiResult && !aiAnalyzing && !showFeedback">
-              <div class="ai-feedback-list" style="margin-top:12px">
-                <div v-for="(fb, i) in aiResult.feedback" :key="i" class="ai-feedback-item">
-                  <span class="fb-dot">•</span> {{ fb }}
-                </div>
+            <!-- 우선 개선과제: 신규·읽기전용 공통 표시 -->
+            <div v-if="aiResult && !aiAnalyzing && aiResult.top_improvements?.length" class="ai-top-improvements">
+              <div class="ai-section-title" style="margin-bottom:8px">
+                <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                우선 개선 과제
               </div>
+              <div v-for="(imp, i) in aiResult.top_improvements" :key="i" class="ai-top-item">
+                <span class="ai-top-num">{{ i + 1 }}</span>
+                <span class="ai-top-category">[{{ imp.category }}]</span>
+                <span class="ai-top-action">{{ imp.action }}</span>
+              </div>
+            </div>
 
+            <!-- Top 3 개선 과제 + 피드백 -->
+            <template v-if="aiResult && !aiAnalyzing && !showFeedback">
               <!-- 연관 과제 -->
               <div class="ai-section">
                 <div class="ai-section-title">
@@ -337,25 +433,61 @@ function submitCustomAgenda() {
                   연관 과제 연결
                   <span v-if="aiResult.matched_agendas?.length" class="ai-badge">AI 추천 {{ aiResult.matched_agendas.length }}건</span>
                 </div>
-                <div v-if="업로드회의체과제.length" class="agenda-check-list">
-                  <label v-for="t in 업로드회의체과제" :key="t.id"
-                    class="agenda-check-item" :class="{ recommended: aiMatchReason(t) }">
-                    <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedTodoIds"/>
-                    <span class="agenda-check-body">
-                      <span class="agenda-check-content">
-                        {{ t.content }}
-                        <span v-if="aiMatchReason(t)" class="ai-badge sm">AI 추천</span>
-                      </span>
-                      <span v-if="aiMatchReason(t)" class="matched-agenda-reason">{{ aiMatchReason(t) }}</span>
-                    </span>
-                  </label>
+
+                <!-- 선택된 과제 태그 -->
+                <div v-if="uploadForm.relatedTodoIds.length" class="agenda-tags">
+                  <span v-for="id in uploadForm.relatedTodoIds" :key="id" class="agenda-tag">
+                    {{ 업로드회의체과제.find(t => String(t.agenda_id ?? t.id) === id)?.content?.slice(0,20) || id }}
+                    <button class="agenda-tag-remove" @click.stop="uploadForm.relatedTodoIds = uploadForm.relatedTodoIds.filter(x => x !== id)">×</button>
+                  </span>
                 </div>
-                <p v-else class="agenda-auto-note" style="margin-top:6px">연결 가능한 과제를 찾지 못했습니다.</p>
-                <div class="agenda-add-row">
-                  <input v-model="newAgendaText" class="app-modal-input" type="text"
-                    placeholder="연결할 과제를 직접 입력…"
-                    @keydown.enter.prevent="submitCustomAgenda"/>
-                  <button type="button" class="agenda-add-btn" :disabled="!newAgendaText.trim()" @click="submitCustomAgenda">추가</button>
+
+                <!-- 드롭다운 트리거 버튼 -->
+                <div class="agenda-dropdown-wrap">
+                  <button class="agenda-dropdown-trigger" @click.stop="toggleAgendaDropdown">
+                    <span>{{ agendaDropdownOpen ? '과제 선택 닫기' : '과제 선택하기' }}</span>
+                    <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"
+                      :style="{ transform: agendaDropdownOpen ? 'rotate(180deg)' : '', transition: 'transform .2s' }">
+                      <path d="M6 9l6 6 6-6"/>
+                    </svg>
+                  </button>
+
+                  <div v-if="agendaDropdownOpen" class="agenda-dropdown">
+                    <!-- 검색 -->
+                    <input v-model="agendaSearch" class="agenda-search-input" type="text"
+                      placeholder="과제 내용 검색…" autofocus @click.stop/>
+
+                    <div class="agenda-dropdown-list">
+                      <!-- AI 추천 -->
+                      <template v-if="!agendaSearch.trim()">
+                        <div v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length" class="agenda-group-label">AI 추천</div>
+                        <label v-for="t in 업로드회의체과제.filter(t => aiMatchReason(t))" :key="'ai-'+t.id"
+                          class="agenda-dropdown-item recommended" @click.stop>
+                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedTodoIds"/>
+                          <span>{{ t.content }}</span>
+                          <span class="ai-badge sm" style="margin-left:auto">AI 추천</span>
+                        </label>
+                        <div v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length" class="agenda-group-label" style="margin-top:6px">전체 과제</div>
+                      </template>
+
+                      <!-- 검색 결과 or 전체 -->
+                      <template v-for="t in 업로드회의체과제.filter(t =>
+                        !aiMatchReason(t) &&
+                        (!agendaSearch.trim() || t.content.toLowerCase().includes(agendaSearch.trim().toLowerCase()))
+                      )" :key="t.id">
+                        <label class="agenda-dropdown-item" @click.stop>
+                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedTodoIds"/>
+                          <span>{{ t.content }}</span>
+                        </label>
+                      </template>
+
+                      <p v-if="!업로드회의체과제.filter(t =>
+                        agendaSearch.trim()
+                          ? t.content.toLowerCase().includes(agendaSearch.trim().toLowerCase())
+                          : true
+                      ).length" class="agenda-auto-note" style="padding:8px 4px">과제가 없습니다.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </template>
@@ -382,7 +514,13 @@ function submitCustomAgenda() {
               <button class="app-btn-primary" disabled>검토 중…</button>
             </template>
 
-            <!-- 결과 확인 중 -->
+            <!-- 결과 확인 중 (읽기 전용: 이미 결정된 보고서) -->
+            <template v-else-if="aiResult && !showFeedback && isResultReadOnly">
+              <span style="font-size:12px;color:#94a3b8">검토가 완료된 보고서입니다.</span>
+              <button class="app-btn-cancel" @click="showUploadModal = false">닫기</button>
+            </template>
+
+            <!-- 결과 확인 중 (신규 검토) -->
             <template v-else-if="aiResult && !showFeedback">
               <button class="app-btn-reject" @click="onReject">
                 <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
@@ -414,6 +552,50 @@ function submitCustomAgenda() {
 .radar-svg { width: 200px; height: 210px; }
 .radar-loading-dash { animation: dashRotate 1.2s linear infinite; }
 .radar-score-poly { transition: all 0.1s; }
+
+.radar-stage {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: #64748b;
+}
+.radar-stage-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #a78bfa;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── 항목별 점수 바 ── */
+.criteria-scores { width: 100%; max-width: 280px; display: flex; flex-direction: column; gap: 4px; }
+.cs-block { display: flex; flex-direction: column; }
+.cs-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px; transition: background .1s; }
+.cs-row:hover { background: rgba(0,0,0,.04); }
+.cs-label { font-size: 10px; color: #64748b; width: 52px; flex-shrink: 0; text-align: right; }
+.cs-bar-wrap { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
+.cs-bar { height: 100%; border-radius: 3px; }
+.cs-num { font-size: 10px; color: #94a3b8; width: 28px; flex-shrink: 0; }
+.cs-toggle-icon { flex-shrink:0; color:#94a3b8; transition: transform .2s; }
+
+/* 세부 항목 */
+.cs-detail { margin: 3px 0 5px 58px; display: flex; flex-direction: column; gap: 3px; border-left: 2px solid #e2e8f0; padding-left: 10px; }
+.cs-sub-row { display: flex; align-items: center; gap: 5px; }
+.cs-sub-label { font-size: 9.5px; color: #94a3b8; width: 70px; flex-shrink: 0; }
+.cs-sub-bar-wrap { flex: 1; height: 4px; background: #f1f5f9; border-radius: 2px; overflow: hidden; }
+.cs-sub-bar { height: 100%; border-radius: 2px; }
+.cs-sub-num { font-size: 9px; color: #cbd5e1; width: 22px; flex-shrink: 0; }
+.cs-feedback-section { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+.cs-fb-label { font-size: 10px; font-weight: 600; margin-bottom: 3px; }
+.cs-fb-good { color: #10b981; }
+.cs-fb-warn { color: #f59e0b; }
+.cs-fb-list { margin: 0; padding-left: 14px; display: flex; flex-direction: column; gap: 3px; list-style: disc; }
+.cs-fb-item { font-size: 11px; color: #475569; line-height: 1.55; }
+.cs-fb-item-warn { color: #92400e; }
+
+/* Top 3 개선 과제 */
+.ai-top-improvements { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.ai-top-item { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; }
+.ai-top-num { width: 16px; height: 16px; border-radius: 50%; background: #fef3c7; color: #d97706; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.ai-top-category { color: #8b5cf6; font-weight: 600; flex-shrink: 0; }
+.ai-top-action { color: #374151; line-height: 1.5; }
 
 /* ── 피드백 입력 ── */
 .hitl-feedback-wrap { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
