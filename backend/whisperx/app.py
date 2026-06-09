@@ -6,7 +6,7 @@ import tempfile
 import numpy as np
 import torch
 import whisperx
-from whisperx.diarize import DiarizationPipeline
+from pyannote.audio import Pipeline as _Pipeline
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 
@@ -23,7 +23,10 @@ HF_TOKEN = os.environ["HF_TOKEN"]
 logger.info(f"[WhisperX] device={DEVICE}, model={MODEL_SIZE}")
 
 model = whisperx.load_model(MODEL_SIZE, DEVICE, compute_type=COMPUTE_TYPE)
-diarize_model = DiarizationPipeline(use_auth_token=HF_TOKEN, device=DEVICE)
+diarize_model = _Pipeline.from_pretrained(
+    "pyannote/speaker-diarization-3.1",
+    token=HF_TOKEN,
+).to(torch.device(DEVICE))
 
 logger.info("[WhisperX] 모델 로드 완료")
 
@@ -67,10 +70,10 @@ async def asr(
             language_code=language, device=DEVICE
         )
         result = whisperx.align(
-            result["segments"], align_model, metadata, audio, DEVICE
+            result["segments"], align_model, metadata, wav_path, DEVICE
         )
 
-        diarize_segments = diarize_model(audio)
+        diarize_segments = diarize_model(wav_path)
         result = whisperx.assign_word_speakers(diarize_segments, result)
 
         segments = []
