@@ -72,13 +72,15 @@ async def transcribe(
         else:
             full_text, local_segments = await _transcribe_local(data, filename, lang_code)
             logger.info(f"[STT] WhisperX 완료: {len(full_text)}자, {len(local_segments)}개 세그먼트")
-            segments = local_segments if local_segments else [{"speaker": "A", "text": full_text, "start": 0.0, "end": 0.0}]
+            segments = [s for s in local_segments if s.get("text", "").strip()]
     except Exception as e:
         logger.error(f"[STT] 변환 실패 (type={stt_type}): {e}")
 
     if session_id and segments:
         try:
             for seg in segments:
+                if not seg.get("text", "").strip():
+                    continue
                 db.add(SttSegment(
                     session_id    = session_id,
                     speaker_label = f"SPEAKER_{seg['speaker']}",
