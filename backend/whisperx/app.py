@@ -24,7 +24,7 @@ model = whisperx.load_model(MODEL_SIZE, DEVICE, compute_type=COMPUTE_TYPE)
 from pyannote.audio import Pipeline as _Pipeline
 diarize_model = _Pipeline.from_pretrained(
     "pyannote/speaker-diarization-3.1",
-    use_auth_token=HF_TOKEN,
+    token=HF_TOKEN,
 ).to(torch.device(DEVICE))
 
 logger.info("[WhisperX] 모델 로드 완료")
