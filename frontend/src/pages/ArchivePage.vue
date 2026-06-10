@@ -156,11 +156,12 @@ function _applyQueryHL(step) {
     }
   }
 
-  // 이름으로 정확히 매칭된 노드만 1-hop 확장 (타입 flash는 확장 없음)
+  // 이름으로 정확히 매칭된 노드만 1-hop 확장 (타입 키워드는 엣지 확장 없음)
   const hlEdgeSet = new Set()
   if (specificSet.size > 0) {
+    const baseSet = new Set(specificSet)
     gEdges.forEach((e, ei) => {
-      if (specificSet.has(e.from) || specificSet.has(e.to)) {
+      if (baseSet.has(e.from) || baseSet.has(e.to)) {
         hlEdgeSet.add(ei)
         newSet.add(e.from)
         newSet.add(e.to)
@@ -192,8 +193,9 @@ function _applyHighlightLabels(labels) {
     })
   })
   // 매칭된 노드와 연결된 엣지 + 1-hop 인접 노드
+  const baseSet = new Set(newSet)
   gEdges.forEach((e, ei) => {
-    if (newSet.has(e.from) || newSet.has(e.to)) {
+    if (baseSet.has(e.from) || baseSet.has(e.to)) {
       hlEdgeSet.add(ei)
       newSet.add(e.from)
       newSet.add(e.to)
