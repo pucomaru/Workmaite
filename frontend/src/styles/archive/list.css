@@ -148,6 +148,7 @@
 .ht-session { background:var(--accent); }
 .ht-report { background:#a855f7; }
 .ht-minutes { background:#22c55e; }
+.ht-agenda { background:#f59e0b; }
 .lv-hist-manager { color:var(--dark-muted); }
 .lv-hist-date { color:var(--dark-muted);white-space:nowrap; }
 .lv-ver-toggle { width:16px;height:16px;border:none;background:none;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;color:var(--dark-muted);flex-shrink:0;transition:transform 0.15s; }

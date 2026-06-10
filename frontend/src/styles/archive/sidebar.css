@@ -268,6 +268,13 @@
 .btn-assign { background:rgba(99,179,237,.06);color:#4a80a0;border-color:rgba(99,179,237,.15); }
 .btn-assign:hover { background:rgba(99,179,237,.13);color:#63b3ed;border-color:rgba(99,179,237,.3); }
 /* 로그 */
+.detail-log-total { font-size:10px;color:#454545; }
+.detail-log-filters { display:flex;gap:4px;margin:6px 0 4px; }
+.log-chip { font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:none;color:#555;cursor:pointer;transition:all .15s; }
+.log-chip:hover { color:#bbb;border-color:rgba(255,255,255,.2); }
+.log-chip.active { background:rgba(167,139,250,.18);color:#c4b5fd;border-color:rgba(167,139,250,.35); }
+.detail-log-more { display:block;width:100%;text-align:center;margin-top:4px;font-size:10px;font-weight:600;color:#454545;background:none;border:none;cursor:pointer;padding:4px 0;transition:color .15s; }
+.detail-log-more:hover { color:#999; }
 .detail-log-list { display:flex;flex-direction:column;gap:1px; }
 .detail-log-item { display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:6px; }
 .detail-log-item:hover { background:rgba(255,255,255,.03); }
