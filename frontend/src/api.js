@@ -82,7 +82,7 @@ api.interceptors.response.use(
   },
   async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
-      return Promise.reject(new Error('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.'))
+      return Promise.reject(new Error('서버에 연결할 수 없습니다.'))
     }
     const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
     if ((err.response?.status === 401 || err.response?.status === 403) && !err.config._retry && !isAuthRequest) {

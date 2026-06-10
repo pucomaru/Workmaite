@@ -391,12 +391,12 @@ async def get_archive(
             "related_todo_id": row.get("related_todo_id"),
         })
 
-    # ── 회의 생명주기: Minutes→Agenda(도출) + Session→Agenda(다룸멌) + Session→Agenda(도출 이월) 조회 ──
+    # ── 회의 생명주기: Agenda→Session(발제세션/다룸/도출) 조회 ──
     try:
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`진행`|`다룸멌`|`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (mn:Minutes)-[:`생성`]->(s:Session)<-[:`발제세션`|`다룸`|`도출`]-(ag:Agenda)-[:`관할`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -406,7 +406,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (s:Session)-[:`다룸멌`|`진행`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (ag:Agenda)-[:`발제세션`|`다룸`]->(s:Session)-[:`소속`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -416,7 +416,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (s:Session)-[:`도출`]->(ag:Agenda)-[:`관할`]->(mg)
+                MATCH (ag:Agenda)-[:`도출`]->(s:Session)-[:`소속`]->(mg)
                 WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
