@@ -35,6 +35,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'Meetings',
         x: Math.cos(ang) * R.Meetings, y: Y.Meetings, z: Math.sin(ang) * R.Meetings,
         data: g, groupIdx: gi, neo4jId,
+        ended: g.status === 'ended',
       })
       // meetingGroup -[포함]→ org-node (조직 소속)
       edges.push({ from: mgIdx, to: orgNodeIdx, rel: '포함' })
