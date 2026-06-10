@@ -873,9 +873,9 @@ async function downloadMinutesFile() {
               @click="enterSession(s)">
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
-                <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
-                <div v-if="s.location" class="sp-session-location">
-                  <i class="bi bi-geo-alt"></i> {{ s.location }}
+                <div class="sp-session-meta">
+                  <span v-if="s.location" class="sp-session-location"><i class="bi bi-geo-alt"></i> {{ s.location }}</span>
+                  <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
                 </div>
               </div>
               <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
@@ -1342,8 +1342,9 @@ async function downloadMinutesFile() {
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
-.sp-session-location { font-size:10px;color:var(--text-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
+.sp-session-date { font-size:10px;color:var(--text-muted);flex-shrink:0;margin-left:auto; }
+.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }

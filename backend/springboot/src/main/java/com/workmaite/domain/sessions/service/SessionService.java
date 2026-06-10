@@ -97,13 +97,6 @@ public class SessionService {
     public SessionResponse updateSession(Long sessionId, SessionUpdateRequest request) {
         MeetingSession session = findSessionById(sessionId);
 
-        if (session.getStatus() == SessionStatus.ONGOING) {
-            throw new BusinessException(ErrorCode.SESSION_ALREADY_STARTED);
-        }
-        if (session.getStatus() == SessionStatus.ENDED) {
-            throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
-        }
-
         session.update(request.getTitle(), request.getDescription(), request.getLocation(), request.getType(), request.getScheduledAt());
 
         List<AttendeeRequest> attendees = request.getAttendees();

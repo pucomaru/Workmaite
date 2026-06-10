@@ -73,7 +73,8 @@ async def _transcribe_cloud(data: bytes, lang_code: str, max_speakers: int = 6) 
 
     client = _speech_client()
     audio = speech.RecognitionAudio(content=data)
-    config = speech.RecognitionConfig(
+
+    cfg_kwargs = dict(
         encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
         sample_rate_hertz=48000,
         audio_channel_count=1,
@@ -82,12 +83,15 @@ async def _transcribe_cloud(data: bytes, lang_code: str, max_speakers: int = 6) 
         language_code=bcp47,
         enable_automatic_punctuation=True,
         enable_word_time_offsets=True,
-        diarization_config=speech.SpeakerDiarizationConfig(
+    )
+    if max_speakers > 1:
+        cfg_kwargs["diarization_config"] = speech.SpeakerDiarizationConfig(
             enable_speaker_diarization=True,
             min_speaker_count=1,
             max_speaker_count=max_speakers,
-        ),
-    )
+        )
+
+    config = speech.RecognitionConfig(**cfg_kwargs)
 
     loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(
