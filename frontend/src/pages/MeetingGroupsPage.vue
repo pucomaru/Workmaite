@@ -365,10 +365,7 @@ onMounted(async () => {
               <textarea v-model="createForm.guidelines" class="app-modal-input" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
-            <div class="app-modal-field">
-              <label>멤버 초대</label>
-              <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
-            </div>
+            <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" :nightMode="nightMode" />
           </div>
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showCreate=false">취소</button>

@@ -2,24 +2,26 @@
 import { ref } from 'vue'
 import api from '../api'
 
-// modelValue: [{ userId, name, email, role }]
 const props = defineProps({
-  modelValue:   { type: Array,  default: () => [] },
-  lockedUserId: { type: Number, default: null },
+  modelValue:   { type: Array,   default: () => [] },
+  lockedUserId: { type: Number,  default: null },
+  nightMode:    { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 
-const search = ref('')
+const ROLE_MAP = { admin: '간사', member: '참여자' }
+
+const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
+function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length; return AVATAR_COLORS[h] }
+function initials(name) { return (name || '?')[0] }
+
+const searchQ = ref('')
 const results = ref([])
 const loading = ref(false)
 let timer = null
 
-const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
-function avatarColor(name) { let h=0; for(const c of (name||'')) h=(h*31+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h] }
-function initials(name) { return (name||'?')[0] }
-
 function onSearch(q) {
-  search.value = q
+  searchQ.value = q
   clearTimeout(timer)
   if (!q.trim()) { results.value = []; return }
   timer = setTimeout(async () => {
@@ -32,13 +34,13 @@ function onSearch(q) {
   }, 300)
 }
 
-function add(user, role = 'member') {
+function add(user) {
   if (props.modelValue.find(m => m.userId === user.id)) return
   emit('update:modelValue', [
     ...props.modelValue,
-    { userId: user.id, name: user.name || user.email, email: user.email || user.employee_id, role }
+    { userId: user.id, name: user.name || user.email, email: user.email || user.employee_id, role: 'member' },
   ])
-  search.value = ''; results.value = []
+  searchQ.value = ''; results.value = []
 }
 
 function remove(idx) {
@@ -48,75 +50,98 @@ function remove(idx) {
 }
 
 function updateRole(idx, role) {
-  const next = props.modelValue.map((m, i) => i === idx ? { ...m, role } : m)
-  emit('update:modelValue', next)
+  emit('update:modelValue', props.modelValue.map((m, i) => i === idx ? { ...m, role } : m))
 }
 </script>
 
 <template>
-  <div class="mi-wrap">
-    <div class="mi-search">
+  <div class="mi-section" :class="{ dark: nightMode }">
+    <div class="mi-title">
+      참여자 <span class="mi-cnt-badge">{{ modelValue.length }}명</span>
+    </div>
+
+    <div class="mi-search-wrap">
       <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      <input :value="search" @input="onSearch($event.target.value)" class="mi-input" placeholder="이름 또는 이메일로 검색..." />
+      <input :value="searchQ" @input="onSearch($event.target.value)" class="mi-search-input" placeholder="이름 또는 이메일로 검색 후 추가..." />
       <span v-if="loading" class="mi-spinner">↻</span>
     </div>
 
-    <div v-if="results.length" class="mi-results">
-      <div v-for="u in results" :key="u.id" class="mi-result-item">
-        <div class="mi-avatar" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
+    <div v-if="results.length" class="mi-search-results">
+      <div v-for="u in results" :key="u.id" class="mi-search-item" @click="add(u)">
+        <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(u.name) }">{{ initials(u.name || u.email) }}</div>
         <div class="mi-info">
           <span class="mi-name">{{ u.name || '이름없음' }}</span>
-          <span class="mi-email">{{ u.email || u.employee_id }}</span>
+          <span class="mi-email">{{ u.email }}</span>
         </div>
-        <div class="mi-role-btns">
-          <button class="mi-role-btn admin" @click="add(u, 'admin')">간사</button>
-          <button class="mi-role-btn" @click="add(u, 'member')">참여자</button>
-        </div>
+        <span class="mi-add-hint">+ 추가</span>
       </div>
     </div>
 
-    <div v-if="modelValue.length" class="mi-member-list">
+    <div class="mi-member-list">
+      <div v-if="!modelValue.length" class="mi-empty">참여자가 없습니다.</div>
       <div v-for="(mb, idx) in modelValue" :key="mb.userId" class="mi-member-row">
-        <div class="mi-avatar" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
+        <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(mb.name) }">{{ initials(mb.name) }}</div>
         <div class="mi-info">
-          <span class="mi-name">{{ mb.name }}<span v-if="mb.userId === lockedUserId" class="mi-me-badge">나</span></span>
-          <span class="mi-email">{{ mb.email }}</span>
+          <span class="mi-name">
+            {{ mb.name }}
+            <span v-if="mb.userId === lockedUserId" class="mi-me-badge">나</span>
+          </span>
+          <span class="mi-email">{{ mb.position || mb.department || mb.email }}</span>
         </div>
-        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="mi-role-select">
-          <option value="admin">간사</option>
-          <option value="member">참여자</option>
+        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="app-select">
+          <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
         </select>
-        <button v-if="mb.userId !== lockedUserId" class="mi-remove" @click="remove(idx)">
+        <button v-if="mb.userId !== lockedUserId" class="mi-remove" @click="remove(idx)" title="제거">
           <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
-        <span v-else class="mi-remove-placeholder"></span>
+        <span v-else class="mi-remove-ph"></span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.mi-wrap { display:flex;flex-direction:column;gap:6px; }
-.mi-search { display:flex;align-items:center;gap:6px;border:1px solid var(--border, #e2e8f0);border-radius:8px;padding:5px 8px; }
-.mi-input { flex:1;border:none;outline:none;font-size:12px;color:var(--dark-card);background:transparent; }
-.mi-spinner { font-size:11px;color:var(--dark-muted); }
-.mi-results { border:1px solid var(--border, #e2e8f0);border-radius:8px;overflow:hidden; }
-.mi-result-item { display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border, #e2e8f0);font-size:12px; }
-.mi-result-item:last-child { border-bottom:none; }
-.mi-avatar { width:24px;height:24px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
-.mi-info { flex:1;min-width:0;display:flex;flex-direction:column;gap:1px; }
-.mi-name { font-weight:600;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.mi-email { font-size:11px;color:var(--dark-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.mi-role-btns { display:flex;gap:4px;flex-shrink:0; }
-.mi-role-btn { padding:2px 8px;font-size:11px;cursor:pointer;border-radius:4px;border:1px solid var(--text-dim);background:transparent;color:var(--dark-muted);transition:all .15s; }
-.mi-role-btn:hover { border-color:var(--accent-light);color:var(--accent-light); }
-.mi-role-btn.admin { background:#1d4ed8;border-color:#1d4ed8;color:#fff; }
-.mi-role-btn.admin:hover { background:#2563eb; }
-.mi-member-list { display:flex;flex-direction:column;gap:4px; }
-.mi-member-row { display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--surface);border-radius:7px;font-size:12px; }
-.mi-role-select { font-size:11px;border:1px solid var(--border, #e2e8f0);border-radius:5px;padding:2px 4px;background:var(--bg-card);color:var(--text-dim);cursor:pointer;outline:none; }
-.mi-remove { background:none;border:none;cursor:pointer;color:var(--dark-muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:color .15s; }
-.mi-remove:hover { color:var(--danger); }
-.mi-remove-placeholder { width:20px;flex-shrink:0; }
-.mi-me-badge { margin-left:5px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:#dbeafe;color:#1d4ed8;vertical-align:middle; }
+.mi-section { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--surface-2); }
+.mi-section:last-child { border-bottom: none; padding-bottom: 0; }
+
+.mi-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: 8px; }
+.mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: #93c5fd; border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; }
+
+.mi-search-wrap { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.mi-search-wrap svg { color: var(--dark-muted); flex-shrink: 0; }
+.mi-search-input { flex: 1; border: none; background: none; color: var(--dark-card); font-size: 12px; outline: none; }
+.mi-search-input::placeholder { color: var(--dark-muted); }
+.mi-spinner { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+
+.mi-search-results { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
+.mi-search-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; transition: background .1s; }
+.mi-search-item:hover { background: var(--surface); }
+.mi-add-hint { font-size: 11px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
+
+.mi-member-list { display: flex; flex-direction: column; gap: 3px; max-height: 200px; overflow-y: auto; }
+.mi-empty { font-size: 12px; color: var(--text-muted); padding: 6px 0; }
+.mi-member-row { display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 7px; transition: background .1s; }
+.mi-member-row:hover { background: var(--surface); }
+
+.mi-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mi-name { font-size: 13px; font-weight: 600; color: var(--dark-card); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi-email { font-size: 11px; color: var(--dark-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi-me-badge { margin-left: 5px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; vertical-align: middle; }
+
+.mi-remove { width: 22px; height: 22px; border-radius: 5px; border: none; background: rgba(239,68,68,.08); color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s; }
+.mi-remove:hover { background: rgba(239,68,68,.2); }
+.mi-remove-ph { width: 22px; flex-shrink: 0; }
+
+/* Dark */
+.mi-section.dark { border-bottom-color: rgba(255,255,255,.07); }
+.mi-section.dark .mi-title { color: var(--text-dim); }
+.mi-section.dark .mi-search-wrap { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.05); }
+.mi-section.dark .mi-search-wrap svg { color: var(--text-dim); }
+.mi-section.dark .mi-search-input { color: var(--surface-2); }
+.mi-section.dark .mi-search-input::placeholder { color: var(--dark-border); }
+.mi-section.dark .mi-search-results { border-color: rgba(255,255,255,.1); background: var(--dark-bg); }
+.mi-section.dark .mi-search-item:hover { background: rgba(255,255,255,.06); }
+.mi-section.dark .mi-name { color: var(--surface-2); }
+.mi-section.dark .mi-email, .mi-section.dark .mi-empty { color: var(--text-dim); }
+.mi-section.dark .mi-member-row:hover { background: rgba(255,255,255,.04); }
 </style>
