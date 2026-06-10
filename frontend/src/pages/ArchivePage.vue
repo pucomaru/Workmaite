@@ -1895,8 +1895,11 @@ const groupHistoryMap = computed(() => {
     g.minutes.forEach(m => {
       const rawId = String(m.id || '')
       const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
+      const title = m.session_title || '회의'
       items.push({
         type: 'minutes',
+        desc: `${title} 진행`,
+        manager: managerName,
         fileName: m.session_title || '회의록',
         score: null,
         dept: null,
@@ -1919,20 +1922,26 @@ const groupHistoryMap = computed(() => {
       if (!rGroups[rootId]) rGroups[rootId] = []
       rGroups[rootId].push(r)
     })
-    const toReportItem = (r) => ({
-      type: 'report',
-      fileName: (r.file_name || '파일') + (r.version ? ` (v${r.version})` : ''),
-      score: r.score ?? null,
-      dept: r.submitter_department || null,
-      date: r.created_at || r.submitted_at,
-      hasFile: !!(r.file_path || r.file_url),
-      filePath: r.file_path || r.file_url || null,
-      rejected: r.human_status === 'rejected' || r.status === 'rejected',
-      approved: r.human_status === 'approved' || r.status === 'approved',
-      pending: !r.human_status || r.human_status === 'pending',
-      reportId: r.id,
-      aiFeedback: r.ai_feedback || null,
-    })
+    const toReportItem = (r) => {
+      const baseName = r.file_name || '파일'
+      const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+      return {
+        type: 'report',
+        desc: `${baseName} ${statusLabel}`,
+        manager: r.submitter_department || managerName,
+        fileName: baseName + (r.version ? ` (v${r.version})` : ''),
+        score: r.score ?? null,
+        dept: r.submitter_department || null,
+        date: r.created_at || r.submitted_at,
+        hasFile: !!(r.file_path || r.file_url),
+        filePath: r.file_path || r.file_url || null,
+        rejected: r.human_status === 'rejected' || r.status === 'rejected',
+        approved: r.human_status === 'approved' || r.status === 'approved',
+        pending: !r.human_status || r.human_status === 'pending',
+        reportId: r.id,
+        aiFeedback: r.ai_feedback || null,
+      }
+    }
     Object.values(rGroups).forEach(group => {
       group.sort((a, b) => (b.version || 1) - (a.version || 1))
       const latest = group[0]
@@ -1942,10 +1951,27 @@ const groupHistoryMap = computed(() => {
         olderVersions: older.slice().reverse().map(toReportItem),
       })
     })
+    // 과제 생성 이벤트 (tasks가 있을 때 가장 오래된 날짜 기준 1건으로 표시)
+    const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
+    if (ongoingTasks.length > 0) {
+      const oldest = ongoingTasks.reduce((a, b) => (a.created_at || '') < (b.created_at || '') ? a : b)
+      items.push({
+        type: 'agenda',
+        desc: `과제 ${ongoingTasks.length}개 등록`,
+        manager: managerName,
+        fileName: null,
+        score: null,
+        dept: null,
+        date: oldest.created_at || null,
+        hasFile: false,
+        filePath: null,
+      })
+    }
+
     items.sort((a, b) => {
       const da = a.date ? new Date(a.date) : new Date(0)
       const db = b.date ? new Date(b.date) : new Date(0)
-      return da - db
+      return db - da
     })
     map.set(g.id, items)
   })
