@@ -125,6 +125,7 @@ async function enterSession(s) {
   showMinutesTab.value = rec.showMinutesTab
   conversationBlocks.value = rec.conversationBlocks
   lastRefineIdx.value = rec.lastRefineIdx
+  sessionContext.value = s.context || ''
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
@@ -226,6 +227,18 @@ const refiningConversation = ref(false)
 const REFINE_EVERY = 15
 
 const unprocessedLines = computed(() => transcriptLines.value.slice(lastRefineIdx.value))
+
+async function saveContext() {
+  sessionContext.value = contextDraft.value
+  showContextModal.value = false
+  if (activeSession.value) {
+    try {
+      await api.patch(`/api/v1/sessions/${activeSession.value.id}/context`, { context: contextDraft.value })
+    } catch (e) {
+      console.error('맥락 저장 실패', e)
+    }
+  }
+}
 
 async function refineChunk() {
   const newLines = transcriptLines.value.slice(lastRefineIdx.value)
@@ -1360,7 +1373,7 @@ async function downloadMinutesFile() {
             <input v-model="editSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
           </div>
           <div class="app-modal-field">
-            <label>회의 날짜</label>
+            <label>회의 날짜 <span style="color:#ef4444">*</span></label>
             <div class="datetime-split-input">
               <input type="date" v-model="editSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
               <span class="datetime-split-sep"></span>
@@ -1374,7 +1387,7 @@ async function downloadMinutesFile() {
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="showEditSession=false">취소</button>
-          <button class="app-btn-primary" :disabled="editingSession||!editSessionForm.title.trim()" @click="doEditSession">
+          <button class="app-btn-primary" :disabled="editingSession||!editSessionForm.title.trim()||!editSessionForm.dateOnly" @click="doEditSession">
             {{ editingSession ? '수정 중...' : '수정' }}
           </button>
         </div>
@@ -1409,7 +1422,7 @@ async function downloadMinutesFile() {
             <input v-model="createSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
           </div>
           <div class="app-modal-field">
-            <label>회의 날짜</label>
+            <label>회의 날짜 <span style="color:#ef4444">*</span></label>
             <div class="datetime-split-input">
               <input type="date" v-model="createSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
               <span class="datetime-split-sep"></span>
@@ -1423,7 +1436,7 @@ async function downloadMinutesFile() {
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="closeCreateSession()">취소</button>
-          <button class="app-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()||!createSessionForm.meetingId" @click="doCreateSessionForm">
+          <button class="app-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()||!createSessionForm.meetingId||!createSessionForm.dateOnly" @click="doCreateSessionForm">
             {{ creatingSessionForm ? '생성 중...' : '생성' }}
           </button>
         </div>
@@ -1448,7 +1461,7 @@ async function downloadMinutesFile() {
         </div>
         <div class="app-modal-footer">
           <button class="app-modal-cancel" @click="showContextModal=false">취소</button>
-          <button class="app-modal-confirm" @click="sessionContext=contextDraft;showContextModal=false">저장</button>
+          <button class="app-modal-confirm" @click="saveContext">저장</button>
         </div>
       </div>
     </div>

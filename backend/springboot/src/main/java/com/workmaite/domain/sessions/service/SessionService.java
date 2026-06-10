@@ -180,6 +180,13 @@ public class SessionService {
         return SessionResponse.from(session);
     }
 
+    @Transactional
+    public SessionResponse updateContext(Long sessionId, String context) {
+        MeetingSession session = findSessionById(sessionId);
+        session.updateContext(context);
+        return SessionResponse.from(session);
+    }
+
     private MeetingSession findSessionById(Long sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));

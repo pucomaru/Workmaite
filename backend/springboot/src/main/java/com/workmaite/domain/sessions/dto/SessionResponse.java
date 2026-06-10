@@ -22,6 +22,7 @@ public class SessionResponse {
 
     private String title;
     private String location;
+    private String context;
     private SessionStatus status;
 
     @JsonProperty("scheduled_at")
@@ -44,6 +45,7 @@ public class SessionResponse {
                 .meetingId(session.getMeetingId())
                 .title(session.getTitle())
                 .location(session.getLocation())
+                .context(session.getContext())
                 .status(session.getStatus())
                 .scheduledAt(session.getScheduledAt())
                 .startedAt(session.getStartedAt())
@@ -63,6 +65,7 @@ public class SessionResponse {
                 .meetingId(session.getMeetingId())
                 .title(session.getTitle())
                 .location(session.getLocation())
+                .context(session.getContext())
                 .status(session.getStatus())
                 .scheduledAt(session.getScheduledAt())
                 .startedAt(session.getStartedAt())
