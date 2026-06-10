@@ -288,32 +288,41 @@ async def delete_meeting(
     if not member or member.role != "admin":
         raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
 
-    # 연관 세션 조회 (meeting_id 직접 필터)
-    session_ids = [
-        s.id for s in db.query(models.MeetingSession)
-        .filter(models.MeetingSession.meeting_id == meeting_id).all()
-    ]
+    # ── 1. ID 선수집 ──────────────────────────────────────────────
+    session_ids    = [r.id for r in db.query(models.MeetingSession.id).filter(models.MeetingSession.meeting_id == meeting_id).all()]
+    report_ids     = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
+    agent_log_ids  = [r.id for r in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+
+    # ── 2. 세션 하위 (session_id FK) ─────────────────────────────
     if session_ids:
+        db.query(models.SttSegment).filter(models.SttSegment.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.SessionMember).filter(models.SessionMember.session_id.in_(session_ids)).delete(synchronize_session=False)
         db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
-        db.query(models.ChatMessage).filter(
-            models.ChatMessage.session_id.in_(session_ids),
-        ).delete(synchronize_session=False)
+
+    # ── 3. 채팅 메시지 (meeting_id 전체) ─────────────────────────
+    db.query(models.ChatMessage).filter(models.ChatMessage.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 4. 세션 ──────────────────────────────────────────────────
+    if session_ids:
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
-    report_ids = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
-    agent_log_ids = [a.id for a in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+    # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.target_type == "report",
-            models.HitlReview.target_id.in_(report_ids),
-        ).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
+
+    # ── 6. 보고서 ─────────────────────────────────────────────────
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 7. AgentLog 하위 (agent_log_id FK) ───────────────────────
     if agent_log_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.agent_log_id.in_(agent_log_ids),
-        ).delete(synchronize_session=False)
+        db.query(models.TokenUsageLog).filter(models.TokenUsageLog.agent_log_id.in_(agent_log_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.agent_log_id.in_(agent_log_ids)).delete(synchronize_session=False)
+
+    # ── 8. AgentLog ───────────────────────────────────────────────
     db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 9. 아젠다 / 멤버 / 회의체 ────────────────────────────────
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
@@ -547,32 +556,41 @@ async def ai_delete_meeting(
     if not member or member.role != "admin":
         raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
 
-    # 연관 세션 → 분 → 채팅 순으로 cascade 삭제
-    session_ids = [
-        s.id for s in db.query(models.MeetingSession)
-        .filter(models.MeetingSession.meeting_id == meeting_id).all()
-    ]
+    # ── 1. ID 선수집 ──────────────────────────────────────────────
+    session_ids    = [r.id for r in db.query(models.MeetingSession.id).filter(models.MeetingSession.meeting_id == meeting_id).all()]
+    report_ids     = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
+    agent_log_ids  = [r.id for r in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+
+    # ── 2. 세션 하위 (session_id FK) ─────────────────────────────
     if session_ids:
+        db.query(models.SttSegment).filter(models.SttSegment.session_id.in_(session_ids)).delete(synchronize_session=False)
+        db.query(models.SessionMember).filter(models.SessionMember.session_id.in_(session_ids)).delete(synchronize_session=False)
         db.query(models.Minutes).filter(models.Minutes.session_id.in_(session_ids)).delete(synchronize_session=False)
-        db.query(models.ChatMessage).filter(
-            models.ChatMessage.session_id.in_(session_ids),
-        ).delete(synchronize_session=False)
+
+    # ── 3. 채팅 메시지 (meeting_id 전체) ─────────────────────────
+    db.query(models.ChatMessage).filter(models.ChatMessage.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 4. 세션 ──────────────────────────────────────────────────
+    if session_ids:
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
-    report_ids = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
-    agent_log_ids = [a.id for a in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+    # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.target_type == "report",
-            models.HitlReview.target_id.in_(report_ids),
-        ).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
+
+    # ── 6. 보고서 ─────────────────────────────────────────────────
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 7. AgentLog 하위 (agent_log_id FK) ───────────────────────
     if agent_log_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.agent_log_id.in_(agent_log_ids),
-        ).delete(synchronize_session=False)
+        db.query(models.TokenUsageLog).filter(models.TokenUsageLog.agent_log_id.in_(agent_log_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.agent_log_id.in_(agent_log_ids)).delete(synchronize_session=False)
+
+    # ── 8. AgentLog ───────────────────────────────────────────────
     db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
+
+    # ── 9. 아젠다 / 멤버 / 회의체 ────────────────────────────────
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
