@@ -1131,7 +1131,7 @@ async function downloadMinutesFile() {
 
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div v-show="activeSession?.status !== 'ended' && activeSession?.status !== 'archived'" class="ctrl-group-left">
+          <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
             <!-- Mic settings -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
