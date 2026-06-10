@@ -156,11 +156,12 @@ function _applyQueryHL(step) {
     }
   }
 
-  // 이름으로 정확히 매칭된 노드만 1-hop 확장 (타입 flash는 확장 없음)
+  // 이름으로 정확히 매칭된 노드만 1-hop 확장 (타입 키워드는 엣지 확장 없음)
   const hlEdgeSet = new Set()
   if (specificSet.size > 0) {
+    const baseSet = new Set(specificSet)
     gEdges.forEach((e, ei) => {
-      if (specificSet.has(e.from) || specificSet.has(e.to)) {
+      if (baseSet.has(e.from) || baseSet.has(e.to)) {
         hlEdgeSet.add(ei)
         newSet.add(e.from)
         newSet.add(e.to)
@@ -192,8 +193,9 @@ function _applyHighlightLabels(labels) {
     })
   })
   // 매칭된 노드와 연결된 엣지 + 1-hop 인접 노드
+  const baseSet = new Set(newSet)
   gEdges.forEach((e, ei) => {
-    if (newSet.has(e.from) || newSet.has(e.to)) {
+    if (baseSet.has(e.from) || baseSet.has(e.to)) {
       hlEdgeSet.add(ei)
       newSet.add(e.from)
       newSet.add(e.to)
@@ -220,9 +222,10 @@ const createConnectNodeId = ref('')
 
 // ─── Create session modal ─────────────────────────────────────
 const showSessionModal = ref(false)
-const sessionForm = ref({ title: '', purpose: '', date: '', meeting_id: null })
+const sessionForm = ref({ title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' })
 const sessionMembers = ref([])
 const creatingSession = ref(false)
+const showPastDateAlert = ref(false)
 
 function openCreateModal() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
@@ -234,26 +237,30 @@ function openCreateModal() {
 }
 
 function openSessionModal(meetingId = null) {
-  sessionForm.value = { title: '', purpose: '', date: '', meeting_id: meetingId }
+  sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: meetingId, type: 'whisper' }
   sessionMembers.value = []
+  showPastDateAlert.value = false
   showSessionModal.value = true; agentSidebarOpen.value = false
 }
 async function doCreateSession() {
-  if (!sessionForm.value.title.trim()) return
+  if (!sessionForm.value.title.trim() || !sessionForm.value.meeting_id) return
+  if (sessionForm.value.dateOnly) {
+    const scheduled = new Date(`${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}`)
+    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
+  }
   creatingSession.value = true
   try {
     const meetingId = sessionForm.value.meeting_id
-    if (meetingId) {
-      await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
-        title: sessionForm.value.title,
-        type: 'offline',
-        description: sessionForm.value.purpose || null,
-        scheduled_at: sessionForm.value.date || null,
-      })
-    }
+    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
+      title: sessionForm.value.title,
+      scheduled_at: sessionForm.value.dateOnly ? `${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}:00` : null,
+      type: sessionForm.value.type,
+      attendees: sessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+    })
     showSessionModal.value = false
-    sessionForm.value = { title: '', purpose: '', date: '', meeting_id: null }
+    sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' }
     sessionMembers.value = []
+    showPastDateAlert.value = false
     setTimeout(refreshArchive, 600)
   } catch(e) { console.error(e) }
   finally { creatingSession.value = false }
@@ -391,7 +398,7 @@ function _onFloatDragEnd() {
     openCreateModal()
   } else if (type === 'session') {
     const mgId = target?.type === 'Meetings' ? toNumericId(target.id) : null
-    openSessionModal(mgId ? meetingGroups.value.find(g => toNumericId(g.id) === mgId) : null)
+    openSessionModal(mgId || null)
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
@@ -530,6 +537,7 @@ const detailMemberDepts = computed(() => {
 const groupedTodos = computed(() => {
   const groups = {}
   for (const todo of detailTodos.value) {
+    if (todo.status === 'done') continue
     const dept = todo.assignee_dept || todo.dept ||
       (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정'
     if (!groups[dept]) groups[dept] = []
@@ -538,12 +546,51 @@ const groupedTodos = computed(() => {
   return groups
 })
 
+const doneTodosWithReport = computed(() => {
+  const done = detailTodos.value.filter(t => t.status === 'done')
+  const reports = detailMeeting.value ? (meetingGroups.value.find(g => String(g.id) === String(detailMeeting.value.id))?.reports || []) : []
+  return done.map(todo => {
+    const todoIdStr = String(todo.id)
+    const report = reports.find(r =>
+      r.human_status === 'approved' &&
+      (r.related_agenda_ids || []).some(rid => {
+        const s = String(rid)
+        return s === todoIdStr || s.endsWith('-' + todoIdStr)
+      })
+    )
+    return {
+      ...todo,
+      dept: todo.assignee_dept || todo.dept || (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정',
+      reportFileName: report?.file_name || null,
+      reportDate: report?.created_at || null,
+    }
+  })
+})
+
 async function completeTodo(todo) {
-  const newStatus = todo.status === 'done' ? 'ongoing' : 'done'
-  try {
-    await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: newStatus })
-    todo.status = newStatus
-  } catch (e) { console.error('상태 변경 실패:', e) }
+  if (todo.status === 'done') {
+    // 완료 → 진행중 되돌리기
+    try {
+      await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: 'ongoing' })
+      todo.status = 'ongoing'
+    } catch (e) { console.error('상태 변경 실패:', e) }
+    return
+  }
+  // 진행중 → 보고서 업로드 모달 열기 (아젠다 미리 연결)
+  const mgId = detailMeeting.value?.id
+    ? (String(detailMeeting.value.id).includes('-') ? detailMeeting.value.id : `mg-${toNumericId(detailMeeting.value.id)}`)
+    : ''
+  const dept = todo.assignee_dept || todo.dept ||
+    (Array.isArray(todo.department) ? todo.department[0] : todo.department) || ''
+  const deptNode = dept
+    ? gNodesRef.value.find(n => n.type === 'dept' && n.label === dept && n.meetingGroupId === mgId)
+    : null
+  openUploadModal({
+    meetingId: mgId,
+    relatedTodoId: `agenda-${todo.id}`,
+    agendaContent: todo.title || todo.content || '',
+    connectNodeId: deptNode?.id || '',
+  })
 }
 
 async function deleteTodo(todo) {
@@ -2234,7 +2281,7 @@ async function submitReview(action, feedback) {
 provide('archiveModals', {
   nightMode,
   showCreateModal, createForm, creating, doCreateMeeting, createMembers,
-  showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession,
+  showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession, showPastDateAlert, meetingGroups,
   showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
   deptConnectableNodes, 업로드회의체과제, prefilledCtx,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
@@ -2440,7 +2487,7 @@ provide('archiveSidebar', {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, completeTodo, deleteTodo,
+  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,

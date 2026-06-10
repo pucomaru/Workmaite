@@ -51,6 +51,7 @@ jobs:
           git config user.email "github-actions@github.com"
           git add k8s/frontend.yaml
           git commit -m "ci: update frontend image tag to ${{ env.IMAGE_TAG }}"
+          git pull --rebase origin develop
           git push origin develop
 
       # 7. 오래된 Harbor 이미지 삭제 (최신 5개 유지)

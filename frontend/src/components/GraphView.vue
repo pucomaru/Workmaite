@@ -77,6 +77,22 @@ let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0
 // dirty flag — sim이 움직이거나 인터랙션이 발생했을 때만 리드로우
 let _simDirty = true
 
+// highlight blink state
+let _hlBlinkVisible = true
+let _blinkTimer = null
+function _startBlink() {
+  clearInterval(_blinkTimer)
+  _hlBlinkVisible = true
+  _simDirty = true
+  let count = 0
+  _blinkTimer = setInterval(() => {
+    count++
+    _hlBlinkVisible = !_hlBlinkVisible
+    _simDirty = true
+    if (count >= 6) { clearInterval(_blinkTimer); _hlBlinkVisible = true; _simDirty = true }
+  }, 200)
+}
+
 // node drag state
 let _draggingIdx = null
 let _didNodeDrag = false
@@ -283,14 +299,6 @@ function drawNode(obj, sn) {
 
   gfx.clear()
 
-  // Query highlight glow
-  if (isHl) {
-    gfx.circle(0, 0, r * 2.6)
-    gfx.fill({ color: 0x6366f1, alpha: 0.18 })
-    gfx.circle(0, 0, r + 6)
-    gfx.stroke({ color: 0x818cf8, width: 2.5, alpha: 0.9 })
-  }
-
   // Search hit — yellow ring
   if (isSearch) {
     gfx.circle(0, 0, r + 6)
@@ -395,13 +403,8 @@ function drawIcon(gfx, type, r) {
 }
 
 // ─── Tick / Render ───────────────────────────────────────────
-let _hlPulse = 0
 function tick() {
   if (!app || !sim) return
-
-  // 하이라이트 펄스는 항상 증가 (hl 중일 때만 실제로 사용됨)
-  const hasHl = props.queryHlIdxs?.size > 0 || props.queryHlEdgeIdxs?.size > 0
-  if (hasHl) { _hlPulse += 0.05; _simDirty = true }
 
   // viewport lerp 진행 중이면 dirty
   if (_targetVpX !== null) _simDirty = true
@@ -464,25 +467,20 @@ function tick() {
     const tr = nodeRadiusForIdx(ti, tn.type, props.gNodes[ti]?.id) + 4
     const ex = tn.x - ux * tr, ey = tn.y - uy * tr
 
-    // Highlight glow
-    if (isHlEdge) {
-      const pulse = 0.4 + 0.4 * Math.sin(_hlPulse * 4)
-      hlLayer.moveTo(sn.x, sn.y).lineTo(tn.x, tn.y)
-      hlLayer.stroke({ color: 0x8b5cf6, width: 7, alpha: 0.55 * pulse, cap: 'round' })
-    }
-
     // Edge line (straight)
     const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id) + 3
     const sx2 = sn.x + ux * sr, sy2 = sn.y + uy * sr
 
+    const hlOn = isHlEdge && _hlBlinkVisible
+    const finalAlpha = hlOn && focusedIdx === null ? 0.75 : alpha
     edgeLayer.moveTo(sx2, sy2).lineTo(ex, ey)
-    edgeLayer.stroke({ color: relColor, width: isFocEdge ? 1.8 : 0.9, alpha })
+    edgeLayer.stroke({ color: relColor, width: (isFocEdge || hlOn) ? 1.8 : 0.9, alpha: finalAlpha })
 
     // Arrowhead
     const as = 7
     const px2 = -uy * as * 0.44, py2 = ux * as * 0.44
     edgeLayer.poly([ex, ey, ex - ux * as + px2, ey - uy * as + py2, ex - ux * as - px2, ey - uy * as - py2])
-    edgeLayer.fill({ color: relColor, alpha })
+    edgeLayer.fill({ color: relColor, alpha: finalAlpha })
   })
 
   // ── Draw nodes ───────────────────────────────────────────
@@ -728,6 +726,11 @@ function hexToNum(hex) {
 
 // ─── Watchers ─────────────────────────────────────────────────
 watch(() => props.gNodes.length, () => buildSimulation())
+watch(() => props.queryHlIdxs, (val) => {
+  if (val?.size > 0) _startBlink()
+  else { clearInterval(_blinkTimer); _hlBlinkVisible = false; _simDirty = true }
+})
+watch(() => props.queryHlEdgeIdxs, () => { _simDirty = true })
 watch(() => props.nightMode, () => {
   // update label colors
   nodeObjs.forEach(obj => {

@@ -133,7 +133,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         nodes.push({
           id: `session-${g.id || gi}-${mi}`,
           label: m.session_title || `${mi + 1}차 회의`, type: 'session',
-          groupIdx: gi, data: { ...m, participants: g.members || [] }, neo4jId: m.id || null,
+          groupIdx: gi, data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] }, neo4jId: m.id || null,
         })
         edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
