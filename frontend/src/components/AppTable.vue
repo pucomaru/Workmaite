@@ -176,6 +176,9 @@ function startResize(e, colIndex) {
 .sort-icon.active {
   opacity: 1;
 }
+.app-table th:first-child {
+  padding-left: 12px !important;
+}
 .app-table th:last-child {
   position: sticky;
   right: 0;
@@ -189,6 +192,9 @@ function startResize(e, colIndex) {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 0;
+}
+.app-table td:first-child {
+  padding-left: 12px !important;
 }
 .app-table td:last-child {
   position: sticky;
