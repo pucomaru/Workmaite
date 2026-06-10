@@ -2,8 +2,7 @@
 import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import * as PIXI from 'pixi.js'
 import {
-  forceSimulation, forceLink, forceManyBody, forceCenter,
-  forceCollide, forceX, forceY, forceRadial,
+  forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide,
 } from 'd3-force'
 
 // ─── Props / Emits ────────────────────────────────────────────
@@ -196,44 +195,17 @@ function buildSimulation(nodes, edges) {
 
   if (sim) sim.stop()
 
-  // Strength per node type
-  const chargeStr = (d) => {
-    return -160
-  }
-
-  // 회의체를 캔버스 중앙 기준 링 위에 고르게 배치
-  const mgRadius = Math.min(w, h) * 0.30
-
   sim = forceSimulation(simNodes)
     .force('link', forceLink(simEdges)
       .id(d => d._idx)
-      .distance(d => {
-        const src = simNodes[d.source._idx ?? d.source]
-        const tgt = simNodes[d.target._idx ?? d.target]
-        if (!src || !tgt) return 120
-        if (src.type === 'Meetings' || tgt.type === 'Meetings') return 160
-        return 90
-      })
-      .strength(0.35)
+      .distance(110)
+      .strength(0.4)
     )
-    .force('charge',  forceManyBody().strength(chargeStr))
-    .force('center',  forceCenter(w / 2, h / 2).strength(0.02))
-    .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.8))
-    // 회의체 노드만 링에 배치, 나머지는 링 외부로 자연스럽게 분산
-    .force('radial-mg', forceRadial(mgRadius, w / 2, h / 2)
-      .strength(d => d.type === 'Meetings' ? 0.55 : 0))
-    // "나" 노드를 항상 중심에 고정 (없으면 조직 노드를 중심에)
-    .force('radial-center', forceRadial(0, w / 2, h / 2)
-      .strength(d => {
-        const isSelf = props.selfNodeId != null && d.id === props.selfNodeId
-        if (isSelf) return 0.85
-        if (props.selfNodeId == null && (d.id === 'org-node' || d.type === 'company')) return 0.6
-        return 0
-      }))
-    .force('x', forceX(w / 2).strength(0.01))
-    .force('y', forceY(h / 2).strength(0.01))
-    .alphaDecay(0.04)
-    .on('tick', () => { _simDirty = true }) // handled in PIXI ticker
+    .force('charge',  forceManyBody().strength(-220))
+    .force('center',  forceCenter(w / 2, h / 2).strength(0.06))
+    .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.85))
+    .alphaDecay(0.025)
+    .on('tick', () => { _simDirty = true })
 
   rebuildNodeObjects()
 }
@@ -327,7 +299,7 @@ function drawNode(obj, sn) {
 
   // Main circle
   gfx.circle(0, 0, r)
-  if (type === 'meeting_group') {
+  if (type === 'Meetings') {
     gfx.fill({ color: hubColor, alpha: urgency === 'critical' ? 0.95 : 0.88 })
   } else {
     gfx.fill({ color: NODE_COLORS[type] ?? 0x60a5fa, alpha: 1 })
@@ -363,7 +335,7 @@ function drawNode(obj, sn) {
 
 function drawIcon(gfx, type, r) {
   const ic = 0xffffff
-  if (type === 'meeting_group') {
+  if (type === 'Meetings') {
     // no extra icon — label centered inside
   } else if (type === 'agenda') {
     // checkmark

@@ -128,13 +128,17 @@ async function enterSession(s) {
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
-  if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
+  if (!rec.transcriptLines.length) {
     try {
       const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
       if (data && data.length) {
         const lines = data.map(seg => ({
-          time: new Date(seg.startSec * 1000).toISOString().slice(11, 19),
-          text: `${seg.speakerLabel}: ${seg.content}`,
+          id: seg.id,
+          time: seg.createdAt
+            ? new Date(seg.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : '--:--:--',
+          speaker: seg.speakerLabel,
+          text: seg.content,
         }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
@@ -205,7 +209,10 @@ const showPopover = ref(null)
 const micSensitivity = ref(70)
 const noiseReduction = ref(true)
 const transcriptLang = ref('ko')
+const sttMode = ref('gcapi')   // 'localwhisper' | 'whisperapi' | 'gcapi'
 const micError = ref('')
+
+const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcapi: 'Google Cloud API' }
 
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
@@ -214,34 +221,75 @@ function getOrCreateRecord(id) {
   return sessionRecords.value.get(id)
 }
 
-// 스피커 레이블 스타일 맵핑 (A, B, C, ... → 색상)
+// 스피커 레이블
 const SPEAKER_COLORS = ['#60a5fa','#f59e0b','#34d399','#f472b6','#a78bfa','#fb923c']
-function speakerColor(label) {
-  const idx = label?.charCodeAt(0) - 65  // 'A'=0, 'B'=1, ...
-  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length] ?? '#94a3b8'
+function speakerColorByIdx(idx) { return SPEAKER_COLORS[(idx ?? 0) % SPEAKER_COLORS.length] }
+function speakerColor(raw) {
+  if (!raw) return '#94a3b8'
+  const m = raw.match(/(\d+)$/)
+  return speakerColorByIdx(m ? parseInt(m[1]) : raw.charCodeAt(0) - 65)
+}
+function speakerDisplay(raw) {
+  if (!raw) return ''
+  const m = raw.match(/(\d+)$/)
+  return m ? String.fromCharCode(65 + parseInt(m[1])) : raw  // SPEAKER_0→A, SPEAKER_1→B
 }
 
-function _pushLine(time, text, speaker = null) {
-  const entry = { time, text, speaker }
+function nowTime() {
+  return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function _pushLine(time, text, speaker = null, id = null) {
+  const entry = { time, text, speaker, id }
   transcriptLines.value.push(entry)
   if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
   nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
 }
 
 const stt = useSTT({
-  onResult: (text) => {
-    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    _pushLine(time, text, null)
-  },
+  onResult: (text) => { _pushLine(nowTime(), text, null) },
   onSegments: (segments) => {
-    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    segments.forEach(seg => {
-      if (seg.text?.trim()) _pushLine(time, seg.text.trim(), seg.speaker)
-    })
+    const t = nowTime()
+    segments.forEach(seg => { if (seg.text?.trim()) _pushLine(t, seg.text.trim(), seg.speaker) })
   },
   getLang: () => transcriptLang.value,
   getSessionId: () => activeSession.value?.id ?? null,
+  getSttMode: () => sttMode.value,
 })
+
+// ─── 녹음 타이머 ──────────────────────────────────────────────
+const recordingSecs = ref(0)
+let _timerInterval = null
+
+function _startTimer() {
+  _timerInterval = setInterval(() => { recordingSecs.value++ }, 1000)
+}
+function _pauseTimer() { clearInterval(_timerInterval); _timerInterval = null }
+function _resetTimer() { _pauseTimer(); recordingSecs.value = 0 }
+function formatTimer(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+// ─── 발화 편집 ────────────────────────────────────────────────
+const editingIdx = ref(null)
+const editDraft = ref({ speaker: '', text: '' })
+
+function startEdit(idx) {
+  const line = transcriptLines.value[idx]
+  editingIdx.value = idx
+  editDraft.value = { speaker: line.speaker || '', text: line.text }
+}
+function cancelEdit() { editingIdx.value = null }
+async function saveEdit(idx) {
+  const line = transcriptLines.value[idx]
+  if (!line.id) return
+  await api.patch(`/api/v1/sessions/${activeSession.value.id}/scripts`, {
+    segments: [{ id: line.id, speakerLabel: editDraft.value.speaker, content: editDraft.value.text }]
+  })
+  line.speaker = editDraft.value.speaker
+  line.text = editDraft.value.text
+  editingIdx.value = null
+}
 
 function toggleRecording() {
   micError.value = ''
@@ -249,23 +297,24 @@ function toggleRecording() {
     stt.start()
       .then(() => {
         recordingState.value = 'recording'
+        _resetTimer(); _startTimer()
         if (activeSession.value?.id) {
           api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
         }
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
-    recordingState.value = 'paused'; stt.stop(); fetchTranscriptSummary()
+    recordingState.value = 'paused'; stt.stop(); _pauseTimer(); fetchTranscriptSummary()
   } else {
     stt.start()
-      .then(() => { recordingState.value = 'recording' })
+      .then(() => { recordingState.value = 'recording'; _startTimer() })
       .catch(() => { micError.value = '마이크 권한이 필요합니다.' })
   }
 }
 
 function stopRecording() {
   const was = recordingState.value === 'recording'
-  recordingState.value = 'idle'; stt.stop()
+  recordingState.value = 'idle'; stt.stop(); _resetTimer()
   if (was) fetchTranscriptSummary()
 }
 
@@ -673,7 +722,7 @@ const showPastDateAlert = ref(false)
 
 // ─── Session edit modal ───────────────────────────────────────
 const showEditSession = ref(false)
-const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'whisper' })
+const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
 const editSessionMembers = ref([])
 const editingSession = ref(false)
 
@@ -685,7 +734,7 @@ async function openEditSession(s, e) {
     title: s.title,
     dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
     timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
-    type: s.type || 'whisper',
+    type: s.type || 'localwhisper',
   }
   editSessionMembers.value = []
   if (s.attendee_ids?.length) {
@@ -725,19 +774,19 @@ async function doEditSession() {
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' })
+const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
 function openCreateSession() {
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
   showCreateSession.value = true
 }
 function closeCreateSession() {
   showCreateSession.value = false
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
 }
@@ -760,7 +809,7 @@ async function doCreateSessionForm() {
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -921,8 +970,10 @@ async function downloadMinutesFile() {
         <div class="sp-panel-header">
           <div class="sp-panel-title-row">
             <div class="sp-panel-title">{{ activeSession.title }}</div>
-            <span v-if="recordingState === 'recording'" class="rec-live">
-              <i class="bi bi-record-fill"></i> REC
+            <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
+              <i class="bi bi-record-fill"></i>
+              {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
+              <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
           </div>
           <div class="app-tabs">
@@ -950,11 +1001,27 @@ async function downloadMinutesFile() {
               <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
-              <span class="tline-time">{{ line.time }}</span>
-              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-              <span class="tline-text">{{ line.text }}</span>
-            </div>
+            <template v-for="(line, idx) in transcriptLines" :key="idx">
+              <!-- 편집 모드 -->
+              <div v-if="editingIdx === idx" class="tline tline-editing">
+                <span class="tline-time">{{ line.time }}</span>
+                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
+                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                <div class="tline-edit-btns">
+                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
+                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                </div>
+              </div>
+              <!-- 일반 모드 -->
+              <div v-else class="tline" @mouseenter="line._hover=true" @mouseleave="line._hover=false">
+                <span class="tline-time">{{ line.time }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
+                <span class="tline-text">{{ line.text }}</span>
+                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </div>
+            </template>
           </template>
 
           <template v-else-if="activeTab === 'script'">
@@ -962,11 +1029,25 @@ async function downloadMinutesFile() {
               <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
             </div>
-            <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
-              <span class="tline-time">{{ line.time }}</span>
-              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-              <span class="tline-text">{{ line.text }}</span>
-            </div>
+            <template v-for="(line, idx) in transcriptLines" :key="idx">
+              <div v-if="editingIdx === idx" class="tline tline-editing">
+                <span class="tline-time">{{ line.time }}</span>
+                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
+                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                <div class="tline-edit-btns">
+                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
+                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                </div>
+              </div>
+              <div v-else class="tline">
+                <span class="tline-time">{{ line.time }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
+                <span class="tline-text">{{ line.text }}</span>
+                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </div>
+            </template>
           </template>
 
           <template v-else-if="activeTab === 'minutes'">
@@ -1067,6 +1148,31 @@ async function downloadMinutesFile() {
                 <div class="cpop-title">대화기록 언어</div>
                 <button class="cpop-opt" :class="{ selected: transcriptLang==='ko' }" @click="transcriptLang='ko';showPopover=null">🇰🇷 한국어</button>
                 <button class="cpop-opt" :class="{ selected: transcriptLang==='en' }" @click="transcriptLang='en';showPopover=null">🇺🇸 English</button>
+              </div>
+            </div>
+
+            <!-- STT mode selector -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover==='stt' }"
+                @click.stop="togglePopover('stt')" title="STT 방식">
+                <i class="bi bi-soundwave"></i>
+                <span>{{ STT_MODE_LABELS[sttMode] }}</span>
+                <i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover==='stt'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">STT 설정</div>
+                <button class="cpop-opt" :class="{ selected: sttMode==='gcapi' }"
+                  @click="sttMode='gcapi';showPopover=null">
+                  <i class="bi bi-people" style="margin-right:5px"></i>Google Cloud API
+                </button>
+                <button class="cpop-opt" :class="{ selected: sttMode==='whisperapi' }"
+                  @click="sttMode='whisperapi';showPopover=null">
+                  <i class="bi bi-lightning-charge" style="margin-right:5px"></i>Whisper API
+                </button>
+                <button class="cpop-opt" :class="{ selected: sttMode==='localwhisper' }"
+                  @click="sttMode='localwhisper';showPopover=null">
+                  <i class="bi bi-shield-lock" style="margin-right:5px"></i>Local
+                </button>
               </div>
             </div>
 
@@ -1247,14 +1353,6 @@ async function downloadMinutesFile() {
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>STT 방식</label>
-            <div style="display:flex;gap:8px;">
-              <button :class="['stt-type-btn', editSessionForm.type === 'whisper' ? 'active' : '']" @click="editSessionForm.type = 'whisper'">Whisper 모델 (보안)</button>
-              <button :class="['stt-type-btn', editSessionForm.type === 'external' ? 'active' : '']" @click="editSessionForm.type = 'external'">Whisper API (빠름)</button>
-            </div>
-          </div>
-          <div class="app-modal-field">
-            <label>참석자</label>
             <MemberInvite v-model="editSessionMembers" />
           </div>
         </div>
@@ -1300,22 +1398,6 @@ async function downloadMinutesFile() {
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>STT 방식</label>
-            <div style="display:flex;gap:8px;">
-              <button
-                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
-                @click="createSessionForm.type = 'whisper'">
-                Whisper 모델 (보안)
-              </button>
-              <button
-                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
-                @click="createSessionForm.type = 'external'">
-                Whisper API (빠름)
-              </button>
-            </div>
-          </div>
-          <div class="app-modal-field">
-            <label>참석자</label>
             <MemberInvite v-model="createSessionMembers" />
           </div>
         </div>
@@ -1423,14 +1505,30 @@ async function downloadMinutesFile() {
 .sp-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted); }
 
 /* Transcript lines */
-.tline { display:flex;gap:8px;align-items:baseline;padding:3px 0; }
+.tline { display:flex;gap:8px;align-items:baseline;padding:3px 0;position:relative; }
+.tline:hover .tline-edit-btn { opacity:1; }
 .tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:monospace; }
 .tline-speaker {
   font-size:10px;font-weight:700;flex-shrink:0;
-  padding:1px 5px;border-radius:4px;border:1px solid;
-  letter-spacing:.03em;font-family:monospace;
+  padding:1px 6px;border-radius:99px;border:1px solid;
+  letter-spacing:.04em;
 }
-.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5; }
+.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5;flex:1; }
+.tline-edit-btn { opacity:0;transition:opacity .15s;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:1px 4px;border-radius:4px;flex-shrink:0;margin-left:2px; }
+.tline-edit-btn:hover { color:var(--accent);background:rgba(96,165,250,.1); }
+
+/* 편집 모드 */
+.tline-editing { flex-wrap:wrap;align-items:flex-start;gap:6px;background:var(--surface);border-radius:8px;padding:6px 8px;margin:2px 0; }
+.tline-edit-speaker { font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:6px;padding:2px 8px;width:72px;outline:none;background:var(--bg-card);color:var(--dark-card); }
+.tline-edit-text { flex:1;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;resize:vertical;outline:none;background:var(--bg-card);color:var(--dark-card);min-width:200px;line-height:1.5; }
+.tline-edit-btns { display:flex;gap:4px;flex-shrink:0;align-items:center; }
+.tline-save-btn { font-size:11px;font-weight:700;padding:3px 10px;border-radius:5px;border:none;background:var(--accent);color:#fff;cursor:pointer; }
+.tline-save-btn:hover { background:#2563eb; }
+.tline-cancel-btn { font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer; }
+
+/* REC 타이머 */
+.rec-live.paused { background:rgba(100,116,139,.15);color:var(--text-muted); }
+.rec-timer { font-family:monospace;font-size:11px;margin-left:4px;letter-spacing:.05em; }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
