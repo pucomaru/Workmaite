@@ -1,5 +1,5 @@
 <script setup>
-import { inject, computed } from 'vue'
+import { inject, computed, ref, watch } from 'vue'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
@@ -30,6 +30,16 @@ const {
   reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
   minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 } = inject('archiveSidebar')
+
+// ── 최근 로그 더보기 / 필터 ──────────────────────────────────────
+const logExpanded = ref(false)
+const logTypeFilter = ref('')
+watch(() => detailMeeting?.value?.id, () => { logExpanded.value = false; logTypeFilter.value = '' })
+const logAllItems = computed(() => groupHistoryMap.value.get(detailMeeting.value?.id) || [])
+const logFilteredItems = computed(() =>
+  logTypeFilter.value ? logAllItems.value.filter(i => i.type === logTypeFilter.value) : logAllItems.value
+)
+const logDisplayItems = computed(() => logExpanded.value ? logFilteredItems.value : logFilteredItems.value.slice(0, 7))
 
 // ── 보고자료 레이더 차트 ─────────────────────────────────────────
 const SB_CX = 90, SB_CY = 95, SB_R = 60
@@ -181,17 +191,25 @@ const sbTopImprovements = computed(() => {
             <div class="detail-section">
               <div class="detail-section-label-row">
                 <span class="detail-section-label">최근 로그</span>
-                <button v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length > 3" class="detail-more-btn" @click="goToList(detailMeeting?.id)">전체 {{ (groupHistoryMap.get(detailMeeting?.id)||[]).length }}건 →</button>
+                <span v-if="logAllItems.length" class="detail-log-total">전체 {{ logAllItems.length }}건</span>
+              </div>
+              <div v-if="logExpanded" class="detail-log-filters">
+                <button class="log-chip" :class="{ active: logTypeFilter === '' }" @click="logTypeFilter = ''">전체</button>
+                <button class="log-chip" :class="{ active: logTypeFilter === 'minutes' }" @click="logTypeFilter = 'minutes'">회의록</button>
+                <button class="log-chip" :class="{ active: logTypeFilter === 'report' }" @click="logTypeFilter = 'report'">보고서</button>
+                <button class="log-chip" :class="{ active: logTypeFilter === 'agenda' }" @click="logTypeFilter = 'agenda'">과제</button>
               </div>
               <div class="detail-log-list">
-                <template v-if="(groupHistoryMap.get(detailMeeting?.id)||[]).length">
-                  <div v-for="(item, i) in (groupHistoryMap.get(detailMeeting?.id)||[]).slice(0,3)" :key="i" class="detail-log-item">
+                <template v-if="logFilteredItems.length">
+                  <div v-for="(item, i) in logDisplayItems" :key="i" class="detail-log-item">
                     <span class="detail-log-dot" :class="'ht-'+item.type"></span>
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">{{ item.manager }} · {{ formatDate(item.date) }}</div>
                     </div>
                   </div>
+                  <button v-if="!logExpanded && logFilteredItems.length > 7" class="detail-log-more" @click="logExpanded = true">더보기 {{ logFilteredItems.length - 7 }}건 ↓</button>
+                  <button v-if="logExpanded" class="detail-log-more" @click="logExpanded = false; logTypeFilter = ''">접기 ↑</button>
                 </template>
                 <div v-else class="detail-log-empty">기록된 로그가 없습니다.</div>
               </div>
