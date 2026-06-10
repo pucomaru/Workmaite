@@ -898,7 +898,7 @@ async function downloadMinutesFile() {
       <div class="sp-sidebar-header">
         <div class="sp-header-top">
           <span class="sp-sidebar-title">회의</span>
-          <button class="create-btn" @click.stop="openCreateSession()" title="회의 생성">
+          <button class="create-btn sm" @click.stop="openCreateSession()" title="회의 생성">
             <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             회의 생성
           </button>
@@ -915,7 +915,7 @@ async function downloadMinutesFile() {
         <div v-for="mtg in filteredMeetings" :key="mtg.id" class="sp-mtg-group">
           <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingIds.has(mtg.id) }">
             <span class="sp-mtg-title">{{ mtg.title }}</span>
-            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>
+            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
@@ -924,15 +924,13 @@ async function downloadMinutesFile() {
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
-              <div class="sp-session-dot" :style="{ background: STATUS_CLS[s.status] }"></div>
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
                 <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
               </div>
-              <button v-if="s.status === 'scheduled'" class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
+              <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
-              <span v-else class="sp-status-badge" :style="{ background: STATUS_CLS[s.status]+'22', color: STATUS_CLS[s.status] }">{{ STATUS_LABEL[s.status] }}</span>
             </div>
           </div>
         </div>
@@ -1450,7 +1448,7 @@ async function downloadMinutesFile() {
 .sp-toggle-handle:hover { background:var(--surface-2);color:var(--primary); }
 .sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-resize-handle:hover { background:rgba(59,130,246,.25); }
-.sp-sidebar-header { padding:7px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-sidebar-header { padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
@@ -1486,13 +1484,12 @@ async function downloadMinutesFile() {
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
 .sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
-.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer; }
+.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px;cursor:pointer; }
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
-.sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-date { font-size:10px;color:var(--text-muted); }
+.sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
@@ -1621,7 +1618,7 @@ async function downloadMinutesFile() {
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
-.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
+.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:10px; }
 .sp-search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dark-muted);pointer-events:none; }
 .sp-search-input { width:100%;padding:7px 28px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--bg-card);outline:none;box-sizing:border-box; }
 .sp-search-input:focus { border-color:var(--accent); }
