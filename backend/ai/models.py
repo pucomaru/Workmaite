@@ -133,6 +133,14 @@ class Minutes(Base):
     session = relationship("MeetingSession", back_populates="minutes")
 
 
+class SessionMember(Base):
+    __tablename__ = "session_members"
+    id         = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role       = Column(String, default="member")
+
+
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
     id           = Column(Integer, primary_key=True, index=True)

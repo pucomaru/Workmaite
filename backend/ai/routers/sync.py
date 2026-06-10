@@ -155,12 +155,17 @@ async def sync_session_manual(
     session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session을 찾을 수 없습니다.")
+    members = db.query(models.SessionMember).filter(
+        models.SessionMember.session_id == session_id
+    ).all()
+    attendees = [{"user_id": m.user_id, "role": m.role or "member"} for m in members]
     await sync_session(
         session_id=session.id,
         meeting_id=session.meeting_id,
         title=session.title or "",
         status=str(session.status or "scheduled"),
         scheduled_at=session.scheduled_at.isoformat() + 'Z' if session.scheduled_at else None,
+        attendees=attendees,
     )
     return {"success": True, "session_id": session_id, "title": session.title}
 

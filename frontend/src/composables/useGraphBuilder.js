@@ -190,7 +190,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           id: `session-${g.id || gi}-${mi}`,
           label: m.session_title || `${mi + 1}차 회의`, type: 'session',
           x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
-          groupIdx: gi, data: { ...m, participants: g.members || [] },
+          groupIdx: gi, data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
         })
         // session -[개최]→ meetingGroup (실제 Neo4j 관계)

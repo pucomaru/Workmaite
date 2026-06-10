@@ -206,6 +206,9 @@ async def get_archive(
                   AND mg.id IN $ids
                 OPTIONAL MATCH (s)-[:`산출`]->(doc) WHERE doc:Report OR doc:Minutes
                 OPTIONAL MATCH (mn:Minutes)-[:`생성`]->(s)
+                OPTIONAL MATCH (u:User)-[:참석]->(s)
+                WITH mg, s, doc, mn,
+                     collect(CASE WHEN u IS NOT NULL THEN {userId: u.pg_id, userName: u.name, department: u.department} END) AS participants
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -227,7 +230,8 @@ async def get_archive(
                     mn.file_name AS minutes_file_name,
                     mn.status AS minutes_status,
                     mn.pg_id AS minutes_pg_id,
-                    toString(mn.generated_at) AS generated_at
+                    toString(mn.generated_at) AS generated_at,
+                    participants
                 """,
                 {"ids": mg_ids_list},
             ),
@@ -345,6 +349,7 @@ async def get_archive(
                 "minutes_status": row.get("minutes_status"),
                 "minutes_pg_id": row.get("minutes_pg_id"),
                 "generated_at": row.get("generated_at"),
+                "participants": row.get("participants", []),
             })
 
     def _neo4j_report_pg_id(neo4j_id) -> int | None:

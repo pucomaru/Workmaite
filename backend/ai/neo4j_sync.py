@@ -250,6 +250,7 @@ async def sync_session(
     location: str | None = None,
     session_type: str | None = None,  # PG: type (대면/비대면 등)
     description: str | None = None,
+    attendees: list[dict] = [],
 ) -> None:
     """Session 노드를 Neo4j에 upsert하고 Meetings과 관계를 맺습니다."""
     mg_id = f"mg-{meeting_id}"
@@ -294,6 +295,20 @@ async def sync_session(
     except Exception as e:
         logger.error(f"[Neo4jSync] Session {session_id} 실패: {e}")
         _log_failure("sync_session", "session", str(session_id), e, params)
+
+    if attendees:
+        attendee_cypher = """
+        UNWIND $attendees AS a
+        MATCH (u:User {pg_id: a.user_id})
+        MATCH (s:Session {id: $session_id})
+        MERGE (u)-[r:참석]->(s)
+        SET r.role = a.role
+        """
+        try:
+            await run_cypher(attendee_cypher, {"attendees": attendees, "session_id": s_id})
+            logger.debug(f"[Neo4jSync] Session {session_id} 참석자 {len(attendees)}명 동기화 완료")
+        except Exception as e:
+            logger.error(f"[Neo4jSync] Session {session_id} 참석자 관계 실패: {e}")
 
 
 # ─── User 동기화 (PG users) ──────────────────────────────────────────────────
