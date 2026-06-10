@@ -130,7 +130,6 @@ async function submitCreate() {
 // ── End (완료 처리) ──────────────────────────────────────────
 const endingId = ref(null)
 async function endMeeting(m) {
-  if (!confirm(`"${m.title}" 회의체를 완료 상태로 변경하시겠습니까?`)) return
   endingId.value = m.id
   try {
     await meetingsStore.terminateMeeting(m.id)
@@ -140,8 +139,14 @@ async function endMeeting(m) {
 
 // ── Delete ────────────────────────────────────────────────────
 const deletingId = ref(null)
-async function deleteMeeting(m) {
-  if (!confirm(`"${m.title}" 회의체를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return
+const deleteTarget = ref(null)
+
+function confirmDelete(m) { deleteTarget.value = m }
+function cancelDelete() { deleteTarget.value = null }
+async function executeDelete() {
+  const m = deleteTarget.value
+  if (!m) return
+  deleteTarget.value = null
   deletingId.value = m.id
   try {
     await meetingsStore.deleteMeeting(m.id)
@@ -310,12 +315,14 @@ onMounted(async () => {
                     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                   </button>
                   <!-- 진행중: 완료 처리 버튼 -->
-                  <button v-if="canManage(g) && statusTab==='active'" class="mg-icon-btn end" @click.stop="endMeeting(g)" :disabled="endingId===g.id" title="완료 처리">
-                    <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                  <button v-if="canManage(g) && statusTab==='active'" class="mg-action-btn mg-btn-end" @click.stop="endMeeting(g)" :disabled="endingId===g.id">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                    {{ endingId===g.id ? '처리 중…' : '완료' }}
                   </button>
-                  <!-- 완료: 삭제 버튼 -->
-                  <button v-if="canManage(g) && statusTab==='ended'" class="mg-icon-btn delete" @click.stop="deleteMeeting(g)" :disabled="deletingId===g.id" title="삭제">
-                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                  <!-- 삭제 버튼 (항상) -->
+                  <button v-if="canManage(g)" class="mg-action-btn mg-btn-delete" @click.stop="confirmDelete(g)" :disabled="deletingId===g.id">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                    {{ deletingId===g.id ? '삭제 중…' : '삭제' }}
                   </button>
                 </div>
               </td>
@@ -365,10 +372,7 @@ onMounted(async () => {
               <textarea v-model="createForm.guidelines" class="app-modal-input" rows="3" placeholder="운영 지침, 규칙, 주의사항 등을 입력하세요...
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
             </div>
-            <div class="app-modal-field">
-              <label>멤버 초대</label>
-              <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
-            </div>
+            <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" :nightMode="nightMode" />
           </div>
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showCreate=false">취소</button>
@@ -384,6 +388,33 @@ onMounted(async () => {
         @close="closeSettings"
         @save="saveSettings"
       />
+    </Teleport>
+
+    <!-- 삭제 확인 모달 -->
+    <Teleport to="body">
+      <div v-if="deleteTarget" class="app-modal-backdrop" @click.self="cancelDelete">
+        <div class="app-modal delete-confirm-modal">
+          <div class="app-modal-header">
+            <span class="app-modal-title">회의체 삭제</span>
+            <button class="app-modal-close" @click="cancelDelete">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="delete-confirm-body">
+            <div class="delete-confirm-icon">
+              <svg width="28" height="28" fill="none" stroke="#ef4444" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            </div>
+            <p class="delete-confirm-msg">
+              <strong>{{ deleteTarget.title }}</strong> 회의체를 삭제합니다.<br>
+              <span class="delete-confirm-sub">보고서, 아젠다, 회의록 등 관련 데이터가 모두 삭제되며<br>이 작업은 되돌릴 수 없습니다.</span>
+            </p>
+          </div>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="cancelDelete">취소</button>
+            <button class="app-btn-danger" @click="executeDelete">삭제</button>
+          </div>
+        </div>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -413,14 +444,30 @@ onMounted(async () => {
 .mg-status-dot.active { background:#22c55e; }
 .mg-status-dot.ended { background:var(--text-muted); }
 
-/* 아이콘 버튼 */
-.action-btns { display:flex;gap:4px;align-items:center; }
+/* 아이콘 버튼 (설정) */
+.action-btns { display:flex;gap:6px;align-items:center; }
 .mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
 .mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:#93c5fd;background:rgba(96,165,250,.1); }
-.mg-icon-btn.end:hover { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
-.mg-icon-btn.delete:hover { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }
 .mg-icon-btn:disabled { opacity:.4;cursor:not-allowed; }
 .day-mode .mg-icon-btn { border-color:var(--border);background:#fff;color:var(--text-muted); }
+
+/* 텍스트 액션 버튼 (완료 / 삭제) — 설정 버튼과 동일 베이스 */
+.mg-action-btn { display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);transition:all .15s;white-space:nowrap; }
+.mg-action-btn:disabled { opacity:.4;cursor:not-allowed; }
+.mg-btn-end:hover:not(:disabled) { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
+.mg-btn-delete:hover:not(:disabled) { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }
+.day-mode .mg-action-btn { border-color:var(--border);background:#fff;color:var(--text-muted); }
+.day-mode .mg-btn-end:hover:not(:disabled) { border-color:#bbf7d0;color:#16a34a;background:#f0fdf4; }
+.day-mode .mg-btn-delete:hover:not(:disabled) { border-color:#fecaca;color:#dc2626;background:#fef2f2; }
+
+/* 삭제 확인 모달 */
+.delete-confirm-modal { max-width:380px;min-height:auto;resize:none; }
+.delete-confirm-body { display:flex;align-items:flex-start;gap:14px;padding:20px 24px; }
+.delete-confirm-icon { flex-shrink:0;margin-top:2px; }
+.delete-confirm-msg { font-size:13px;color:var(--dark-text);line-height:1.6;margin:0; }
+.delete-confirm-sub { font-size:11.5px;color:var(--text-muted); }
+.app-btn-danger { padding:7px 18px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+.app-btn-danger:hover { background:#dc2626; }
 
 /* 역할 뱃지 */
 .mg-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:3px; }

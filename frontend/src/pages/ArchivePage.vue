@@ -535,6 +535,7 @@ const detailMemberDepts = computed(() => {
 const groupedTodos = computed(() => {
   const groups = {}
   for (const todo of detailTodos.value) {
+    if (todo.status === 'done') continue
     const dept = todo.assignee_dept || todo.dept ||
       (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정'
     if (!groups[dept]) groups[dept] = []
@@ -543,12 +544,51 @@ const groupedTodos = computed(() => {
   return groups
 })
 
+const doneTodosWithReport = computed(() => {
+  const done = detailTodos.value.filter(t => t.status === 'done')
+  const reports = detailMeeting.value ? (meetingGroups.value.find(g => String(g.id) === String(detailMeeting.value.id))?.reports || []) : []
+  return done.map(todo => {
+    const todoIdStr = String(todo.id)
+    const report = reports.find(r =>
+      r.human_status === 'approved' &&
+      (r.related_agenda_ids || []).some(rid => {
+        const s = String(rid)
+        return s === todoIdStr || s.endsWith('-' + todoIdStr)
+      })
+    )
+    return {
+      ...todo,
+      dept: todo.assignee_dept || todo.dept || (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정',
+      reportFileName: report?.file_name || null,
+      reportDate: report?.created_at || null,
+    }
+  })
+})
+
 async function completeTodo(todo) {
-  const newStatus = todo.status === 'done' ? 'ongoing' : 'done'
-  try {
-    await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: newStatus })
-    todo.status = newStatus
-  } catch (e) { console.error('상태 변경 실패:', e) }
+  if (todo.status === 'done') {
+    // 완료 → 진행중 되돌리기
+    try {
+      await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: 'ongoing' })
+      todo.status = 'ongoing'
+    } catch (e) { console.error('상태 변경 실패:', e) }
+    return
+  }
+  // 진행중 → 보고서 업로드 모달 열기 (아젠다 미리 연결)
+  const mgId = detailMeeting.value?.id
+    ? (String(detailMeeting.value.id).includes('-') ? detailMeeting.value.id : `mg-${toNumericId(detailMeeting.value.id)}`)
+    : ''
+  const dept = todo.assignee_dept || todo.dept ||
+    (Array.isArray(todo.department) ? todo.department[0] : todo.department) || ''
+  const deptNode = dept
+    ? gNodesRef.value.find(n => n.type === 'dept' && n.label === dept && n.meetingGroupId === mgId)
+    : null
+  openUploadModal({
+    meetingId: mgId,
+    relatedTodoId: `agenda-${todo.id}`,
+    agendaContent: todo.title || todo.content || '',
+    connectNodeId: deptNode?.id || '',
+  })
 }
 
 async function deleteTodo(todo) {
@@ -601,11 +641,34 @@ const extractPhase = ref('context')
 const selectedMinutes = ref([]) // 선택된 회의록 ID
 const selectedFiles = ref([]) // 선택된 파일 ID
 const selectedSimilarDocs = ref([]) // 선택된 유사 문서 ID
-const uploadedCtxFiles = ref([]) // 새로 업로드된 파일
+const uploadedCtxFiles = ref([]) // { id, file_name, uploading, error }
 
-function onCtxFilesAdded(files) {
-  uploadedCtxFiles.value.push(...files)
-  selectedFiles.value.push(...files.map((_, i) => 'upload_' + (uploadedCtxFiles.value.length - files.length + i)))
+async function onCtxFilesAdded(files) {
+  if (!detailMeeting.value) return
+  const meetingId = toNumericId(detailMeeting.value.id)
+  for (const file of files) {
+    const placeholder = reactive({ id: null, file_name: file.name, uploading: true, error: false })
+    uploadedCtxFiles.value.push(placeholder)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const { data } = await apiAI.post(`/api/upload/reports/${meetingId}`, fd)
+      placeholder.id = data.id
+      placeholder.file_name = data.file_name
+      placeholder.uploading = false
+      selectedFiles.value.push(data.id)
+      setTimeout(refreshArchive, 600)
+    } catch {
+      placeholder.uploading = false
+      placeholder.error = true
+    }
+  }
+}
+
+function removeCtxFile(i) {
+  const file = uploadedCtxFiles.value[i]
+  if (file.id) selectedFiles.value = selectedFiles.value.filter(id => id !== file.id)
+  uploadedCtxFiles.value.splice(i, 1)
 }
 const extractResult = ref([])
 const showExtractFlow = ref(false)
@@ -621,13 +684,15 @@ async function _restoreDrafts(meetingId) {
     if (drafts && drafts.length) {
       extractResult.value = drafts.map(ag => ({
         ...ag,
+        dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        end_date: ag.due_date || '',
         _state: null, _editing: false,
         _editTitle: ag.title,
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
-        _editDueDate: ag.due_date || '',
+        _editEndDate: ag.due_date || '',
         _agentLogId: null,
-        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
+        _showReason: false, _feedbackAction: '', _reason: '',
       }))
     } else {
       extractResult.value = []
@@ -642,50 +707,15 @@ watch(detailTab, async (tab) => {
   }
 })
 
-async function saveAgendaFeedback(ag, i) {
-  if (ag.db_id) {
-    try {
-      await apiAI.post('/api/agent/hitl-reviews', {
-        target_type: 'agenda',
-        target_id: ag.db_id,
-        agent_log_id: ag._agentLogId || null,
-        status: ag._feedbackAction || 'edited',
-        review_prompt: {
-          agenda: ag._origTitle ?? ag.title,
-          department: ag._origDept ?? ag.department ?? null,
-          start_date: ag._origStartDate ?? ag.start_date ?? null,
-          end_date: ag._origEndDate ?? ag.due_date ?? null,
-        },
-        review_comment: {
-          agenda: ag.title,
-          department: ag.department ?? null,
-          start_date: ag.start_date ?? null,
-          end_date: ag.due_date ?? null,
-          comment: ag._feedbackText || null,
-        },
-      })
-    } catch (e) { console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e) }
-  }
-  ag._feedbackVisible = false
-  ag._feedbackText = ''
-
-  const idx = i ?? extractResult.value.indexOf(ag)
-  if (ag._feedbackAction === 'rejected') {
-    await rejectItem(idx)
-  } else {
-    await approveItem(idx)
-  }
-}
-
 // 추출 결과를 채팅 메시지 형식으로 포맷
 function _formatExtractForChat(agendas) {
   if (!agendas.length) return '추출된 과제가 없습니다. 회의록이나 자료를 추가 후 다시 시도해주세요.'
   const lines = [`${agendas.length}개 과제를 추출했습니다. 수정이 필요하면 말씀해 주세요.\n`]
   agendas.forEach((ag, i) => {
     lines.push(`**${i + 1}. ${ag.title}**`)
-    const dates = [ag.start_date && `시작 ${ag.start_date}`, ag.due_date && `마감 ${ag.due_date}`].filter(Boolean)
+    const dates = [ag.start_date && `시작 ${ag.start_date}`, ag.end_date && `마감 ${ag.end_date}`].filter(Boolean)
     if (dates.length) lines.push(`  ${dates.join(' · ')}`)
-    if (ag.department) lines.push(`  담당: ${ag.department}`)
+    if (ag.dept) lines.push(`  담당: ${ag.dept}`)
     lines.push('')
   })
   return lines.join('\n').trim()
@@ -733,9 +763,6 @@ async function runExtract() {
       selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
     ))
     formData.append('selected_similar_docs', JSON.stringify(selectedSimilarDocs.value))
-    for (const file of uploadedCtxFiles.value) {
-      formData.append('files', file)
-    }
 
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData)
     await planningPromise
@@ -744,15 +771,17 @@ async function runExtract() {
       const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
+        dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        end_date: ag.due_date || '',
         _state: null,
         _editing: false,
         _editTitle: ag.title,
         _editStartDate: ag.start_date || '',
-        _editDueDate: ag.due_date || '',
+        _editEndDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         db_id: ag.db_id || null,
         _agentLogId: agentLogId,
-        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
+        _showReason: false, _feedbackAction: '', _reason: '',
       }))
       // 실제 추출 결과를 채팅에 표시
       agentMsg.content = _formatExtractForChat(extractResult.value)
@@ -786,7 +815,7 @@ async function openExtractModal() {
       meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
-    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editDueDate: ag.due_date || '' }))
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
   } catch {
     extractResult.value = [
       { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
@@ -798,7 +827,7 @@ function setExtractState(i, state) {
   extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
 }
 function addExtractItem() {
-  extractResult.value.push({ title: '', department: '', db_id: null, _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editDueDate: '', _feedbackVisible: false, _feedbackAction: '', _feedbackText: '' })
+  extractResult.value.push({ title: '', dept: '', db_id: null, start_date: '', end_date: '', _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editEndDate: '', _agentLogId: null, _showReason: false, _feedbackAction: '', _reason: '' })
 }
 
 async function approveItem(i) {
@@ -810,9 +839,9 @@ async function approveItem(i) {
       approved: [{
         db_id: ag.db_id || null,
         title: ag.title,
-        dept: Array.isArray(ag.department) ? ag.department[0] : (ag.department || null),
+        dept: Array.isArray(ag.dept) ? ag.dept[0] : (ag.dept || null),
         start_date: ag.start_date || null,
-        due_date: ag.due_date || null,
+        due_date: ag.end_date || null,
       }],
       rejected_ids: [],
     })
@@ -847,8 +876,8 @@ async function finishExtract() {
       meeting_id: toNumericId(detailMeeting.value.id),
       approved: approved.map(a => ({
         db_id: a.db_id,
-        dept: a.department || null,
-        due_date: a.due_date || null,
+        dept: a.dept || null,
+        due_date: a.end_date || null,
       })),
       rejected_ids: rejected.map(a => a.db_id),
     })
@@ -1884,32 +1913,76 @@ const sortedGroups = computed(() => {
   })
 })
 
-// ─── 회의체별 전체 이력 (목록 탭) ────────────────────────────
+// ─── 사이드바 로그용: 회의록 + 보고서 + 과제, 최신순 ─────────────
 const groupHistoryMap = computed(() => {
   const map = new Map()
   meetingGroups.value.forEach(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const managerName = adminMember?.userName || adminMember?.name || '간사'
     const items = []
-    // 회의록
+    g.minutes.forEach(m => {
+      items.push({ type: 'minutes', desc: `${m.session_title || '회의'} 진행`, manager: managerName, date: m.ended_at })
+    })
+    g.reports.forEach(r => {
+      const isReference = r.human_status === 'approved' && r.score == null
+      const statusLabel = isReference ? '업로드' : r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+      items.push({ type: 'report', desc: `${r.file_name || '파일'} ${statusLabel}`, manager: r.submitter_department || managerName, date: r.created_at || r.submitted_at })
+    })
+    const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
+    if (ongoingTasks.length > 0) {
+      const oldest = ongoingTasks.reduce((a, b) => (a.created_at || '') < (b.created_at || '') ? a : b)
+      items.push({ type: 'agenda', desc: `과제 ${ongoingTasks.length}개 등록`, manager: managerName, date: oldest.created_at || null })
+    }
+    items.sort((a, b) => (b.date ? new Date(b.date) : new Date(0)) - (a.date ? new Date(a.date) : new Date(0)))
+    map.set(g.id, items)
+  })
+  return map
+})
+
+// ─── 목록 뷰용: 회의록 + 보고서 파일만, 버전 그룹핑, 오래된순 ────
+function _toReportFileItem(r, managerName) {
+  const baseName = r.file_name || '파일'
+  const isReference = r.human_status === 'approved' && r.score == null
+  const statusLabel = isReference ? '참고자료' : r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+  // isReference는 템플릿 뱃지 분기에도 사용
+  return {
+    type: 'report',
+    desc: `${baseName} ${statusLabel}`,
+    manager: r.submitter_department || managerName,
+    fileName: baseName + (r.version ? ` (v${r.version})` : ''),
+    score: r.score ?? null,
+    dept: r.submitter_department || null,
+    date: r.created_at || r.submitted_at,
+    hasFile: !!(r.file_path || r.file_url),
+    filePath: r.file_path || r.file_url || null,
+    isReference,
+    rejected: r.human_status === 'rejected' || r.status === 'rejected',
+    approved: !isReference && (r.human_status === 'approved' || r.status === 'approved'),
+    pending: !r.human_status || r.human_status === 'pending',
+    reportId: r.id,
+    aiFeedback: r.ai_feedback || null,
+  }
+}
+const fileListMap = computed(() => {
+  const map = new Map()
+  meetingGroups.value.forEach(g => {
+    const adminMember = g.members.find(m => m.role === 'admin')
+    const managerName = adminMember?.userName || adminMember?.name || '간사'
+    const items = []
     g.minutes.forEach(m => {
       const rawId = String(m.id || '')
       const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
-      const title = m.session_title || '회의'
       items.push({
         type: 'minutes',
-        desc: `${title} 진행`,
+        desc: `${m.session_title || '회의'} 진행`,
         manager: managerName,
         fileName: m.session_title || '회의록',
-        score: null,
-        dept: null,
+        score: null, dept: null,
         date: m.ended_at,
-        hasFile: true,
-        filePath: null,
+        hasFile: true, filePath: null,
         sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
-    // 보고서 — parent_id 기준으로 버전 그룹핑
     const rMap = {}
     g.reports.forEach(r => { rMap[r.id] = r })
     function getRootId(r) {
@@ -1922,66 +1995,20 @@ const groupHistoryMap = computed(() => {
       if (!rGroups[rootId]) rGroups[rootId] = []
       rGroups[rootId].push(r)
     })
-    const toReportItem = (r) => {
-      const baseName = r.file_name || '파일'
-      const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
-      return {
-        type: 'report',
-        desc: `${baseName} ${statusLabel}`,
-        manager: r.submitter_department || managerName,
-        fileName: baseName + (r.version ? ` (v${r.version})` : ''),
-        score: r.score ?? null,
-        dept: r.submitter_department || null,
-        date: r.created_at || r.submitted_at,
-        hasFile: !!(r.file_path || r.file_url),
-        filePath: r.file_path || r.file_url || null,
-        rejected: r.human_status === 'rejected' || r.status === 'rejected',
-        approved: r.human_status === 'approved' || r.status === 'approved',
-        pending: !r.human_status || r.human_status === 'pending',
-        reportId: r.id,
-        aiFeedback: r.ai_feedback || null,
-      }
-    }
     Object.values(rGroups).forEach(group => {
       group.sort((a, b) => (b.version || 1) - (a.version || 1))
-      const latest = group[0]
-      const older = group.slice(1)
-      items.push({
-        ...toReportItem(latest),
-        olderVersions: older.slice().reverse().map(toReportItem),
-      })
+      items.push({ ..._toReportFileItem(group[0], managerName), olderVersions: group.slice(1).reverse().map(r => _toReportFileItem(r, managerName)) })
     })
-    // 과제 생성 이벤트 (tasks가 있을 때 가장 오래된 날짜 기준 1건으로 표시)
-    const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
-    if (ongoingTasks.length > 0) {
-      const oldest = ongoingTasks.reduce((a, b) => (a.created_at || '') < (b.created_at || '') ? a : b)
-      items.push({
-        type: 'agenda',
-        desc: `과제 ${ongoingTasks.length}개 등록`,
-        manager: managerName,
-        fileName: null,
-        score: null,
-        dept: null,
-        date: oldest.created_at || null,
-        hasFile: false,
-        filePath: null,
-      })
-    }
-
-    items.sort((a, b) => {
-      const da = a.date ? new Date(a.date) : new Date(0)
-      const db = b.date ? new Date(b.date) : new Date(0)
-      return db - da
-    })
+    items.sort((a, b) => (a.date ? new Date(a.date) : new Date(0)) - (b.date ? new Date(b.date) : new Date(0)))
     map.set(g.id, items)
   })
   return map
 })
 
-const filteredGroupHistoryMap = computed(() => {
-  if (!selectedHistoryType.value) return groupHistoryMap.value
+const filteredFileListMap = computed(() => {
+  if (!selectedHistoryType.value) return fileListMap.value
   const map = new Map()
-  groupHistoryMap.value.forEach((items, id) => {
+  fileListMap.value.forEach((items, id) => {
     map.set(id, items.filter(item => item.type === selectedHistoryType.value))
   })
   return map
@@ -2209,7 +2236,7 @@ provide('archiveList', {
   search, filteredGroups, sortedGroups,
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
-  expandedMeeting, meetingsStore, filteredGroupHistoryMap,
+  expandedMeeting, meetingsStore, filteredGroupHistoryMap: filteredFileListMap,
   formatDate, downloadDummy: downloadFile, deleteReport, resumePendingReport,
 })
 
@@ -2458,11 +2485,10 @@ provide('archiveSidebar', {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, completeTodo, deleteTodo,
+  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
-  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
+  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
-  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,

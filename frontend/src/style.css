@@ -315,6 +315,7 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 .search-clear { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-dim);display:flex;align-items:center; }
 .plus-wrap { position:relative;flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:8px; }
 .create-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap; }
+.create-btn.sm { height:26px;padding:0 10px;font-size:11px;gap:4px;border-radius:6px; }
 .create-btn:hover { opacity:.85; }
 .create-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
 .create-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
@@ -366,16 +367,15 @@ html.night-mode .app-select { background:rgba(255,255,255,.06) url("data:image/s
 html.night-mode .app-select option { background:#1e293b !important;color:#f1f5f9 !important; }
 
 /* App Tabs */
-.app-tabs { display:flex;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:2px;gap:2px;flex-shrink:0; }
-.app-tab { display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:none;background:none;color:#64748b;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap; }
+.app-tabs { display:flex;background:none;border:none;padding:0;gap:0;flex-shrink:0; }
+.app-tab { display:flex;align-items:center;gap:5px;padding:8px 14px;border:none;background:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap; }
 .app-tab:hover { color:#475569; }
-.app-tab.active { background:#fff;color:#2563eb;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.app-tab.active { color:#2563eb;font-weight:700; }
 .app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:1px 6px; }
 .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
-html.night-mode .app-tabs { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.1) !important; }
-html.night-mode .app-tab { color:#64748b !important; }
+html.night-mode .app-tab { color:#475569 !important; }
 html.night-mode .app-tab:hover { color:#94a3b8 !important; }
-html.night-mode .app-tab.active { background:rgba(96,165,250,.2) !important;color:#93c5fd !important;box-shadow:none !important; }
+html.night-mode .app-tab.active { color:#93c5fd !important; }
 html.night-mode .app-tab-badge { background:rgba(255,255,255,.1) !important; }
 html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2) !important; }
 

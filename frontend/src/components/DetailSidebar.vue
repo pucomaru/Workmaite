@@ -4,6 +4,7 @@ import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
 import DateInput from './DateInput.vue'
+import AgendaReviewList from './AgendaReviewList.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
@@ -11,11 +12,10 @@ const {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, completeTodo, deleteTodo,
+  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
-  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
+  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
-  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
@@ -30,6 +30,17 @@ const {
   reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
   minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 } = inject('archiveSidebar')
+
+// ── 완료 과제 더보기 / 팀 필터 ─────────────────────────────────────
+const doneExpanded = ref(false)
+const doneDeptFilter = ref('')
+watch(() => detailMeeting?.value?.id, () => { doneExpanded.value = false; doneDeptFilter.value = '' })
+const doneDepts = computed(() => [...new Set((doneTodosWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
+const doneFiltered = computed(() => {
+  const items = doneTodosWithReport?.value || []
+  return doneDeptFilter.value ? items.filter(t => t.dept === doneDeptFilter.value) : items
+})
+const doneDisplayItems = computed(() => doneExpanded.value ? doneFiltered.value : doneFiltered.value.slice(0, 5))
 
 // ── 최근 로그 더보기 / 필터 ──────────────────────────────────────
 const logExpanded = ref(false)
@@ -220,11 +231,17 @@ const sbTopImprovements = computed(() => {
             <!-- ── 과제 탭 ── -->
             <template v-if="detailTab==='task'">
 
-                <!-- 등록된 과제 목록 (맨 위) -->
-                <div class="detail-section">
+                <!-- AI 과제 추출 실행 버튼 -->
+                <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
+                  AI 과제 추출 실행
+                </button>
+
+                <!-- 진행중 과제 목록 -->
+                <div class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">등록된 과제</span>
-                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.length }}건</span>
+                    <span class="detail-section-label">진행중 과제</span>
+                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.filter(t => t.status !== 'done').length }}건</span>
                   </div>
                   <div v-if="!detailTodos.length" class="detail-log-empty">등록된 과제가 없습니다.</div>
                   <template v-else>
@@ -260,22 +277,49 @@ const sbTopImprovements = computed(() => {
                   </template>
                 </div>
 
-                <!-- AI 과제 추출 실행 버튼 -->
-                <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
-                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                  AI 과제 추출 실행
-                </button>
+                <!-- 완료된 과제 -->
+                <div v-if="doneTodosWithReport.length" class="detail-section" style="margin-top:12px">
+                  <div class="detail-section-label-row">
+                    <span class="detail-section-label">완료된 과제</span>
+                    <span class="detail-log-total">{{ doneTodosWithReport.length }}건</span>
+                  </div>
+                  <div v-if="doneExpanded && doneDepts.length > 1" class="detail-log-filters">
+                    <button class="log-chip" :class="{ active: doneDeptFilter === '' }" @click="doneDeptFilter = ''">전체</button>
+                    <button v-for="dept in doneDepts" :key="dept" class="log-chip" :class="{ active: doneDeptFilter === dept }" @click="doneDeptFilter = dept">{{ dept }}</button>
+                  </div>
+                  <div class="done-todo-list">
+                    <div v-for="todo in doneDisplayItems" :key="todo.id" class="done-todo-item">
+                      <div class="done-todo-check">
+                        <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                      </div>
+                      <div class="done-todo-body">
+                        <div class="done-todo-title">{{ todo.title || todo.content }}</div>
+                        <div class="done-todo-meta"><span>{{ todo.dept }}</span></div>
+                        <div v-if="todo.reportFileName" class="done-todo-report">
+                          <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          <span class="done-todo-filename">{{ todo.reportFileName }}</span>
+                        </div>
+                        <div class="done-todo-dates">
+                          <span v-if="todo.reportDate">제출 {{ formatDate(todo.reportDate) }}</span>
+                          <span v-if="todo.due_date">마감 {{ formatDateOnly(todo.due_date) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button v-if="!doneExpanded && doneFiltered.length > 5" class="detail-log-more" @click="doneExpanded = true">더보기 {{ doneFiltered.length - 5 }}건 ↓</button>
+                    <button v-if="doneExpanded" class="detail-log-more" @click="doneExpanded = false; doneDeptFilter = ''">접기 ↑</button>
+                  </div>
+                </div>
 
             </template><!-- /과제 탭 -->
 
             <!-- ── 과제추출 탭 ── -->
             <template v-if="detailTab==='extract'">
 
-                <!-- 프로세스 인디케이터: 초안이 없을 때만 표시 -->
-                <div class="task-process-bar" v-if="!extractResult.length && !extractLoading">
+                <!-- 프로세스 인디케이터: 항상 표시 -->
+                <div class="task-process-bar">
                   <ProcessStepBar
                     :steps="['자료선정', '추출']"
-                    :current-step="0"
+                    :current-step="extractResult.length || extractLoading ? 1 : 0"
                     @step-click="() => {}"
                   />
                 </div>
@@ -289,7 +333,7 @@ const sbTopImprovements = computed(() => {
                     </div>
                     <!-- 기존 자료 목록: 실제 파일이 있는 항목만 표시 -->
                     <div class="ctx-file-list">
-                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>r.file_name||r.file_url)" :key="'r'+r.id" class="ctx-file-item">
+                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>(r.file_name||r.file_url)&&(r.human_status==='approved'||r.status==='approved'))" :key="'r'+r.id" class="ctx-file-item">
                         <input type="checkbox" :value="r.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         <span class="ctx-file-name">{{ r.file_name }}</span>
@@ -302,11 +346,13 @@ const sbTopImprovements = computed(() => {
                       </label>
                       <!-- 새로 업로드된 파일 -->
                       <div v-for="(uf, i) in uploadedCtxFiles" :key="'uf'+i" class="ctx-file-item ctx-file-uploaded">
-                        <input type="checkbox" :value="'upload_'+i" v-model="selectedFiles" class="ctx-checkbox" checked />
-                        <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">{{ uf.name }}</span>
-                        <span class="ctx-file-date ctx-new-tag">새 파일</span>
-                        <button class="ctx-file-remove" @click.prevent="uploadedCtxFiles.splice(i,1)">×</button>
+                        <input v-if="uf.id" type="checkbox" :value="uf.id" v-model="selectedFiles" class="ctx-checkbox" />
+                        <svg v-else-if="uf.uploading" class="ctx-uploading-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+                        <svg v-else-if="uf.error" width="10" height="10" fill="none" stroke="#f87171" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                        <svg v-else width="10" height="10" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">{{ uf.file_name }}</span>
+                        <span class="ctx-file-date ctx-new-tag">{{ uf.uploading ? '업로드 중…' : uf.error ? '오류' : '대기중' }}</span>
+                        <button class="ctx-file-remove" @click.prevent="removeCtxFile(i)">×</button>
                       </div>
                     </div>
                     <!-- 파일 업로드 영역 -->
@@ -335,57 +381,14 @@ const sbTopImprovements = computed(() => {
                     <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
                     <template v-else>
                       <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
-                      <div class="detail-extract-list">
-                        <template v-for="(ag, i) in extractResult" :key="i">
-                          <div class="detail-extract-item" :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
-                            <div class="dei-num">{{ i+1 }}</div>
-                            <div class="dei-body">
-                              <template v-if="!ag._editing">
-                                <div class="dei-title dei-title-bold">{{ ag.title }}</div>
-                                <div class="dei-meta" v-if="ag.department">{{ Array.isArray(ag.department) ? ag.department.join(', ') : ag.department }}</div>
-                                <div class="dei-dates" v-if="ag.start_date || ag.due_date">
-                                  <div v-if="ag.start_date">시작 {{ ag.start_date }}</div>
-                                  <div v-if="ag.due_date">마감 {{ ag.due_date }}</div>
-                                </div>
-                              </template>
-                              <template v-else>
-                                <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" />
-                                <select class="app-select dei-app-select" v-model="ag._editDept" style="margin-top:4px;width:100%">
-                                  <option value="">담당부서 선택</option>
-                                  <option v-for="d in detailMemberDepts" :key="d" :value="d">{{ d }}</option>
-                                </select>
-                                <div class="dei-date-row">
-                                  <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
-                                  <DateInput class="dei-input dei-date-input" v-model="ag._editDueDate" />
-                                </div>
-                              </template>
-                            </div>
-                            <div class="dei-actions">
-                              <template v-if="!ag._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editTitle=ag.title; ag._editDept=ag.department; ag._editStartDate=ag.start_date; ag._editDueDate=ag.due_date; ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-approve" @click="ag._feedbackVisible=true; ag._feedbackAction='approved'; ag._feedbackText=''" title="등록"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-reject" @click="ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText=''" title="삭제"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                              </template>
-                              <template v-else>
-                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag.db_id ? (ag._feedbackVisible=true, ag._feedbackAction='edited', ag._feedbackText='') : approveItem(i)" title="저장"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; if(!ag.title) rejectItem(i)" title="취소"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                              </template>
-                            </div>
-                          </div>
-                          <!-- 피드백 박스 -->
-                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
-                            <div class="dei-feedback-label">
-                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : ag._feedbackAction==='approved' ? '등록' : '수정' }}</span>
-                              사유 입력 (선택)
-                            </div>
-                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="피드백을 남겨주세요 (선택)" rows="2" />
-                            <div class="dei-feedback-btns">
-                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">취소</button>
-                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag, i)">저장</button>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
+                      <AgendaReviewList
+                        :items="extractResult"
+                        :memberDepts="detailMemberDepts"
+                        :removeOnApprove="true"
+                        @approved="approveItem"
+                        @rejected="rejectItem"
+                        @remove="rejectItem"
+                      />
                     </template>
 
                 </template><!-- /추출 결과 -->

@@ -8,6 +8,7 @@ import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table
 import MemberInvite from '../components/MemberInvite.vue'
 import DateInput from '../components/DateInput.vue'
 import AgentComposer from '../components/AgentComposer.vue'
+import AgendaReviewList from '../components/AgendaReviewList.vue'
 import api, { apiAI } from '../api'
 import { streamPost } from '../api'
 import { useSTT } from '../composables/useSTT'
@@ -127,13 +128,17 @@ async function enterSession(s) {
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
-  if (s.status?.toLowerCase() === 'ended' && !rec.transcriptLines.length) {
+  if (!rec.transcriptLines.length) {
     try {
       const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
       if (data && data.length) {
         const lines = data.map(seg => ({
-          time: new Date(seg.startSec * 1000).toISOString().slice(11, 19),
-          text: `${seg.speakerLabel}: ${seg.content}`,
+          id: seg.id,
+          time: seg.createdAt
+            ? new Date(seg.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : '--:--:--',
+          speaker: seg.speakerLabel,
+          text: seg.content,
         }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
@@ -204,7 +209,10 @@ const showPopover = ref(null)
 const micSensitivity = ref(70)
 const noiseReduction = ref(true)
 const transcriptLang = ref('ko')
+const sttMode = ref('gcapi')   // 'localwhisper' | 'whisperapi' | 'gcapi'
 const micError = ref('')
+
+const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcapi: 'Google Cloud API' }
 
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
@@ -213,34 +221,75 @@ function getOrCreateRecord(id) {
   return sessionRecords.value.get(id)
 }
 
-// 스피커 레이블 스타일 맵핑 (A, B, C, ... → 색상)
+// 스피커 레이블
 const SPEAKER_COLORS = ['#60a5fa','#f59e0b','#34d399','#f472b6','#a78bfa','#fb923c']
-function speakerColor(label) {
-  const idx = label?.charCodeAt(0) - 65  // 'A'=0, 'B'=1, ...
-  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length] ?? '#94a3b8'
+function speakerColorByIdx(idx) { return SPEAKER_COLORS[(idx ?? 0) % SPEAKER_COLORS.length] }
+function speakerColor(raw) {
+  if (!raw) return '#94a3b8'
+  const m = raw.match(/(\d+)$/)
+  return speakerColorByIdx(m ? parseInt(m[1]) : raw.charCodeAt(0) - 65)
+}
+function speakerDisplay(raw) {
+  if (!raw) return ''
+  const m = raw.match(/(\d+)$/)
+  return m ? String.fromCharCode(65 + parseInt(m[1])) : raw  // SPEAKER_0→A, SPEAKER_1→B
 }
 
-function _pushLine(time, text, speaker = null) {
-  const entry = { time, text, speaker }
+function nowTime() {
+  return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function _pushLine(time, text, speaker = null, id = null) {
+  const entry = { time, text, speaker, id }
   transcriptLines.value.push(entry)
   if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
   nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
 }
 
 const stt = useSTT({
-  onResult: (text) => {
-    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    _pushLine(time, text, null)
-  },
+  onResult: (text) => { _pushLine(nowTime(), text, null) },
   onSegments: (segments) => {
-    const time = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    segments.forEach(seg => {
-      if (seg.text?.trim()) _pushLine(time, seg.text.trim(), seg.speaker)
-    })
+    const t = nowTime()
+    segments.forEach(seg => { if (seg.text?.trim()) _pushLine(t, seg.text.trim(), seg.speaker) })
   },
   getLang: () => transcriptLang.value,
   getSessionId: () => activeSession.value?.id ?? null,
+  getSttMode: () => sttMode.value,
 })
+
+// ─── 녹음 타이머 ──────────────────────────────────────────────
+const recordingSecs = ref(0)
+let _timerInterval = null
+
+function _startTimer() {
+  _timerInterval = setInterval(() => { recordingSecs.value++ }, 1000)
+}
+function _pauseTimer() { clearInterval(_timerInterval); _timerInterval = null }
+function _resetTimer() { _pauseTimer(); recordingSecs.value = 0 }
+function formatTimer(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+// ─── 발화 편집 ────────────────────────────────────────────────
+const editingIdx = ref(null)
+const editDraft = ref({ speaker: '', text: '' })
+
+function startEdit(idx) {
+  const line = transcriptLines.value[idx]
+  editingIdx.value = idx
+  editDraft.value = { speaker: line.speaker || '', text: line.text }
+}
+function cancelEdit() { editingIdx.value = null }
+async function saveEdit(idx) {
+  const line = transcriptLines.value[idx]
+  if (!line.id) return
+  await api.patch(`/api/v1/sessions/${activeSession.value.id}/scripts`, {
+    segments: [{ id: line.id, speakerLabel: editDraft.value.speaker, content: editDraft.value.text }]
+  })
+  line.speaker = editDraft.value.speaker
+  line.text = editDraft.value.text
+  editingIdx.value = null
+}
 
 function toggleRecording() {
   micError.value = ''
@@ -248,23 +297,24 @@ function toggleRecording() {
     stt.start()
       .then(() => {
         recordingState.value = 'recording'
+        _resetTimer(); _startTimer()
         if (activeSession.value?.id) {
           api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
         }
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
-    recordingState.value = 'paused'; stt.stop(); fetchTranscriptSummary()
+    recordingState.value = 'paused'; stt.stop(); _pauseTimer(); fetchTranscriptSummary()
   } else {
     stt.start()
-      .then(() => { recordingState.value = 'recording' })
+      .then(() => { recordingState.value = 'recording'; _startTimer() })
       .catch(() => { micError.value = '마이크 권한이 필요합니다.' })
   }
 }
 
 function stopRecording() {
   const was = recordingState.value === 'recording'
-  recordingState.value = 'idle'; stt.stop()
+  recordingState.value = 'idle'; stt.stop(); _resetTimer()
   if (was) fetchTranscriptSummary()
 }
 
@@ -465,47 +515,12 @@ async function extractNextAgendas() {
   }
 }
 
-function toggleNextAgendaState(i, state) {
-  const item = nextAgendaItems.value[i]
-  item._state = item._state === state ? null : state
-  item._showReason = item._state !== null
-}
-
 function addNextAgendaItem() {
   nextAgendaItems.value.push({ title: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
-async function saveNextAgendaEdit(i) {
-  const item = nextAgendaItems.value[i]
-  if (item.db_id && item._agentLogId) {
-    try {
-      await apiAI.post('/api/agent/hitl-reviews', {
-        target_type: 'agenda',
-        target_id: item.db_id,
-        agent_log_id: item._agentLogId,
-        status: 'edited',
-        review_prompt: {
-          agenda: item.title,
-          department: item.dept || null,
-          start_date: item.start_date || null,
-          end_date: item.end_date || null,
-        },
-        review_comment: {
-          agenda: item._editTitle !== item.title ? item._editTitle : null,
-          department: item._editDept !== item.dept ? item._editDept : null,
-          start_date: item._editStartDate !== item.start_date ? item._editStartDate : null,
-          end_date: item._editEndDate !== item.end_date ? item._editEndDate : null,
-        },
-      })
-    } catch (e) {
-      console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e)
-    }
-  }
-  item.title = item._editTitle
-  item.dept = item._editDept
-  item.start_date = item._editStartDate
-  item.end_date = item._editEndDate
-  item._editing = false
+function removeNextAgendaItem(i) {
+  nextAgendaItems.value.splice(i, 1)
 }
 
 async function saveApprovedNextAgendas() {
@@ -707,7 +722,7 @@ const showPastDateAlert = ref(false)
 
 // ─── Session edit modal ───────────────────────────────────────
 const showEditSession = ref(false)
-const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'whisper' })
+const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
 const editSessionMembers = ref([])
 const editingSession = ref(false)
 
@@ -719,7 +734,7 @@ async function openEditSession(s, e) {
     title: s.title,
     dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
     timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
-    type: s.type || 'whisper',
+    type: s.type || 'localwhisper',
   }
   editSessionMembers.value = []
   if (s.attendee_ids?.length) {
@@ -759,19 +774,19 @@ async function doEditSession() {
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' })
+const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
 function openCreateSession() {
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
   showCreateSession.value = true
 }
 function closeCreateSession() {
   showCreateSession.value = false
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
 }
@@ -794,7 +809,7 @@ async function doCreateSessionForm() {
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
     showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'whisper' }
+    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
     createSessionMembers.value = []
   } catch(e) {
     alert(e.response?.data?.message || '생성 실패')
@@ -898,14 +913,14 @@ async function downloadMinutesFile() {
       <div class="sp-sidebar-header">
         <div class="sp-header-top">
           <span class="sp-sidebar-title">회의</span>
-          <button class="create-btn" @click.stop="openCreateSession()" title="회의 생성">
+          <button class="create-btn sm" @click.stop="openCreateSession()" title="회의 생성">
             <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             회의 생성
           </button>
         </div>
         <div class="sp-search-wrap">
           <svg class="sp-search-icon" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색..." />
+          <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색" />
           <button v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch=''">&times;</button>
         </div>
       </div>
@@ -915,7 +930,7 @@ async function downloadMinutesFile() {
         <div v-for="mtg in filteredMeetings" :key="mtg.id" class="sp-mtg-group">
           <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingIds.has(mtg.id) }">
             <span class="sp-mtg-title">{{ mtg.title }}</span>
-            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>
+            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
@@ -924,15 +939,13 @@ async function downloadMinutesFile() {
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
-              <div class="sp-session-dot" :style="{ background: STATUS_CLS[s.status] }"></div>
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
                 <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
               </div>
-              <button v-if="s.status === 'scheduled'" class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
+              <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
-              <span v-else class="sp-status-badge" :style="{ background: STATUS_CLS[s.status]+'22', color: STATUS_CLS[s.status] }">{{ STATUS_LABEL[s.status] }}</span>
             </div>
           </div>
         </div>
@@ -957,14 +970,16 @@ async function downloadMinutesFile() {
         <div class="sp-panel-header">
           <div class="sp-panel-title-row">
             <div class="sp-panel-title">{{ activeSession.title }}</div>
-            <span v-if="recordingState === 'recording'" class="rec-live">
-              <i class="bi bi-record-fill"></i> REC
+            <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
+              <i class="bi bi-record-fill"></i>
+              {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
+              <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
           </div>
           <div class="app-tabs">
             <button class="app-tab" :class="{ active: activeTab === 'transcript' }" @click="activeTab='transcript'">대화 기록</button>
             <button class="app-tab" :class="{ active: activeTab === 'script' }" @click="activeTab='script'">스크립트</button>
-            <button v-if="showMinutesTab" class="app-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
+            <button class="app-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
           </div>
         </div>
 
@@ -986,11 +1001,27 @@ async function downloadMinutesFile() {
               <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
-              <span class="tline-time">{{ line.time }}</span>
-              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-              <span class="tline-text">{{ line.text }}</span>
-            </div>
+            <template v-for="(line, idx) in transcriptLines" :key="idx">
+              <!-- 편집 모드 -->
+              <div v-if="editingIdx === idx" class="tline tline-editing">
+                <span class="tline-time">{{ line.time }}</span>
+                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
+                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                <div class="tline-edit-btns">
+                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
+                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                </div>
+              </div>
+              <!-- 일반 모드 -->
+              <div v-else class="tline" @mouseenter="line._hover=true" @mouseleave="line._hover=false">
+                <span class="tline-time">{{ line.time }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
+                <span class="tline-text">{{ line.text }}</span>
+                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </div>
+            </template>
           </template>
 
           <template v-else-if="activeTab === 'script'">
@@ -998,11 +1029,25 @@ async function downloadMinutesFile() {
               <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
             </div>
-            <div v-for="(line, idx) in transcriptLines" :key="idx" class="tline">
-              <span class="tline-time">{{ line.time }}</span>
-              <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-              <span class="tline-text">{{ line.text }}</span>
-            </div>
+            <template v-for="(line, idx) in transcriptLines" :key="idx">
+              <div v-if="editingIdx === idx" class="tline tline-editing">
+                <span class="tline-time">{{ line.time }}</span>
+                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
+                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                <div class="tline-edit-btns">
+                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
+                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                </div>
+              </div>
+              <div v-else class="tline">
+                <span class="tline-time">{{ line.time }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
+                <span class="tline-text">{{ line.text }}</span>
+                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </div>
+            </template>
           </template>
 
           <template v-else-if="activeTab === 'minutes'">
@@ -1054,7 +1099,7 @@ async function downloadMinutesFile() {
                   <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제를 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
@@ -1062,56 +1107,13 @@ async function downloadMinutesFile() {
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
-                  <template v-for="(item, i) in nextAgendaItems" :key="i">
-                    <div class="nab-item"
-                      :class="{ 'nab-approved': item._state==='approved', 'nab-rejected': item._state==='rejected', 'nab-saved': item._state==='saved' }">
-                      <template v-if="!item._editing">
-                        <div class="nab-item-body">
-                          <div class="nab-item-title">{{ item.title }}</div>
-                          <div v-if="item.dept" class="nab-item-dept">{{ item.dept }}</div>
-                        </div>
-                        <div class="nab-item-actions">
-                          <button class="nab-btn nab-btn-edit" @click="item._editing=true; item._editTitle=item.title; item._editDept=item.dept">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button class="nab-btn" :class="item._state==='approved'||item._state==='saved' ? 'nab-btn-approved' : 'nab-btn-approve'" @click="toggleNextAgendaState(i,'approved')">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                          </button>
-                          <button class="nab-btn" :class="item._state==='rejected' ? 'nab-btn-rejected' : 'nab-btn-reject'" @click="toggleNextAgendaState(i,'rejected')">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                          </button>
-                        </div>
-                      </template>
-                      <template v-else>
-                        <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
-                          <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
-                          <div class="nab-date-row">
-                            <DateInput class="nab-input nab-date-input" v-model="item._editStartDate" />
-                            <DateInput class="nab-input nab-date-input" v-model="item._editEndDate" />
-                          </div>
-                        </div>
-                        <div class="nab-item-actions">
-                          <button class="nab-btn nab-btn-approved" @click="saveNextAgendaEdit(i)">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                          </button>
-                          <button class="nab-btn nab-btn-reject" @click="item._editing=false">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                          </button>
-                        </div>
-                      </template>
-                    </div>
-                    <!-- 사유 입력: 블록 아래 별도 패널 -->
-                    <div v-if="item._showReason && !item._editing" class="nab-reason-below" :class="item._state==='approved'||item._state==='saved' ? 'nrb-approved' : 'nrb-rejected'">
-                      <span class="nrb-label">{{ item._state==='approved'||item._state==='saved' ? '✓ 승인 사유' : '✗ 반려 사유' }}</span>
-                      <textarea
-                        v-model="item._reason"
-                        class="nab-reason-input"
-                        :placeholder="item._state==='approved'||item._state==='saved' ? '승인 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)' : '반려 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)'"
-                        rows="2"
-                      />
-                    </div>
-                  </template>
+                  <AgendaReviewList
+                    :items="nextAgendaItems"
+                    :removeOnApprove="false"
+                    @approved="() => {}"
+                    @rejected="removeNextAgendaItem"
+                    @remove="removeNextAgendaItem"
+                  />
                 </div>
 
                 <div class="nab-footer">
@@ -1133,27 +1135,7 @@ async function downloadMinutesFile() {
 
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div v-show="activeSession?.status !== 'ended' && activeSession?.status !== 'archived'" class="ctrl-group-left">
-            <!-- Mic settings -->
-            <div class="ctrl-pop-wrap">
-              <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
-                @click.stop="togglePopover('mic')" title="녹음 설정">
-                <i class="bi bi-mic"></i><i class="bi bi-chevron-down ctrl-chev"></i>
-              </button>
-              <div v-if="showPopover==='mic'" class="ctrl-popover" @click.stop>
-                <div class="cpop-title">마이크 설정</div>
-                <div class="cpop-row">
-                  <span class="cpop-label">감도</span>
-                  <input type="range" v-model.number="micSensitivity" min="0" max="100" class="cpop-range" />
-                  <span class="cpop-val">{{ micSensitivity }}%</span>
-                </div>
-                <div class="cpop-row">
-                  <span class="cpop-label">노이즈 제거</span>
-                  <input type="checkbox" v-model="noiseReduction" />
-                </div>
-              </div>
-            </div>
-
+          <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
             <!-- Language selector -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover==='lang' }"
@@ -1169,6 +1151,31 @@ async function downloadMinutesFile() {
               </div>
             </div>
 
+            <!-- STT mode selector -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover==='stt' }"
+                @click.stop="togglePopover('stt')" title="STT 방식">
+                <i class="bi bi-soundwave"></i>
+                <span>{{ STT_MODE_LABELS[sttMode] }}</span>
+                <i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover==='stt'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">STT 설정</div>
+                <button class="cpop-opt" :class="{ selected: sttMode==='gcapi' }"
+                  @click="sttMode='gcapi';showPopover=null">
+                  <i class="bi bi-people" style="margin-right:5px"></i>Google Cloud API
+                </button>
+                <button class="cpop-opt" :class="{ selected: sttMode==='whisperapi' }"
+                  @click="sttMode='whisperapi';showPopover=null">
+                  <i class="bi bi-lightning-charge" style="margin-right:5px"></i>Whisper API
+                </button>
+                <button class="cpop-opt" :class="{ selected: sttMode==='localwhisper' }"
+                  @click="sttMode='localwhisper';showPopover=null">
+                  <i class="bi bi-shield-lock" style="margin-right:5px"></i>Local
+                </button>
+              </div>
+            </div>
+
             <!-- Record / pause -->
             <button class="ctrl-rec-btn" :class="{ recording: recordingState==='recording' }"
               @click.stop="toggleRecording"
@@ -1177,18 +1184,10 @@ async function downloadMinutesFile() {
               <i v-else class="bi bi-pause-fill"></i>
             </button>
 
-            <!-- Stop -->
-            <button v-if="recordingState!=='idle'" class="ctrl-btn ctrl-stop" @click.stop="stopRecording" title="중지">
-              <i class="bi bi-stop-fill"></i>
-            </button>
-
-            <button v-if="recordingState!=='idle'" class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
+            <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
-            <button class="ctrl-minutes" :disabled="generatingMinutes" @click.stop="generateMinutes">
-              <i class="bi bi-stars"></i> 회의록 생성
-            </button>
           </div>
         </div>
 
@@ -1223,7 +1222,7 @@ async function downloadMinutesFile() {
             <button class="mbar-btn regen" :disabled="generatingMinutes" @click.stop="generateMinutes">
               <i v-if="generatingMinutes" class="bi bi-arrow-repeat spin"></i>
               <i v-else class="bi bi-stars"></i>
-              {{ generatingMinutes ? '생성 중...' : '회의록 재생성' }}
+              {{ generatingMinutes ? '생성 중...' : '회의록 생성' }}
             </button>
           </div>
         </div>
@@ -1354,14 +1353,6 @@ async function downloadMinutesFile() {
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>STT 방식</label>
-            <div style="display:flex;gap:8px;">
-              <button :class="['stt-type-btn', editSessionForm.type === 'whisper' ? 'active' : '']" @click="editSessionForm.type = 'whisper'">Whisper 모델 (보안)</button>
-              <button :class="['stt-type-btn', editSessionForm.type === 'external' ? 'active' : '']" @click="editSessionForm.type = 'external'">Whisper API (빠름)</button>
-            </div>
-          </div>
-          <div class="app-modal-field">
-            <label>참석자</label>
             <MemberInvite v-model="editSessionMembers" />
           </div>
         </div>
@@ -1407,22 +1398,6 @@ async function downloadMinutesFile() {
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>STT 방식</label>
-            <div style="display:flex;gap:8px;">
-              <button
-                :class="['stt-type-btn', createSessionForm.type === 'whisper' ? 'active' : '']"
-                @click="createSessionForm.type = 'whisper'">
-                Whisper 모델 (보안)
-              </button>
-              <button
-                :class="['stt-type-btn', createSessionForm.type === 'external' ? 'active' : '']"
-                @click="createSessionForm.type = 'external'">
-                Whisper API (빠름)
-              </button>
-            </div>
-          </div>
-          <div class="app-modal-field">
-            <label>참석자</label>
             <MemberInvite v-model="createSessionMembers" />
           </div>
         </div>
@@ -1450,7 +1425,7 @@ async function downloadMinutesFile() {
 .sp-toggle-handle:hover { background:var(--surface-2);color:var(--primary); }
 .sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-resize-handle:hover { background:rgba(59,130,246,.25); }
-.sp-sidebar-header { padding:7px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-sidebar-header { padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
@@ -1479,20 +1454,19 @@ async function downloadMinutesFile() {
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
-.sp-mtg-header:hover,.sp-mtg-header.expanded { background:var(--surface); }
+.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
 .sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
-.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer; }
+.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px;cursor:pointer; }
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
-.sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-date { font-size:10px;color:var(--text-muted); }
+.sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
@@ -1531,14 +1505,30 @@ async function downloadMinutesFile() {
 .sp-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted); }
 
 /* Transcript lines */
-.tline { display:flex;gap:8px;align-items:baseline;padding:3px 0; }
+.tline { display:flex;gap:8px;align-items:baseline;padding:3px 0;position:relative; }
+.tline:hover .tline-edit-btn { opacity:1; }
 .tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:monospace; }
 .tline-speaker {
   font-size:10px;font-weight:700;flex-shrink:0;
-  padding:1px 5px;border-radius:4px;border:1px solid;
-  letter-spacing:.03em;font-family:monospace;
+  padding:1px 6px;border-radius:99px;border:1px solid;
+  letter-spacing:.04em;
 }
-.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5; }
+.tline-text { font-size:13px;color:var(--dark-card);line-height:1.5;flex:1; }
+.tline-edit-btn { opacity:0;transition:opacity .15s;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:1px 4px;border-radius:4px;flex-shrink:0;margin-left:2px; }
+.tline-edit-btn:hover { color:var(--accent);background:rgba(96,165,250,.1); }
+
+/* 편집 모드 */
+.tline-editing { flex-wrap:wrap;align-items:flex-start;gap:6px;background:var(--surface);border-radius:8px;padding:6px 8px;margin:2px 0; }
+.tline-edit-speaker { font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:6px;padding:2px 8px;width:72px;outline:none;background:var(--bg-card);color:var(--dark-card); }
+.tline-edit-text { flex:1;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;resize:vertical;outline:none;background:var(--bg-card);color:var(--dark-card);min-width:200px;line-height:1.5; }
+.tline-edit-btns { display:flex;gap:4px;flex-shrink:0;align-items:center; }
+.tline-save-btn { font-size:11px;font-weight:700;padding:3px 10px;border-radius:5px;border:none;background:var(--accent);color:#fff;cursor:pointer; }
+.tline-save-btn:hover { background:#2563eb; }
+.tline-cancel-btn { font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer; }
+
+/* REC 타이머 */
+.rec-live.paused { background:rgba(100,116,139,.15);color:var(--text-muted); }
+.rec-timer { font-family:monospace;font-size:11px;margin-left:4px;letter-spacing:.05em; }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
@@ -1594,7 +1584,7 @@ async function downloadMinutesFile() {
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg-card);overflow:visible;border-radius:0; }
-.ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
+.ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:12px; }
 .ctrl-group-right { margin-left:auto; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:13px;cursor:pointer; }
@@ -1610,18 +1600,19 @@ async function downloadMinutesFile() {
 .cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
 .cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:rgba(59,130,246,.1);color:var(--accent);font-weight:600; }
-.ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3); }
+.ctrl-rec-btn { width:34px;height:34px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3);line-height:1; }
 .ctrl-rec-btn.recording { background:var(--danger);box-shadow:0 2px 8px rgba(239,68,68,.35); }
 .ctrl-rec-btn:hover { opacity:.85; }
+.ctrl-rec-btn i { display:flex;align-items:center;justify-content:center;width:100%;height:100%; }
 .ctrl-stop { color:var(--danger);border-color:#fca5a5; }
 .ctrl-stop:hover { background:#fef2f2;border-color:var(--danger); }
-.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer; }
+.ctrl-end { height:34px;padding:0 14px;border-radius:17px;border:none;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center; }
 .ctrl-end:hover { background:var(--danger);color:#fff;border-color:var(--danger); }
 .ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
-.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
+.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:10px; }
 .sp-search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dark-muted);pointer-events:none; }
 .sp-search-input { width:100%;padding:7px 28px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--bg-card);outline:none;box-sizing:border-box; }
 .sp-search-input:focus { border-color:var(--accent); }
@@ -1675,35 +1666,7 @@ async function downloadMinutesFile() {
 .nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:var(--text-muted); }
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
-.nab-item { background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
-.nab-item.nab-approved { border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04); }
-.nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
-.nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
-.nab-item-body { flex:1;min-width:0; }
-.nab-item-title { font-size:12px;color:var(--text);font-weight:500; }
-.nab-item-dept { font-size:11px;color:var(--text-muted);margin-top:2px; }
-.nab-item-edit { display:flex;flex-direction:column; }
-.nab-date-row { display:flex;gap:6px;margin-top:4px; }
-.nab-date-input { flex:1;min-width:0; }
-.nab-input { width:100%;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--text);outline:none; }
-.nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
-.nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center; }
-.nab-btn-edit { background:var(--surface-2);color:var(--text-muted); }
-.nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
-.nab-btn-approved { background:#22c55e;color:#fff; }
-.nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
-.nab-btn-rejected { background:var(--danger);color:#fff; }
-.nab-item:has(+ .nab-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
-.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;background:var(--surface); }
-.nrb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
-.nrb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
-.nrb-label { font-size:10px;font-weight:600;color:var(--text-dim);letter-spacing:.03em; }
-.nrb-approved .nrb-label { color:rgba(52,211,153,.7); }
-.nrb-rejected .nrb-label { color:rgba(248,113,113,.7); }
-.nab-reason-input { width:100%;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-muted);resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
-.nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
-.nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
+.nab-list { padding:8px; }
 .nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border); }
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
 .nab-count { font-size:11px;color:var(--text-muted); }

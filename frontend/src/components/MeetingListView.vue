@@ -106,7 +106,8 @@ function versionKey(groupId, itemIdx) {
                       :class="{ 'lv-desc-clickable': item.olderVersions?.length }"
                       @click.stop="item.olderVersions?.length && toggleVersions(versionKey(g.id, i))"
                     >{{ item.fileName }}</span>
-                    <span v-if="item.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">반려</span>
+                    <span v-if="item.isReference" class="lv-status-badge lv-badge-reference">참고자료</span>
+                    <span v-else-if="item.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">반려</span>
                     <span v-else-if="item.approved" class="lv-status-badge lv-badge-approved" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">승인</span>
                     <span v-else-if="item.pending && item.reportId" class="lv-status-badge lv-badge-pending" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId)" title="클릭하여 검토 재개">진행중</span>
                   </div>

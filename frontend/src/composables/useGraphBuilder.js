@@ -1,47 +1,34 @@
-export function useGraphBuilder({ meetingGroups, currentPerson, authStore, currentOrg, neo4jDepts, meetingsStore }) {
+export function useGraphBuilder({ meetingGroups, currentPerson, authStore, currentOrg, neo4jDepts, meetingsStore, relatedAgendas }) {
   function buildGraphNodes() {
     const nodes = [], edges = []
     const data = meetingGroups.value
 
-    // ── 반경 정의 (Neo4j 그래프 온톨로지 계층 반영) ─────────────
-    // Organization(중심) → MeetingGroup → Department/Person → Agenda/Session → Minutes(file)
-    const R = { Meetings: 240, dept: 400, person: 340, agenda: 580, session: 750, minutes: 920, report: 920 }
-    const Y = { org: 0, Meetings: 0, dept: -15, person: -50, agenda: 20, session: 30, minutes: 12, report: -3 }
-    const TWO_PI = Math.PI * 2
+    const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
+    const globalAgendaIdxMap = new Map()
 
-    // ── Organization 노드 (그래프 중심) ────────────────────────────
+    // ── Organization node ──────────────────────────────────────
     const orgNodeIdx = nodes.length
-    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'company', x: 0, y: Y.org, z: 0, data: currentOrg.value })
+    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'company', data: currentOrg.value })
 
-    // 소속 회의체 없으면 조직 노드만 표시
     if (!data.length) return { nodes, edges }
 
-    const mgCount = data.length
-    const sectorWidth = TWO_PI / Math.max(mgCount, 1)
-
-    // dept name → neo4j id 룩업 맵
-    const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
-
     data.forEach((g, gi) => {
-      const ang = (gi / Math.max(mgCount, 1)) * TWO_PI
-      // g.id가 Neo4j 전체 ID("mg-001" 등)이면 그대로 사용, 정수이면 prefix 추가
       const rawId = g.id || gi
       const mgNodeId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
-      const neo4jId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
 
-      // ── MeetingGroup 노드 ─────────────────────────────────────
+      // ── MeetingGroup node ────────────────────────────────────
       const mgIdx = nodes.length
       nodes.push({
         id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'Meetings',
         x: Math.cos(ang) * R.Meetings, y: Y.Meetings, z: Math.sin(ang) * R.Meetings,
         data: g, groupIdx: gi, neo4jId,
+        ended: g.status === 'ended',
       })
       // meetingGroup -[포함]→ org-node (조직 소속)
       edges.push({ from: mgIdx, to: orgNodeIdx, rel: '포함' })
 
-      // ── Department 노드: 회의에 PARTICIPATES_IN ───────────────
+      // ── Department + Person nodes ────────────────────────────
       const membersByDept = new Map()
-      // personKey(id) → node push 시점 index (O(1) 담당자 탐색용)
       const personIdxByKey = new Map()
       ;(g.members || []).forEach(mb => {
         const d = mb.department || mb.dept || '미지정'
@@ -49,51 +36,35 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         membersByDept.get(d).push(mb)
       })
       const depts = [...membersByDept.keys()]
-      const dCount = depts.length
-      const deptFan = dCount > 1 ? Math.min(sectorWidth * 0.42, 0.55) / (dCount - 1) : 0
       const deptIdxMap = new Map()
 
-      depts.forEach((deptName, di) => {
-        const dAng = ang + (di - (dCount - 1) / 2) * deptFan
+      depts.forEach(deptName => {
         const deptIdx = nodes.length
         deptIdxMap.set(deptName, deptIdx)
         nodes.push({
           id: `dept-${deptIdByName.get(deptName) || deptName}`, label: deptName, type: 'dept',
-          x: Math.cos(dAng) * R.dept, y: Y.dept, z: Math.sin(dAng) * R.dept,
           members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
           neo4jId: deptIdByName.get(deptName) || null,
         })
-        // dept -[참여]→ meetingGroup
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
-        // dept -[소속]→ org-node
         edges.push({ from: deptIdx, to: orgNodeIdx, rel: '소속' })
 
-        // ── Person 노드 (로그인 사용자 포함, 모든 구성원 표시) ─
-        const deptMembers = membersByDept.get(deptName) || []
-        const pCount = deptMembers.length
-        deptMembers.forEach((mb, pi) => {
-          const pFan = pCount > 1 ? Math.min(0.3, sectorWidth * 0.15) / (pCount - 1) : 0
-          const pAng = dAng + (pi - (pCount - 1) / 2) * pFan
+        ;(membersByDept.get(deptName) || []).forEach(mb => {
           const pIdx = nodes.length
           const pName = mb.userName || mb.name || '?'
           const pKey = mb.userId || mb.email || pName
           personIdxByKey.set(pKey, pIdx)
-          personIdxByKey.set(pName, pIdx)  // 이름으로도 탐색 가능하도록
+          personIdxByKey.set(pName, pIdx)
           nodes.push({
             id: `person-${mb.userId || mb.email || pName}`, label: pName, type: 'person',
-            x: Math.cos(pAng) * R.person, y: Y.person, z: Math.sin(pAng) * R.person,
-            groupIdx: gi, meetingGroupId: mgNodeId, data: mb,
-            neo4jId: mb.userId || null,
+            groupIdx: gi, meetingGroupId: mgNodeId, data: mb, neo4jId: mb.userId || null,
           })
-          // person -[BELONGS_TO]→ dept
           edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
-          // person -[ADMIN_OF or MEMBER_OF]→ meetingGroup
-          const memberRel = mb.role === 'admin' ? '간사' : '구성원'
-          edges.push({ from: pIdx, to: mgIdx, rel: memberRel })
+          edges.push({ from: pIdx, to: mgIdx, rel: mb.role === 'admin' ? '간사' : '구성원' })
         })
       })
 
-      // ── Agenda 노드: OWNED_BY meetingGroup ───────────────────
+      // ── Agenda nodes ─────────────────────────────────────────
       const taskList = g.tasks || []
       const tasksByDept = new Map()
       depts.forEach(d => tasksByDept.set(d, []))
@@ -108,187 +79,129 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       })
 
       const agendaIdxByTodoId = new Map()
-      const sessionIdxByNeoId = new Map()
-      const minutesFileIdxBySessionNeoId = new Map()
       const allAgendaIdxList = []
 
-      depts.forEach(deptName => {
-        const deptIdx = deptIdxMap.get(deptName)
-        const deptNode = nodes[deptIdx]
-        const dAng = deptNode ? Math.atan2(deptNode.z, deptNode.x) : ang
-        const deptTasks = tasksByDept.get(deptName) || []
-        const tCount = deptTasks.length
-        const tFan = tCount > 1 ? Math.min(0.22, 0.14) : 0
-        deptTasks.forEach((task, ti) => {
-          const tAng = dAng + (ti - (tCount - 1) / 2) * tFan
-          const agIdx = nodes.length
-          allAgendaIdxList.push(agIdx)
-          const agLabel = (task.content || `아젠다 ${ti + 1}`).slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
-          nodes.push({
-            id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
-            x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
-            groupIdx: gi, data: task, meetingGroupId: mgNodeId,
-            neo4jId: task.id || null,
-          })
-          // agenda -[OWNED_BY]→ meetingGroup
-          edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
-          // person -[담당]→ agenda: Neo4j assignee_names 우선, 없으면 부서 첫 구성원
-          const assigneeNames = task.assignee_names?.length ? task.assignee_names : (task.assignee_name ? [task.assignee_name] : [])
-          const assigneeDept = task.assignee_dept || deptName
-          if (assigneeNames.length > 0) {
-            for (const aName of assigneeNames) {
-              const pIdx = personIdxByKey.get(aName) ?? -1
-              if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
-            }
-          } else {
-            const fallbackMembers = membersByDept.get(assigneeDept) || []
-            if (fallbackMembers.length > 0) {
-              const fb = fallbackMembers[0]
-              const fbKey = fb.userId || fb.email || fb.userName || fb.name || 0
-              const personIdx = personIdxByKey.get(String(fbKey)) ?? personIdxByKey.get(fb.userName || fb.name) ?? -1
-              if (personIdx >= 0) edges.push({ from: personIdx, to: agIdx, rel: '담당' })
-            }
+      function pushAgenda(task, connIdx) {
+        const agIdx = nodes.length
+        allAgendaIdxList.push(agIdx)
+        const agLabel = (task.content || '아젠다').slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
+        nodes.push({
+          id: `agenda-${g.id || gi}-${task.id || agIdx}`, label: agLabel, type: 'agenda',
+          groupIdx: gi, data: task, meetingGroupId: mgNodeId, neo4jId: task.id || null,
+        })
+        edges.push({ from: agIdx, to: connIdx, rel: '관할' })
+        const assigneeNames = task.assignee_names?.length ? task.assignee_names : (task.assignee_name ? [task.assignee_name] : [])
+        if (assigneeNames.length > 0) {
+          for (const aName of assigneeNames) {
+            const pIdx = personIdxByKey.get(aName) ?? -1
+            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
           }
-          agendaIdxByTodoId.set(String(task.id), agIdx)
-        })
-      })
-
-      // 부서 없을 때 아젠다를 회의체에 직접 연결
-      if (depts.length === 0 && taskList.length > 0) {
-        taskList.forEach((task, ti) => {
-          const tAng = ang + (ti - (taskList.length - 1) / 2) * 0.2
-          const agIdx = nodes.length
-          allAgendaIdxList.push(agIdx)
-          const agLabel = (task.content || `아젠다 ${ti + 1}`).slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
-          nodes.push({
-            id: `agenda-${g.id || gi}-${task.id || ti}`, label: agLabel, type: 'agenda',
-            x: Math.cos(tAng) * R.agenda, y: Y.agenda, z: Math.sin(tAng) * R.agenda,
-            groupIdx: gi, data: task, meetingGroupId: mgNodeId
-          })
-          edges.push({ from: mgIdx, to: agIdx, rel: '관할' })
-          agendaIdxByTodoId.set(String(task.id), agIdx)
-        })
+        } else {
+          const assigneeDept = task.assignee_dept || depts[0]
+          const fallbackMembers = membersByDept.get(assigneeDept) || []
+          if (fallbackMembers.length > 0) {
+            const fb = fallbackMembers[0]
+            const fbKey = fb.userId || fb.email || fb.userName || fb.name || 0
+            const pIdx = personIdxByKey.get(String(fbKey)) ?? personIdxByKey.get(fb.userName || fb.name) ?? -1
+            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
+          }
+        }
+        agendaIdxByTodoId.set(String(task.id), agIdx)
+        if (task.id != null) globalAgendaIdxMap.set(String(task.id), agIdx)
       }
 
-      // ── Session 노드: HELD_BY meetingGroup ────────────────────
-      // 같은 회의체의 세션은 시간순(1차→2차→3차)으로 정렬해 '후속' 체인으로 연결
+      if (depts.length > 0) {
+        depts.forEach(deptName => {
+          const deptIdx = deptIdxMap.get(deptName)
+          ;(tasksByDept.get(deptName) || []).forEach(task => pushAgenda(task, deptIdx))
+        })
+      } else {
+        taskList.forEach(task => pushAgenda(task, mgIdx))
+      }
+
+      // ── Session + Minutes nodes ──────────────────────────────
       const sessions = [...(g.minutes || [])].sort((a, b) => {
         const da = a.date || a.scheduled_at || '', db = b.date || b.scheduled_at || ''
         if (da && db && da !== db) return da < db ? -1 : 1
-        if (da && !db) return -1
-        if (!da && db) return 1
+        if (da && !db) return -1; if (!da && db) return 1
         return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true })
       })
-      const sTotal = sessions.length
+      const sessionIdxByNeoId = new Map()
+      const minutesFileIdxBySessionNeoId = new Map()
       let prevSessionIdx = -1
       sessions.forEach((m, mi) => {
-        // 회의체 각도 기준으로 세션을 부채꼴 배치 (과제와 무관)
-        const sFan = sTotal > 1 ? Math.min(sectorWidth * 0.4, 0.5) / (sTotal - 1) : 0
-        const sAng = ang + (mi - (sTotal - 1) / 2) * sFan
         const sIdx = nodes.length
         nodes.push({
           id: `session-${g.id || gi}-${mi}`,
           label: m.session_title || `${mi + 1}차 회의`, type: 'session',
-          x: Math.cos(sAng) * R.session, y: Y.session, z: Math.sin(sAng) * R.session,
-          groupIdx: gi, data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
-          neo4jId: m.id || null,
+          groupIdx: gi, data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] }, neo4jId: m.id || null,
         })
-        // session -[개최]→ meetingGroup (실제 Neo4j 관계)
         edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
-        // 직전 회차 → 이번 회차: 시간순 '후속' 체인 (1차→2차→3차)
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)
-        // 세션→과제 연결은 Neo4j에 실제 관계가 없으므로 생성하지 않음
 
-        // ── Document 노드 (회의록): session -[PRODUCED]→ document
         const dIdx = nodes.length
         nodes.push({
           id: `minutes-${g.id || gi}-${mi}`,
-          label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`, type: 'minutes',
-          x: Math.cos(sAng) * R.minutes, y: Y.minutes, z: Math.sin(sAng) * R.minutes, groupIdx: gi,
+          label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`,
+          type: 'minutes', groupIdx: gi,
           data: {
             title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
-            doc_type: '회의록',
-            author: m.doc_author,
+            doc_type: '회의록', author: m.doc_author,
             created_at: m.doc_created_at || m.ended_at || m.date,
-            file_name: m.minutes_file_name || m.file_name,
-            session_neo_id: m.id,
-            // meeting_sessions 정보
-            session_title: m.session_title,
-            session_number: m.session_number,
-            date: m.date,
-            started_at: m.started_at,
-            ended_at: m.ended_at,
-            session_type: m.session_type,
-            description: m.description,
-            location: m.location,
-            session_status: m.session_status,
-            // minutes 정보
-            content_summary: m.content_summary,
-            minutes_status: m.minutes_status,
-            minutes_pg_id: m.minutes_pg_id,
-            generated_at: m.generated_at,
-          }
+            file_name: m.minutes_file_name || m.file_name, session_neo_id: m.id,
+            session_title: m.session_title, session_number: m.session_number,
+            date: m.date, started_at: m.started_at, ended_at: m.ended_at,
+            session_type: m.session_type, description: m.description, location: m.location,
+            session_status: m.session_status, content_summary: m.content_summary,
+            minutes_status: m.minutes_status, minutes_pg_id: m.minutes_pg_id, generated_at: m.generated_at,
+          },
         })
         edges.push({ from: sIdx, to: dIdx, rel: '산출' })
         if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
       })
 
-      // ── Document 노드 (보고자료): rejected 제외하고 그래프에 추가 ───
+      // ── Report nodes ─────────────────────────────────────────
       const visibleReports = (g.reports || []).filter(rp => rp.human_status !== 'rejected')
       visibleReports.forEach((rp, ri) => {
         const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
-        // 연결할 첫 번째 아젠다 노드 탐색
         let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
         for (const aid of agendaIds) {
           if (agendaIdxByTodoId.has(aid)) { primaryFromIdx = agendaIdxByTodoId.get(aid); break }
         }
-        const fromNode = nodes[primaryFromIdx]
-        const bAng = fromNode ? Math.atan2(fromNode.z, fromNode.x) : ang
-        const rAng = bAng + (ri - (visibleReports.length - 1) / 2) * 0.12
         const rIdx = nodes.length
         nodes.push({
           id: `report-${g.id || gi}-${ri}`, label: rp.file_name || '보고자료', type: 'report',
-          x: Math.cos(rAng) * R.report, y: Y.report, z: Math.sin(rAng) * R.report, groupIdx: gi,
-          data: { ...rp },
-          neo4jId: rp.id || null,
+          groupIdx: gi, data: { ...rp }, neo4jId: rp.id || null,
         })
-        // 연결된 모든 아젠다에 엣지 생성, 없으면 meetingGroup에 연결
         if (agendaIds.length > 0) {
           agendaIds.forEach(aid => {
-            if (agendaIdxByTodoId.has(aid)) {
-              edges.push({ from: rIdx, to: agendaIdxByTodoId.get(aid), rel: '첨부' })
-            }
+            if (agendaIdxByTodoId.has(aid)) edges.push({ from: rIdx, to: agendaIdxByTodoId.get(aid), rel: '첨부' })
           })
         } else {
           edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
         }
       })
 
-      // ── Minutes→Agenda 도출 연결 (회의→회의록→안건 생명주기) ──
+      // ── Lifecycle edges (회의록→안건, 세션→안건) ────────────────
       ;(g.minutes_agendas || []).forEach(ma => {
         const srcIdx = ma.session_id != null ? minutesFileIdxBySessionNeoId.get(String(ma.session_id)) : undefined
         const dstIdx = ma.agenda_id  != null ? agendaIdxByTodoId.get(String(ma.agenda_id)) : undefined
         if (srcIdx != null && dstIdx != null) edges.push({ from: srcIdx, to: dstIdx, rel: '도출' })
       })
-
-      // ── Session→Agenda 다룸 연결 (회의가 직접 담당하는 안건) ──
       ;(g.session_agendas || []).forEach(sa => {
         const sIdx  = sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
         const agIdx = sa.agenda_id  != null ? agendaIdxByTodoId.get(String(sa.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '다룸' })
       })
-
-      // ── 이월(carry-forward): 다음 회차 -[도출]→ 미해결 안건 (안건→회의 폐곡선) ──
       ;(g.derivations || []).forEach(d => {
         const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined
         const agIdx = d.agenda_id  != null ? agendaIdxByTodoId.get(String(d.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '도출' })
       })
 
-      // ── HumanJudgment (의사결정) 노드: agenda→session 역방향으로 회의록에 연결 ──
-      // agenda_id → minutes 노드 인덱스 역방향 매핑
+      // ── HumanJudgment nodes ───────────────────────────────────
       const agendaToMinutesIdx = new Map()
       ;(g.minutes_agendas || []).forEach(ma => {
         if (!ma.agenda_id || !ma.session_id) return
@@ -300,34 +213,21 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const mIdx = minutesFileIdxBySessionNeoId.get(String(sa.session_id))
         if (mIdx != null) agendaToMinutesIdx.set(String(sa.agenda_id), mIdx)
       })
-      const decisionR = 1050
       const hjLabelMap = { approved: '승인', rejected: '반려', edited: '수정', pending: '검토중' }
       ;(g.human_judgments || []).forEach((hj, hi) => {
         const agId = String(hj.agenda_id || `ag-${hj.target_id}`)
-        const agendaDirectIdx = agendaIdxByTodoId.get(agId)
-        const linkedMinutesIdx = agendaToMinutesIdx.get(agId)
-        // Agenda 노드에 직접 연결 → 없으면 Minutes → 없으면 Meetings 폴백
-        const refIdx = agendaDirectIdx ?? linkedMinutesIdx ?? mgIdx
-        const refNode = nodes[refIdx]
-        const refAng = refNode ? Math.atan2(refNode.z, refNode.x) : ang
-        const spread = 0.10
-        const dAng = refAng + (hi - (g.human_judgments.length - 1) / 2) * spread
+        const refIdx = agendaIdxByTodoId.get(agId) ?? agendaToMinutesIdx.get(agId) ?? mgIdx
         const hjIdx = nodes.length
         nodes.push({
           id: `human_judgment-${g.id || gi}-${hj.id || hi}`,
-          label: hjLabelMap[hj.judgment] || '의사결정',
-          type: 'human_judgment',
-          x: Math.cos(dAng) * decisionR,
-          y: 0,
-          z: Math.sin(dAng) * decisionR,
-          groupIdx: gi, data: hj, meetingGroupId: mgNodeId,
-          neo4jId: hj.id || null,
+          label: hjLabelMap[hj.judgment] || '의사결정', type: 'human_judgment',
+          groupIdx: gi, data: hj, meetingGroupId: mgNodeId, neo4jId: hj.id || null,
         })
         edges.push({ from: hjIdx, to: refIdx, rel: '판단' })
       })
     })
 
-    // ── 소위원회 (MeetingGroup -[PARTICIPATES_IN]→ MeetingGroup) ─
+    // ── Sub-meeting edges ─────────────────────────────────────
     data.forEach(g => {
       if (!g.parent_id) return
       const rawId = g.id, rawPid = g.parent_id
@@ -335,37 +235,36 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       const parId = (typeof rawPid === 'string' && rawPid.includes('-')) ? rawPid : `mg-${rawPid}`
       const subIdx = nodes.findIndex(n => n.id === subId)
       const parentIdx = nodes.findIndex(n => n.id === parId)
-      if (subIdx >= 0 && parentIdx >= 0)
-        edges.push({ from: subIdx, to: parentIdx, rel: '참여' })
+      if (subIdx >= 0 && parentIdx >= 0) edges.push({ from: subIdx, to: parentIdx, rel: '참여' })
     })
 
-    // ── 중복 노드 제거 (같은 id가 여러 번 push된 경우) ─────────
-    const nodeIdMap = new Map()   // id → dedupedNodes 인덱스
+    // ── Cross-meeting related agenda edges ────────────────────
+    ;(relatedAgendas?.value || []).forEach(pair => {
+      const fromIdx = globalAgendaIdxMap.get(String(pair.from_id))
+      const toIdx   = globalAgendaIdxMap.get(String(pair.to_id))
+      if (fromIdx != null && toIdx != null) edges.push({ from: fromIdx, to: toIdx, rel: '관련' })
+    })
+
+    // ── Dedup nodes + edges ───────────────────────────────────
+    const nodeIdMap = new Map()
     const dedupedNodes = []
     const idxRemap = new Array(nodes.length)
     nodes.forEach((n, i) => {
-      if (nodeIdMap.has(n.id)) {
-        idxRemap[i] = nodeIdMap.get(n.id)
-      } else {
+      if (nodeIdMap.has(n.id)) { idxRemap[i] = nodeIdMap.get(n.id) }
+      else {
         const newIdx = dedupedNodes.length
         nodeIdMap.set(n.id, newIdx)
         dedupedNodes.push(n)
         idxRemap[i] = newIdx
       }
     })
-
-    // 엣지 인덱스 재매핑 + 중복 엣지 / 자기참조 제거
     const edgeKeySet = new Set()
     const dedupedEdges = []
     edges.forEach(e => {
-      const from = idxRemap[e.from]
-      const to   = idxRemap[e.to]
+      const from = idxRemap[e.from], to = idxRemap[e.to]
       if (from === undefined || to === undefined || from === to) return
       const key = `${from}-${to}-${e.rel}`
-      if (!edgeKeySet.has(key)) {
-        edgeKeySet.add(key)
-        dedupedEdges.push({ ...e, from, to })
-      }
+      if (!edgeKeySet.has(key)) { edgeKeySet.add(key); dedupedEdges.push({ ...e, from, to }) }
     })
 
     return { nodes: dedupedNodes, edges: dedupedEdges }
@@ -374,17 +273,16 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
   function computeUrgency(g) {
     if (g?.urgency) return g.urgency
     const tasks = g?.tasks || []
-    const now = new Date(); now.setHours(0,0,0,0)
+    const now = new Date(); now.setHours(0, 0, 0, 0)
     let minDays = Infinity
     tasks.forEach(t => {
-      if (t.status === 'done') return
-      if (!t.due_date) return
-      const due = new Date(t.due_date); due.setHours(0,0,0,0)
+      if (t.status === 'done' || !t.due_date) return
+      const due = new Date(t.due_date); due.setHours(0, 0, 0, 0)
       const days = Math.ceil((due - now) / 86400000)
       if (days >= 0 && days < minDays) minDays = days
     })
-    if (minDays <= 1) return 'critical'   // 하루 이하: 빨간색
-    if (minDays <= 3) return 'warning'    // 3일 이하: 노란색
+    if (minDays <= 1) return 'critical'
+    if (minDays <= 3) return 'warning'
     return 'normal'
   }
 
