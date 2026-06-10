@@ -300,9 +300,21 @@ async def delete_meeting(
         ).delete(synchronize_session=False)
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
+    report_ids = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
+    agent_log_ids = [a.id for a in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+    if report_ids:
+        db.query(models.HitlReview).filter(
+            models.HitlReview.target_type == "report",
+            models.HitlReview.target_id.in_(report_ids),
+        ).delete(synchronize_session=False)
+        db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
+    if agent_log_ids:
+        db.query(models.HitlReview).filter(
+            models.HitlReview.agent_log_id.in_(agent_log_ids),
+        ).delete(synchronize_session=False)
     db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
@@ -547,9 +559,21 @@ async def ai_delete_meeting(
         ).delete(synchronize_session=False)
         db.query(models.MeetingSession).filter(models.MeetingSession.id.in_(session_ids)).delete(synchronize_session=False)
 
+    report_ids = [r.id for r in db.query(models.Report.id).filter(models.Report.meeting_id == meeting_id).all()]
+    agent_log_ids = [a.id for a in db.query(models.AgentLog.id).filter(models.AgentLog.meeting_id == meeting_id).all()]
+    if report_ids:
+        db.query(models.HitlReview).filter(
+            models.HitlReview.target_type == "report",
+            models.HitlReview.target_id.in_(report_ids),
+        ).delete(synchronize_session=False)
+        db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
-    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
+    if agent_log_ids:
+        db.query(models.HitlReview).filter(
+            models.HitlReview.agent_log_id.in_(agent_log_ids),
+        ).delete(synchronize_session=False)
     db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
