@@ -530,6 +530,7 @@ const detailMemberDepts = computed(() => {
 const groupedTodos = computed(() => {
   const groups = {}
   for (const todo of detailTodos.value) {
+    if (todo.status === 'done') continue
     const dept = todo.assignee_dept || todo.dept ||
       (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정'
     if (!groups[dept]) groups[dept] = []
@@ -538,12 +539,51 @@ const groupedTodos = computed(() => {
   return groups
 })
 
+const doneTodosWithReport = computed(() => {
+  const done = detailTodos.value.filter(t => t.status === 'done')
+  const reports = detailMeeting.value ? (meetingGroups.value.find(g => String(g.id) === String(detailMeeting.value.id))?.reports || []) : []
+  return done.map(todo => {
+    const todoIdStr = String(todo.id)
+    const report = reports.find(r =>
+      r.human_status === 'approved' &&
+      (r.related_agenda_ids || []).some(rid => {
+        const s = String(rid)
+        return s === todoIdStr || s.endsWith('-' + todoIdStr)
+      })
+    )
+    return {
+      ...todo,
+      dept: todo.assignee_dept || todo.dept || (Array.isArray(todo.department) ? todo.department[0] : todo.department) || '미배정',
+      reportFileName: report?.file_name || null,
+      reportDate: report?.created_at || null,
+    }
+  })
+})
+
 async function completeTodo(todo) {
-  const newStatus = todo.status === 'done' ? 'ongoing' : 'done'
-  try {
-    await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: newStatus })
-    todo.status = newStatus
-  } catch (e) { console.error('상태 변경 실패:', e) }
+  if (todo.status === 'done') {
+    // 완료 → 진행중 되돌리기
+    try {
+      await apiAI.patch(`/api/agent/archive/agendas/${todo.id}/status`, { status: 'ongoing' })
+      todo.status = 'ongoing'
+    } catch (e) { console.error('상태 변경 실패:', e) }
+    return
+  }
+  // 진행중 → 보고서 업로드 모달 열기 (아젠다 미리 연결)
+  const mgId = detailMeeting.value?.id
+    ? (String(detailMeeting.value.id).includes('-') ? detailMeeting.value.id : `mg-${toNumericId(detailMeeting.value.id)}`)
+    : ''
+  const dept = todo.assignee_dept || todo.dept ||
+    (Array.isArray(todo.department) ? todo.department[0] : todo.department) || ''
+  const deptNode = dept
+    ? gNodesRef.value.find(n => n.type === 'dept' && n.label === dept && n.meetingGroupId === mgId)
+    : null
+  openUploadModal({
+    meetingId: mgId,
+    relatedTodoId: `agenda-${todo.id}`,
+    agendaContent: todo.title || todo.content || '',
+    connectNodeId: deptNode?.id || '',
+  })
 }
 
 async function deleteTodo(todo) {
@@ -2440,7 +2480,7 @@ provide('archiveSidebar', {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, completeTodo, deleteTodo,
+  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,

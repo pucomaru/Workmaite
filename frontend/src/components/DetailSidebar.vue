@@ -12,7 +12,7 @@ const {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, completeTodo, deleteTodo,
+  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
@@ -30,6 +30,17 @@ const {
   reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
   minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
 } = inject('archiveSidebar')
+
+// ── 완료 과제 더보기 / 팀 필터 ─────────────────────────────────────
+const doneExpanded = ref(false)
+const doneDeptFilter = ref('')
+watch(() => detailMeeting?.value?.id, () => { doneExpanded.value = false; doneDeptFilter.value = '' })
+const doneDepts = computed(() => [...new Set((doneTodosWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
+const doneFiltered = computed(() => {
+  const items = doneTodosWithReport?.value || []
+  return doneDeptFilter.value ? items.filter(t => t.dept === doneDeptFilter.value) : items
+})
+const doneDisplayItems = computed(() => doneExpanded.value ? doneFiltered.value : doneFiltered.value.slice(0, 5))
 
 // ── 최근 로그 더보기 / 필터 ──────────────────────────────────────
 const logExpanded = ref(false)
@@ -220,11 +231,17 @@ const sbTopImprovements = computed(() => {
             <!-- ── 과제 탭 ── -->
             <template v-if="detailTab==='task'">
 
-                <!-- 등록된 과제 목록 (맨 위) -->
-                <div class="detail-section">
+                <!-- AI 과제 추출 실행 버튼 -->
+                <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
+                  AI 과제 추출 실행
+                </button>
+
+                <!-- 진행중 과제 목록 -->
+                <div class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">등록된 과제</span>
-                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.length }}건</span>
+                    <span class="detail-section-label">진행중 과제</span>
+                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.filter(t => t.status !== 'done').length }}건</span>
                   </div>
                   <div v-if="!detailTodos.length" class="detail-log-empty">등록된 과제가 없습니다.</div>
                   <template v-else>
@@ -260,11 +277,38 @@ const sbTopImprovements = computed(() => {
                   </template>
                 </div>
 
-                <!-- AI 과제 추출 실행 버튼 -->
-                <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
-                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                  AI 과제 추출 실행
-                </button>
+                <!-- 완료된 과제 -->
+                <div v-if="doneTodosWithReport.length" class="detail-section" style="margin-top:12px">
+                  <div class="detail-section-label-row">
+                    <span class="detail-section-label">완료된 과제</span>
+                    <span class="detail-log-total">{{ doneTodosWithReport.length }}건</span>
+                  </div>
+                  <div v-if="doneExpanded && doneDepts.length > 1" class="detail-log-filters">
+                    <button class="log-chip" :class="{ active: doneDeptFilter === '' }" @click="doneDeptFilter = ''">전체</button>
+                    <button v-for="dept in doneDepts" :key="dept" class="log-chip" :class="{ active: doneDeptFilter === dept }" @click="doneDeptFilter = dept">{{ dept }}</button>
+                  </div>
+                  <div class="done-todo-list">
+                    <div v-for="todo in doneDisplayItems" :key="todo.id" class="done-todo-item">
+                      <div class="done-todo-check">
+                        <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                      </div>
+                      <div class="done-todo-body">
+                        <div class="done-todo-title">{{ todo.title || todo.content }}</div>
+                        <div class="done-todo-meta"><span>{{ todo.dept }}</span></div>
+                        <div v-if="todo.reportFileName" class="done-todo-report">
+                          <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          <span class="done-todo-filename">{{ todo.reportFileName }}</span>
+                        </div>
+                        <div class="done-todo-dates">
+                          <span v-if="todo.reportDate">제출 {{ formatDate(todo.reportDate) }}</span>
+                          <span v-if="todo.due_date">마감 {{ formatDateOnly(todo.due_date) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button v-if="!doneExpanded && doneFiltered.length > 5" class="detail-log-more" @click="doneExpanded = true">더보기 {{ doneFiltered.length - 5 }}건 ↓</button>
+                    <button v-if="doneExpanded" class="detail-log-more" @click="doneExpanded = false; doneDeptFilter = ''">접기 ↑</button>
+                  </div>
+                </div>
 
             </template><!-- /과제 탭 -->
 

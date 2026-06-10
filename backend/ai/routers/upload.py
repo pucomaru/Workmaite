@@ -323,6 +323,24 @@ async def submit_report_review(
     if "related_agenda_ids" in data:
         report.related_agenda_ids = data["related_agenda_ids"]
 
+    # approved 시 연결된 아젠다 자동 완료
+    if action == "approved":
+        import re as _re
+        def _parse_agenda_pg_id(v):
+            s = str(v)
+            if s.isdigit():
+                return int(s)
+            m = _re.search(r'\d+$', s)  # "agenda-5" → 5
+            return int(m.group()) if m else None
+
+        pg_ids = [pid for i in (report.related_agenda_ids or [])
+                  if (pid := _parse_agenda_pg_id(i)) is not None]
+        if pg_ids:
+            db.query(models.Agenda).filter(
+                models.Agenda.id.in_(pg_ids),
+                models.Agenda.status != "done",
+            ).update({"status": "done"}, synchronize_session=False)
+
     # 가장 최근 agent_log 연결 (archive_analyze_stream)
     agent_log = (
         db.query(models.AgentLog)
