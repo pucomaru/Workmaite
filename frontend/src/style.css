@@ -315,6 +315,7 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 .search-clear { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-dim);display:flex;align-items:center; }
 .plus-wrap { position:relative;flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:8px; }
 .create-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap; }
+.create-btn.sm { height:26px;padding:0 10px;font-size:11px;gap:4px;border-radius:6px; }
 .create-btn:hover { opacity:.85; }
 .create-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
 .create-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
