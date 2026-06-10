@@ -21,6 +21,11 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      '/wlk': {
+        target: 'https://workmaite.project.skala-ai.com',
+        changeOrigin: true,
+        ws: true,
+      },
       // LiveKit 신호 서버 프록시 (CORS 우회)
       '/livekit-signal': {
         target: 'http://localhost:7880',

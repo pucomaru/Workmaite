@@ -1,11 +1,7 @@
 name: CI - Whisper
 
 on:
-  push:
-    branches:
-      - develop
-    paths:
-      - 'backend/whisperx/**'
+  workflow_dispatch:  # 수동 실행만 허용 (자동 트리거 비활성화)
 
 jobs:
   build-and-push:
@@ -33,11 +29,11 @@ jobs:
           context: ./backend/whisperx
           file: ./backend/whisperx/Dockerfile
           push: true
-          tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-whisper:${{ env.IMAGE_TAG }}
+          tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-wlk:${{ env.IMAGE_TAG }}
 
       - name: Update image tag in yaml
         run: |
-          sed -i "s|workmaite-whisper:.*|workmaite-whisper:${{ env.IMAGE_TAG }}|g" \
+          sed -i "s|workmaite-wlk:.*|workmaite-wlk:${{ env.IMAGE_TAG }}|g" \
             k8s/whisper.yaml
 
       - name: Commit and push updated yaml
@@ -45,14 +41,14 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add k8s/whisper.yaml
-          git commit -m "ci: update whisper image tag to ${{ env.IMAGE_TAG }}"
+          git commit -m "ci: update wlk image tag to ${{ env.IMAGE_TAG }}"
           git pull --rebase origin develop
           git push origin develop
 
       - name: Delete old Harbor images
         continue-on-error: true
         run: |
-          REPO="workmaite-whisper"
+          REPO="workmaite-wlk"
           PROJECT="skala26a-ai2"
           REGISTRY="amdp-registry.skala-ai.com"
           DIGESTS=$(curl -s -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \

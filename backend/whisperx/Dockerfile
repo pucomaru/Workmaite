@@ -1,21 +1,14 @@
-FROM python:3.10-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    git \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip ffmpeg git \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+RUN pip3 install --no-cache-dir "whisperlivekit[cpu]"
 
-RUN pip install --no-cache-dir \
-    whisperx \
-    fastapi \
-    uvicorn \
-    python-multipart \
-    torch --extra-index-url https://download.pytorch.org/whl/cpu
+EXPOSE 8000
 
-COPY app.py .
-
-EXPOSE 9000
-
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "9000"]
+ENTRYPOINT ["wlk"]
+CMD ["--host", "0.0.0.0", "--port", "8000", \
+     "--model", "small", \
+     "--language", "ko"]
