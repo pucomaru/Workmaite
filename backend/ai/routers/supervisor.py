@@ -194,23 +194,105 @@ def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
 def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
     sessions = db.query(models.MeetingSession).filter(
         models.MeetingSession.meeting_id == meeting_id,
-        models.MeetingSession.status == "ENDED",
-    ).all()
-    return [s.minutes.content_summary for s in sessions if s.minutes and s.minutes.content_summary]
+        models.MeetingSession.status.in_(["ended", "ENDED"]),
+    ).order_by(models.MeetingSession.ended_at.desc()).all()
+
+    result = []
+    for s in sessions:
+        if not s.minutes:
+            continue
+        if s.minutes.content_summary:
+            result.append(s.minutes.content_summary)
+        elif s.minutes.file_path:
+            # content_summary 없으면 파일에서 직접 텍스트 추출 (STT 원문 등)
+            try:
+                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
+                raw = _r2_dl(_r2_key(s.minutes.file_path)) if _is_r2(s.minutes.file_path) else None
+                if raw:
+                    text = _extract_text_from_file(raw, s.minutes.file_name or "minutes.pdf")
+                    if text.strip():
+                        result.append(text[:3000])
+            except Exception:
+                pass
+    return result
+
+
+def _format_schedule_table(table: list) -> str:
+    """pdfplumber 테이블을 팀별 주차 일정 구조화 텍스트로 변환.
+
+    pdfplumber가 셀을 세로로 분리해서 읽는 경우(팀명 행과 작업 행이 별도 행으로 추출)를
+    처리하기 위해 row[0]이 None/빈값인 행을 직전 팀에 병합한다.
+    """
+    if not table or len(table) < 2:
+        return ""
+
+    def clean(cell) -> str:
+        if cell is None:
+            return ""
+        return " ".join(str(cell).split())
+
+    header = [clean(c) for c in table[0]]
+    header_joined = " ".join(header)
+
+    if not any(k in header_joined for k in ["주", "팀", "담당", "안건"]):
+        return ""
+
+    # 팀별로 col_idx → 작업명 매핑 (같은 팀의 여러 행을 병합)
+    team_order: list = []
+    team_tasks: dict = {}
+    current_team: str | None = None
+
+    for row in table[1:]:
+        team_cell = clean(row[0]) if len(row) > 0 else ""
+        if team_cell:
+            current_team = team_cell
+            if current_team not in team_tasks:
+                team_order.append(current_team)
+                team_tasks[current_team] = {}
+        if current_team is None:
+            continue
+        for col_idx in range(1, len(row)):
+            cell = clean(row[col_idx])
+            if cell and col_idx not in team_tasks[current_team]:
+                team_tasks[current_team][col_idx] = cell
+
+    lines = ["[팀별 업무 일정표]"]
+    for team in team_order:
+        lines.append(f"[{team}]")
+        tasks = team_tasks[team]
+        if tasks:
+            for col_idx in sorted(tasks):
+                col_label = header[col_idx] if col_idx < len(header) and header[col_idx] else f"열{col_idx}"
+                lines.append(f"  {col_label}: {tasks[col_idx]}")
+        else:
+            lines.append("  (배정된 작업 없음)")
+
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def _extract_text_from_file(raw: bytes, filename: str) -> str:
     import io
 
     if filename.endswith(".pdf"):
-        # 1순위: pdfplumber (설치돼 있으면 레이아웃 보존이 우수)
+        # 1순위: pdfplumber — 표는 구조화 추출, 나머지는 텍스트 추출
         try:
             import pdfplumber
+            parts = []
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages]
-            text = "\n".join(pages).strip()
-            if text:
-                return text
+                for page in pdf.pages:
+                    # 표 구조화 추출
+                    tables = page.extract_tables()
+                    for t in (tables or []):
+                        formatted = _format_schedule_table(t)
+                        if formatted:
+                            parts.append(formatted)
+                    # 일반 텍스트 추출 (표 외 영역 포함)
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        parts.append(page_text.strip())
+            result = "\n\n".join(parts).strip()
+            if result:
+                return result
         except ModuleNotFoundError:
             pass
         except Exception as e:
@@ -1276,19 +1358,19 @@ async def archive_extract_agendas(
     departments = _get_member_departments(db, meeting_id)
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
-    pending_reviews = db.query(models.HitlReview).filter(
-        models.HitlReview.target_type == "meeting",
-        models.HitlReview.target_id == meeting_id,
-        models.HitlReview.status == "pending",
-    ).order_by(models.HitlReview.created_at.desc()).limit(10).all()
+    current_agendas = db.query(models.Agenda).filter(
+        models.Agenda.meeting_id == meeting_id,
+        models.Agenda.status == "ongoing",
+    ).order_by(models.Agenda.created_at).all()
 
     pending_todos_text = ""
-    if pending_reviews:
-        review_lines = []
-        for r in pending_reviews:
-            content = r.ai_rationale or ""
-            review_lines.append(f"- [검토 대기] {content}")
-        pending_todos_text = "\n".join(review_lines)
+    if current_agendas:
+        lines = []
+        for a in current_agendas:
+            dept = (a.department[0] if isinstance(a.department, list) and a.department else a.department) or "미지정"
+            due = a.due_date.strftime("%Y-%m-%d") if a.due_date else "마감 미정"
+            lines.append(f"- [{dept}] {a.title} (마감: {due})")
+        pending_todos_text = "\n".join(lines)
 
     file_texts = []
     for fid in selected_ids:
@@ -1309,26 +1391,34 @@ async def archive_extract_agendas(
         except Exception as e:
             print(f"[DB 파일 추출 오류] {e}")
 
+    current_minutes_texts = []  # 현재 회의록 (최우선 컨텍스트)
     for upload in files:
         if not upload or not upload.filename:
             continue
         try:
             raw = await upload.read()
             text = _extract_text_from_file(raw, upload.filename.lower())
+            fname = upload.filename
             if text.strip():
-                file_texts.append(f"[첨부: {upload.filename}]\n{text[:4000]}")
+                # 파일명에 "회의록" 포함 시 현재 회의록으로 분리
+                if "회의록" in fname or "minutes" in fname.lower():
+                    current_minutes_texts.append(text[:4000])
+                else:
+                    file_texts.append(f"[첨부: {fname}]\n{text[:4000]}")
             else:
-                file_texts.append(f"[첨부: {upload.filename}] - 텍스트 추출 불가")
-
+                file_texts.append(f"[첨부: {fname}] - 텍스트 추출 불가")
         except Exception as e:
             print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
+
+    # 현재 회의록을 이전 회의록보다 앞에 배치 (가장 최신 = 가장 높은 우선순위)
+    all_minutes = current_minutes_texts + previous_minutes
 
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:
         context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
-    if previous_minutes:
+    if all_minutes:
         context_parts.append(
-            "[최근 회의록]\n" + "\n\n".join(f"[회의록 {i+1}]\n{m}" for i, m in enumerate(previous_minutes))
+            "[최근 회의록]\n" + "\n\n".join(f"[회의록 {i+1}]\n{m}" for i, m in enumerate(all_minutes))
         )
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
@@ -1439,7 +1529,7 @@ async def archive_extract_agendas(
             ],
             "context_used": {
                 "minutes_count": len(previous_minutes),
-                "pending_reviews_count": len(pending_reviews),
+                "current_agendas_count": len(current_agendas),
                 "files_count": len(file_texts),
             },
         }

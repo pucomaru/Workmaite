@@ -466,23 +466,24 @@ const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
 
 async function extractNextAgendas() {
-  if (!generatedMinutes.value?.content_summary) return
+  const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
+  if (!meetingId) return
+
   nextAgendaExtracting.value = true
   showNextAgendaBlock.value = true
   try {
-    const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
-
-    // HTML → 플레인텍스트 변환
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
-    const plainText = doc.body.textContent || generatedMinutes.value.content_summary
-
-    // 기존 archive/extract-agendas 엔드포인트 재사용
-    // 현재 회의록을 파일로 넘겨 과거 회의록 + 현재 회의록 기반으로 추출
     const formData = new FormData()
     formData.append('meeting_id', String(meetingId))
-    const blob = new Blob([plainText], { type: 'text/plain' })
-    formData.append('files', blob, '현재_회의록.txt')
+
+    // content_summary 있으면 현재 회의록을 파일로 첨부
+    if (generatedMinutes.value?.content_summary) {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
+      const plainText = doc.body.textContent || generatedMinutes.value.content_summary
+      const blob = new Blob([plainText], { type: 'text/plain' })
+      formData.append('files', blob, '현재_회의록.txt')
+    }
+    // content_summary 없어도 meeting_id만으로 추출 시도 (백엔드가 DB에서 회의록 파일 직접 읽음)
 
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
