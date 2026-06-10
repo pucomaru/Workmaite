@@ -8,6 +8,7 @@ import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table
 import MemberInvite from '../components/MemberInvite.vue'
 import DateInput from '../components/DateInput.vue'
 import AgentComposer from '../components/AgentComposer.vue'
+import AgendaReviewList from '../components/AgendaReviewList.vue'
 import api, { apiAI } from '../api'
 import { streamPost } from '../api'
 import { useSTT } from '../composables/useSTT'
@@ -514,47 +515,12 @@ async function extractNextAgendas() {
   }
 }
 
-function toggleNextAgendaState(i, state) {
-  const item = nextAgendaItems.value[i]
-  item._state = item._state === state ? null : state
-  item._showReason = item._state !== null
-}
-
 function addNextAgendaItem() {
   nextAgendaItems.value.push({ title: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
-async function saveNextAgendaEdit(i) {
-  const item = nextAgendaItems.value[i]
-  if (item.db_id && item._agentLogId) {
-    try {
-      await apiAI.post('/api/agent/hitl-reviews', {
-        target_type: 'agenda',
-        target_id: item.db_id,
-        agent_log_id: item._agentLogId,
-        status: 'edited',
-        review_prompt: {
-          agenda: item.title,
-          department: item.dept || null,
-          start_date: item.start_date || null,
-          end_date: item.end_date || null,
-        },
-        review_comment: {
-          agenda: item._editTitle !== item.title ? item._editTitle : null,
-          department: item._editDept !== item.dept ? item._editDept : null,
-          start_date: item._editStartDate !== item.start_date ? item._editStartDate : null,
-          end_date: item._editEndDate !== item.end_date ? item._editEndDate : null,
-        },
-      })
-    } catch (e) {
-      console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e)
-    }
-  }
-  item.title = item._editTitle
-  item.dept = item._editDept
-  item.start_date = item._editStartDate
-  item.end_date = item._editEndDate
-  item._editing = false
+function removeNextAgendaItem(i) {
+  nextAgendaItems.value.splice(i, 1)
 }
 
 async function saveApprovedNextAgendas() {
@@ -947,7 +913,7 @@ async function downloadMinutesFile() {
       <div class="sp-sidebar-header">
         <div class="sp-header-top">
           <span class="sp-sidebar-title">회의</span>
-          <button class="create-btn" @click.stop="openCreateSession()" title="회의 생성">
+          <button class="create-btn sm" @click.stop="openCreateSession()" title="회의 생성">
             <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
             회의 생성
           </button>
@@ -964,7 +930,7 @@ async function downloadMinutesFile() {
         <div v-for="mtg in filteredMeetings" :key="mtg.id" class="sp-mtg-group">
           <div class="sp-mtg-header" @click="selectMeeting(mtg)" :class="{ expanded: expandedMeetingIds.has(mtg.id) }">
             <span class="sp-mtg-title">{{ mtg.title }}</span>
-            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg>
+            <svg class="sp-mtg-chev" :class="{ open: expandedMeetingIds.has(mtg.id) }" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
             <div v-if="!mtg.sessions" class="sp-session-item" style="justify-content:center;color:var(--dark-muted);font-size:11px">불러오는 중...</div>
@@ -973,15 +939,13 @@ async function downloadMinutesFile() {
               class="sp-session-item"
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
-              <div class="sp-session-dot" :style="{ background: STATUS_CLS[s.status] }"></div>
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
                 <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
               </div>
-              <button v-if="s.status === 'scheduled'" class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
+              <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               </button>
-              <span v-else class="sp-status-badge" :style="{ background: STATUS_CLS[s.status]+'22', color: STATUS_CLS[s.status] }">{{ STATUS_LABEL[s.status] }}</span>
             </div>
           </div>
         </div>
@@ -1135,7 +1099,7 @@ async function downloadMinutesFile() {
                   <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 과제을 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 과제를 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
@@ -1143,56 +1107,13 @@ async function downloadMinutesFile() {
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
-                  <template v-for="(item, i) in nextAgendaItems" :key="i">
-                    <div class="nab-item"
-                      :class="{ 'nab-approved': item._state==='approved', 'nab-rejected': item._state==='rejected', 'nab-saved': item._state==='saved' }">
-                      <template v-if="!item._editing">
-                        <div class="nab-item-body">
-                          <div class="nab-item-title">{{ item.title }}</div>
-                          <div v-if="item.dept" class="nab-item-dept">{{ item.dept }}</div>
-                        </div>
-                        <div class="nab-item-actions">
-                          <button class="nab-btn nab-btn-edit" @click="item._editing=true; item._editTitle=item.title; item._editDept=item.dept">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                          <button class="nab-btn" :class="item._state==='approved'||item._state==='saved' ? 'nab-btn-approved' : 'nab-btn-approve'" @click="toggleNextAgendaState(i,'approved')">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                          </button>
-                          <button class="nab-btn" :class="item._state==='rejected' ? 'nab-btn-rejected' : 'nab-btn-reject'" @click="toggleNextAgendaState(i,'rejected')">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                          </button>
-                        </div>
-                      </template>
-                      <template v-else>
-                        <div class="nab-item-body nab-item-edit">
-                          <input class="nab-input" v-model="item._editTitle" placeholder="과제 내용" />
-                          <input class="nab-input" v-model="item._editDept" placeholder="담당 팀 (선택)" style="margin-top:4px" />
-                          <div class="nab-date-row">
-                            <DateInput class="nab-input nab-date-input" v-model="item._editStartDate" />
-                            <DateInput class="nab-input nab-date-input" v-model="item._editEndDate" />
-                          </div>
-                        </div>
-                        <div class="nab-item-actions">
-                          <button class="nab-btn nab-btn-approved" @click="saveNextAgendaEdit(i)">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                          </button>
-                          <button class="nab-btn nab-btn-reject" @click="item._editing=false">
-                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                          </button>
-                        </div>
-                      </template>
-                    </div>
-                    <!-- 사유 입력: 블록 아래 별도 패널 -->
-                    <div v-if="item._showReason && !item._editing" class="nab-reason-below" :class="item._state==='approved'||item._state==='saved' ? 'nrb-approved' : 'nrb-rejected'">
-                      <span class="nrb-label">{{ item._state==='approved'||item._state==='saved' ? '✓ 승인 사유' : '✗ 반려 사유' }}</span>
-                      <textarea
-                        v-model="item._reason"
-                        class="nab-reason-input"
-                        :placeholder="item._state==='approved'||item._state==='saved' ? '승인 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)' : '반려 사유를 남겨주세요 (선택 · 서비스 품질 개선에 도움이 됩니다)'"
-                        rows="2"
-                      />
-                    </div>
-                  </template>
+                  <AgendaReviewList
+                    :items="nextAgendaItems"
+                    :removeOnApprove="false"
+                    @approved="() => {}"
+                    @rejected="removeNextAgendaItem"
+                    @remove="removeNextAgendaItem"
+                  />
                 </div>
 
                 <div class="nab-footer">
@@ -1532,7 +1453,7 @@ async function downloadMinutesFile() {
 .sp-toggle-handle:hover { background:var(--surface-2);color:var(--primary); }
 .sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-resize-handle:hover { background:rgba(59,130,246,.25); }
-.sp-sidebar-header { padding:7px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-sidebar-header { padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
 .sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
@@ -1568,13 +1489,12 @@ async function downloadMinutesFile() {
 .sp-mtg-chev.open { transform:rotate(180deg); }
 
 .sp-session-list { background:var(--surface);border-top:1px solid var(--surface-2); }
-.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px 8px 22px;cursor:pointer; }
+.sp-session-item { display:flex;align-items:center;gap:6px;padding:8px 14px;cursor:pointer; }
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
-.sp-session-dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-date { font-size:10px;color:var(--text-muted); }
+.sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
@@ -1719,7 +1639,7 @@ async function downloadMinutesFile() {
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
 
 /* ── Left sidebar search ── */
-.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:7px; }
+.sp-search-wrap { position:relative;display:flex;align-items:center;margin-top:10px; }
 .sp-search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dark-muted);pointer-events:none; }
 .sp-search-input { width:100%;padding:7px 28px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text);background:var(--bg-card);outline:none;box-sizing:border-box; }
 .sp-search-input:focus { border-color:var(--accent); }
@@ -1773,35 +1693,7 @@ async function downloadMinutesFile() {
 .nab-loading { display:flex;align-items:center;gap:8px;padding:14px;font-size:12px;color:var(--text-muted); }
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.nab-list { display:flex;flex-direction:column;padding:8px; gap:6px; }
-.nab-item { background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;transition:border-color .15s; }
-.nab-item.nab-approved { border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04); }
-.nab-item.nab-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03);opacity:.6; }
-.nab-item.nab-saved { border-color:rgba(34,197,94,.5);background:rgba(34,197,94,.07); }
-.nab-item-body { flex:1;min-width:0; }
-.nab-item-title { font-size:12px;color:var(--text);font-weight:500; }
-.nab-item-dept { font-size:11px;color:var(--text-muted);margin-top:2px; }
-.nab-item-edit { display:flex;flex-direction:column; }
-.nab-date-row { display:flex;gap:6px;margin-top:4px; }
-.nab-date-input { flex:1;min-width:0; }
-.nab-input { width:100%;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--text);outline:none; }
-.nab-item-actions { display:flex;gap:4px;flex-shrink:0; }
-.nab-btn { width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center; }
-.nab-btn-edit { background:var(--surface-2);color:var(--text-muted); }
-.nab-btn-approve { background:rgba(34,197,94,.12);color:#4ade80; }
-.nab-btn-approved { background:#22c55e;color:#fff; }
-.nab-btn-reject { background:rgba(239,68,68,.12);color:#f87171; }
-.nab-btn-rejected { background:var(--danger);color:#fff; }
-.nab-item:has(+ .nab-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
-.nab-reason-below { display:flex;flex-direction:column;gap:4px;padding:6px 9px 7px;margin-top:-4px;border:1px solid var(--border);border-top:none;border-radius:0 0 7px 7px;background:var(--surface); }
-.nrb-approved { border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.03); }
-.nrb-rejected { border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03); }
-.nrb-label { font-size:10px;font-weight:600;color:var(--text-dim);letter-spacing:.03em; }
-.nrb-approved .nrb-label { color:rgba(52,211,153,.7); }
-.nrb-rejected .nrb-label { color:rgba(248,113,113,.7); }
-.nab-reason-input { width:100%;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-muted);resize:none;outline:none;font-family:inherit;transition:border-color .15s;box-sizing:border-box; }
-.nab-reason-input:focus { border-color:rgba(99,102,241,.4); }
-.nab-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
+.nab-list { padding:8px; }
 .nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border); }
 .nab-footer-right { display:flex;align-items:center;gap:8px; }
 .nab-count { font-size:11px;color:var(--text-muted); }

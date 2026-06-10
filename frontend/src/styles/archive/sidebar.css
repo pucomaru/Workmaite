@@ -79,31 +79,28 @@
 .detail-extract-item.ei-rejected { border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.04);opacity:.6; }
 /* 사유 칸이 아래에 붙을 때 아이템 하단 radius 제거 */
 .detail-extract-item:has(+ .dei-reason-below) { border-radius:8px 8px 0 0;border-bottom-color:transparent; }
-.dei-num { font-size:10px;font-weight:700;color:var(--text-dim);min-width:16px;margin-top:2px; }
-.dei-body { flex:1;min-width:0; }
-.dei-title { font-size:12px;font-weight:600;color:var(--dark-text);line-height:1.4; }
-.dei-title-bold { font-weight:700; }
-.dei-meta { margin-top:3px;font-size:11px;color:var(--text-muted); }
-.dei-dates { margin-top:3px;font-size:11px;color:var(--text-muted); }
 .dei-app-select { font-size:11px;padding:3px 6px;border-radius:5px; }
-.dei-feedback-box { margin-top:10px;padding:10px;background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.2);border-radius:8px; }
-.dei-feedback-label { font-size:11px;color:var(--text-muted);margin-bottom:6px;display:flex;align-items:center;gap:5px; }
-.dei-feedback-tag { font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600; }
-.tag-rejected { background:rgba(239,68,68,.15);color:#ef4444; }
-.tag-edited { background:rgba(99,102,241,.15);color:#6366f1; }
-.dei-feedback-input { width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;padding:6px 8px;font-size:11px;color:var(--dark-text);outline:none;resize:none;box-sizing:border-box; }
-.dei-feedback-input::placeholder { color:rgba(255,255,255,.35); }
-.day-mode .dei-feedback-input { background:#f1f5f9;border-color:#cbd5e1;color:#1e293b; }
+.dei-reason-below { display:flex;flex-direction:column;gap:4px;padding:7px 10px 8px;margin-top:-4px;border:1px solid rgba(255,255,255,.06);border-top:none;border-radius:0 0 8px 8px;background:rgba(255,255,255,.04); }
+.dei-reason-below.drb-rejected { border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.04); }
+.dei-reason-below.drb-edited { border-color:rgba(99,102,241,.2);background:rgba(99,102,241,.05); }
+.day-mode .dei-reason-below { background:rgba(0,0,0,.02);border-color:#e2e8f0; }
+.day-mode .dei-reason-below.drb-rejected { border-color:rgba(239,68,68,.2);background:rgba(239,68,68,.03); }
+.day-mode .dei-reason-below.drb-edited { border-color:rgba(99,102,241,.15);background:rgba(99,102,241,.04); }
+.drb-label { font-size:10px;font-weight:600;color:rgba(255,255,255,.35);letter-spacing:.03em; }
+.drb-rejected .drb-label { color:rgba(248,113,113,.7); }
+.drb-edited .drb-label { color:rgba(129,140,248,.8); }
+.day-mode .drb-label { color:#94a3b8; }
+.day-mode .drb-rejected .drb-label { color:#ef4444; }
+.day-mode .drb-edited .drb-label { color:#6366f1; }
+.dei-feedback-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--dark-text);outline:none;resize:none;box-sizing:border-box;font-family:inherit; }
+.dei-feedback-input::placeholder { color:rgba(255,255,255,.3);font-style:italic; }
+.day-mode .dei-feedback-input { background:#f8fafc;border-color:#cbd5e1;color:#1e293b; }
 .day-mode .dei-feedback-input::placeholder { color:#94a3b8; }
-.day-mode .dei-feedback-box { background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.2); }
-.dei-feedback-btns { display:flex;gap:6px;margin-top:6px; }
-.dei-fb-submit { font-size:11px;padding:4px 12px;background:#6366f1;color:#fff;border:none;border-radius:5px;cursor:pointer; }
-.dei-fb-skip { font-size:11px;padding:4px 10px;background:transparent;color:var(--text-muted);border:1px solid rgba(255,255,255,.25);border-radius:5px;cursor:pointer; }
-.day-mode .dei-fb-skip { border-color:#94a3b8;color:#64748b; }
+.dei-feedback-btns { display:flex;justify-content:flex-end;margin-top:5px; }
+.dei-fb-submit { font-size:11px;padding:3px 12px;background:#6366f1;color:#fff;border:none;border-radius:5px;cursor:pointer; }
 .dei-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--dark-text);outline:none; }
 .dei-date-row { display:flex;gap:6px;margin-top:4px; }
 .dei-date-input { flex:1; }
-.dei-actions { display:flex;flex-direction:column;gap:4px; }
 .detail-extract-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px; }
 .dei-count { font-size:11px;color:var(--text-muted); }
 .detail-divider { height:1px;background:rgba(255,255,255,.06);margin:10px 0; }

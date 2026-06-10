@@ -302,6 +302,7 @@ async def delete_meeting(
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
@@ -548,6 +549,7 @@ async def ai_delete_meeting(
 
     db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(synchronize_session=False)
+    db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(synchronize_session=False)
     db.query(models.MeetingMember).filter(models.MeetingMember.meeting_id == meeting_id).delete(synchronize_session=False)
     db.delete(meeting)
     db.commit()
