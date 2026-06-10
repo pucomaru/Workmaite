@@ -289,7 +289,7 @@ const sbTopImprovements = computed(() => {
                     </div>
                     <!-- 기존 자료 목록: 실제 파일이 있는 항목만 표시 -->
                     <div class="ctx-file-list">
-                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>r.file_name||r.file_url)" :key="'r'+r.id" class="ctx-file-item">
+                      <label v-for="r in (detailMeeting?.reports||[]).filter(r=>(r.file_name||r.file_url)&&(r.human_status==='approved'||r.status==='approved'))" :key="'r'+r.id" class="ctx-file-item">
                         <input type="checkbox" :value="r.id" v-model="selectedFiles" class="ctx-checkbox" />
                         <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         <span class="ctx-file-name">{{ r.file_name }}</span>

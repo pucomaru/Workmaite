@@ -173,7 +173,7 @@ async def get_archive(
                     mg.end_date AS end_date,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
-                    p.position AS position, type(rel) AS role,
+                    p.position AS position, type(rel) AS role, rel.role AS rel_role,
                     coalesce(d.name, p.department, '') AS department
                 ORDER BY mg_id
                 """,
@@ -283,7 +283,7 @@ async def get_archive(
                     "userName": row.get("person_name", "?"),
                     "email": row.get("email", ""),
                     "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "간사" else "member",
+                    "role": "admin" if row.get("role") == "간사" or row.get("rel_role") == "admin" else "member",
                     "department": row.get("department") or "",
                 })
 
