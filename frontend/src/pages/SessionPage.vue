@@ -1359,7 +1359,7 @@ async function downloadMinutesFile() {
         <div class="app-modal-body">
           <div class="app-modal-field">
             <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="editSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
+            <input v-model="editSessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
           </div>
           <div class="app-modal-field">
             <label>장소</label>
@@ -1408,7 +1408,7 @@ async function downloadMinutesFile() {
           </div>
           <div class="app-modal-field">
             <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="createSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
+            <input v-model="createSessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
           </div>
           <div class="app-modal-field">
             <label>장소</label>

@@ -183,21 +183,21 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         }
       })
 
-      // ── Lifecycle edges (회의록→안건, 세션→안건) ────────────────
+      // ── Lifecycle edges (아젠다→세션/회의록) ────────────────────
       ;(g.minutes_agendas || []).forEach(ma => {
-        const srcIdx = ma.session_id != null ? minutesFileIdxBySessionNeoId.get(String(ma.session_id)) : undefined
-        const dstIdx = ma.agenda_id  != null ? agendaIdxByTodoId.get(String(ma.agenda_id)) : undefined
-        if (srcIdx != null && dstIdx != null) edges.push({ from: srcIdx, to: dstIdx, rel: '도출' })
+        const mIdx  = ma.session_id != null ? minutesFileIdxBySessionNeoId.get(String(ma.session_id)) : undefined
+        const agIdx = ma.agenda_id  != null ? agendaIdxByTodoId.get(String(ma.agenda_id)) : undefined
+        if (mIdx != null && agIdx != null) edges.push({ from: agIdx, to: mIdx, rel: '도출' })
       })
       ;(g.session_agendas || []).forEach(sa => {
         const sIdx  = sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
         const agIdx = sa.agenda_id  != null ? agendaIdxByTodoId.get(String(sa.agenda_id)) : undefined
-        if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '다룸' })
+        if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '다룸' })
       })
       ;(g.derivations || []).forEach(d => {
         const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined
         const agIdx = d.agenda_id  != null ? agendaIdxByTodoId.get(String(d.agenda_id)) : undefined
-        if (sIdx != null && agIdx != null) edges.push({ from: sIdx, to: agIdx, rel: '도출' })
+        if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '도출' })
       })
 
       // ── HumanJudgment nodes ───────────────────────────────────

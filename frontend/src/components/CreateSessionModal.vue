@@ -41,7 +41,7 @@ function toNumericId(id) {
           </div>
           <div class="app-modal-field">
             <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="sessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
+            <input v-model="sessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
           </div>
           <div class="app-modal-field">
             <label>회의 날짜</label>

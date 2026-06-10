@@ -346,16 +346,22 @@ async def sync_agenda(
         ag.updated_at   = $updated_at
     WITH ag
     MATCH (mg:Meetings {id: $mg_id})
-    MERGE (ag)-[:관할]->(mg)
+    MERGE (ag)-[:`관할`]->(mg)
     WITH ag
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (ag)-[:발제세션]->(s)
+        MERGE (ag)-[:`발제세션`]->(s)
     )
+    WITH ag
+    OPTIONAL MATCH (ag)-[old:`진행`|`다룸멌`|`도출`]->(s2:Session)
+    DELETE old
+    WITH ag
+    OPTIONAL MATCH (s3:Session)-[old2:`진행`|`다룸멌`|`도출`]->(ag)
+    DELETE old2
     WITH ag
     OPTIONAL MATCH (assignee:User {pg_id: $assignee_id})
     FOREACH (_ IN CASE WHEN assignee IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (assignee)-[:담당]->(ag)
+        MERGE (assignee)-[:`담당`]->(ag)
     )
     """
     if isinstance(ai_evidence, (dict, list)):
