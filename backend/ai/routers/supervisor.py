@@ -1379,6 +1379,19 @@ async def archive_extract_agendas(
             db.rollback()
             logger.warning(f"[archive/extract-agendas] draft 저장 실패: {e}")
 
+        # ── 컨텍스트 파일 pending → approved ─────────────────────────
+        try:
+            for fid in selected_ids:
+                report = db.query(models.Report).filter(
+                    models.Report.id == int(fid),
+                    models.Report.human_status == "pending",
+                ).first()
+                if report:
+                    report.human_status = "approved"
+            db.commit()
+        except Exception as _e:
+            logger.warning(f"[extract-agendas] 파일 상태 업데이트 실패: {_e}")
+
         return {
             "agent_log_id": agent_log_id,
             "agendas": [

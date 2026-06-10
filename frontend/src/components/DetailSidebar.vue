@@ -13,7 +13,7 @@ const {
   groupHistoryMap, goToList, formatDate, formatDateOnly,
   detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
-  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
+  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   saveAgendaFeedback,
   detailMemberDepts,
@@ -302,11 +302,13 @@ const sbTopImprovements = computed(() => {
                       </label>
                       <!-- 새로 업로드된 파일 -->
                       <div v-for="(uf, i) in uploadedCtxFiles" :key="'uf'+i" class="ctx-file-item ctx-file-uploaded">
-                        <input type="checkbox" :value="'upload_'+i" v-model="selectedFiles" class="ctx-checkbox" checked />
-                        <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                        <span class="ctx-file-name">{{ uf.name }}</span>
-                        <span class="ctx-file-date ctx-new-tag">새 파일</span>
-                        <button class="ctx-file-remove" @click.prevent="uploadedCtxFiles.splice(i,1)">×</button>
+                        <input v-if="uf.id" type="checkbox" :value="uf.id" v-model="selectedFiles" class="ctx-checkbox" />
+                        <svg v-else-if="uf.uploading" class="ctx-uploading-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+                        <svg v-else-if="uf.error" width="10" height="10" fill="none" stroke="#f87171" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                        <svg v-else width="10" height="10" fill="none" stroke="#10b981" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="ctx-file-name">{{ uf.file_name }}</span>
+                        <span class="ctx-file-date ctx-new-tag">{{ uf.uploading ? '업로드 중…' : uf.error ? '오류' : '대기중' }}</span>
+                        <button class="ctx-file-remove" @click.prevent="removeCtxFile(i)">×</button>
                       </div>
                     </div>
                     <!-- 파일 업로드 영역 -->
