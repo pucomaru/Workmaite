@@ -104,8 +104,8 @@
 .detail-extract-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px; }
 .dei-count { font-size:11px;color:var(--text-muted); }
 .detail-divider { height:1px;background:rgba(255,255,255,.06);margin:10px 0; }
-.detail-tabs { display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 14px; }
-.detail-tab { background:none;border:none;padding:8px 14px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent; }
+.detail-tabs { display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 6px; }
+.detail-tab { background:none;border:none;padding:8px 10px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap; }
 .detail-tab.active { color:#fff;border-bottom-color:var(--accent); }
 .detail-tab:hover:not(.active) { color:var(--dark-muted); }
 .detail-tab-extract { color:#7ac8b0; }
@@ -272,6 +272,17 @@
 .log-chip.active { background:rgba(167,139,250,.18);color:#c4b5fd;border-color:rgba(167,139,250,.35); }
 .detail-log-more { display:block;width:100%;text-align:center;margin-top:4px;font-size:10px;font-weight:600;color:#454545;background:none;border:none;cursor:pointer;padding:4px 0;transition:color .15s; }
 .detail-log-more:hover { color:#999; }
+/* 완료된 과제 */
+.done-todo-list { display:flex;flex-direction:column;gap:6px;margin-top:6px; }
+.done-todo-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:7px;background:rgba(16,185,129,.04);border:1px solid rgba(16,185,129,.1); }
+.done-todo-check { width:16px;height:16px;border-radius:50%;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px; }
+.done-todo-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:3px; }
+.done-todo-title { font-size:12px;font-weight:600;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.done-todo-meta { font-size:10px;color:#555;display:flex;gap:4px; }
+.done-todo-report { display:flex;align-items:center;gap:4px;margin-top:2px; }
+.done-todo-filename { font-size:10px;color:#454545;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
+.done-todo-dates { display:flex;flex-direction:column;gap:2px;font-size:10px;color:#3a3a3a;margin-top:2px; }
+/* 로그 */
 .detail-log-list { display:flex;flex-direction:column;gap:1px; }
 .detail-log-item { display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:6px; }
 .detail-log-item:hover { background:rgba(255,255,255,.03); }
