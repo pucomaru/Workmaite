@@ -2,6 +2,7 @@ package com.workmaite.domain.sessions.service;
 
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
+import com.workmaite.domain.sessions.dto.AttendeeRequest;
 import com.workmaite.domain.sessions.dto.SessionCreateRequest;
 import com.workmaite.domain.sessions.dto.SessionResponse;
 import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
@@ -60,11 +61,7 @@ public class SessionService {
                 ? sessionRepository.findByMeetingIdAndStatus(meetingId, status)
                 : sessionRepository.findByMeetingId(meetingId);
         return sessions.stream()
-                .map(s -> {
-                    List<Long> attendeeIds = sessionMemberRepository.findBySessionId(s.getId())
-                            .stream().map(SessionMember::getUserId).toList();
-                    return SessionResponse.from(s, attendeeIds);
-                })
+                .map(s -> SessionResponse.from(s, sessionMemberRepository.findBySessionId(s.getId())))
                 .toList();
     }
 
@@ -81,23 +78,19 @@ public class SessionService {
         sessionRepository.save(session);
 
         // 참석자 저장
-        List<Long> attendeeIds = request.getAttendeeIds() != null ? request.getAttendeeIds() : List.of();
-        if (!attendeeIds.isEmpty()) {
-            List<SessionMember> members = attendeeIds.stream()
-                    .map(uid -> SessionMember.of(session.getId(), uid))
-                    .toList();
-            sessionMemberRepository.saveAll(members);
-        }
+        List<AttendeeRequest> requested = request.getAttendees() != null ? request.getAttendees() : List.of();
+        List<SessionMember> members = requested.stream()
+                .map(a -> SessionMember.of(session.getId(), a.getUserId(), a.getRole()))
+                .collect(Collectors.toList());
+        sessionMemberRepository.saveAll(members);
 
         neoSyncService.syncSession(session.getId());
-        return SessionResponse.from(session, attendeeIds);
+        return SessionResponse.from(session, members);
     }
 
     public SessionResponse getSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
-        List<Long> attendeeIds = sessionMemberRepository.findBySessionId(sessionId)
-                .stream().map(SessionMember::getUserId).toList();
-        return SessionResponse.from(session, attendeeIds);
+        return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId));
     }
 
     @Transactional
@@ -113,20 +106,18 @@ public class SessionService {
 
         session.update(request.getTitle(), request.getDescription(), request.getLocation(), request.getType(), request.getScheduledAt());
 
-        List<Long> attendeeIds = request.getAttendeeIds();
-        if (attendeeIds != null) {
+        List<AttendeeRequest> attendees = request.getAttendees();
+        if (attendees != null) {
             sessionMemberRepository.deleteBySessionId(sessionId);
-            if (!attendeeIds.isEmpty()) {
-                List<SessionMember> members = attendeeIds.stream()
-                        .map(uid -> SessionMember.of(sessionId, uid))
+            if (!attendees.isEmpty()) {
+                List<SessionMember> members = attendees.stream()
+                        .map(a -> SessionMember.of(sessionId, a.getUserId(), a.getRole()))
                         .toList();
                 sessionMemberRepository.saveAll(members);
             }
         }
 
-        List<Long> updatedAttendeeIds = sessionMemberRepository.findBySessionId(sessionId)
-                .stream().map(SessionMember::getUserId).toList();
-        return SessionResponse.from(session, updatedAttendeeIds);
+        return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId));
     }
 
     @Transactional

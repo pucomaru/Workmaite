@@ -17,9 +17,8 @@ public class SessionUpdateRequest {
     private String location;
     private String type;
 
-    @JsonAlias({"scheduled_at"})
+    @JsonProperty("scheduled_at")
     private LocalDateTime scheduledAt;
 
-    @JsonProperty("attendee_ids")
-    private List<Long> attendeeIds;
+    private List<AttendeeRequest> attendees;
 }
