@@ -4,7 +4,7 @@ import { apiAI } from '../api'
 /**
  * AI 에이전트 대화 기록을 DB에 영속 저장/복원합니다.
  *
- * @param {string} contextType - 페이지 타입: agenda | prepare | todo | cardnews | room
+ * @param {string} contextType - 페이지 타입: agenda | prepare | todo | room
  * @param {number|null} contextId - meetingId 또는 sessionId (null이면 비활성화)
  */
 export function useChatHistory(contextType, contextId) {

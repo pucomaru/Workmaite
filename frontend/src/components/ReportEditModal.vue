@@ -64,5 +64,4 @@ const STATUS_OPTIONS = [
 
 <style scoped>
 .report-edit-modal { max-width: 440px; width: 100%; }
-.app-modal.dark .req { color: #f87171; }
 </style>
