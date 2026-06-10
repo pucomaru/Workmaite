@@ -220,9 +220,10 @@ const createConnectNodeId = ref('')
 
 // ─── Create session modal ─────────────────────────────────────
 const showSessionModal = ref(false)
-const sessionForm = ref({ title: '', purpose: '', date: '', meeting_id: null })
+const sessionForm = ref({ title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' })
 const sessionMembers = ref([])
 const creatingSession = ref(false)
+const showPastDateAlert = ref(false)
 
 function openCreateModal() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
@@ -234,26 +235,30 @@ function openCreateModal() {
 }
 
 function openSessionModal(meetingId = null) {
-  sessionForm.value = { title: '', purpose: '', date: '', meeting_id: meetingId }
+  sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: meetingId, type: 'whisper' }
   sessionMembers.value = []
+  showPastDateAlert.value = false
   showSessionModal.value = true; agentSidebarOpen.value = false
 }
 async function doCreateSession() {
-  if (!sessionForm.value.title.trim()) return
+  if (!sessionForm.value.title.trim() || !sessionForm.value.meeting_id) return
+  if (sessionForm.value.dateOnly) {
+    const scheduled = new Date(`${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}`)
+    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
+  }
   creatingSession.value = true
   try {
     const meetingId = sessionForm.value.meeting_id
-    if (meetingId) {
-      await apiAI.post(`/api/v1/meetings/${meetingId}/sessions`, {
-        title: sessionForm.value.title,
-        type: 'offline',
-        description: sessionForm.value.purpose || null,
-        scheduled_at: sessionForm.value.date || null,
-      })
-    }
+    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
+      title: sessionForm.value.title,
+      scheduled_at: sessionForm.value.dateOnly ? `${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}:00` : null,
+      type: sessionForm.value.type,
+      attendees: sessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+    })
     showSessionModal.value = false
-    sessionForm.value = { title: '', purpose: '', date: '', meeting_id: null }
+    sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' }
     sessionMembers.value = []
+    showPastDateAlert.value = false
     setTimeout(refreshArchive, 600)
   } catch(e) { console.error(e) }
   finally { creatingSession.value = false }
@@ -391,7 +396,7 @@ function _onFloatDragEnd() {
     openCreateModal()
   } else if (type === 'session') {
     const mgId = target?.type === 'Meetings' ? toNumericId(target.id) : null
-    openSessionModal(mgId ? meetingGroups.value.find(g => toNumericId(g.id) === mgId) : null)
+    openSessionModal(mgId || null)
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
@@ -2221,7 +2226,7 @@ async function submitReview(action, feedback) {
 provide('archiveModals', {
   nightMode,
   showCreateModal, createForm, creating, doCreateMeeting, createMembers,
-  showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession,
+  showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession, showPastDateAlert, meetingGroups,
   showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
   deptConnectableNodes, 업로드회의체과제, prefilledCtx,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
