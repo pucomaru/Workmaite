@@ -905,7 +905,7 @@ async function downloadMinutesFile() {
         </div>
         <div class="sp-search-wrap">
           <svg class="sp-search-icon" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색..." />
+          <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색" />
           <button v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch=''">&times;</button>
         </div>
       </div>
@@ -962,7 +962,7 @@ async function downloadMinutesFile() {
           <div class="app-tabs">
             <button class="app-tab" :class="{ active: activeTab === 'transcript' }" @click="activeTab='transcript'">대화 기록</button>
             <button class="app-tab" :class="{ active: activeTab === 'script' }" @click="activeTab='script'">스크립트</button>
-            <button v-if="showMinutesTab" class="app-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
+            <button class="app-tab" :class="{ active: activeTab === 'minutes' }" @click="activeTab='minutes'">회의록</button>
           </div>
         </div>
 
@@ -1132,26 +1132,6 @@ async function downloadMinutesFile() {
         <!-- Control bar (대화기록/스크립트 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
           <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
-            <!-- Mic settings -->
-            <div class="ctrl-pop-wrap">
-              <button class="ctrl-btn" :class="{ 'ctrl-active': showPopover==='mic' }"
-                @click.stop="togglePopover('mic')" title="녹음 설정">
-                <i class="bi bi-mic"></i><i class="bi bi-chevron-down ctrl-chev"></i>
-              </button>
-              <div v-if="showPopover==='mic'" class="ctrl-popover" @click.stop>
-                <div class="cpop-title">마이크 설정</div>
-                <div class="cpop-row">
-                  <span class="cpop-label">감도</span>
-                  <input type="range" v-model.number="micSensitivity" min="0" max="100" class="cpop-range" />
-                  <span class="cpop-val">{{ micSensitivity }}%</span>
-                </div>
-                <div class="cpop-row">
-                  <span class="cpop-label">노이즈 제거</span>
-                  <input type="checkbox" v-model="noiseReduction" />
-                </div>
-              </div>
-            </div>
-
             <!-- Language selector -->
             <div class="ctrl-pop-wrap">
               <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover==='lang' }"
@@ -1175,18 +1155,10 @@ async function downloadMinutesFile() {
               <i v-else class="bi bi-pause-fill"></i>
             </button>
 
-            <!-- Stop -->
-            <button v-if="recordingState!=='idle'" class="ctrl-btn ctrl-stop" @click.stop="stopRecording" title="중지">
-              <i class="bi bi-stop-fill"></i>
-            </button>
-
-            <button v-if="recordingState!=='idle'" class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
+            <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
-            <button class="ctrl-minutes" :disabled="generatingMinutes" @click.stop="generateMinutes">
-              <i class="bi bi-stars"></i> 회의록 생성
-            </button>
           </div>
         </div>
 
@@ -1221,7 +1193,7 @@ async function downloadMinutesFile() {
             <button class="mbar-btn regen" :disabled="generatingMinutes" @click.stop="generateMinutes">
               <i v-if="generatingMinutes" class="bi bi-arrow-repeat spin"></i>
               <i v-else class="bi bi-stars"></i>
-              {{ generatingMinutes ? '생성 중...' : '회의록 재생성' }}
+              {{ generatingMinutes ? '생성 중...' : '회의록 생성' }}
             </button>
           </div>
         </div>
@@ -1477,7 +1449,7 @@ async function downloadMinutesFile() {
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
-.sp-mtg-header:hover,.sp-mtg-header.expanded { background:var(--surface); }
+.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
@@ -1591,7 +1563,7 @@ async function downloadMinutesFile() {
 
 /* Control bar */
 .sp-ctrl-bar { display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg-card);overflow:visible;border-radius:0; }
-.ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:6px; }
+.ctrl-group-left,.ctrl-group-right { display:flex;align-items:center;gap:12px; }
 .ctrl-group-right { margin-left:auto; }
 .ctrl-pop-wrap { position:relative; }
 .ctrl-btn { display:flex;align-items:center;gap:3px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);font-size:13px;cursor:pointer; }
@@ -1607,12 +1579,13 @@ async function downloadMinutesFile() {
 .cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
 .cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:rgba(59,130,246,.1);color:var(--accent);font-weight:600; }
-.ctrl-rec-btn { width:38px;height:38px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3); }
+.ctrl-rec-btn { width:34px;height:34px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3);line-height:1; }
 .ctrl-rec-btn.recording { background:var(--danger);box-shadow:0 2px 8px rgba(239,68,68,.35); }
 .ctrl-rec-btn:hover { opacity:.85; }
+.ctrl-rec-btn i { display:flex;align-items:center;justify-content:center;width:100%;height:100%; }
 .ctrl-stop { color:var(--danger);border-color:#fca5a5; }
 .ctrl-stop:hover { background:#fef2f2;border-color:var(--danger); }
-.ctrl-end { padding:6px 14px;border-radius:8px;border:1px solid #fca5a5;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer; }
+.ctrl-end { height:34px;padding:0 14px;border-radius:17px;border:none;background:#fef2f2;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center; }
 .ctrl-end:hover { background:var(--danger);color:#fff;border-color:var(--danger); }
 .ctrl-minutes { display:flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;border:none;background:var(--warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer; }
 .ctrl-minutes:disabled { opacity:.5;cursor:not-allowed; }
