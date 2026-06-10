@@ -436,3 +436,22 @@ html.night-mode .app-modal-input::placeholder { color:#334155 !important; }
 html.night-mode select.app-modal-input { background-color:rgba(255,255,255,.06) !important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") !important;background-repeat:no-repeat !important;background-position:right 10px center !important;background-size:10px 6px !important; }
 html.night-mode .app-btn-cancel { background:rgba(255,255,255,.06) !important;border-color:rgba(255,255,255,.12) !important;color:#94a3b8 !important; }
 html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !important; }
+
+/* Required field marker */
+.req { color:#ef4444; }
+.app-modal.dark .req { color:#f87171; }
+html.night-mode .req { color:#f87171 !important; }
+
+/* Datetime split input (modal date+time picker) */
+.datetime-split-input { display:flex;align-items:center;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:hidden; }
+.datetime-split-input:focus-within { border-color:rgba(96,165,250,.6); }
+.datetime-split-date,.datetime-split-time { border:none;background:transparent;outline:none;padding:8px 10px;font-size:13px;font-family:inherit;color:#1e293b; }
+.datetime-split-date { flex:1; }
+.datetime-split-time { width:130px; }
+.datetime-split-sep { width:1px;height:20px;background:#e2e8f0;flex-shrink:0; }
+.app-modal.dark .datetime-split-input { border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.06); }
+.app-modal.dark .datetime-split-date,.app-modal.dark .datetime-split-time { color:#f1f5f9; }
+.app-modal.dark .datetime-split-sep { background:rgba(255,255,255,.12); }
+html.night-mode .datetime-split-input { border-color:rgba(255,255,255,.12) !important;background:rgba(255,255,255,.06) !important; }
+html.night-mode .datetime-split-date,html.night-mode .datetime-split-time { color:#f1f5f9 !important; }
+html.night-mode .datetime-split-sep { background:rgba(255,255,255,.12) !important; }

@@ -57,7 +57,8 @@ function updateRole(idx, role) {
 <template>
   <div class="mi-section" :class="{ dark: nightMode }">
     <div class="mi-title">
-      참여자 <span class="mi-cnt-badge">{{ modelValue.length }}명</span>
+      <span>참여자 <span class="req">*</span></span>
+      <span class="mi-cnt-badge">{{ modelValue.length }}명</span>
     </div>
 
     <div class="mi-search-wrap">
@@ -101,10 +102,9 @@ function updateRole(idx, role) {
 </template>
 
 <style scoped>
-.mi-section { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--surface-2); }
-.mi-section:last-child { border-bottom: none; padding-bottom: 0; }
+.mi-section { display: flex; flex-direction: column; gap: 10px; }
 
-.mi-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: 8px; }
+.mi-title { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
 .mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: #93c5fd; border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; }
 
 .mi-search-wrap { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
@@ -133,8 +133,7 @@ function updateRole(idx, role) {
 .mi-remove-ph { width: 22px; flex-shrink: 0; }
 
 /* Dark */
-.mi-section.dark { border-bottom-color: rgba(255,255,255,.07); }
-.mi-section.dark .mi-title { color: var(--text-dim); }
+.mi-section.dark .mi-title { color: #64748b; }
 .mi-section.dark .mi-search-wrap { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.05); }
 .mi-section.dark .mi-search-wrap svg { color: var(--text-dim); }
 .mi-section.dark .mi-search-input { color: var(--surface-2); }

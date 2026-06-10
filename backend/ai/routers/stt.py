@@ -75,13 +75,17 @@ async def _transcribe_cloud(data: bytes, lang_code: str, max_speakers: int = 6) 
     audio = speech.RecognitionAudio(content=data)
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+        sample_rate_hertz=48000,
+        audio_channel_count=1,
+        model="latest_short",
+        use_enhanced=True,
         language_code=bcp47,
         enable_automatic_punctuation=True,
         enable_word_time_offsets=True,
         diarization_config=speech.SpeakerDiarizationConfig(
             enable_speaker_diarization=True,
             min_speaker_count=1,
-            max_speaker_count=max(2, max_speakers),
+            max_speaker_count=max_speakers,
         ),
     )
 
@@ -91,49 +95,53 @@ async def _transcribe_cloud(data: bytes, lang_code: str, max_speakers: int = 6) 
     )
 
     segments: list[dict] = []
-    for result in response.results:
-        if not result.alternatives:
-            continue
-        alt = result.alternatives[0]
-        words = list(alt.words)
+    if not response.results:
+        return segments
 
-        if not words:
-            text = alt.transcript.strip()
-            if text:
-                segments.append({"speaker": "1", "text": text, "start": 0.0, "end": 0.0})
-            continue
+    # Google STT v1 diarization: 마지막 result에만 전체 발화의 speaker_tag가 채워짐
+    # 앞의 result들은 동일 내용을 speaker_tag=0으로 중복 반환하므로 무시
+    alt = response.results[-1].alternatives[0] if response.results[-1].alternatives else None
+    if not alt:
+        return segments
+    words = list(alt.words)
 
-        # 연속된 동일 화자 단어를 하나의 세그먼트로 병합
-        cur_speaker = str(words[0].speaker_tag)
-        cur_words: list[str] = [words[0].word]
-        cur_start = words[0].start_time.total_seconds()
-        prev_end = words[0].end_time.total_seconds()
+    if not words:
+        text = alt.transcript.strip()
+        if text:
+            segments.append({"speaker": "1", "text": text, "start": 0.0, "end": 0.0})
+        return segments
 
-        for w in words[1:]:
-            spk = str(w.speaker_tag)
-            t_end = w.end_time.total_seconds()
-            if spk == cur_speaker:
-                cur_words.append(w.word)
-                prev_end = t_end
-            else:
-                segments.append({
-                    "speaker": cur_speaker,
-                    "text": " ".join(cur_words),
-                    "start": cur_start,
-                    "end": prev_end,
-                })
-                cur_speaker = spk
-                cur_words = [w.word]
-                cur_start = w.start_time.total_seconds()
-                prev_end = t_end
+    # 연속된 동일 화자 단어를 하나의 세그먼트로 병합
+    cur_speaker = str(words[0].speaker_tag)
+    cur_words: list[str] = [words[0].word]
+    cur_start = words[0].start_time.total_seconds()
+    prev_end = words[0].end_time.total_seconds()
 
-        if cur_words:
+    for w in words[1:]:
+        spk = str(w.speaker_tag)
+        t_end = w.end_time.total_seconds()
+        if spk == cur_speaker:
+            cur_words.append(w.word)
+            prev_end = t_end
+        else:
             segments.append({
                 "speaker": cur_speaker,
                 "text": " ".join(cur_words),
                 "start": cur_start,
                 "end": prev_end,
             })
+            cur_speaker = spk
+            cur_words = [w.word]
+            cur_start = w.start_time.total_seconds()
+            prev_end = t_end
+
+    if cur_words:
+        segments.append({
+            "speaker": cur_speaker,
+            "text": " ".join(cur_words),
+            "start": cur_start,
+            "end": prev_end,
+        })
 
     return segments
 
@@ -158,11 +166,10 @@ async def transcribe(
         if row:
             if not effective_mode:
                 effective_mode = row.type
-            member_count = db.query(models.MeetingMember).filter(
-                models.MeetingMember.meeting_id == row.meeting_id
+            attendee_count = db.query(models.SessionMember).filter(
+                models.SessionMember.session_id == session_id
             ).count()
-            if member_count > 0:
-                max_speakers = member_count
+            max_speakers = attendee_count if attendee_count > 0 else 1
 
     effective_mode = effective_mode or "localwhisper"
 
@@ -188,31 +195,51 @@ async def transcribe(
     except Exception as e:
         logger.error(f"[STT] 변환 실패 (mode={effective_mode}): {e}")
 
-    # DB 저장: localwhisper는 full_text 단일 행, 나머지는 화자별 세그먼트
+    # 화자 레이블 정규화: "1" → "화자_1" (DB 저장 형식과 일치)
+    for seg in segments:
+        raw = str(seg.get("speaker") or "0")
+        seg["speaker"] = raw if raw.startswith("화자_") else f"화자_{raw}"
+
+    # DB 저장 + ID 반환
+    saved_objs: list[SttSegment] = []
+    saved_seg_indices: list[int] = []
+    text_id: int | None = None
+
     if session_id and (segments or full_text.strip()):
         try:
             if segments:
-                for seg in segments:
+                for i, seg in enumerate(segments):
                     if not seg.get("text", "").strip():
                         continue
-                    db.add(SttSegment(
+                    obj = SttSegment(
                         session_id    = session_id,
-                        speaker_label = f"화자_{seg.get('speaker', '0')}",
+                        speaker_label = seg["speaker"],
                         content       = seg["text"],
                         start_sec     = seg.get("start", 0),
                         end_sec       = seg.get("end", 0),
-                    ))
+                    )
+                    db.add(obj)
+                    saved_objs.append(obj)
+                    saved_seg_indices.append(i)
             elif full_text.strip():
-                db.add(SttSegment(
+                obj = SttSegment(
                     session_id    = session_id,
                     speaker_label = "화자_0",
                     content       = full_text.strip(),
                     start_sec     = 0,
                     end_sec       = 0,
-                ))
+                )
+                db.add(obj)
+                saved_objs.append(obj)
             db.commit()
+            # DB ID를 세그먼트에 역주입
+            if segments:
+                for obj, seg_idx in zip(saved_objs, saved_seg_indices):
+                    segments[seg_idx]["id"] = obj.id
+            elif saved_objs:
+                text_id = saved_objs[0].id
         except Exception as dbe:
             logger.warning(f"[STT] DB 저장 실패: {dbe}")
             db.rollback()
 
-    return {"text": full_text, "segments": segments}
+    return {"text": full_text, "segments": segments, "text_id": text_id}

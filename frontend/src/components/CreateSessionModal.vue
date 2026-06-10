@@ -1,17 +1,23 @@
 <script setup>
-import { inject } from 'vue'
+import { ref, computed, watch } from 'vue'
+import api from '../api'
 import MemberInvite from './MemberInvite.vue'
+import { useAuthStore } from '../stores/auth'
 
-const {
-  showSessionModal,
-  nightMode,
-  sessionForm,
-  sessionMembers,
-  creatingSession,
-  doCreateSession,
-  showPastDateAlert,
-  meetingGroups,
-} = inject('archiveModals')
+const props = defineProps({
+  show:             { type: Boolean, default: false },
+  meetings:         { type: Array,   default: () => [] },
+  lockedUserId:     { type: Number,  default: null },
+  initialMeetingId: { type: [Number, String], default: null },
+})
+const emit = defineEmits(['close', 'saved'])
+
+const authStore = useAuthStore()
+
+const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null })
+const members = ref([])
+const creating = ref(false)
+const showPastDateAlert = ref(false)
 
 function toNumericId(id) {
   if (!id && id !== 0) return 0
@@ -19,63 +25,90 @@ function toNumericId(id) {
   const m = String(id).match(/(\d+)$/)
   return m ? parseInt(m[1], 10) : 0
 }
+
+watch(() => props.show, (v) => {
+  if (!v) return
+  form.value = {
+    title: '', location: '', dateOnly: '', timeOnly: '',
+    meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+  }
+  const me = authStore.user
+  members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
+  showPastDateAlert.value = false
+})
+
+const canSubmit = computed(() => {
+  const f = form.value
+  return !creating.value && f.title.trim() && f.location.trim() && f.dateOnly && f.meeting_id && members.value.length > 0
+})
+
+async function doCreate() {
+  if (!canSubmit.value) return
+  const f = form.value
+  const scheduled = new Date(`${f.dateOnly}T${f.timeOnly || '00:00'}`)
+  if (scheduled < new Date()) { showPastDateAlert.value = true; return }
+  creating.value = true
+  try {
+    await api.post(`/api/v1/meetings/${f.meeting_id}/sessions`, {
+      title:        f.title,
+      location:     f.location || null,
+      scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
+      type:         'localwhisper',
+      attendees:    members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+    })
+    emit('saved', { meetingId: f.meeting_id })
+    emit('close')
+  } catch (e) {
+    alert(e.response?.data?.message || '생성 실패')
+  } finally {
+    creating.value = false
+  }
+}
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="showSessionModal" class="app-modal-backdrop">
-      <div class="app-modal app-modal-sm" :class="{ dark: nightMode }">
+    <div v-if="show" class="app-modal-backdrop">
+      <div class="app-modal app-modal-sm">
         <div class="app-modal-header">
           <span class="app-modal-title">회의 생성</span>
-          <button class="app-modal-close" @click="showSessionModal=false">
+          <button class="app-modal-close" @click="emit('close')">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>회의체 <span style="color:#ef4444">*</span></label>
-            <select v-model="sessionForm.meeting_id" class="app-modal-input">
+            <label>회의체 <span class="req">*</span></label>
+            <select v-model="form.meeting_id" class="app-modal-input">
               <option :value="null" disabled>회의체를 선택하세요</option>
-              <option v-for="m in meetingGroups" :key="toNumericId(m.id)" :value="toNumericId(m.id)">{{ m.title }}</option>
+              <option v-for="m in meetings" :key="toNumericId(m.id)" :value="toNumericId(m.id)">{{ m.title }}</option>
             </select>
           </div>
           <div class="app-modal-field">
-            <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="sessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
+            <label>회의명 <span class="req">*</span></label>
+            <input v-model="form.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
           </div>
           <div class="app-modal-field">
-            <label>회의 날짜</label>
+            <label>장소 <span class="req">*</span></label>
+            <input v-model="form.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
+          </div>
+          <div class="app-modal-field">
+            <label>회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <input type="date" v-model="sessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
+              <input type="date" v-model="form.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
               <span class="datetime-split-sep"></span>
-              <input type="text" v-model="sessionForm.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
+              <input type="text" v-model="form.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
             </div>
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>STT 방식</label>
-            <div style="display:flex;gap:8px;">
-              <button
-                :class="['stt-type-btn', sessionForm.type === 'whisper' ? 'active' : '']"
-                @click="sessionForm.type = 'whisper'">
-                Whisper 모델 (보안)
-              </button>
-              <button
-                :class="['stt-type-btn', sessionForm.type === 'external' ? 'active' : '']"
-                @click="sessionForm.type = 'external'">
-                Whisper API (빠름)
-              </button>
-            </div>
-          </div>
-          <div class="app-modal-field">
-            <label>참석자</label>
-            <MemberInvite v-model="sessionMembers" />
+            <MemberInvite v-model="members" :lockedUserId="lockedUserId" />
           </div>
         </div>
         <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="showSessionModal=false">취소</button>
-          <button class="app-btn-primary" :disabled="creatingSession||!sessionForm.title.trim()||!sessionForm.meeting_id" @click="doCreateSession">
-            {{ creatingSession ? '생성 중...' : '생성' }}
+          <button class="app-btn-cancel" @click="emit('close')">취소</button>
+          <button class="app-btn-primary" :disabled="!canSubmit" @click="doCreate">
+            {{ creating ? '생성 중...' : '생성' }}
           </button>
         </div>
       </div>

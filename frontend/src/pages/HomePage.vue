@@ -3,11 +3,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
-import api, { apiAI } from '../api'
+import api from '../api'
 
-import BaseModal from '../components/BaseModal.vue'
 import AppTable from '../components/AppTable.vue'
-import DateInput from '../components/DateInput.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -15,12 +13,6 @@ const meetingsStore = useMeetingsStore()
 
 const calendarEvents = ref([])
 const upcomingSessionsList = ref([])
-const showCreateModal = ref(false)
-const form = ref({ title: '', purpose: '', start_date: '', end_date: '' })
-const memberSearch = ref('')
-const searchResults = ref([])
-const selectedMembers = ref([])
-const creating = ref(false)
 
 const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'member' | null }
 const endingMeeting = ref(null)
@@ -246,41 +238,6 @@ async function deleteMeeting(m, e) {
   }
 }
 
-// ── Modal ────────────────────────────────────────────────────
-async function searchMembers() {
-  if (!memberSearch.value.trim()) { searchResults.value = []; return }
-  const { data } = await api.get(`/api/v1/users/search?q=${memberSearch.value}`)
-  searchResults.value = data.filter(u => u.id !== auth.user?.id && !selectedMembers.value.find(m => m.id === u.id))
-}
-function addMember(u, role = 'member') {
-  selectedMembers.value.push({ ...u, role })
-  searchResults.value = []
-  memberSearch.value = ''
-}
-function removeMember(u) {
-  selectedMembers.value = selectedMembers.value.filter(m => m.id !== u.id)
-}
-async function createMeeting() {
-  if (!form.value.title.trim()) return
-  creating.value = true
-  try {
-    const meeting = await meetingsStore.createMeeting({
-      title: form.value.title,
-      description: form.value.purpose,
-      start_date: form.value.start_date || null,
-      end_date: form.value.end_date || null,
-    })
-    for (const m of selectedMembers.value) {
-      await apiAI.post(`/api/v1/meetings/${meeting.id}/members`, { userId: m.id, role: m.role })
-    }
-    showCreateModal.value = false
-    form.value = { title: '', purpose: '', start_date: '', end_date: '' }
-    selectedMembers.value = []
-    router.push('/meeting-groups')
-  } finally {
-    creating.value = false
-  }
-}
 
 // ── Utils ────────────────────────────────────────────────────
 function getDday(due) {
@@ -418,15 +375,15 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
     <div class="card cal-card">
         <div class="cal-header">
           <div class="d-flex align-items-center gap-1">
-            <button class="btn btn-sm btn-outline-secondary px-2" @click="navigate(-1)">‹</button>
-            <button class="btn btn-sm btn-outline-secondary px-2" @click="goToday">오늘</button>
-            <button class="btn btn-sm btn-outline-secondary px-2" @click="navigate(1)">›</button>
+            <button class="btn btn-sm px-1" @click="navigate(-1)">‹</button>
+            <button class="btn btn-sm px-1" @click="goToday">오늘</button>
+            <button class="btn btn-sm px-1" @click="navigate(1)">›</button>
           </div>
           <span class="cal-title">{{ calTitle }}</span>
-          <div class="btn-group btn-group-sm">
+          <div class="view-switch">
             <button v-for="v in views" :key="v.key"
-              class="btn"
-              :class="calView === v.key ? 'btn-primary' : 'btn-outline-secondary'"
+              class="view-btn"
+              :class="{ active: calView === v.key }"
               @click="calView = v.key">{{ v.label }}</button>
           </div>
         </div>
@@ -511,37 +468,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
       </div>
     </div><!-- /main-grid -->
 
-    <!-- 회의체 생성 모달 -->
-    <BaseModal v-model="showCreateModal">
-      <template #title>새 회의체 만들기</template>
-      <div class="modal-inner">
-        <div class="form-group">
-          <label class="form-label">회의체 제목 <span style="color:var(--danger)">*</span></label>
-          <input v-model="form.title" class="form-input" placeholder="예: 경영전략 위원회" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">회의체 목적</label>
-          <textarea v-model="form.purpose" class="form-input form-textarea" placeholder="회의체의 목적을 입력하세요" />
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="form-group">
-            <label class="form-label">시작일</label>
-            <DateInput v-model="form.start_date" class="form-input" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">종료일</label>
-            <DateInput v-model="form.end_date" class="form-input" />
-          </div>
-        </div>
 
-      </div>
-      <template #footer>
-        <button class="btn btn-outline-secondary" @click="showCreateModal = false">취소</button>
-        <button class="btn btn-primary" :disabled="!form.title.trim() || creating" @click="createMeeting">
-          {{ creating ? '생성 중...' : '회의체 생성' }}
-        </button>
-      </template>
-    </BaseModal>
   </div>
 </template>
 
@@ -689,12 +616,5 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .dot-session { background: var(--accent); }
 .dot-todo { background: var(--warning); }
 
-/* ── 모달 ───────────────────────────────────────────────────── */
-.modal-inner { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
-.search-dropdown { border: 1px solid var(--border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-md); margin-top: 4px; }
 
-.search-item { padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); font-size: 13px; }
-.search-item:last-child { border-bottom: none; }
-.selected-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.member-chip { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 99px; padding: 4px 10px; font-size: 12px; }
 </style>

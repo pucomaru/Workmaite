@@ -14,6 +14,7 @@ import SettingsModal from '../components/SettingsModal.vue'
 import AgendaEditModal from '../components/AgendaEditModal.vue'
 import ReportEditModal from '../components/ReportEditModal.vue'
 import MinutesEditModal from '../components/MinutesEditModal.vue'
+import SessionEditModal from '../components/SessionEditModal.vue'
 import { useRouter } from 'vue-router'
 import api, { apiAI, streamPostForm } from '../api'
 import { useMeetingsStore } from '../stores/meetings'
@@ -222,10 +223,7 @@ const createConnectNodeId = ref('')
 
 // ─── Create session modal ─────────────────────────────────────
 const showSessionModal = ref(false)
-const sessionForm = ref({ title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' })
-const sessionMembers = ref([])
-const creatingSession = ref(false)
-const showPastDateAlert = ref(false)
+const sessionCreateInitialId = ref(null)
 
 function openCreateModal() {
   createForm.value = { title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' }
@@ -237,34 +235,10 @@ function openCreateModal() {
 }
 
 function openSessionModal(meetingId = null) {
-  sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: meetingId, type: 'whisper' }
-  sessionMembers.value = []
-  showPastDateAlert.value = false
+  sessionCreateInitialId.value = meetingId
   showSessionModal.value = true; agentSidebarOpen.value = false
 }
-async function doCreateSession() {
-  if (!sessionForm.value.title.trim() || !sessionForm.value.meeting_id) return
-  if (sessionForm.value.dateOnly) {
-    const scheduled = new Date(`${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}`)
-    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
-  }
-  creatingSession.value = true
-  try {
-    const meetingId = sessionForm.value.meeting_id
-    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
-      title: sessionForm.value.title,
-      scheduled_at: sessionForm.value.dateOnly ? `${sessionForm.value.dateOnly}T${sessionForm.value.timeOnly || '00:00'}:00` : null,
-      type: sessionForm.value.type,
-      attendees: sessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
-    })
-    showSessionModal.value = false
-    sessionForm.value = { title: '', dateOnly: '', timeOnly: '', meeting_id: null, type: 'whisper' }
-    sessionMembers.value = []
-    showPastDateAlert.value = false
-    setTimeout(refreshArchive, 600)
-  } catch(e) { console.error(e) }
-  finally { creatingSession.value = false }
-}
+function onSessionCreated() { setTimeout(refreshArchive, 600) }
 
 async function doCreateMeeting() {
   if (!createForm.value.title.trim()) return
@@ -804,8 +778,6 @@ async function runExtract() {
   }
 }
 
-// extractTextFromFile 함수 제거 (백엔드에서 처리)
-
 async function openExtractModal() {
   showExtractModal.value = true
   agentSidebarOpen.value = true
@@ -913,9 +885,8 @@ async function openGroupSetting() {
   const m = detailMeeting.value
   const numId = toNumericId(m.id)
 
-  // PG 원본값을 meetingsStore(Spring Boot → PG 직접) 로 fetch
   let pgMeeting = null
-  try { pgMeeting = await meetingsStore.fetchMeeting(numId) } catch { /* fallback */ }
+  try { const r = await apiAI.get(`/api/v1/meetings/${numId}`); pgMeeting = r.data } catch { /* fallback */ }
   const src = pgMeeting || m
 
   let members = []
@@ -2281,8 +2252,7 @@ async function submitReview(action, feedback) {
 provide('archiveModals', {
   nightMode,
   showCreateModal, createForm, creating, doCreateMeeting, createMembers,
-  showSessionModal, sessionForm, sessionMembers, creatingSession, doCreateSession, showPastDateAlert, meetingGroups,
-  showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
+showUploadModal, uploadStep, uploadForm, gNodes: gNodesRef,
   deptConnectableNodes, 업로드회의체과제, prefilledCtx,
   REL_COLORS, autoRel, runAiAnalysis, aiAnalyzing, aiResult,
   aiStreamText, aiStreamStage,
@@ -2456,6 +2426,33 @@ async function saveMinutesEdit() {
   }
 }
 
+const showSessionEdit = ref(false)
+const sessionEditData = ref(null)
+
+function openSessionEditModal() {
+  if (!detailNode.value || detailNode.value.type !== 'session') return
+  const d = detailNode.value.data || {}
+  sessionEditData.value = {
+    id:           detailNode.value.neo4jId,
+    meetingId:    null,
+    title:        d.session_title || detailNode.value.label || '',
+    location:     d.location || '',
+    scheduled_at: d.date || d.started_at || '',
+    type:         d.session_type || 'localwhisper',
+    members:      (d.participants || []).map(p => ({
+      userId: p.userId,
+      name:   p.userName || p.name || '',
+      email:  p.email || p.department || '',
+      role:   p.role || 'member',
+    })),
+  }
+  showSessionEdit.value = true
+}
+
+function onSessionEditSaved() {
+  setTimeout(refreshArchive, 600)
+}
+
 /** 비-Meetings 노드(dept/agenda/세션 등) 헤더의 설정 버튼: 아젠다면 아젠다 편집 모달, 아니면 부모 회의체 설정 모달 */
 async function openNodeGroupSetting() {
   if (!detailNode.value) return
@@ -2469,6 +2466,10 @@ async function openNodeGroupSetting() {
   }
   if (detailNode.value.type === 'minutes') {
     openMinutesEditModal()
+    return
+  }
+  if (detailNode.value.type === 'session') {
+    openSessionEditModal()
     return
   }
   const mgId = detailNode.value.meetingGroupId || detailNode.value.neo4jId
@@ -2658,7 +2659,14 @@ provide('archiveSidebar', {
     <FloatDragPreview />
 
     <CreateMeetingModal />
-    <CreateSessionModal />
+    <CreateSessionModal
+      :show="showSessionModal"
+      :meetings="meetingGroups"
+      :lockedUserId="authStore.user?.id"
+      :initialMeetingId="sessionCreateInitialId"
+      @close="showSessionModal=false"
+      @saved="onSessionCreated"
+    />
 
   </div><!-- /archive-page -->
   <UploadModal />
@@ -2683,6 +2691,12 @@ provide('archiveSidebar', {
     :saving="savingMinutesEdit"
     @close="closeMinutesEdit"
     @save="saveMinutesEdit"
+  />
+  <SessionEditModal
+    :show="showSessionEdit"
+    :session="sessionEditData"
+    @close="showSessionEdit=false"
+    @saved="onSessionEditSaved"
   />
 </template>
 

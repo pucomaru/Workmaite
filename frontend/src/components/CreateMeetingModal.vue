@@ -26,7 +26,7 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
           </div>
           <div class="app-modal-field">
             <label>유형</label>
-            <select v-model="createForm.meeting_type" class="app-select" style="width:100%;font-size:13px;padding:7px 28px 7px 10px">
+            <select v-model="createForm.meeting_type" class="app-modal-input">
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
@@ -48,7 +48,6 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
           </div>
           <div class="app-modal-field">
-            <label>멤버 초대</label>
             <MemberInvite v-model="createMembers" />
           </div>
         </div>

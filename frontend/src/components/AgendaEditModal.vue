@@ -99,5 +99,4 @@ function priorityColor(val) {
 .priority-select { padding-left: 10px; }
 
 /* Dark mode */
-.app-modal.dark .req { color: #f87171; }
 </style>

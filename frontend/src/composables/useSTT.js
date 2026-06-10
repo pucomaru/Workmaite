@@ -52,7 +52,7 @@ export function useSTT({ onResult, onSegments = null, getLang = null, getSession
         if (data.segments?.length && typeof onSegments === 'function') {
           onSegments(data.segments)
         } else if (data.text?.trim()) {
-          onResult(data.text.trim())
+          onResult(data.text.trim(), data.text_id ?? null)
         }
       } catch (e) {
         console.warn('[STT] 전송 실패', e)
