@@ -96,4 +96,10 @@ public class SessionController {
             @PathVariable Long sessionId) {
         return ResponseEntity.ok(ApiResponse.ok(sessionService.endSession(sessionId)));
     }
+
+    @PostMapping("/sessions/{sessionId}/archive")
+    public ResponseEntity<ApiResponse<SessionResponse>> archiveSession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.archiveSession(sessionId)));
+    }
 }

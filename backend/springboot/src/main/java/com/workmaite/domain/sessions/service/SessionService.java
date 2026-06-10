@@ -168,6 +168,18 @@ public class SessionService {
         return SessionResponse.from(session);
     }
 
+    @Transactional
+    public SessionResponse archiveSession(Long sessionId) {
+        MeetingSession session = findSessionById(sessionId);
+
+        if (session.getStatus() != SessionStatus.ENDED) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+        }
+
+        session.archive();
+        return SessionResponse.from(session);
+    }
+
     private MeetingSession findSessionById(Long sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
