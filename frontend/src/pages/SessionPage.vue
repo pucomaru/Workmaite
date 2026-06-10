@@ -1480,7 +1480,6 @@ async function downloadMinutesFile() {
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
-.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
