@@ -596,11 +596,34 @@ const extractPhase = ref('context')
 const selectedMinutes = ref([]) // 선택된 회의록 ID
 const selectedFiles = ref([]) // 선택된 파일 ID
 const selectedSimilarDocs = ref([]) // 선택된 유사 문서 ID
-const uploadedCtxFiles = ref([]) // 새로 업로드된 파일
+const uploadedCtxFiles = ref([]) // { id, file_name, uploading, error }
 
-function onCtxFilesAdded(files) {
-  uploadedCtxFiles.value.push(...files)
-  selectedFiles.value.push(...files.map((_, i) => 'upload_' + (uploadedCtxFiles.value.length - files.length + i)))
+async function onCtxFilesAdded(files) {
+  if (!detailMeeting.value) return
+  const meetingId = toNumericId(detailMeeting.value.id)
+  for (const file of files) {
+    const placeholder = reactive({ id: null, file_name: file.name, uploading: true, error: false })
+    uploadedCtxFiles.value.push(placeholder)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const { data } = await apiAI.post(`/api/upload/reports/${meetingId}`, fd)
+      placeholder.id = data.id
+      placeholder.file_name = data.file_name
+      placeholder.uploading = false
+      selectedFiles.value.push(data.id)
+      setTimeout(refreshArchive, 600)
+    } catch {
+      placeholder.uploading = false
+      placeholder.error = true
+    }
+  }
+}
+
+function removeCtxFile(i) {
+  const file = uploadedCtxFiles.value[i]
+  if (file.id) selectedFiles.value = selectedFiles.value.filter(id => id !== file.id)
+  uploadedCtxFiles.value.splice(i, 1)
 }
 const extractResult = ref([])
 const showExtractFlow = ref(false)
@@ -728,9 +751,6 @@ async function runExtract() {
       selectedFiles.value.filter(f => !String(f).startsWith('upload_'))
     ))
     formData.append('selected_similar_docs', JSON.stringify(selectedSimilarDocs.value))
-    for (const file of uploadedCtxFiles.value) {
-      formData.append('files', file)
-    }
 
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData)
     await planningPromise
@@ -1890,7 +1910,8 @@ const groupHistoryMap = computed(() => {
       items.push({ type: 'minutes', desc: `${m.session_title || '회의'} 진행`, manager: managerName, date: m.ended_at })
     })
     g.reports.forEach(r => {
-      const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+      const isReference = r.human_status === 'approved' && r.score == null
+      const statusLabel = isReference ? '업로드' : r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
       items.push({ type: 'report', desc: `${r.file_name || '파일'} ${statusLabel}`, manager: r.submitter_department || managerName, date: r.created_at || r.submitted_at })
     })
     const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
@@ -1907,7 +1928,9 @@ const groupHistoryMap = computed(() => {
 // ─── 목록 뷰용: 회의록 + 보고서 파일만, 버전 그룹핑, 오래된순 ────
 function _toReportFileItem(r, managerName) {
   const baseName = r.file_name || '파일'
-  const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+  const isReference = r.human_status === 'approved' && r.score == null
+  const statusLabel = isReference ? '참고자료' : r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+  // isReference는 템플릿 뱃지 분기에도 사용
   return {
     type: 'report',
     desc: `${baseName} ${statusLabel}`,
@@ -1918,8 +1941,9 @@ function _toReportFileItem(r, managerName) {
     date: r.created_at || r.submitted_at,
     hasFile: !!(r.file_path || r.file_url),
     filePath: r.file_path || r.file_url || null,
+    isReference,
     rejected: r.human_status === 'rejected' || r.status === 'rejected',
-    approved: r.human_status === 'approved' || r.status === 'approved',
+    approved: !isReference && (r.human_status === 'approved' || r.status === 'approved'),
     pending: !r.human_status || r.human_status === 'pending',
     reportId: r.id,
     aiFeedback: r.ai_feedback || null,
@@ -2449,7 +2473,7 @@ provide('archiveSidebar', {
   groupHistoryMap, goToList, formatDate, formatDateOnly,
   detailTodos, groupedTodos, completeTodo, deleteTodo,
   extractPhase, extractLoading, extractResult,
-  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
+  selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   saveAgendaFeedback,
   detailMemberDepts,
