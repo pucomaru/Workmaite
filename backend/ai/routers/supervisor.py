@@ -7,7 +7,7 @@ from typing import List, Optional, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from sqlalchemy.orm import Session
 
 import models, schemas
@@ -31,6 +31,18 @@ from .prompts import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
+
+def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
+    result = []
+    for m in messages:
+        role, content = m.get("role", ""), m.get("content", "") or ""
+        if role == "user":
+            result.append(HumanMessage(content=content))
+        elif role in ("assistant", "agent"):
+            result.append(AIMessage(content=content))
+    return result
+
 
 
 # ─── Knowledge Base 요청 스키마 ───────────────────────────────────────────────
@@ -387,6 +399,23 @@ async def supervisor_chat(
 
     async def stream():
         print(f"DEBUG: stream() started, _route={_route!r}")
+        # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
+        _db_rows = (
+            db.query(models.ChatMessage)
+            .filter(
+                models.ChatMessage.thread_id == _thread_id,
+                models.ChatMessage.user_id == current_user.id,
+            )
+            .order_by(models.ChatMessage.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        _chat_history_from_db: list[dict] = [
+            {"role": m.role, "content": m.content or ""}
+            for m in reversed(_db_rows)
+        ]
+        logger.info(f"[supervisor_chat] chat_history_from_db: {_chat_history_from_db}")
+
         neo4j_ctx = {}
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
@@ -518,10 +547,12 @@ async def supervisor_chat(
                     )
 
                 _sup_llm = make_llm(temperature=0.2, streaming=True)
-                async for chunk in _sup_llm.astream([
-                    SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM),
-                    HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts))),
-                ]):
+                _history_msgs = _to_base_messages(_chat_history_from_db)
+                async for chunk in _sup_llm.astream(
+                    [SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM)]
+                    + _history_msgs
+                    + [HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts)))]
+                ):
                     if chunk.content:
                         _assistant_chunks.append(chunk.content)
                         yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
@@ -538,7 +569,7 @@ async def supervisor_chat(
             # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
             if _route == 'task_extractor':
                 gen = task_agent.chat_stream(
-                    message=msg, chat_history=data.chat_history or [],
+                    message=msg, chat_history=_chat_history_from_db,
                     previous_minutes=_get_previous_minutes(db, data.meeting_id),
                     knowledge=[],
                     departments=_get_member_departments(db, data.meeting_id),
@@ -550,14 +581,14 @@ async def supervisor_chat(
                     models.Agenda.status.in_(["ON_HOLD", "IN_PROGRESS"]),
                 ).all()
                 gen = minutes_agent.chat_stream(
-                    message=msg, chat_history=data.chat_history or [],
+                    message=msg, chat_history=_chat_history_from_db,
                     previous_minutes=_get_previous_minutes(db, data.meeting_id),
                     current_agendas=[{'content': a.title, 'status': a.status} for a in agendas],
                     meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
                 )
             else:  # report_reviewer
                 gen = report_agent.chat_stream(
-                    message=msg, chat_history=data.chat_history or [],
+                    message=msg, chat_history=_chat_history_from_db,
                     knowledge=[],
                     meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
                 )
