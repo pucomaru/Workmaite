@@ -78,7 +78,7 @@ let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0
 let _simDirty = true
 
 // highlight blink state
-let _hlBlinkVisible = true
+let _hlBlinkVisible = false
 let _blinkTimer = null
 function _startBlink() {
   clearInterval(_blinkTimer)
