@@ -381,6 +381,8 @@ async def delete_report(
             pass  # R2 삭제 실패해도 DB는 삭제
 
     # DB 삭제 (report_scores, hitl_reviews는 FK cascade 없으므로 직접 삭제)
+    # 자식 버전들의 parent_id를 삭제 대상의 parent로 재연결 (체인 유지, FK 제약 위반 방지)
+    db.query(models.Report).filter(models.Report.parent_id == report_id).update({"parent_id": report.parent_id})
     db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).delete()
     db.query(models.HitlReview).filter(
         models.HitlReview.target_type == "report",
