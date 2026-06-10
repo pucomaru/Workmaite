@@ -54,7 +54,7 @@ public class MeetingService {
     public List<MeetingResponse> getMeetings(Long userId, String keyword) {
         List<Meeting> all = (keyword != null && !keyword.isBlank())
                 ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword)
-                : meetingRepository.findByUserIdAndStatus(userId, MeetingStatus.ACTIVE);
+                : meetingRepository.findByUserId(userId);
 
         // Build role map for this user
         List<Long> meetingIds = all.stream().map(Meeting::getId).toList();
