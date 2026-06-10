@@ -1879,32 +1879,72 @@ const sortedGroups = computed(() => {
   })
 })
 
-// ─── 회의체별 전체 이력 (목록 탭) ────────────────────────────
+// ─── 사이드바 로그용: 회의록 + 보고서 + 과제, 최신순 ─────────────
 const groupHistoryMap = computed(() => {
   const map = new Map()
   meetingGroups.value.forEach(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const managerName = adminMember?.userName || adminMember?.name || '간사'
     const items = []
-    // 회의록
+    g.minutes.forEach(m => {
+      items.push({ type: 'minutes', desc: `${m.session_title || '회의'} 진행`, manager: managerName, date: m.ended_at })
+    })
+    g.reports.forEach(r => {
+      const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+      items.push({ type: 'report', desc: `${r.file_name || '파일'} ${statusLabel}`, manager: r.submitter_department || managerName, date: r.created_at || r.submitted_at })
+    })
+    const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
+    if (ongoingTasks.length > 0) {
+      const oldest = ongoingTasks.reduce((a, b) => (a.created_at || '') < (b.created_at || '') ? a : b)
+      items.push({ type: 'agenda', desc: `과제 ${ongoingTasks.length}개 등록`, manager: managerName, date: oldest.created_at || null })
+    }
+    items.sort((a, b) => (b.date ? new Date(b.date) : new Date(0)) - (a.date ? new Date(a.date) : new Date(0)))
+    map.set(g.id, items)
+  })
+  return map
+})
+
+// ─── 목록 뷰용: 회의록 + 보고서 파일만, 버전 그룹핑, 오래된순 ────
+function _toReportFileItem(r, managerName) {
+  const baseName = r.file_name || '파일'
+  const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
+  return {
+    type: 'report',
+    desc: `${baseName} ${statusLabel}`,
+    manager: r.submitter_department || managerName,
+    fileName: baseName + (r.version ? ` (v${r.version})` : ''),
+    score: r.score ?? null,
+    dept: r.submitter_department || null,
+    date: r.created_at || r.submitted_at,
+    hasFile: !!(r.file_path || r.file_url),
+    filePath: r.file_path || r.file_url || null,
+    rejected: r.human_status === 'rejected' || r.status === 'rejected',
+    approved: r.human_status === 'approved' || r.status === 'approved',
+    pending: !r.human_status || r.human_status === 'pending',
+    reportId: r.id,
+    aiFeedback: r.ai_feedback || null,
+  }
+}
+const fileListMap = computed(() => {
+  const map = new Map()
+  meetingGroups.value.forEach(g => {
+    const adminMember = g.members.find(m => m.role === 'admin')
+    const managerName = adminMember?.userName || adminMember?.name || '간사'
+    const items = []
     g.minutes.forEach(m => {
       const rawId = String(m.id || '')
       const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
-      const title = m.session_title || '회의'
       items.push({
         type: 'minutes',
-        desc: `${title} 진행`,
+        desc: `${m.session_title || '회의'} 진행`,
         manager: managerName,
         fileName: m.session_title || '회의록',
-        score: null,
-        dept: null,
+        score: null, dept: null,
         date: m.ended_at,
-        hasFile: true,
-        filePath: null,
+        hasFile: true, filePath: null,
         sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
-    // 보고서 — parent_id 기준으로 버전 그룹핑
     const rMap = {}
     g.reports.forEach(r => { rMap[r.id] = r })
     function getRootId(r) {
@@ -1917,66 +1957,20 @@ const groupHistoryMap = computed(() => {
       if (!rGroups[rootId]) rGroups[rootId] = []
       rGroups[rootId].push(r)
     })
-    const toReportItem = (r) => {
-      const baseName = r.file_name || '파일'
-      const statusLabel = r.human_status === 'approved' ? '승인' : r.human_status === 'rejected' ? '반려' : '검토 중'
-      return {
-        type: 'report',
-        desc: `${baseName} ${statusLabel}`,
-        manager: r.submitter_department || managerName,
-        fileName: baseName + (r.version ? ` (v${r.version})` : ''),
-        score: r.score ?? null,
-        dept: r.submitter_department || null,
-        date: r.created_at || r.submitted_at,
-        hasFile: !!(r.file_path || r.file_url),
-        filePath: r.file_path || r.file_url || null,
-        rejected: r.human_status === 'rejected' || r.status === 'rejected',
-        approved: r.human_status === 'approved' || r.status === 'approved',
-        pending: !r.human_status || r.human_status === 'pending',
-        reportId: r.id,
-        aiFeedback: r.ai_feedback || null,
-      }
-    }
     Object.values(rGroups).forEach(group => {
       group.sort((a, b) => (b.version || 1) - (a.version || 1))
-      const latest = group[0]
-      const older = group.slice(1)
-      items.push({
-        ...toReportItem(latest),
-        olderVersions: older.slice().reverse().map(toReportItem),
-      })
+      items.push({ ..._toReportFileItem(group[0], managerName), olderVersions: group.slice(1).reverse().map(r => _toReportFileItem(r, managerName)) })
     })
-    // 과제 생성 이벤트 (tasks가 있을 때 가장 오래된 날짜 기준 1건으로 표시)
-    const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
-    if (ongoingTasks.length > 0) {
-      const oldest = ongoingTasks.reduce((a, b) => (a.created_at || '') < (b.created_at || '') ? a : b)
-      items.push({
-        type: 'agenda',
-        desc: `과제 ${ongoingTasks.length}개 등록`,
-        manager: managerName,
-        fileName: null,
-        score: null,
-        dept: null,
-        date: oldest.created_at || null,
-        hasFile: false,
-        filePath: null,
-      })
-    }
-
-    items.sort((a, b) => {
-      const da = a.date ? new Date(a.date) : new Date(0)
-      const db = b.date ? new Date(b.date) : new Date(0)
-      return db - da
-    })
+    items.sort((a, b) => (a.date ? new Date(a.date) : new Date(0)) - (b.date ? new Date(b.date) : new Date(0)))
     map.set(g.id, items)
   })
   return map
 })
 
-const filteredGroupHistoryMap = computed(() => {
-  if (!selectedHistoryType.value) return groupHistoryMap.value
+const filteredFileListMap = computed(() => {
+  if (!selectedHistoryType.value) return fileListMap.value
   const map = new Map()
-  groupHistoryMap.value.forEach((items, id) => {
+  fileListMap.value.forEach((items, id) => {
     map.set(id, items.filter(item => item.type === selectedHistoryType.value))
   })
   return map
@@ -2204,7 +2198,7 @@ provide('archiveList', {
   search, filteredGroups, sortedGroups,
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
-  expandedMeeting, meetingsStore, filteredGroupHistoryMap,
+  expandedMeeting, meetingsStore, filteredGroupHistoryMap: filteredFileListMap,
   formatDate, downloadDummy: downloadFile, deleteReport, resumePendingReport,
 })
 
