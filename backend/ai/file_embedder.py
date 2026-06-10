@@ -242,6 +242,7 @@ SET c.content     = $content,
     c.source      = $source,
     c.meeting_id  = $meeting_id,
     c.chunk_index = $chunk_index
+WITH c
 CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
 """
         params: dict = {
