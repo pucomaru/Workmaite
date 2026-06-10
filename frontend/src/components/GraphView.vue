@@ -328,8 +328,8 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
   }
 
-  // Todo progress arc (Meetings)
-  const ratio = type === 'Meetings'
+  // Todo progress arc (Meetings, 진행 중인 회의체만)
+  const ratio = (type === 'Meetings' && !node.ended)
     ? (props.groupTodoRatio?.get(node.data?.id ?? node.id) ?? null)
     : null
   if (ratio != null && ratio > 0) {

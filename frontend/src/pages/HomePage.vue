@@ -14,6 +14,7 @@ const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 const calendarEvents = ref([])
+const upcomingSessionsList = ref([])
 const showCreateModal = ref(false)
 const form = ref({ title: '', purpose: '', start_date: '', end_date: '' })
 const memberSearch = ref('')
@@ -152,6 +153,16 @@ onMounted(async () => {
         }))
       }).catch(() => {}),
 
+    api.get('/api/v1/me/sessions')
+      .then(res => {
+        upcomingSessionsList.value = (res.data ?? []).map(s => ({
+          ...s,
+          id: s.sessionId,
+          date: s.scheduledAt?.slice(0, 10),
+          meeting_title: s.meetingTitle,
+        }))
+      }).catch(() => {}),
+
     hydrateMeetingMeta(),
 
     Promise.all(
@@ -176,18 +187,18 @@ async function hydrateMeetingMeta() {
   try {
     const { data: activeMeetingsData } = await api.get('/api/v1/me/meetings')
     ;(activeMeetingsData ?? []).forEach(r => {
-      adminMap[r.meetingId] = r.adminName || '-'
+      adminMap[r.meetingId] = { adminName: r.adminName || '-', memberCount: r.memberCount ?? 0 }
     })
   } catch {}
 
   // 담당자를 즉시 반영 (아젠다 로드를 기다리지 않음)
   const initial = {}
   active.forEach(m => {
-    initial[m.id] = { owner_name: adminMap[m.id] ?? '-', due_date: null, priority: m.priority ?? 'normal' }
+    initial[m.id] = { owner_name: adminMap[m.id]?.adminName ?? '-', member_count: adminMap[m.id]?.memberCount ?? 0, due_date: null }
   })
   meetingMeta.value = initial
 
-  // 아젠다 기반 마감일·우선순위: 준비되는 즉시 개별 업데이트
+  // 아젠다 기반 마감일: 준비되는 즉시 개별 업데이트
   await Promise.all(
     active.map(async (m) => {
       try {
@@ -205,7 +216,6 @@ async function hydrateMeetingMeta() {
           [m.id]: {
             ...meetingMeta.value[m.id],
             due_date: topAgenda?.due_date || null,
-            priority: topAgenda?.priority || m.priority || 'normal',
           },
         }
       } catch {}
@@ -297,8 +307,8 @@ const displayActiveMeetings = computed(() =>
   activeMeetings.value.map(m => ({
     ...m,
     owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '-',
-    due_date: meetingMeta.value[m.id]?.due_date ?? null,
-    priority: meetingMeta.value[m.id]?.priority ?? m.priority ?? 'normal',
+    member_count: meetingMeta.value[m.id]?.member_count ?? 0,
+    role: meetingRoles.value[m.id] ?? null,
   }))
 )
 
@@ -306,23 +316,22 @@ const displayActiveMeetings = computed(() =>
 const sessionColumns = [
   { label: '회의명', sortKey: 'title' },
   { label: '회의체', sortKey: 'meeting_title' },
+  { label: '장소', width: '110px', sortKey: 'location' },
   { label: '날짜', width: '110px', sortKey: 'date' },
   { label: 'D-day', width: '80px', sortKey: 'date' },
 ]
 
 const meetingColumns = [
   { label: '회의체명', sortKey: 'title' },
-  { label: '유형', width: '90px', sortKey: 'meeting_type' },
-  { label: '담당자', width: '90px', sortKey: 'owner_name' },
-  { label: '마감일', width: '110px', sortKey: 'due_date' },
+  { label: '유형', width: '80px', sortKey: 'meeting_type' },
+  { label: '역할', width: '70px' },
+  { label: '간사', width: '90px', sortKey: 'owner_name' },
+  { label: '참여자', width: '70px', sortKey: 'member_count' },
 ]
 
-const upcomingSessions = computed(() => {
-  const todayStr = fmtISO(new Date())
-  return calendarEvents.value
-    .filter(e => e.type === 'session' && e.date >= todayStr)
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-})
+const upcomingSessions = computed(() =>
+  [...upcomingSessionsList.value].sort((a, b) => new Date(a.date) - new Date(b.date))
+)
 
 // ── 정렬 ──────────────────────────────────────────
 const sessionSortKey = ref(null)
@@ -358,6 +367,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
       <tr v-for="s in sortedSessions" :key="s.id" style="cursor:pointer">
         <td><div class="fw-semibold">{{ s.title }}</div></td>
         <td class="text-muted">{{ s.meeting_title || '-' }}</td>
+        <td class="text-muted">{{ s.location || '-' }}</td>
         <td>{{ formatDate(s.date) }}</td>
         <td>
           <span class="upcoming-dday"
@@ -385,20 +395,21 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
             <div class="fw-semibold">{{ m.title }}</div>
           </td>
           <td>
-            <span class="type-badge">{{ m.meeting_type || 'Weekly' }}</span>
+            <span class="type-badge"
+              :class="{
+                'type-badge-weekly':    m.meeting_type?.toLowerCase().includes('weekly'),
+                'type-badge-monthly':   m.meeting_type?.toLowerCase().includes('monthly'),
+                'type-badge-quarterly': m.meeting_type?.toLowerCase().includes('quarterly'),
+                'type-badge-default':   !m.meeting_type || (!m.meeting_type?.toLowerCase().includes('weekly') && !m.meeting_type?.toLowerCase().includes('monthly') && !m.meeting_type?.toLowerCase().includes('quarterly')),
+              }">{{ m.meeting_type || '-' }}</span>
+          </td>
+          <td>
+            <span class="role-badge" :class="m.role === 'admin' ? 'role-admin' : 'role-member'">
+              {{ m.role === 'admin' ? '간사' : '참여자' }}
+            </span>
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
-          <td>
-            <span v-if="(m.due_date || m.end_date)" style="color:var(--dark-card)">
-              {{ formatDate(m.due_date || m.end_date) }}
-            </span>
-            <span v-else class="text-muted">-</span>
-          </td>
-          <td>
-            <span v-if="m.priority === 'high'" class="priority-indicator high">▲ 상</span>
-            <span v-else-if="m.priority === 'low'" class="priority-indicator low">▼ 하</span>
-            <span v-else class="priority-indicator mid">— 중</span>
-          </td>
+          <td class="text-muted">{{ m.member_count }}명</td>
         </tr>
       </AppTable>
     </div>
@@ -604,7 +615,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 
 /* ── 달력 ──────────────────────────────────────────────────── */
 .cal-card { display: flex; flex-direction: column; }
-.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; font-size: 11px;}
+.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; font-size: 11px;}
 .cal-title { font-size: 13px; font-weight: 600; flex: 1; text-align: center; white-space: nowrap; }
 .cal-nav { display: flex; align-items: center; gap: 4px; }
 .nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 16px; color: var(--text-muted); cursor: pointer;  line-height: 1; }
@@ -661,12 +672,15 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .upcoming-dday { font-size: 12px; font-weight: 700; }
 .upcoming-dday.dday-urgent { color: #d97706; }
 .upcoming-dday.dday-normal { color: var(--text-muted); }
-.priority-indicator { font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; }
-.priority-indicator.high { color: #dc2626; }
-.priority-indicator.mid  { color: #d97706; }
-.priority-indicator.low  { color: #2563eb; }
 /* 유형 텍스트 (배지 없음) */
-.type-badge { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.type-badge { font-size: 11px; font-weight: 600; }
+.type-badge-weekly    { color: #3b82f6; }
+.type-badge-monthly   { color: #8b5cf6; }
+.type-badge-quarterly { color: #f59e0b; }
+.type-badge-default   { color: var(--accent); }
+.role-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+.role-admin  { background: rgba(59,130,246,.15); color: #3b82f6; }
+.role-member { background: rgba(100,116,139,.12); color: var(--text-muted); }
 .evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }

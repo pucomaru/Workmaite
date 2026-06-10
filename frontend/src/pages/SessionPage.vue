@@ -134,9 +134,7 @@ async function enterSession(s) {
       if (data && data.length) {
         const lines = data.map(seg => ({
           id: seg.id,
-          time: seg.createdAt
-            ? new Date(seg.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : '--:--:--',
+          time: utcToKst(seg.createdAt),
           speaker: seg.speakerLabel,
           text: seg.content,
         }))
@@ -221,22 +219,27 @@ function getOrCreateRecord(id) {
   return sessionRecords.value.get(id)
 }
 
-// 스피커 레이블
+// 스피커 레이블 — 발화 등장 순서 기반으로 A/B/C... 동적 할당
 const SPEAKER_COLORS = ['#60a5fa','#f59e0b','#34d399','#f472b6','#a78bfa','#fb923c']
-function speakerColorByIdx(idx) { return SPEAKER_COLORS[(idx ?? 0) % SPEAKER_COLORS.length] }
-function speakerColor(raw) {
-  if (!raw) return '#94a3b8'
-  const m = raw.match(/(\d+)$/)
-  return speakerColorByIdx(m ? parseInt(m[1]) : raw.charCodeAt(0) - 65)
-}
-function speakerDisplay(raw) {
-  if (!raw) return ''
-  const m = raw.match(/(\d+)$/)
-  return m ? String.fromCharCode(65 + parseInt(m[1])) : raw  // SPEAKER_0→A, SPEAKER_1→B
-}
 
-function nowTime() {
-  return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const speakerMap = computed(() => {
+  const map = new Map()
+  for (const line of transcriptLines.value) {
+    if (line.speaker && !map.has(line.speaker)) map.set(line.speaker, map.size)
+  }
+  return map
+})
+
+function speakerIdx(raw) { return speakerMap.value.get(raw) ?? 0 }
+function speakerColor(raw) { return raw ? SPEAKER_COLORS[speakerIdx(raw) % SPEAKER_COLORS.length] : '#94a3b8' }
+
+const KST = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' }
+function nowTime() { return new Date().toLocaleTimeString('ko-KR', KST) }
+function utcToKst(str) {
+  if (!str) return '--:--:--'
+  // Spring Boot LocalDateTime은 Z 없이 오므로 UTC임을 명시
+  const iso = str.endsWith('Z') || str.includes('+') ? str : str + 'Z'
+  return new Date(iso).toLocaleTimeString('ko-KR', KST)
 }
 
 function _pushLine(time, text, speaker = null, id = null) {
@@ -722,7 +725,7 @@ const showPastDateAlert = ref(false)
 
 // ─── Session edit modal ───────────────────────────────────────
 const showEditSession = ref(false)
-const editSessionForm = ref({ id: null, meetingId: null, title: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
+const editSessionForm = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
 const editSessionMembers = ref([])
 const editingSession = ref(false)
 
@@ -732,6 +735,7 @@ async function openEditSession(s, e) {
     id: s.id,
     meetingId: s.meeting_id,
     title: s.title,
+    location: s.location || '',
     dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
     timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
     type: s.type || 'localwhisper',
@@ -758,6 +762,7 @@ async function doEditSession() {
     const { id, meetingId } = editSessionForm.value
     await api.patch(`/api/v1/sessions/${id}`, {
       title: editSessionForm.value.title,
+      location: editSessionForm.value.location || null,
       scheduled_at: editSessionForm.value.dateOnly ? `${editSessionForm.value.dateOnly}T${editSessionForm.value.timeOnly || '00:00'}:00` : null,
       type: editSessionForm.value.type,
       attendees: editSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
@@ -774,19 +779,19 @@ async function doEditSession() {
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' })
+const createSessionForm = ref({ title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' })
 const createSessionMembers = ref([])
 const creatingSessionForm = ref(false)
 
 function openCreateSession() {
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
+  createSessionForm.value = { title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
   showCreateSession.value = true
 }
 function closeCreateSession() {
   showCreateSession.value = false
-  createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
+  createSessionForm.value = { title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
   createSessionMembers.value = []
   showPastDateAlert.value = false
 }
@@ -802,6 +807,7 @@ async function doCreateSessionForm() {
     const meetingId = createSessionForm.value.meetingId
     await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
       title: createSessionForm.value.title,
+      location: createSessionForm.value.location || null,
       scheduled_at: createSessionForm.value.dateOnly ? `${createSessionForm.value.dateOnly}T${createSessionForm.value.timeOnly || '00:00'}:00` : null,
       type: createSessionForm.value.type,
       attendees: createSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
@@ -942,6 +948,9 @@ async function downloadMinutesFile() {
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
                 <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
+                <div v-if="s.location" class="sp-session-location">
+                  <i class="bi bi-geo-alt"></i> {{ s.location }}
+                </div>
               </div>
               <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -969,7 +978,12 @@ async function downloadMinutesFile() {
         <!-- Panel header: title + tabs -->
         <div class="sp-panel-header">
           <div class="sp-panel-title-row">
-            <div class="sp-panel-title">{{ activeSession.title }}</div>
+            <div class="sp-panel-title-group">
+              <div class="sp-panel-title">{{ activeSession.title }}</div>
+              <div v-if="activeSession.location" class="sp-panel-location">
+                <i class="bi bi-geo-alt"></i> {{ activeSession.location }}
+              </div>
+            </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
               <i class="bi bi-record-fill"></i>
               {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
@@ -1013,13 +1027,15 @@ async function downloadMinutesFile() {
                 </div>
               </div>
               <!-- 일반 모드 -->
-              <div v-else class="tline" @mouseenter="line._hover=true" @mouseleave="line._hover=false">
+              <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
-                <span class="tline-text">{{ line.text }}</span>
-                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
-                  <i class="bi bi-pencil"></i>
-                </button>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
+                <span class="tline-body">
+                  <span class="tline-text">{{ line.text }}</span>
+                  <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                </span>
               </div>
             </template>
           </template>
@@ -1041,11 +1057,13 @@ async function downloadMinutesFile() {
               </div>
               <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
-                <span class="tline-text">{{ line.text }}</span>
-                <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
-                  <i class="bi bi-pencil"></i>
-                </button>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
+                <span class="tline-body">
+                  <span class="tline-text">{{ line.text }}</span>
+                  <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                </span>
               </div>
             </template>
           </template>
@@ -1344,6 +1362,10 @@ async function downloadMinutesFile() {
             <input v-model="editSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
           </div>
           <div class="app-modal-field">
+            <label>장소</label>
+            <input v-model="editSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
+          </div>
+          <div class="app-modal-field">
             <label>회의 날짜</label>
             <div class="datetime-split-input">
               <input type="date" v-model="editSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
@@ -1387,6 +1409,10 @@ async function downloadMinutesFile() {
           <div class="app-modal-field">
             <label>회의명 <span style="color:#ef4444">*</span></label>
             <input v-model="createSessionForm.title" class="app-modal-input" placeholder="예: 2025 전략 수립 1차" />
+          </div>
+          <div class="app-modal-field">
+            <label>장소</label>
+            <input v-model="createSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
           </div>
           <div class="app-modal-field">
             <label>회의 날짜</label>
@@ -1467,6 +1493,7 @@ async function downloadMinutesFile() {
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
+.sp-session-location { font-size:10px;color:var(--text-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
@@ -1487,7 +1514,9 @@ async function downloadMinutesFile() {
 .sp-panel { display:flex;flex-direction:column;height:100%;overflow:visible;border-radius:0 !important; }
 .sp-panel-header { display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0;gap:12px; }
 .sp-panel-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
+.sp-panel-title-group { display:flex;flex-direction:column;min-width:0;flex:1; }
 .sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-panel-location { font-size:11px;color:var(--text-muted);margin-top:1px; }
 .rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 

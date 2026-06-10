@@ -20,7 +20,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       const mgIdx = nodes.length
       nodes.push({
         id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'Meetings',
-        data: g, groupIdx: gi, neo4jId: mgNodeId,
+        data: g, groupIdx: gi, neo4jId: g.id || null,
         ended: g.status === 'ended',
       })
       // meetingGroup -[포함]→ org-node (조직 소속)

@@ -91,8 +91,12 @@ public class MeetingService {
                         (first, second) -> first
                 ));
 
+        List<MeetingMember> allMembers = meetingMemberRepository.findByMeetingIdIn(meetingIds);
+        Map<Long, Long> memberCountMap = allMembers.stream()
+                .collect(Collectors.groupingBy(MeetingMember::getMeetingId, Collectors.counting()));
+
         return meetings.stream()
-                .map(m -> ActiveMeetingResponse.from(m, adminNameMap.get(m.getId())))
+                .map(m -> ActiveMeetingResponse.from(m, adminNameMap.get(m.getId()), memberCountMap.getOrDefault(m.getId(), 0L).intValue()))
                 .toList();
     }
 

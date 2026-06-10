@@ -197,7 +197,7 @@ async def transcribe(
                         continue
                     db.add(SttSegment(
                         session_id    = session_id,
-                        speaker_label = f"SPEAKER_{seg.get('speaker', '0')}",
+                        speaker_label = f"화자_{seg.get('speaker', '0')}",
                         content       = seg["text"],
                         start_sec     = seg.get("start", 0),
                         end_sec       = seg.get("end", 0),
@@ -205,7 +205,7 @@ async def transcribe(
             elif full_text.strip():
                 db.add(SttSegment(
                     session_id    = session_id,
-                    speaker_label = "SPEAKER_0",
+                    speaker_label = "화자_0",
                     content       = full_text.strip(),
                     start_sec     = 0,
                     end_sec       = 0,
