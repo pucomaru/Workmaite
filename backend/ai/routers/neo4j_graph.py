@@ -477,15 +477,15 @@ async def get_archive(
                 "version": r.version,
                 "parent_id": r.parent_id,
                 "submitter_department": r.submitter_department,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "reviewed_at": hr.reviewed_at.isoformat() if hr and hr.reviewed_at else None,
+                "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
+                "reviewed_at": hr.reviewed_at.isoformat() + 'Z' if hr and hr.reviewed_at else None,
                 "related_agenda_ids": r.related_agenda_ids or [],
                 "ai_status": rs.ai_status if rs else None,
                 "score": rs.total_score if rs else None,
                 "total_score": rs.total_score if rs else None,
                 "detail_scores": rs.detail_scores if rs else None,
                 "feedback": rs.feedback if rs else None,
-                "score_created_at": rs.created_at.isoformat() if rs and rs.created_at else None,
+                "score_created_at": rs.created_at.isoformat() + 'Z' if rs and rs.created_at else None,
             })
 
     # ── Postgres 보완: meeting_sessions + minutes 데이터로 session 정보 채움 ──
@@ -506,14 +506,14 @@ async def get_archive(
                 "description":      s.description or "",
                 "location":         s.location or "",
                 "session_type":     str(s.type) if s.type else "",
-                "date":             s.scheduled_at.isoformat() if s.scheduled_at else "",
-                "started_at":       s.started_at.isoformat() if s.started_at else "",
-                "ended_at":         s.ended_at.isoformat() if s.ended_at else "",
+                "date":             s.scheduled_at.isoformat() + 'Z' if s.scheduled_at else "",
+                "started_at":       s.started_at.isoformat() + 'Z' if s.started_at else "",
+                "ended_at":         s.ended_at.isoformat() + 'Z' if s.ended_at else "",
                 "session_status":   s.status or "",
                 "content_summary":  mn.content_summary if mn else "",
                 "minutes_file_name": mn.file_name if mn else "",
                 "minutes_status":   mn.status if mn else "",
-                "generated_at":     mn.generated_at.isoformat() if mn and mn.generated_at else "",
+                "generated_at":     mn.generated_at.isoformat() + 'Z' if mn and mn.generated_at else "",
             }
         for mg_data in meetings_map.values():
             for sess in mg_data.get("minutes", []):
