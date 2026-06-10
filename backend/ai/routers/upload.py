@@ -398,6 +398,19 @@ async def delete_report(
         except Exception as e:
             pass  # R2 삭제 실패해도 DB는 삭제
 
+    # approved 보고서 삭제 시 연결 아젠다 되돌리기 준비
+    was_approved = report.human_status == "approved"
+    agenda_ids_to_check = []
+    if was_approved:
+        import re as _re
+        def _to_pg_id(v):
+            s = str(v)
+            if s.isdigit(): return int(s)
+            m = _re.search(r'\d+$', s)
+            return int(m.group()) if m else None
+        agenda_ids_to_check = [pid for i in (report.related_agenda_ids or [])
+                               if (pid := _to_pg_id(i)) is not None]
+
     # DB 삭제 (report_scores, hitl_reviews는 FK cascade 없으므로 직접 삭제)
     # 자식 버전들의 parent_id를 삭제 대상의 parent로 재연결 (체인 유지, FK 제약 위반 방지)
     db.query(models.Report).filter(models.Report.parent_id == report_id).update({"parent_id": report.parent_id})
@@ -407,6 +420,23 @@ async def delete_report(
         models.HitlReview.target_id == report_id,
     ).delete()
     db.delete(report)
+    db.flush()
+
+    # 삭제 후 approved 보고서가 없는 아젠다를 ongoing으로 되돌리기
+    from sqlalchemy import cast as _cast, text as _text
+    from sqlalchemy.dialects.postgresql import JSONB as _JSONB
+    for ag_id in agenda_ids_to_check:
+        still_approved = db.query(models.Report).filter(
+            models.Report.id != report_id,
+            models.Report.human_status == "approved",
+            _cast(models.Report.related_agenda_ids, _JSONB).op('@>')(_cast([ag_id], _JSONB)),
+        ).first()
+        if not still_approved:
+            db.query(models.Agenda).filter(
+                models.Agenda.id == ag_id,
+                models.Agenda.status == "done",
+            ).update({"status": "ongoing"}, synchronize_session=False)
+
     db.commit()
     return {"status": "ok"}
 
