@@ -4,6 +4,7 @@ import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
 import DateInput from './DateInput.vue'
+import AgendaReviewList from './AgendaReviewList.vue'
 
 const {
   detailOpen, sidebarW, onSidebarResizeStart,
@@ -15,7 +16,6 @@ const {
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
-  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
@@ -253,11 +253,11 @@ const sbTopImprovements = computed(() => {
             <!-- ── 과제추출 탭 ── -->
             <template v-if="detailTab==='extract'">
 
-                <!-- 프로세스 인디케이터: 초안이 없을 때만 표시 -->
-                <div class="task-process-bar" v-if="!extractResult.length && !extractLoading">
+                <!-- 프로세스 인디케이터: 항상 표시 -->
+                <div class="task-process-bar">
                   <ProcessStepBar
                     :steps="['자료선정', '추출']"
-                    :current-step="0"
+                    :current-step="extractResult.length || extractLoading ? 1 : 0"
                     @step-click="() => {}"
                   />
                 </div>
@@ -317,57 +317,14 @@ const sbTopImprovements = computed(() => {
                     <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
                     <template v-else>
                       <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
-                      <div class="detail-extract-list">
-                        <template v-for="(ag, i) in extractResult" :key="i">
-                          <div class="detail-extract-item" :class="{ 'ei-approved': ag._state==='approved', 'ei-rejected': ag._state==='rejected' }">
-                            <div class="dei-num">{{ i+1 }}</div>
-                            <div class="dei-body">
-                              <template v-if="!ag._editing">
-                                <div class="dei-title dei-title-bold">{{ ag.title }}</div>
-                                <div class="dei-meta" v-if="ag.department">{{ Array.isArray(ag.department) ? ag.department.join(', ') : ag.department }}</div>
-                                <div class="dei-dates" v-if="ag.start_date || ag.due_date">
-                                  <div v-if="ag.start_date">시작 {{ ag.start_date }}</div>
-                                  <div v-if="ag.due_date">마감 {{ ag.due_date }}</div>
-                                </div>
-                              </template>
-                              <template v-else>
-                                <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" />
-                                <select class="app-select dei-app-select" v-model="ag._editDept" style="margin-top:4px;width:100%">
-                                  <option value="">담당부서 선택</option>
-                                  <option v-for="d in detailMemberDepts" :key="d" :value="d">{{ d }}</option>
-                                </select>
-                                <div class="dei-date-row">
-                                  <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
-                                  <DateInput class="dei-input dei-date-input" v-model="ag._editDueDate" />
-                                </div>
-                              </template>
-                            </div>
-                            <div class="dei-actions">
-                              <template v-if="!ag._editing">
-                                <button class="gm-ei-btn gm-ei-edit" @click="ag._editTitle=ag.title; ag._editDept=ag.department; ag._editStartDate=ag.start_date; ag._editDueDate=ag.due_date; ag._editing=true"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-approve" @click="ag._feedbackVisible=true; ag._feedbackAction='approved'; ag._feedbackText=''" title="등록"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-reject" @click="ag._feedbackVisible=true; ag._feedbackAction='rejected'; ag._feedbackText=''" title="삭제"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                              </template>
-                              <template v-else>
-                                <button class="gm-ei-btn gm-ei-save" @click="ag.title=ag._editTitle; ag.department=ag._editDept; ag.start_date=ag._editStartDate; ag.due_date=ag._editDueDate; ag._editing=false; ag.db_id ? (ag._feedbackVisible=true, ag._feedbackAction='edited', ag._feedbackText='') : approveItem(i)" title="저장"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></button>
-                                <button class="gm-ei-btn gm-ei-cancel-edit" @click="ag._editing=false; if(!ag.title) rejectItem(i)" title="취소"><svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-                              </template>
-                            </div>
-                          </div>
-                          <!-- 피드백 박스 -->
-                          <div v-if="ag._feedbackVisible" class="dei-feedback-box">
-                            <div class="dei-feedback-label">
-                              <span class="dei-feedback-tag" :class="ag._feedbackAction==='rejected' ? 'tag-rejected' : 'tag-edited'">{{ ag._feedbackAction==='rejected' ? '반려' : ag._feedbackAction==='approved' ? '등록' : '수정' }}</span>
-                              사유 입력 (선택)
-                            </div>
-                            <textarea v-model="ag._feedbackText" class="dei-feedback-input" placeholder="피드백을 남겨주세요 (선택)" rows="2" />
-                            <div class="dei-feedback-btns">
-                              <button class="dei-fb-skip" @click="ag._feedbackVisible=false">취소</button>
-                              <button class="dei-fb-submit" @click="saveAgendaFeedback(ag, i)">저장</button>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
+                      <AgendaReviewList
+                        :items="extractResult"
+                        :memberDepts="detailMemberDepts"
+                        :removeOnApprove="true"
+                        @approved="approveItem"
+                        @rejected="rejectItem"
+                        @remove="rejectItem"
+                      />
                     </template>
 
                 </template><!-- /추출 결과 -->

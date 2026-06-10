@@ -616,13 +616,15 @@ async function _restoreDrafts(meetingId) {
     if (drafts && drafts.length) {
       extractResult.value = drafts.map(ag => ({
         ...ag,
+        dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        end_date: ag.due_date || '',
         _state: null, _editing: false,
         _editTitle: ag.title,
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
-        _editDueDate: ag.due_date || '',
+        _editEndDate: ag.due_date || '',
         _agentLogId: null,
-        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
+        _showReason: false, _feedbackAction: '', _reason: '',
       }))
     } else {
       extractResult.value = []
@@ -637,50 +639,15 @@ watch(detailTab, async (tab) => {
   }
 })
 
-async function saveAgendaFeedback(ag, i) {
-  if (ag.db_id) {
-    try {
-      await apiAI.post('/api/agent/hitl-reviews', {
-        target_type: 'agenda',
-        target_id: ag.db_id,
-        agent_log_id: ag._agentLogId || null,
-        status: ag._feedbackAction || 'edited',
-        review_prompt: {
-          agenda: ag._origTitle ?? ag.title,
-          department: ag._origDept ?? ag.department ?? null,
-          start_date: ag._origStartDate ?? ag.start_date ?? null,
-          end_date: ag._origEndDate ?? ag.due_date ?? null,
-        },
-        review_comment: {
-          agenda: ag.title,
-          department: ag.department ?? null,
-          start_date: ag.start_date ?? null,
-          end_date: ag.due_date ?? null,
-          comment: ag._feedbackText || null,
-        },
-      })
-    } catch (e) { console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e) }
-  }
-  ag._feedbackVisible = false
-  ag._feedbackText = ''
-
-  const idx = i ?? extractResult.value.indexOf(ag)
-  if (ag._feedbackAction === 'rejected') {
-    await rejectItem(idx)
-  } else {
-    await approveItem(idx)
-  }
-}
-
 // 추출 결과를 채팅 메시지 형식으로 포맷
 function _formatExtractForChat(agendas) {
   if (!agendas.length) return '추출된 과제가 없습니다. 회의록이나 자료를 추가 후 다시 시도해주세요.'
   const lines = [`${agendas.length}개 과제를 추출했습니다. 수정이 필요하면 말씀해 주세요.\n`]
   agendas.forEach((ag, i) => {
     lines.push(`**${i + 1}. ${ag.title}**`)
-    const dates = [ag.start_date && `시작 ${ag.start_date}`, ag.due_date && `마감 ${ag.due_date}`].filter(Boolean)
+    const dates = [ag.start_date && `시작 ${ag.start_date}`, ag.end_date && `마감 ${ag.end_date}`].filter(Boolean)
     if (dates.length) lines.push(`  ${dates.join(' · ')}`)
-    if (ag.department) lines.push(`  담당: ${ag.department}`)
+    if (ag.dept) lines.push(`  담당: ${ag.dept}`)
     lines.push('')
   })
   return lines.join('\n').trim()
@@ -739,15 +706,17 @@ async function runExtract() {
       const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
+        dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
+        end_date: ag.due_date || '',
         _state: null,
         _editing: false,
         _editTitle: ag.title,
         _editStartDate: ag.start_date || '',
-        _editDueDate: ag.due_date || '',
+        _editEndDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         db_id: ag.db_id || null,
         _agentLogId: agentLogId,
-        _feedbackVisible: false, _feedbackAction: '', _feedbackText: '',
+        _showReason: false, _feedbackAction: '', _reason: '',
       }))
       // 실제 추출 결과를 채팅에 표시
       agentMsg.content = _formatExtractForChat(extractResult.value)
@@ -781,7 +750,7 @@ async function openExtractModal() {
       meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
-    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editDueDate: ag.due_date || '' }))
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
   } catch {
     extractResult.value = [
       { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
@@ -793,7 +762,7 @@ function setExtractState(i, state) {
   extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
 }
 function addExtractItem() {
-  extractResult.value.push({ title: '', department: '', db_id: null, _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editDueDate: '', _feedbackVisible: false, _feedbackAction: '', _feedbackText: '' })
+  extractResult.value.push({ title: '', dept: '', db_id: null, start_date: '', end_date: '', _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editEndDate: '', _agentLogId: null, _showReason: false, _feedbackAction: '', _reason: '' })
 }
 
 async function approveItem(i) {
@@ -805,9 +774,9 @@ async function approveItem(i) {
       approved: [{
         db_id: ag.db_id || null,
         title: ag.title,
-        dept: Array.isArray(ag.department) ? ag.department[0] : (ag.department || null),
+        dept: Array.isArray(ag.dept) ? ag.dept[0] : (ag.dept || null),
         start_date: ag.start_date || null,
-        due_date: ag.due_date || null,
+        due_date: ag.end_date || null,
       }],
       rejected_ids: [],
     })
@@ -842,8 +811,8 @@ async function finishExtract() {
       meeting_id: toNumericId(detailMeeting.value.id),
       approved: approved.map(a => ({
         db_id: a.db_id,
-        dept: a.department || null,
-        due_date: a.due_date || null,
+        dept: a.dept || null,
+        due_date: a.end_date || null,
       })),
       rejected_ids: rejected.map(a => a.db_id),
     })
@@ -2431,7 +2400,6 @@ provide('archiveSidebar', {
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
-  saveAgendaFeedback,
   detailMemberDepts,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
