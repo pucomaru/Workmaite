@@ -352,18 +352,10 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
             <div class="fw-semibold">{{ m.title }}</div>
           </td>
           <td>
-            <span class="type-badge"
-              :class="{
-                'type-badge-weekly':    m.meeting_type?.toLowerCase().includes('weekly'),
-                'type-badge-monthly':   m.meeting_type?.toLowerCase().includes('monthly'),
-                'type-badge-quarterly': m.meeting_type?.toLowerCase().includes('quarterly'),
-                'type-badge-default':   !m.meeting_type || (!m.meeting_type?.toLowerCase().includes('weekly') && !m.meeting_type?.toLowerCase().includes('monthly') && !m.meeting_type?.toLowerCase().includes('quarterly')),
-              }">{{ m.meeting_type || '-' }}</span>
+            <span class="text-muted" style="font-size:12px;">{{ m.meeting_type || '-' }}</span>
           </td>
           <td>
-            <span class="role-badge" :class="m.role === 'admin' ? 'role-admin' : 'role-member'">
-              {{ m.role === 'admin' ? '간사' : '참여자' }}
-            </span>
+            <span class="text-muted" style="font-size:12px;">{{ m.role === 'admin' ? '간사' : '참여자' }}</span>
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td class="text-muted">{{ m.member_count }}명</td>
@@ -596,18 +588,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 
 /* 우선순위 배지 */
 .section-count { font-size: 13px; font-weight: 500; color: var(--text-muted); }
-.upcoming-dday { font-size: 12px; font-weight: 700; }
-.upcoming-dday.dday-urgent { color: #d97706; }
-.upcoming-dday.dday-normal { color: var(--text-muted); }
-/* 유형 텍스트 (배지 없음) */
-.type-badge { font-size: 11px; font-weight: 600; }
-.type-badge-weekly    { color: #3b82f6; }
-.type-badge-monthly   { color: #8b5cf6; }
-.type-badge-quarterly { color: #f59e0b; }
-.type-badge-default   { color: var(--accent); }
-.role-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
-.role-admin  { background: rgba(59,130,246,.15); color: #3b82f6; }
-.role-member { background: rgba(100,116,139,.12); color: var(--text-muted); }
+.upcoming-dday { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
