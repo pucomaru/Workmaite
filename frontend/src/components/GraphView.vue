@@ -270,9 +270,9 @@ function rebuildNodeObjects() {
     const label = new PIXI.Text({
       text: (n.label || '').slice(0, 9),
       style: {
-        fontSize:   type === 'Meetings' ? 13 : 10,
+        fontSize:   10,
         fontFamily: 'sans-serif',
-        fontWeight: type === 'Meetings' ? 'bold' : 'normal',
+        fontWeight: 'normal',
         fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
         align:      'center',
       },
@@ -344,7 +344,16 @@ function drawNode(obj, sn) {
 function drawIcon(gfx, type, r) {
   const ic = 0xffffff
   if (type === 'Meetings') {
-    // no extra icon — label centered inside
+    // hub icon: center dot + 3 outer dots connected by lines
+    const spoke = r * 0.42
+    const angles = [Math.PI * 1.5, Math.PI * 1.5 + Math.PI * 2 / 3, Math.PI * 1.5 + Math.PI * 4 / 3]
+    for (const a of angles) {
+      const ox = Math.cos(a) * spoke, oy = Math.sin(a) * spoke
+      gfx.moveTo(0, 0).lineTo(ox, oy)
+      gfx.stroke({ color: ic, width: Math.max(1, r * 0.1), alpha: 0.7, cap: 'round' })
+      gfx.circle(ox, oy, r * 0.14).fill({ color: ic, alpha: 0.9 })
+    }
+    gfx.circle(0, 0, r * 0.18).fill({ color: ic, alpha: 0.95 })
   } else if (type === 'agenda') {
     // checkmark
     const cs = r * 0.45
@@ -506,21 +515,13 @@ function tick() {
         : 1.0
     const endedDim = sn.ended ? 0.45 : 1.0
     obj.gfx.alpha   = alphaVal * endedDim
-    obj.label.alpha = alphaVal * endedDim * (sn.type === 'Meetings' ? 0 : 0.9)
+    obj.label.alpha = alphaVal * endedDim * 0.9
 
     // Redraw
     obj.focused = (i === focusedIdx)
     drawNode(obj, sn)
 
-    // MG label — draw inside node via PIXI.Text offset
-    if (sn.type === 'Meetings') {
-      obj.label.y = sn.y   // center vertically
-      obj.label.anchor.set(0.5, 0.5)
-      obj.label.alpha = alphaVal * endedDim * 0.95
-      obj.label.style.fill = props.nightMode ? 0xffffff : 0x1e3a8a
-    } else {
-      obj.label.anchor.set(0.5, 0)
-    }
+    obj.label.anchor.set(0.5, 0)
     // Update text resolution to match zoom for crisp text at any scale
     const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
     if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
