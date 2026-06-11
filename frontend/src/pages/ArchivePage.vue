@@ -2117,6 +2117,13 @@ onBeforeUnmount(()=>{
 
 // ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
 async function refreshArchive() {
+  // 그래프 재빌드 시 노드 인덱스가 바뀌므로 기존 하이라이트 인덱스를 먼저 초기화
+  clearTimeout(_queryHlTimer); _queryHlTimer = null
+  clearTimeout(_hlPersistTimer); _hlPersistTimer = null
+  queryHlIdxs.value = new Set()
+  queryHlEdgeIdxs.value = new Set()
+  queryHlStep.value = ''
+
   neo4jRetrying.value = true
   neo4jError.value = ''
   // 최초 로딩일 때만 loading을 올림 — 이미 그래프가 있으면 백그라운드 갱신(깜빡임 방지)
