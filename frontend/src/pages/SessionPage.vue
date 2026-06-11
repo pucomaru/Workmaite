@@ -1635,7 +1635,7 @@ async function downloadChatFile(filePath) {
 /* Transcript lines */
 .tline { display:flex;gap:8px;align-items:baseline;padding:3px 0;position:relative; }
 .tline:hover .tline-edit-btn { opacity:1; }
-.tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:monospace; }
+.tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:'Pretendard',inherit; }
 .tline-speaker {
   font-size:10px;font-weight:700;flex-shrink:0;
   padding:1px 6px;border-radius:99px;border:1px solid;
