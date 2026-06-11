@@ -79,6 +79,7 @@ public class SessionService {
                 request.getType(),
                 request.getScheduledAt()
         );
+        if (request.getContext() != null) session.updateContext(request.getContext());
         sessionRepository.save(session);
 
         // 참석자 저장
@@ -105,6 +106,7 @@ public class SessionService {
         MeetingSession session = findSessionById(sessionId);
 
         session.update(request.getTitle(), request.getDescription(), request.getLocation(), request.getType(), request.getScheduledAt());
+        if (request.getContext() != null) session.updateContext(request.getContext());
 
         List<AttendeeRequest> attendees = request.getAttendees();
         if (attendees != null) {

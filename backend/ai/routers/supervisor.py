@@ -407,15 +407,32 @@ async def minutes_sessions_chat(
         extra_context += f"\n\n[세션별 회의록]\n" + "\n\n".join(session_summaries)
 
     async def stream():
-        async for chunk in minutes_agent.chat_stream(
-            message=data.message,
-            chat_history=data.chat_history or [],
-            previous_minutes=[extra_context],
-            current_agendas=[{"content": a.title, "status": a.status} for a in agendas],
-            meeting_context=_get_meeting_context(db, data.meeting_id),
-        ):
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
-        yield "data: [DONE]\n\n"
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="minutes_stream",
+            meeting_id=data.meeting_id or None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data={"message": (data.message or "")[:300]},
+        )
+        _stream_error = None
+        try:
+            async for chunk in minutes_agent.chat_stream(
+                message=data.message,
+                chat_history=data.chat_history or [],
+                previous_minutes=[extra_context],
+                current_agendas=[{"content": a.title, "status": a.status} for a in agendas],
+                meeting_context=_get_meeting_context(db, data.meeting_id),
+            ):
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+            yield "data: [DONE]\n\n"
+        except BaseException as _e:
+            _stream_error = _e
+            raise
+        finally:
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -469,47 +486,64 @@ async def minutes_generate_minutes(
         ]
 
     async def stream():
-        collected_parts = []
-        async for chunk in minutes_agent.generate_minutes_stream(
-            transcript, meeting_context, agenda_text, now,
-            meeting_id=data.meeting_id,
-            session_id=data.session_id,
-            title=minutes_title,
-        ):
-            collected_parts.append(chunk)
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="minutes_generate",
+            meeting_id=data.meeting_id or None,
+            session_id=data.session_id or None,
+            user_id=current_user.id,
+            input_data={"session_id": data.session_id},
+        )
+        _stream_error = None
         try:
-            if data.session_id and collected_parts:
-                full_content = "".join(collected_parts)
-                _save_db = SessionLocal()
-                try:
-                    existing = _save_db.query(models.Minutes).filter(
-                        models.Minutes.session_id == data.session_id
-                    ).first()
-                    if existing:
-                        existing.content_original = full_content
-                        existing.content_summary = full_content[:500]
-                        existing.recorder_id = current_user.id
-                        existing.generated_at = datetime.utcnow()
-                    else:
-                        _save_db.add(models.Minutes(
-                            session_id=data.session_id,
-                            content_original=full_content,
-                            content_summary=full_content[:500],
-                            recorder_id=current_user.id,
-                        ))
-                    _save_db.commit()
-                except Exception as e:
-                    logger.warning(f"[generate-minutes] PostgreSQL 저장 실패: {e}")
-                    try: _save_db.rollback()
-                    except Exception: pass
-                finally:
-                    try: _save_db.close()
-                    except Exception: pass
-        except Exception as e:
-            logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
+            collected_parts = []
+            async for chunk in minutes_agent.generate_minutes_stream(
+                transcript, meeting_context, agenda_text, now,
+                meeting_id=data.meeting_id,
+                session_id=data.session_id,
+                title=minutes_title,
+            ):
+                collected_parts.append(chunk)
+                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+            try:
+                if data.session_id and collected_parts:
+                    full_content = "".join(collected_parts)
+                    _save_db = SessionLocal()
+                    try:
+                        existing = _save_db.query(models.Minutes).filter(
+                            models.Minutes.session_id == data.session_id
+                        ).first()
+                        if existing:
+                            existing.content_original = full_content
+                            existing.content_summary = full_content[:500]
+                            existing.recorder_id = current_user.id
+                            existing.generated_at = datetime.utcnow()
+                        else:
+                            _save_db.add(models.Minutes(
+                                session_id=data.session_id,
+                                content_original=full_content,
+                                content_summary=full_content[:500],
+                                recorder_id=current_user.id,
+                            ))
+                        _save_db.commit()
+                    except Exception as e:
+                        logger.warning(f"[generate-minutes] PostgreSQL 저장 실패: {e}")
+                        try: _save_db.rollback()
+                        except Exception: pass
+                    finally:
+                        try: _save_db.close()
+                        except Exception: pass
+            except Exception as e:
+                logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
 
-        yield "data: [DONE]\n\n"
+            yield "data: [DONE]\n\n"
+        except BaseException as _e:
+            _stream_error = _e
+            raise
+        finally:
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -1512,6 +1546,16 @@ async def analyze_relationships_stream(
     )
 
     async def stream():
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="archive_analyze_stream",
+            meeting_id=None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data=None,
+        )
+        _stream_error = None
         try:
             import asyncio as _asyncio
             # 그래프 분석과 병렬로 LLM이 작업 계획을 서술
@@ -1663,8 +1707,14 @@ async def analyze_relationships_stream(
                 yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
 
         except Exception as e:
+            _stream_error = e
             yield f"data: 관계도 분석 중 오류가 발생했습니다: {str(e)}\n\n"
-
+        except BaseException as _e:
+            _stream_error = _e
+            raise
+        finally:
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -1979,6 +2029,16 @@ async def archive_chat_extract(
     current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
 
     async def stream():
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="agenda_extraction",
+            meeting_id=meeting_id or None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data={"message": message[:300]},
+        )
+        _stream_error = None
         try:
             cnt = len(current_agendas)
             # LLM이 요청 내용을 보고 처리 계획을 스스로 서술
@@ -2013,9 +2073,16 @@ async def archive_chat_extract(
             }
             yield f"data: [RESULT] {json.dumps(result, ensure_ascii=False)}\n\n"
         except Exception as e:
+            _stream_error = e
             logger.warning(f"[chat-extract] 오류: {e}")
             fallback = {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
             yield f"data: [RESULT] {json.dumps(fallback, ensure_ascii=False)}\n\n"
+        except BaseException as _e:
+            _stream_error = _e
+            raise
+        finally:
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
