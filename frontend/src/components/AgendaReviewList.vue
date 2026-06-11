@@ -1,4 +1,5 @@
 <script setup>
+import { nextTick } from 'vue'
 import { apiAI } from '../api'
 import DateInput from './DateInput.vue'
 
@@ -26,6 +27,7 @@ function startApprove(i) {
   ag._feedbackAction = 'approved'
   ag._showReason = true
   if (!props.removeOnApprove) ag._state = 'approved'
+  scrollReasonIntoView(i)
 }
 
 function startReject(i) {
@@ -43,6 +45,16 @@ function startReject(i) {
   ag._feedbackAction = 'rejected'
   ag._showReason = true
   if (!props.removeOnApprove) ag._state = 'rejected'
+  scrollReasonIntoView(i)
+}
+
+const reasonRefs = {}
+
+function scrollReasonIntoView(i) {
+  nextTick(() => {
+    const el = reasonRefs[i]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
 }
 
 function startEdit(i) {
@@ -208,6 +220,7 @@ function deptList(dept) {
       </div>
 
       <div v-if="ag._showReason && !ag._editing" class="arl-reason-below"
+        :ref="el => { if (el) reasonRefs[i] = el; else delete reasonRefs[i] }"
         :class="ag._feedbackAction === 'rejected' ? 'arb-rejected' : 'arb-edited'">
         <span class="arb-label">{{ ag._feedbackAction === 'rejected' ? '✗ 반려 사유' : '✎ 수정 사유' }} (선택)</span>
         <textarea v-model="ag._reason" class="dei-feedback-input"

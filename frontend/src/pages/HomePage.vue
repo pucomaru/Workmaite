@@ -329,18 +329,10 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
             <div class="fw-semibold">{{ m.title }}</div>
           </td>
           <td>
-            <span class="type-badge"
-              :class="{
-                'type-badge-weekly':    m.meeting_type?.toLowerCase().includes('weekly'),
-                'type-badge-monthly':   m.meeting_type?.toLowerCase().includes('monthly'),
-                'type-badge-quarterly': m.meeting_type?.toLowerCase().includes('quarterly'),
-                'type-badge-default':   !m.meeting_type || (!m.meeting_type?.toLowerCase().includes('weekly') && !m.meeting_type?.toLowerCase().includes('monthly') && !m.meeting_type?.toLowerCase().includes('quarterly')),
-              }">{{ m.meeting_type || '-' }}</span>
+            <span class="text-muted" style="font-size:12px;">{{ m.meeting_type || '-' }}</span>
           </td>
           <td>
-            <span class="role-badge" :class="m.role === 'admin' ? 'role-admin' : 'role-member'">
-              {{ m.role === 'admin' ? '간사' : '참여자' }}
-            </span>
+            <span class="text-muted" style="font-size:12px;">{{ m.role === 'admin' ? '간사' : '참여자' }}</span>
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td class="text-muted">{{ m.member_count }}명</td>

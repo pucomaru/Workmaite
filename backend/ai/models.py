@@ -186,6 +186,16 @@ class TokenUsageLog(Base):
     created_at         = Column(DateTime, default=datetime.utcnow)
 
 
+class SessionSummaryBlock(Base):
+    __tablename__ = "session_summary_blocks"
+    id            = Column(Integer, primary_key=True, index=True)
+    session_id    = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    block_index   = Column(Integer, nullable=False)
+    title         = Column(String(500), nullable=True)
+    bullets       = Column(JSON, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
 class HitlReview(Base):
     __tablename__ = "hitl_reviews"
     id             = Column(Integer, primary_key=True, index=True)

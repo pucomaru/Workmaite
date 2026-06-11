@@ -2,7 +2,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN rm -f package-lock.json && npm install && npm install @rollup/rollup-linux-x64-musl
+RUN npm ci && npm install @rollup/rollup-linux-x64-musl
 COPY . .
 ARG VITE_API_URL
 ARG VITE_AI_URL

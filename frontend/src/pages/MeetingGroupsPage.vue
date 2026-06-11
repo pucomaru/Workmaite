@@ -276,7 +276,7 @@ onMounted(async () => {
                 <div class="mg-row-title">{{ g.title }}</div>
               </td>
               <td>
-                <span class="mg-role-badge" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
+                <span class="mg-role-text" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
                   {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                 </span>
               </td>
@@ -296,10 +296,7 @@ onMounted(async () => {
               <!-- 참여조직 -->
               <td>
                 <div v-if="membersCache[g.id]">
-                  <div v-if="getOrgs(g.id).length" class="mg-org-tags">
-                    <span v-for="org in getOrgs(g.id).slice(0,2)" :key="org" class="mg-org-tag">{{ org }}</span>
-                    <span v-if="getOrgs(g.id).length > 2" class="mg-member-more">+{{ getOrgs(g.id).length - 2 }}</span>
-                  </div>
+                  <span v-if="getOrgs(g.id).length" class="mg-org-plain">{{ getOrgs(g.id).slice(0,3).join(', ') }}{{ getOrgs(g.id).length > 3 ? ` 외 ${getOrgs(g.id).length - 3}개` : '' }}</span>
                   <span v-else class="mg-row-nodates">-</span>
                 </div>
                 <span v-else class="mg-row-nodates">-</span>
@@ -432,12 +429,10 @@ onMounted(async () => {
 .day-mode .mg-row-title { color:var(--dark-card); }
 .mg-row-nodates { color:var(--text-dim); }
 .day-mode .mg-row-nodates { color:#cbd5e1; }
-.mg-type-text { font-size:11px;font-weight:600;color:var(--accent); }
-.mg-admin-name { font-size:12px;color:var(--text-dim);margin-left:4px; }
-.mg-member-count-label { font-size:12px;color:var(--text-muted);margin-left:4px; }
-.mg-member-more { font-size:11px;color:var(--dark-muted);margin-left:2px; }
-.mg-org-tags { display:flex;flex-wrap:wrap;gap:4px;align-items:center; }
-.mg-org-tag { font-size:11px;font-weight:500;padding:2px 7px;border-radius:99px;background:var(--surface-2);color:var(--text-dim);border:1px solid var(--border);white-space:nowrap; }
+.mg-type-text { font-size:12px;color:var(--text-muted); }
+.mg-admin-name { font-size:12px;color:var(--text-muted); }
+.mg-member-count-label { font-size:12px;color:var(--text-muted); }
+.mg-org-plain { font-size:12px;color:var(--text-muted); }
 
 /* 상태 dot */
 .mg-status-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
@@ -469,12 +464,11 @@ onMounted(async () => {
 .app-btn-danger { padding:7px 18px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
 .app-btn-danger:hover { background:#dc2626; }
 
-/* 역할 뱃지 */
-.mg-role-badge { display:inline-flex;align-items:center;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:.03em;margin-top:3px; }
-.mg-role-badge.role-admin { background:rgba(59,130,246,.15);color:var(--accent-light);border:1px solid rgba(59,130,246,.25); }
-.mg-role-badge.role-member { background:rgba(100,116,139,.1);color:var(--dark-muted);border:1px solid rgba(100,116,139,.18); }
-.day-mode .mg-role-badge.role-admin { background:rgba(59,130,246,.08);color:#2563eb;border-color:rgba(59,130,246,.2); }
-.day-mode .mg-role-badge.role-member { background:var(--surface);color:var(--text-muted);border-color:var(--border); }
+/* 역할 텍스트 */
+.mg-role-text { font-size:12px;color:var(--text-muted); }
+.mg-role-text.role-admin { font-weight:600; }
+.day-mode .mg-role-text { color:var(--text-dim); }
+.day-mode .mg-type-text,.day-mode .mg-admin-name,.day-mode .mg-member-count-label,.day-mode .mg-org-plain { color:var(--text-dim); }
 
 /* 빈 상태 */
 .mg-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--text-muted);gap:8px;padding:60px 0; }
