@@ -251,6 +251,7 @@ async function refineChunk() {
   const text = newLines.map(l => l.text).join('\n')
   try {
     const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+      session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
     })
