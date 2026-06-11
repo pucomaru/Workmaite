@@ -50,6 +50,7 @@ const loading = ref(true)
 const neo4jError = ref('')
 const neo4jRetrying = ref(false)
 const search = ref('')
+const filterYear = ref('')
 const expandedMeeting = ref(null)
 
 // ─── View mode ────────────────────────────────────────────────
@@ -219,6 +220,8 @@ function _applyHighlightLabels(labels) {
 const showCreateModal = ref(false)
 const createForm = ref({ title: '', purpose: '', start_date: '', end_date: '', guidelines: '', meeting_type: 'Weekly' })
 const createMembers = ref([])
+const createMemberSearch = ref('')
+const createMemberResults = ref([])
 const creating = ref(false)
 const createConnectNodeId = ref('')
 
@@ -1150,57 +1153,43 @@ const REL_COLORS = {
 // 정방향 키 (from→to)로 관계와 Neo4j 방향 정의
 // 역방향으로 드래그해도 canonical 방향을 자동으로 맞춤
 const REL_MATRIX = {
-  // ── Org / Dept ─────────────────────────────────────────────
-  'dept→meeting_group':          '참여',
-  'company→meeting_group':           '포함',
-  'company→dept':                    '포함',
-  'dept→dept':                   '포함',
-  'person→dept':                 '소속',
-  'dept→file':                   '첨부',
-  'company→file':                    '참조',
-  'company→minutes':                 '참조',
-  'company→report':                  '참조',
-  // ── MeetingGroup ───────────────────────────────────────────
-  'meeting_group→meeting_group': '참여',
-  'person→meeting_group':        '구성원',
-  'file→meeting_group':          '첨부',
-  // ── Agenda ─────────────────────────────────────────────────
-  'agenda→meeting_group':        '관할',
-  'person→agenda':               '담당',
-  'file→agenda':                 '참조',
-  // ── Session ────────────────────────────────────────────────
-  'session→meeting_group':       '개최',
-  'session→agenda':              '다룸멌',
-  'session→file':                '산출',
-  'session→minutes':             '산출',
-  'session→report':              '산출',
-  'session→session':             '후속',
-  // ── HumanJudgment ─────────────────────────────────────────
-  'human_judgment→session':      '근거',
-  'human_judgment→agenda':       '원인',
-  'human_judgment→meeting_group':'근거',
-  'human_judgment→minutes':      '판단',
-  // ── Minutes (회의록) ────────────────────────────────────────
-  'minutes→meeting_group':       '첨부',
-  'minutes→agenda':              '도출',
-  'minutes→minutes':             '참조',
-  'minutes→session':             '참조',
-  'minutes→dept':                '첨부',
-  'person→minutes':              '첨부',
-  'dept→minutes':                '첨부',
-  // ── Report (보고자료) ───────────────────────────────────────
-  'report→meeting_group':        '첨부',
-  'report→agenda':               '첨부',
-  'report→report':               '참조',
-  'report→session':              '참조',
-  'report→dept':                 '첨부',
-  'person→report':               '첨부',
-  'dept→report':                 '첨부',
-  // ── File (하위호환) ─────────────────────────────────────────
-  'file→file':                   '참조',
-  'file→session':                '참조',
-  'file→dept':                   '첨부',
-  'person→file':                 '첨부',
+  // ── 조직 계층: 작은→큰 (소속/포함) ──────────────────────────
+  'Meetings→company':       '포함',
+  'dept→company':           '소속',
+  'person→dept':            '소속',
+  'company→minutes':        '참조',
+  'company→report':         '참조',
+  'dept→Meetings':          '참여',
+  'dept→dept':              '포함',
+  // ── 아젠다 → 회의체 (작은→큰) ───────────────────────────────
+  'Meetings→Meetings':      '참여',
+  'agenda→Meetings':        '관할',
+  'person→Meetings':        '구성원',
+  'person→agenda':          '담당',
+  // ── 라이프사이클: 아젠다→회의→회의록→의사결정→아젠다(후속) ───
+  'agenda→session':         '다룸',
+  'session→Meetings':       '개최',
+  'session→minutes':        '산출',
+  'session→report':         '산출',
+  'session→session':        '후속',
+  'minutes→human_judgment': '판단',
+  'human_judgment→agenda':  '후속',
+  'human_judgment→session': '근거',
+  // ── 회의록 연결 ───────────────────────────────────────────────
+  'minutes→agenda':         '도출',
+  'minutes→minutes':        '참조',
+  'minutes→session':        '참조',
+  'minutes→dept':           '첨부',
+  'person→minutes':         '첨부',
+  'dept→minutes':           '첨부',
+  // ── 보고자료 → 아젠다 ─────────────────────────────────────────
+  'report→agenda':          '첨부',
+  'report→Meetings':        '첨부',
+  'report→report':          '참조',
+  'report→session':         '참조',
+  'report→dept':            '첨부',
+  'person→report':          '첨부',
+  'dept→report':            '첨부',
 }
 function autoRel(sourceNodeId, targetType) {
   const srcNode = gNodes.find(n => n.id === sourceNodeId)
@@ -1871,8 +1860,33 @@ const meetingTypeOptions = computed(() => {
   return [{ label: '회의체 유형 전체', value: '' }, ...types.map(t => ({ label: t, value: t }))]
 })
 
+const availableYears = computed(() => {
+  const years = new Set()
+  meetingGroups.value.forEach(g => {
+    const addYear = (d) => { if (!d) return; const y = new Date(d).getFullYear(); if (!isNaN(y) && y > 2000) years.add(y) }
+    addYear(g.start_date)
+    ;(g.minutes || []).forEach(m => { addYear(m.date); addYear(m.started_at); addYear(m.ended_at) })
+    ;(g.reports || []).forEach(r => addYear(r.created_at))
+    ;(g.tasks   || []).forEach(t => addYear(t.created_at))
+  })
+  return [...years].sort((a, b) => b - a)
+})
+
+const yearFilteredMeetingGroups = computed(() => {
+  if (!filterYear.value) return meetingGroups.value
+  const yr = Number(filterYear.value)
+  return meetingGroups.value.filter(g => {
+    const inYear = (d) => !!d && new Date(d).getFullYear() === yr
+    if (inYear(g.start_date) || inYear(g.end_date)) return true
+    if ((g.minutes || []).some(m => inYear(m.date) || inYear(m.started_at) || inYear(m.ended_at))) return true
+    if ((g.reports || []).some(r => inYear(r.created_at))) return true
+    if ((g.tasks   || []).some(t => inYear(t.created_at) || inYear(t.due_date))) return true
+    return false
+  })
+})
+
 const filteredGroups = computed(() => {
-  let list = meetingGroups.value
+  let list = yearFilteredMeetingGroups.value
   if (search.value) {
     const q = search.value.toLowerCase()
     list = list.filter(g =>
@@ -2019,12 +2033,22 @@ const filteredFileListMap = computed(() => {
 })
 
 const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
-  meetingGroups,
+  meetingGroups: yearFilteredMeetingGroups,
   currentPerson,
   authStore,
   currentCompany,
   neo4jDepts,
   meetingsStore,
+})
+
+watch(filterYear, async () => {
+  await nextTick()
+  const g = buildGraphNodes()
+  if (g.nodes.length > 0) {
+    gNodes = g.nodes; gEdges = _applyLocalEdgeOverrides(g.nodes, g.edges); gNodesRef.value = gNodes
+    _recomputeSearchHits()
+    graphViewRef.value?.reloadGraph(gNodes, gEdges)
+  }
 })
 
 /** GraphView (PIXI) 노드 클릭 핸들러 */
@@ -2627,6 +2651,12 @@ provide('archiveSidebar', {
         <button v-if="search" class="search-clear" @click="search=''">
           <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
+      </div>
+      <div class="year-filter-wrap">
+        <select v-model="filterYear" class="year-filter-select">
+          <option value="">전체 연도</option>
+          <option v-for="y in availableYears" :key="y" :value="y">{{ y }}년</option>
+        </select>
       </div>
 
       <div class="app-tabs">

@@ -24,7 +24,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         data: g, groupIdx: gi, neo4jId: g.id || null,
         ended: g.status === 'ended',
       })
-      // meetingGroup -[포함]→ org-node (조직 소속)
+      // meetingGroup -[포함]→ company (작은→큰)
       edges.push({ from: mgIdx, to: companyNodeIdx, rel: '포함' })
 
       // ── Department + Person nodes ────────────────────────────
@@ -90,6 +90,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           groupIdx: gi, data: task, meetingGroupId: mgNodeId, neo4jId: task.id || null,
         })
         edges.push({ from: agIdx, to: connIdx, rel: '관할' })
+        if (connIdx !== mgIdx) edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
         const assigneeNames = task.assignee_names?.length ? task.assignee_names : (task.assignee_name ? [task.assignee_name] : [])
         if (assigneeNames.length > 0) {
           for (const aName of assigneeNames) {
@@ -224,7 +225,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           label, type: 'human_judgment',
           groupIdx: gi, data: hj, meetingGroupId: mgNodeId, neo4jId: hj.id || null,
         })
-        edges.push({ from: hjIdx, to: refIdx, rel: '판단' })
+        edges.push({ from: refIdx, to: hjIdx, rel: '판단' })
       })
     })
 

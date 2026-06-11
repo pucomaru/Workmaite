@@ -1185,6 +1185,68 @@ async def _analyze_graph() -> dict:
             "membership": membership, "counts": counts}
 
 
+async def _normalize_rel_directions() -> dict:
+    """관계 방향·명칭을 정규 흐름(REL_MATRIX)에 맞게 일괄 정규화합니다.
+    Neo4j는 엣지 방향을 in-place 변경할 수 없으므로 DELETE → MERGE 패턴을 사용합니다.
+    """
+    # 원칙: 포함/소속은 작은 단위 → 큰 단위 방향 (child → parent)
+    # 라이프사이클(agenda→session→minutes→human_judgment)은 흐름 방향 유지
+    steps = [
+        # (설명, 카운트 쿼리, 수정 쿼리)
+
+        # ── 포함 관계: 잘못된 big→small 복구 ──────────────────────────
+        ("회의체→회사 방향 복구 (포함, 작은→큰)",
+         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) RETURN count(r) AS cnt",
+         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) MERGE (mg)-[:`포함`]->(co) DELETE r"),
+
+        ("부서→회사 방향 복구 (소속, 작은→큰)",
+         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) RETURN count(r) AS cnt",
+         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) MERGE (d)-[:`소속`]->(co) DELETE r"),
+
+        ("사람→부서 방향 복구 (소속, 작은→큰)",
+         "MATCH (d:Department)-[r:`소속`]->(u:User) RETURN count(r) AS cnt",
+         "MATCH (d:Department)-[r:`소속`]->(u:User) MERGE (u)-[:`소속`]->(d) DELETE r"),
+
+        ("아젠다→회의체 방향 복구 (관할, 작은→큰)",
+         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r"),
+
+        # ── 라이프사이클 방향 정규화 ───────────────────────────────────
+        ("회의록→의사결정 방향 정규화 (판단)",
+         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) RETURN count(r) AS cnt",
+         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) MERGE (n)-[:`판단`]->(hj) DELETE r"),
+
+        ("'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
+         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
+
+        ("회의→아젠다 '다룸' 방향 정규화",
+         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
+
+        # ── 누락 연결 보완 ─────────────────────────────────────────────
+        ("부서-회사 누락 연결 보완 (소속, 작은→큰)",
+         "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) RETURN count(d) AS cnt",
+         "MATCH (d:Department), (co:Company) WHERE NOT (d)-[:`소속`]->(co) MERGE (d)-[:`소속`]->(co)"),
+    ]
+
+    total = 0
+    details: dict[str, int] = {}
+    for desc, count_q, fix_q in steps:
+        try:
+            rows = await run_cypher(count_q)
+            cnt = int(rows[0]["cnt"]) if rows else 0
+            if cnt:
+                await run_cypher(fix_q)
+                details[desc] = cnt
+                total += cnt
+                logger.info(f"[RelNorm] {desc}: {cnt}건")
+        except Exception as e:
+            logger.warning(f"[RelNorm] {desc} 실패 (무시): {e}")
+
+    return {"total": total, "details": details}
+
+
 @router.post("/knowledge/analyze-relationships")
 async def analyze_relationships_stream(
     background_tasks: BackgroundTasks,
@@ -1315,20 +1377,11 @@ async def analyze_relationships_stream(
                     async for step in _stream_plan(system_actions, actions_text):
                         yield f"data: [PLANNING] {step}\n\n"
 
-            # ── 부서-조직 연결 보완 (항상 실행) ─────────────────────────
+            # ── 관계 방향·명칭 정규화 (항상 실행) ────────────────────
             try:
-                dept_fix_rows = await run_cypher(
-                    "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) "
-                    "RETURN count(d) AS cnt"
-                )
-                dept_fix_cnt = dept_fix_rows[0]["cnt"] if dept_fix_rows else 0
-                if dept_fix_cnt:
-                    await run_cypher(
-                        "MATCH (d:Department), (o:Company) "
-                        "WHERE NOT (d)-[:`소속`]->(o) "
-                        "MERGE (d)-[:`소속`]->(o)"
-                    )
-                    yield f"data: [PLANNING] 부서→조직 누락 연결 {dept_fix_cnt}건 복구\n\n"
+                norm = await _normalize_rel_directions()
+                if norm["total"]:
+                    yield f"data: [PLANNING] 관계 방향·명칭 정규화 {norm['total']}건 완료\n\n"
             except Exception:
                 pass
 
