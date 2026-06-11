@@ -129,6 +129,20 @@ async function enterSession(s) {
   conversationBlocks.value = rec.conversationBlocks
   lastRefineIdx.value = rec.lastRefineIdx
   sessionContext.value = s.context || ''
+
+  try {
+    const { data } = await api.get(`/api/v1/sessions/${s.id}`)
+    const full = data.data ?? data
+    if (full.summary_blocks?.length) {
+      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets }))
+      lastRefineIdx.value = conversationBlocks.value.length * REFINE_EVERY
+      rec.conversationBlocks = conversationBlocks.value
+      rec.lastRefineIdx = lastRefineIdx.value
+    }
+    if (full.context) sessionContext.value = full.context
+  } catch (e) {
+    console.error('세션 상세 조회 실패', e)
+  }
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
@@ -251,6 +265,7 @@ async function refineChunk() {
   const text = newLines.map(l => l.text).join('\n')
   try {
     const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+      session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
     })
@@ -261,6 +276,7 @@ async function refineChunk() {
       rec.conversationBlocks = conversationBlocks.value
       rec.lastRefineIdx = lastRefineIdx.value
     }
+    nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
   } catch (e) {
     console.error('대화기록 정제 실패', e)
   } finally {
@@ -937,9 +953,6 @@ async function downloadMinutesFile() {
           <div class="sp-panel-title-row">
             <div class="sp-panel-title-group">
               <div class="sp-panel-title">{{ activeSession.title }}</div>
-              <div v-if="activeSession.location" class="sp-panel-location">
-                <i class="bi bi-geo-alt"></i> {{ activeSession.location }}
-              </div>
             </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
               <i class="bi bi-record-fill"></i>
@@ -965,12 +978,13 @@ async function downloadMinutesFile() {
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
               <div class="conv-block-title">{{ block.title }}</div>
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
-              <div v-if="block.text" class="conv-block-original">{{ block.text }}</div>
             </div>
             <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
-            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
-              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
-              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
+            <div v-if="unprocessedLines.length" class="conv-raw">
+              <div v-if="refiningConversation" class="conv-raw-loading-wrapper">
+                <div class="conv-raw-loading-bar"></div>
+              </div>
+              <div v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }}</div>
             </div>
           </template>
 
@@ -1417,9 +1431,9 @@ async function downloadMinutesFile() {
 .conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
-.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden; }
-.conv-raw-loading { border-color:var(--primary);opacity:.7; }
-.conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
+.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
+.conv-raw-loading-wrapper { position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;border-radius:10px 10px 0 0; }
+.conv-raw-loading-bar { height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
 @keyframes conv-scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
 .conv-raw-line { font-size:13px;color:var(--text-muted);line-height:2; }
 .context-modal { width:480px;max-width:90vw; }

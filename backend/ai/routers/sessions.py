@@ -115,8 +115,9 @@ async def save_minutes(
 # ─── 대화기록 문단 정제 ────────────────────────────────────────────────────────
 
 class RefineChunkRequest(BaseModel):
-    text: str                        # 원문 스크립트 텍스트
-    context: Optional[str] = None   # 회의 맥락 (선택)
+    session_id: int
+    text: str
+    context: Optional[str] = None
 
 class RefineChunkResponse(BaseModel):
     title: str
@@ -126,6 +127,7 @@ class RefineChunkResponse(BaseModel):
 @router.post("/sessions/refine-chunk", response_model=RefineChunkResponse)
 async def refine_chunk(
     body: RefineChunkRequest,
+    db: Session = Depends(get_db),
     _: models.User = Depends(get_current_user),
 ):
     context_line = f"회의 맥락: {body.context}\n" if body.context else ""
@@ -151,7 +153,18 @@ async def refine_chunk(
 
     import json
     result = json.loads(resp.choices[0].message.content)
-    return RefineChunkResponse(
-        title=result.get("title", ""),
-        bullets=result.get("bullets", []),
-    )
+    title = result.get("title", "")
+    bullets = result.get("bullets", [])
+
+    block_index = db.query(models.SessionSummaryBlock).filter(
+        models.SessionSummaryBlock.session_id == body.session_id
+    ).count()
+    db.add(models.SessionSummaryBlock(
+        session_id=body.session_id,
+        block_index=block_index,
+        title=title,
+        bullets=bullets,
+    ))
+    db.commit()
+
+    return RefineChunkResponse(title=title, bullets=bullets)
