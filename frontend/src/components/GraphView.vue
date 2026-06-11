@@ -270,9 +270,9 @@ function rebuildNodeObjects() {
     const label = new PIXI.Text({
       text: (n.label || '').slice(0, 9),
       style: {
-        fontSize:   type === 'Meetings' ? 13 : 10,
+        fontSize:   10,
         fontFamily: 'sans-serif',
-        fontWeight: type === 'Meetings' ? 'bold' : 'normal',
+        fontWeight: 'normal',
         fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
         align:      'center',
       },
@@ -344,7 +344,16 @@ function drawNode(obj, sn) {
 function drawIcon(gfx, type, r) {
   const ic = 0xffffff
   if (type === 'Meetings') {
-    // no extra icon — label centered inside
+    // hub icon: center dot + 3 outer dots connected by lines
+    const spoke = r * 0.42
+    const angles = [Math.PI * 1.5, Math.PI * 1.5 + Math.PI * 2 / 3, Math.PI * 1.5 + Math.PI * 4 / 3]
+    for (const a of angles) {
+      const ox = Math.cos(a) * spoke, oy = Math.sin(a) * spoke
+      gfx.moveTo(0, 0).lineTo(ox, oy)
+      gfx.stroke({ color: ic, width: Math.max(1, r * 0.1), alpha: 0.7, cap: 'round' })
+      gfx.circle(ox, oy, r * 0.14).fill({ color: ic, alpha: 0.9 })
+    }
+    gfx.circle(0, 0, r * 0.18).fill({ color: ic, alpha: 0.95 })
   } else if (type === 'agenda') {
     // checkmark
     const cs = r * 0.45
@@ -385,6 +394,31 @@ function drawIcon(gfx, type, r) {
     const hr = r * 0.22, br = r * 0.28
     gfx.circle(0, -r * 0.18, hr).fill({ color: ic, alpha: 0.88 })
     gfx.arc(0, -r * 0.18 + hr + br * 1.1, br, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.88 })
+  } else if (type === 'human_judgment') {
+    // balance / scale icon — 의사결정
+    const stemH = r * 0.62, baseW = r * 0.38
+    const topY = -r * 0.32, botY = topY + stemH
+    // vertical stem
+    gfx.moveTo(0, topY).lineTo(0, botY)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
+    // base
+    gfx.moveTo(-baseW, botY).lineTo(baseW, botY)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
+    // horizontal beam
+    const beamW = r * 0.5
+    gfx.moveTo(-beamW, topY).lineTo(beamW, topY)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
+    // left pan
+    const panR = r * 0.17, panY = topY + r * 0.28
+    gfx.moveTo(-beamW, topY).lineTo(-beamW, panY)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8, cap: 'round' })
+    gfx.arc(-beamW, panY, panR, 0, Math.PI)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8 })
+    // right pan
+    gfx.moveTo(beamW, topY).lineTo(beamW, panY)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8, cap: 'round' })
+    gfx.arc(beamW, panY, panR, 0, Math.PI)
+    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8 })
   } else if (type === 'company') {
     // building / company icon
     const bw = r * 0.62, bh = r * 0.66
@@ -506,21 +540,13 @@ function tick() {
         : 1.0
     const endedDim = sn.ended ? 0.45 : 1.0
     obj.gfx.alpha   = alphaVal * endedDim
-    obj.label.alpha = alphaVal * endedDim * (sn.type === 'Meetings' ? 0 : 0.9)
+    obj.label.alpha = alphaVal * endedDim * 0.9
 
     // Redraw
     obj.focused = (i === focusedIdx)
     drawNode(obj, sn)
 
-    // MG label — draw inside node via PIXI.Text offset
-    if (sn.type === 'Meetings') {
-      obj.label.y = sn.y   // center vertically
-      obj.label.anchor.set(0.5, 0.5)
-      obj.label.alpha = alphaVal * endedDim * 0.95
-      obj.label.style.fill = props.nightMode ? 0xffffff : 0x1e3a8a
-    } else {
-      obj.label.anchor.set(0.5, 0)
-    }
+    obj.label.anchor.set(0.5, 0)
     // Update text resolution to match zoom for crisp text at any scale
     const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
     if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
