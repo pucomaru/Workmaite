@@ -944,9 +944,6 @@ async function downloadMinutesFile() {
           <div class="sp-panel-title-row">
             <div class="sp-panel-title-group">
               <div class="sp-panel-title">{{ activeSession.title }}</div>
-              <div v-if="activeSession.location" class="sp-panel-location">
-                <i class="bi bi-geo-alt"></i> {{ activeSession.location }}
-              </div>
             </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
               <i class="bi bi-record-fill"></i>
@@ -974,9 +971,11 @@ async function downloadMinutesFile() {
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
             </div>
             <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
-            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
-              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
-              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
+            <div v-if="unprocessedLines.length" class="conv-raw">
+              <div v-if="refiningConversation" class="conv-raw-loading-wrapper">
+                <div class="conv-raw-loading-bar"></div>
+              </div>
+              <div v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }}</div>
             </div>
           </template>
 
@@ -1422,8 +1421,8 @@ async function downloadMinutesFile() {
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
 .conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
-.conv-raw.conv-raw-loading { overflow:hidden; }
-.conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
+.conv-raw-loading-wrapper { position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;border-radius:10px 10px 0 0; }
+.conv-raw-loading-bar { height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
 @keyframes conv-scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
 .conv-raw-line { font-size:13px;color:var(--text-muted);line-height:2; }
 .context-modal { width:480px;max-width:90vw; }
