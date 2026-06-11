@@ -39,6 +39,9 @@ public class SessionResponse {
 
     private List<Map<String, Object>> attendees;
 
+    @JsonProperty("summary_blocks")
+    private List<SummaryBlockResponse> summaryBlocks;
+
     public static SessionResponse from(MeetingSession session) {
         return SessionResponse.builder()
                 .id(session.getId())
@@ -56,6 +59,10 @@ public class SessionResponse {
     }
 
     public static SessionResponse from(MeetingSession session, List<SessionMember> members) {
+        return from(session, members, List.of());
+    }
+
+    public static SessionResponse from(MeetingSession session, List<SessionMember> members, List<SummaryBlockResponse> blocks) {
         List<Long> ids = members.stream().map(SessionMember::getUserId).toList();
         List<Map<String, Object>> attendees = members.stream()
                 .map(m -> Map.<String, Object>of("userId", m.getUserId(), "role", m.getRole() != null ? m.getRole() : "member"))
@@ -72,6 +79,7 @@ public class SessionResponse {
                 .endedAt(session.getEndedAt())
                 .attendeeIds(ids)
                 .attendees(attendees)
+                .summaryBlocks(blocks)
                 .build();
     }
 }

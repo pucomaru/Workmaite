@@ -129,6 +129,20 @@ async function enterSession(s) {
   conversationBlocks.value = rec.conversationBlocks
   lastRefineIdx.value = rec.lastRefineIdx
   sessionContext.value = s.context || ''
+
+  try {
+    const { data } = await api.get(`/api/v1/sessions/${s.id}`)
+    const full = data.data ?? data
+    if (full.summary_blocks?.length) {
+      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets }))
+      lastRefineIdx.value = conversationBlocks.value.length * REFINE_EVERY
+      rec.conversationBlocks = conversationBlocks.value
+      rec.lastRefineIdx = lastRefineIdx.value
+    }
+    if (full.context) sessionContext.value = full.context
+  } catch (e) {
+    console.error('세션 상세 조회 실패', e)
+  }
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
