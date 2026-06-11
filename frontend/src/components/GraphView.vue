@@ -276,7 +276,7 @@ function rebuildNodeObjects() {
 
     // Label
     const label = new PIXI.Text({
-      text: (n.label || '').slice(0, 9),
+      text: (n.label || '').length > 10 ? (n.label || '').slice(0, 10) + '…' : (n.label || ''),
       style: {
         fontSize:   10,
         fontFamily: 'sans-serif',

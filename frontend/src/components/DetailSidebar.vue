@@ -460,11 +460,19 @@ watch(relAddActive, v => {
                         :items="extractResult"
                         :memberCompanies="detailMemberCompanies"
                         :memberDepts="detailMemberDepts"
-                        :removeOnApprove="true"
-                        @approved="approveItem"
-                        @rejected="rejectItem"
-                        @remove="rejectItem"
+                        :removeOnApprove="false"
+                        @approved="() => {}"
+                        @rejected="() => {}"
+                        @remove="(i) => extractResult.splice(i, 1)"
                       />
+                      <div class="detail-extract-footer">
+                        <span class="dei-count">승인 {{ extractResult.filter(a => a._state === 'approved').length }} / 반려 {{ extractResult.filter(a => a._state === 'rejected').length }}</span>
+                        <button class="detail-action-btn btn-assign"
+                          :disabled="!extractResult.filter(a => a._state === 'approved').length"
+                          @click="finishExtract">
+                          승인 {{ extractResult.filter(a => a._state === 'approved').length }}건 저장
+                        </button>
+                      </div>
                     </template>
 
                 </template><!-- /추출 결과 -->

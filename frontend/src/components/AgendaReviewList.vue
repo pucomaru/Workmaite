@@ -14,20 +14,12 @@ const emit = defineEmits(['approved', 'rejected', 'remove'])
 
 function startApprove(i) {
   const ag = props.items[i]
-  if (!props.removeOnApprove && ag._state === 'approved') {
-    ag._state = null
+  if (!props.removeOnApprove) {
+    ag._state = ag._state === 'approved' ? null : 'approved'
     ag._showReason = false
-    return
+  } else {
+    emit('approved', i)
   }
-  ag._origTitle = ag.title
-  ag._origCompany = ag.company
-  ag._origDept = ag.dept
-  ag._origStartDate = ag.start_date
-  ag._origEndDate = ag.end_date
-  ag._feedbackAction = 'approved'
-  ag._showReason = true
-  if (!props.removeOnApprove) ag._state = 'approved'
-  scrollReasonIntoView(i)
 }
 
 function startReject(i) {
@@ -108,6 +100,7 @@ async function saveFeedback(i) {
   if (ag._feedbackAction === 'rejected') {
     emit('rejected', i)
   } else {
+    if (!props.removeOnApprove) ag._state = 'approved'
     emit('approved', i)
   }
 }
