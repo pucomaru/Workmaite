@@ -43,7 +43,17 @@ def supervisor_direct_human(msg: str, context: str) -> str:
 
 
 # ─── archive/extract-agendas ─────────────────────────────────────────────────
-def extract_agendas_system(org_dept_list: str) -> str:
+def extract_agendas_system(
+    org_dept_list: str,
+    meeting_context: str = "",
+    knowledge: List[dict] = None,
+) -> str:
+    _extra = ""
+    if meeting_context:
+        _extra += f"\n\n## 이번 회의 맥락\n{meeting_context}"
+    if knowledge:
+        criteria = "\n".join([f"- [{k.get('category','')}] {k.get('title','')}" for k in knowledge])
+        _extra += f"\n\n## 조직 아젠다 선정 기준\n{criteria}"
     return f"""\
 당신은 회의체 운영을 지원하는 AI입니다.
 제공된 보고서, 회의록, 참고자료를 종합하여 각 팀이 다음으로 수행해야 할 아젠다를 추출합니다.
@@ -115,8 +125,8 @@ def extract_agendas_system(org_dept_list: str) -> str:
 
 ## Step 1. 팀별 분석 (JSON 출력 전 텍스트로 작성)
 
-각 팀마다 다음 형식으로 작성하세요:
-[팀명]
+각 팀마다 다음 형식으로 작성하세요 (팀명은 "조직 / 부서" 형식으로 표기):
+[조직 / 부서명]
 모드: A / B
 단계 파악 근거: (일정표 있음/없음, 어떤 컨텍스트를 사용했는지)
 완료된 단계: (명시된 것만, 없으면 "없음")
@@ -143,7 +153,11 @@ due_date 산출: 다음 보고회 날짜 - 2일 (없으면 null)
 ### 예시 1 — 주차 순서 오류 방지 + 단계 병합 방지
 
 [INPUT]
-참여 부서: 홍보팀, 심사팀, 교육팀, 운영팀
+참여 (조직, 부서) 목록:
+- ACME / 홍보팀
+- ACME / 심사팀
+- ACME / 교육팀
+- ACME / 운영팀
 팀별 일정:
 - 홍보팀: 1주차(모집 배너 디자인) / 2주차(SNS 광고 집행) / 3주차(지원자 문의 대응)
 - 심사팀: 1주차(심사 기준 초안 작성) / 2주차(심사위원 위촉) / 3주차(서류 심사 진행) / 5주차(최종 면접 진행)
@@ -182,10 +196,10 @@ due_date 산출: 2주차 → 다음 보고회 5/28(목) → 5/28 - 2일 = 5/26(�
 
 [JSON 출력]
 {{"agendas": [
-  {{"title": "모집 배너 디자인", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "운영 첫 주 홍보팀의 시작점으로, 이후 SNS 광고 집행과 지원자 문의 대응이 모두 이 배너를 기반으로 이어진다. 아직 완료 기록이 없으므로 가장 먼저 착수해야 할 단계다. 2주차 보고회(5/21 목) 이틀 전인 5/19(화)까지 제출."}},
-  {{"title": "심사 기준 초안 작성", "department": "심사팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "심사위원 위촉(2주차)과 서류 심사(3주차)는 기준이 먼저 정해져야 진행 가능하다. 1주차 작업이 미완료 상태이므로 후속 단계로 넘어갈 수 없으며, 5주차 최종 면접은 이 단계가 포함된 전 과정 완료 후 대상이 된다. 5/21 보고회 D-2인 5/19(화) 마감."}},
-  {{"title": "멘토링 프로그램 설계", "department": "교육팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "프로그램 설계가 완성되어야 어떤 멘토가 필요한지 윤곽이 잡히고 멘토 풀 구성(2주차)에 착수할 수 있다. 현재 완료 기록이 없어 1주차가 우선 과제. 5/21 보고회 기준 D-2 마감일 5/19(화)."}},
-  {{"title": "장소 섭외 진행", "department": "운영팀", "priority": "important", "start_date": "2026-05-12", "due_date": "2026-05-26", "reasoning": "회의록에 1주차 '공간 수요 파악' 완료가 명시되어 있어 다음 단계로 넘어갈 수 있는 상태다. 섭외가 완료되어야 계약(3주차)과 현장 준비로 이어지므로 지금 당장 진행해야 할 업무. 3주차 보고회(5/28 목) D-2인 5/26(화) 마감."}}
+  {{"title": "모집 배너 디자인", "organization": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "운영 첫 주 홍보팀의 시작점으로, 이후 SNS 광고 집행과 지원자 문의 대응이 모두 이 배너를 기반으로 이어진다. 아직 완료 기록이 없으므로 가장 먼저 착수해야 할 단계다. 2주차 보고회(5/21 목) 이틀 전인 5/19(화)까지 제출."}},
+  {{"title": "심사 기준 초안 작성", "organization": "ACME", "department": "심사팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "심사위원 위촉(2주차)과 서류 심사(3주차)는 기준이 먼저 정해져야 진행 가능하다. 1주차 작업이 미완료 상태이므로 후속 단계로 넘어갈 수 없으며, 5주차 최종 면접은 이 단계가 포함된 전 과정 완료 후 대상이 된다. 5/21 보고회 D-2인 5/19(화) 마감."}},
+  {{"title": "멘토링 프로그램 설계", "organization": "ACME", "department": "교육팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "프로그램 설계가 완성되어야 어떤 멘토가 필요한지 윤곽이 잡히고 멘토 풀 구성(2주차)에 착수할 수 있다. 현재 완료 기록이 없어 1주차가 우선 과제. 5/21 보고회 기준 D-2 마감일 5/19(화)."}},
+  {{"title": "장소 섭외 진행", "organization": "ACME", "department": "운영팀", "priority": "important", "start_date": "2026-05-12", "due_date": "2026-05-26", "reasoning": "회의록에 1주차 '공간 수요 파악' 완료가 명시되어 있어 다음 단계로 넘어갈 수 있는 상태다. 섭외가 완료되어야 계약(3주차)과 현장 준비로 이어지므로 지금 당장 진행해야 할 업무. 3주차 보고회(5/28 목) D-2인 5/26(화) 마감."}}
 ]}}
 
 ---
@@ -193,7 +207,10 @@ due_date 산출: 2주차 → 다음 보고회 5/28(목) → 5/28 - 2일 = 5/26(�
 ### 예시 2 — 팀 재배정 오류 방지 + 일정 없는 팀 배정 방지
 
 [INPUT]
-참여 부서: 홍보팀, 섭외팀, 무대팀
+참여 (조직, 부서) 목록:
+- ACME / 홍보팀
+- ACME / 섭외팀
+- ACME / 무대팀
 ⚠️ 총괄팀은 전체 일정 조율 및 회의록 작성만 담당. 일정표에 배정된 독립 작업 없음.
 팀별 일정:
 - 홍보팀: 1주차(포스터 시안 제작) / 2주차(온라인 배포) / 3주차(언론 보도자료 배포)
@@ -230,9 +247,9 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
 
 [JSON 출력]
 {{"agendas": [
-  {{"title": "포스터 시안 제작", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "문서에 홍보팀 전담 업무로 명시된 홍보 흐름의 첫 단계다. 온라인 배포와 언론 보도자료 모두 완성된 포스터를 전제로 하므로 다른 무엇보다 먼저 진행되어야 한다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}},
-  {{"title": "공연팀 후보 리스트업", "department": "섭외팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "후보 목록이 없으면 출연 제안서(2주차) 발송 자체가 불가능하다. 문서에 섭외 전 과정이 섭외팀 소관으로 명시되어 있으며, 현재 완료 기록이 없어 1주차가 우선이다. 5/22 보고회 D-2인 5/20(수) 마감."}},
-  {{"title": "무대 설계 초안 작성", "department": "무대팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "장비 견적(2주차)은 무대 규모와 구성이 정해진 뒤에야 요청할 수 있다. 무대 구성 전담인 무대팀의 시작점이며, 이후 발주·설치로 이어지는 흐름의 기반이 된다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}}
+  {{"title": "포스터 시안 제작", "organization": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "문서에 홍보팀 전담 업무로 명시된 홍보 흐름의 첫 단계다. 온라인 배포와 언론 보도자료 모두 완성된 포스터를 전제로 하므로 다른 무엇보다 먼저 진행되어야 한다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}},
+  {{"title": "공연팀 후보 리스트업", "organization": "ACME", "department": "섭외팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "후보 목록이 없으면 출연 제안서(2주차) 발송 자체가 불가능하다. 문서에 섭외 전 과정이 섭외팀 소관으로 명시되어 있으며, 현재 완료 기록이 없어 1주차가 우선이다. 5/22 보고회 D-2인 5/20(수) 마감."}},
+  {{"title": "무대 설계 초안 작성", "organization": "ACME", "department": "무대팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "장비 견적(2주차)은 무대 규모와 구성이 정해진 뒤에야 요청할 수 있다. 무대 구성 전담인 무대팀의 시작점이며, 이후 발주·설치로 이어지는 흐름의 기반이 된다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}}
 ]}}
 총괄팀 제외 사유: 일정표에 독립 수행 작업이 배정되어 있지 않으며, 역할 정의상 회의 조율·회의록 작성만 담당함. 아젠다 생성 대상에서 제외.
 
@@ -252,7 +269,7 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
       "reasoning": "문서 내용을 바탕으로 자연스러운 2-3문장. 이 작업을 지금 선택한 이유(문서 근거), 앞뒤 단계와의 관계, 마감일 산출 근거를 포함. 단, 매번 같은 문장 구조를 반복하지 말고 문서의 맥락에 맞게 자유롭게 서술."
     }}
   ]
-}}"""
+}}""" + _extra
 
 
 # ─── archive/chat-extract ─────────────────────────────────────────────────────
@@ -746,42 +763,3 @@ def status_stream_context(user_label: str, role_label: str, context_block: str) 
     )
 
 
-# ─── task_agent ────────────────────────────────────────────────────────────────
-def task_system(
-    knowledge: List[dict] = None,
-    departments: List[str] = None,
-    meeting_context: str = "",
-) -> str:
-    base = """\
-너는 TaskAgent야. 회의록과 문서에서 과제·담당자·기한을 추출하는 AI야.
-
-말할 때는 회사 동료처럼 자연스럽고 편하게 말해. "~요" 체로 말하고, 헤딩이나 번호 목록 같은 형식 쓰지 마. 그냥 대화하듯 써. 사용자가 짧게 물으면 짧게 답하고, 공감 표현("아 그렇군요", "맞아요" 등)도 자연스럽게 섞어.
-
-보고자료나 회의록에서 아젠다랑 To-do 뽑는 게 주 역할이야. 그 외에 현황 요약, 리스크 점검, 준비사항 확인 같은 것도 도와줘.
-
-자료 분석해서 아젠다/To-do를 추출할 때는 먼저 말로 설명하고, 설명 끝나면 빈 줄 하나 뒤에 JSON 코드블록만 붙여. 그게 전부야. 추가 제목, 레이블, 번호 절대 붙이지 마.
-
-```json
-{"agendas":[{"department":"담당부서 또는 null","content":"아젠다 항목"}],"todos":[{"content":"실행 과제","department":"담당부서 또는 null","due_date":"YYYY-MM-DD 또는 null"}]}
-```
-
-부서 정보 불명확하면 null. 추출이 필요 없는 질문엔 JSON 붙이지 마."""
-
-    if meeting_context:
-        base += f"\n\n## 이번 회의 맥락\n{meeting_context}"
-    if departments:
-        base += "\n\n## 참여 부서 목록 (To-do 배정 시 이 목록에서 선택)\n" + "\n".join(f"- {d}" for d in departments if d)
-    if knowledge:
-        criteria = "\n".join([f"- [{k.get('category','')}] {k.get('title','')}" for k in knowledge])
-        base += f"\n\n## 조직 아젠다 선정 기준\n{criteria}"
-    return base
-
-
-def task_extract_human(content: str, dept_hint: str = "", prev_hint: str = "") -> str:
-    return f"""\
-아래 문서에서 회의 아젠다와 부서별 To-do를 뽑아줘.{dept_hint}
-
-말로 간단히 설명한 다음, 바로 JSON 코드블록 붙여줘. 제목이나 레이블은 붙이지 마.
-{prev_hint}
-
-{content[:8000]}"""
