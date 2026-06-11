@@ -70,7 +70,7 @@ class _StoreReportReq(BaseModel):
 class _ProposeRelationshipsReq(BaseModel):
     """POST /knowledge/propose-relationships 요청 바디."""
     meeting_id: int
-    node_types: Optional[List[str]] = None  # None이면 Agenda·AIJudgment·Minutes 전체
+    node_types: Optional[List[str]] = None  # None이면 Agenda·HumanJudgment·Minutes 전체
 
 
 class _ConfirmRelationshipsReq(BaseModel):

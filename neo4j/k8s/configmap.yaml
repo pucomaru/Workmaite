@@ -7,72 +7,110 @@ data:
   init.cypher: |
     // =============================================================
     // init.cypher  —  Schema Constraints & Indexes
-    // Knowledge Graph (정적) + Context Graph (동적)
+    // PostgreSQL Source of Truth → Neo4j 동기화 노드 기반
+    // 노드: User / Department / Meetings / Session / Agenda /
+    //       Minutes / MinutesChunk / Report / ReportChunk / HumanJudgment
     // =============================================================
 
-    // ── Knowledge Graph ──────────────────────────────────────────
+    // ── Uniqueness Constraints ────────────────────────────────────
 
-    // Organization
-    CREATE CONSTRAINT organization_id IF NOT EXISTS
-      FOR (n:Organization) REQUIRE n.id IS UNIQUE;
+    // User (PG users)
+    CREATE CONSTRAINT user_pg_id IF NOT EXISTS
+      FOR (n:User) REQUIRE n.pg_id IS UNIQUE;
+    CREATE CONSTRAINT user_email IF NOT EXISTS
+      FOR (n:User) REQUIRE n.email IS UNIQUE;
 
-    // Department
-    CREATE CONSTRAINT department_id IF NOT EXISTS
-      FOR (n:Department) REQUIRE n.id IS UNIQUE;
+    // Department (파생 노드 — name이 PK)
+    CREATE CONSTRAINT department_name IF NOT EXISTS
+      FOR (n:Department) REQUIRE n.name IS UNIQUE;
 
-    // Person
-    CREATE CONSTRAINT person_id IF NOT EXISTS
-      FOR (n:Person) REQUIRE n.id IS UNIQUE;
-    CREATE CONSTRAINT person_email IF NOT EXISTS
-      FOR (n:Person) REQUIRE n.email IS UNIQUE;
+    // Company (파생 노드 — name이 PK)
+    CREATE CONSTRAINT company_name IF NOT EXISTS
+      FOR (n:Company) REQUIRE n.name IS UNIQUE;
 
-    // Role
-    CREATE CONSTRAINT role_id IF NOT EXISTS
-      FOR (n:Role) REQUIRE n.id IS UNIQUE;
+    // Meetings (PG meetings)
+    CREATE CONSTRAINT meetings_id IF NOT EXISTS
+      FOR (n:Meetings) REQUIRE n.id IS UNIQUE;
 
-    // MeetingGroup
-    CREATE CONSTRAINT meetinggroup_id IF NOT EXISTS
-      FOR (n:MeetingGroup) REQUIRE n.id IS UNIQUE;
-
-    // Agenda
-    CREATE CONSTRAINT agenda_id IF NOT EXISTS
-      FOR (n:Agenda) REQUIRE n.id IS UNIQUE;
-
-    // Document
-    CREATE CONSTRAINT document_id IF NOT EXISTS
-      FOR (n:Document) REQUIRE n.id IS UNIQUE;
-
-
-    // ── Context Graph ─────────────────────────────────────────────
-
-    // Session
+    // Session (PG meeting_sessions)
     CREATE CONSTRAINT session_id IF NOT EXISTS
       FOR (n:Session) REQUIRE n.id IS UNIQUE;
 
-    // AIJudgment
-    CREATE CONSTRAINT aijudgment_id IF NOT EXISTS
-      FOR (n:AIJudgment) REQUIRE n.id IS UNIQUE;
+    // Agenda (PG agenda)
+    CREATE CONSTRAINT agenda_id IF NOT EXISTS
+      FOR (n:Agenda) REQUIRE n.id IS UNIQUE;
 
-    // HumanJudgment
+    // Minutes (PG minutes)
+    CREATE CONSTRAINT minutes_pg_id IF NOT EXISTS
+      FOR (n:Minutes) REQUIRE n.pg_id IS UNIQUE;
+
+    // MinutesChunk (file_embedder — minutes 파일 청킹)
+    CREATE CONSTRAINT minuteschunk_id IF NOT EXISTS
+      FOR (n:MinutesChunk) REQUIRE n.id IS UNIQUE;
+
+    // Report (PG reports)
+    CREATE CONSTRAINT report_id IF NOT EXISTS
+      FOR (n:Report) REQUIRE n.id IS UNIQUE;
+
+    // ReportChunk (file_embedder — report 파일 청킹 + AI 리뷰 저장)
+    CREATE CONSTRAINT reportchunk_id IF NOT EXISTS
+      FOR (n:ReportChunk) REQUIRE n.id IS UNIQUE;
+
+    // HumanJudgment (PG hitl_reviews)
     CREATE CONSTRAINT humanjudgment_id IF NOT EXISTS
       FOR (n:HumanJudgment) REQUIRE n.id IS UNIQUE;
 
 
-    // ── Indexes (lookup performance) ──────────────────────────────
+    // ── Lookup Indexes ────────────────────────────────────────────
 
-    CREATE INDEX person_name           IF NOT EXISTS FOR (n:Person)         ON (n.name);
-    CREATE INDEX person_status         IF NOT EXISTS FOR (n:Person)         ON (n.status);
-    CREATE INDEX department_name       IF NOT EXISTS FOR (n:Department)     ON (n.name);
-    CREATE INDEX organization_name     IF NOT EXISTS FOR (n:Organization)   ON (n.name);
-    CREATE INDEX meetinggroup_title    IF NOT EXISTS FOR (n:MeetingGroup)   ON (n.title);
-    CREATE INDEX session_date          IF NOT EXISTS FOR (n:Session)        ON (n.date);
-    CREATE INDEX session_status        IF NOT EXISTS FOR (n:Session)        ON (n.status);
-    CREATE INDEX agenda_status         IF NOT EXISTS FOR (n:Agenda)         ON (n.status);
-    CREATE INDEX agenda_priority       IF NOT EXISTS FOR (n:Agenda)         ON (n.priority);
-    CREATE INDEX agenda_due_date       IF NOT EXISTS FOR (n:Agenda)         ON (n.due_date);
-    CREATE INDEX document_doc_type     IF NOT EXISTS FOR (n:Document)       ON (n.doc_type);
-    CREATE INDEX aijudgment_created    IF NOT EXISTS FOR (n:AIJudgment)     ON (n.created_at);
-    CREATE INDEX humanjudgment_judged  IF NOT EXISTS FOR (n:HumanJudgment)  ON (n.judged_at);
+    CREATE INDEX user_name              IF NOT EXISTS FOR (n:User)          ON (n.name);
+    CREATE INDEX user_department        IF NOT EXISTS FOR (n:User)          ON (n.department);
+    CREATE INDEX meetings_status        IF NOT EXISTS FOR (n:Meetings)      ON (n.status);
+    CREATE INDEX meetings_type          IF NOT EXISTS FOR (n:Meetings)      ON (n.type);
+    CREATE INDEX session_status         IF NOT EXISTS FOR (n:Session)       ON (n.status);
+    CREATE INDEX session_scheduled_at   IF NOT EXISTS FOR (n:Session)       ON (n.scheduled_at);
+    CREATE INDEX agenda_status          IF NOT EXISTS FOR (n:Agenda)        ON (n.status);
+    CREATE INDEX agenda_priority        IF NOT EXISTS FOR (n:Agenda)        ON (n.priority);
+    CREATE INDEX agenda_due_date        IF NOT EXISTS FOR (n:Agenda)        ON (n.due_date);
+    CREATE INDEX report_human_status    IF NOT EXISTS FOR (n:Report)        ON (n.human_status);
+    CREATE INDEX report_created_at      IF NOT EXISTS FOR (n:Report)        ON (n.created_at);
+    CREATE INDEX humanjudgment_judged   IF NOT EXISTS FOR (n:HumanJudgment) ON (n.judged_at);
+    CREATE INDEX humanjudgment_target   IF NOT EXISTS FOR (n:HumanJudgment) ON (n.target_type);
+
+
+    // ── Vector Indexes (임베딩 유사도 검색) ───────────────────────
+
+    CREATE VECTOR INDEX meetingsEmbedding IF NOT EXISTS
+      FOR (n:Meetings) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX agendaEmbedding IF NOT EXISTS
+      FOR (n:Agenda) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX sessionEmbedding IF NOT EXISTS
+      FOR (n:Session) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX minutesEmbedding IF NOT EXISTS
+      FOR (n:Minutes) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX minutesChunkEmbedding IF NOT EXISTS
+      FOR (n:MinutesChunk) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX reportEmbedding IF NOT EXISTS
+      FOR (n:Report) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX reportChunkEmbedding IF NOT EXISTS
+      FOR (n:ReportChunk) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+    CREATE VECTOR INDEX humanJudgmentEmbedding IF NOT EXISTS
+      FOR (n:HumanJudgment) ON (n.embedding)
+      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
 
   entrypoint.sh: |
     #!/bin/bash

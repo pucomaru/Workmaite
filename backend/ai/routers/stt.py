@@ -6,6 +6,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -148,6 +149,59 @@ async def _transcribe_cloud(data: bytes, lang_code: str, max_speakers: int = 6) 
         })
 
     return segments
+
+
+class SaveSegmentsRequest(BaseModel):
+    session_id: int
+    segments: list[dict]  # [{speaker, text, start, end}]
+
+
+def _wlk_time_to_sec(t: str) -> float:
+    """'0:00:03' 또는 '0:03' → 초 단위 float"""
+    try:
+        parts = [float(x) for x in str(t).split(":")]
+        if len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        return parts[0]
+    except Exception:
+        return 0.0
+
+
+@router.post("/save")
+async def save_wlk_segments(
+    body: SaveSegmentsRequest,
+    db:   Session = Depends(get_db),
+):
+    """WhisperLiveKit WebSocket에서 받은 세그먼트를 DB에 저장하고 ID를 반환합니다."""
+    saved = []
+    for seg in body.segments:
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        raw_spk = str(seg.get("speaker") or "1")
+        speaker_label = raw_spk if raw_spk.startswith("화자_") else f"화자_{raw_spk}"
+        obj = SttSegment(
+            session_id    = body.session_id,
+            speaker_label = speaker_label,
+            content       = text,
+            start_sec     = _wlk_time_to_sec(seg.get("start", 0)),
+            end_sec       = _wlk_time_to_sec(seg.get("end", 0)),
+        )
+        db.add(obj)
+        saved.append((obj, seg))
+    try:
+        db.commit()
+        for obj, seg in saved:
+            db.refresh(obj)
+            seg["id"] = obj.id
+            seg["speaker"] = obj.speaker_label
+    except Exception as e:
+        logger.warning(f"[STT/save] DB 저장 실패: {e}")
+        db.rollback()
+        return {"segments": body.segments}
+    return {"segments": [s for _, s in saved]}
 
 
 @router.post("/transcribe")

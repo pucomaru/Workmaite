@@ -71,6 +71,18 @@ async def ensure_vector_indexes() -> None:
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
            }}""",
+        """CREATE VECTOR INDEX reportChunkEmbedding IF NOT EXISTS
+           FOR (c:ReportChunk) ON (c.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
+        """CREATE VECTOR INDEX minutesChunkEmbedding IF NOT EXISTS
+           FOR (c:MinutesChunk) ON (c.embedding)
+           OPTIONS {indexConfig: {
+             `vector.dimensions`: 1536,
+             `vector.similarity_function`: 'cosine'
+           }}""",
     ]
     for q in index_queries:
         try:
@@ -203,20 +215,21 @@ async def store_report(
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
-    node_id = f"aijudgment-{uuid.uuid4().hex[:8]}"
+    node_id = f"reportchunk-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
     created_at = datetime.utcnow().isoformat()
 
     await run_cypher(
-        """MERGE (r:AIJudgment {id: $id})
-           SET r.title = $title,
-               r.content = $content,
-               r.meeting_id = $meeting_id,
-               r.score = $score,
-               r.created_at = $created_at
-           WITH r
-           CALL db.create.setNodeVectorProperty(r, 'embedding', $embedding)
-           RETURN r.id AS id""",
+        """MERGE (c:ReportChunk {id: $id})
+           SET c.title = $title,
+               c.content = $content,
+               c.meeting_id = $meeting_id,
+               c.score = $score,
+               c.created_at = $created_at,
+               c.source = 'ai_review'
+           WITH c
+           CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
+           RETURN c.id AS id""",
         {
             "id": node_id,
             "title": title,
@@ -231,15 +244,15 @@ async def store_report(
     if meeting_id:
         try:
             await run_cypher(
-                """MATCH (r:AIJudgment {id: $rid})
-                   MATCH (mg:Meeting {pg_id: $pg_id})
-                   MERGE (r)-[:BELONGS_TO]->(mg)""",
-                {"rid": node_id, "pg_id": meeting_id},
+                """MATCH (c:ReportChunk {id: $cid})
+                   MATCH (mg:Meetings {id: $mg_id})
+                   MERGE (c)-[:BELONGS_TO]->(mg)""",
+                {"cid": node_id, "mg_id": f"mg-{meeting_id}"},
             )
         except Exception:
             pass
 
-    return {"id": node_id, "status": "stored", "node_type": "AIJudgment"}
+    return {"id": node_id, "status": "stored", "node_type": "ReportChunk"}
 
 
 
@@ -251,15 +264,13 @@ async def search_knowledge(
     from neo4j_client import run_cypher
 
     index_map = {
-        "Minutes": "minutes_embedding_index",
-        "Agenda": "agendaEmbedding",
+        "Minutes":       "minutes_embedding_index",
+        "Agenda":        "agendaEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
         "ReportChunk":   "reportChunkEmbedding",
         "MinutesChunk":  "minutesChunkEmbedding",
-        "AgendaChunk":   "agendaChunkEmbedding",
-        "KnowledgeChunk":"knowledgeChunkEmbedding",
     }
-    index_name = index_map.get(node_type, "minutes_embedding_index")
+    index_name = index_map.get(node_type, "minutesChunkEmbedding")
     embedding = await _embed(query)
 
     try:

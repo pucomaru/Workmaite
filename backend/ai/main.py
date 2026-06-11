@@ -40,7 +40,6 @@ async def _cleanup_stale_neo4j_nodes() -> None:
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
-            "   OR (n:AIJudgment) "
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
             "   OR (n:Agenda AND n.status = 'draft') "
             "DETACH DELETE n"

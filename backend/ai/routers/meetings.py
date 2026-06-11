@@ -92,8 +92,13 @@ async def create_meeting(
             meeting_id=meeting.id,
             title=meeting.title,
             description=meeting.description,
-            status=str(meeting.status or "ACTIVE"),
-            meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
+            guidelines=meeting.guidelines,
+            status=str(meeting.status or "active"),
+            meeting_type=str(meeting.type or ""),
+            start_date=meeting.start_date.isoformat() if meeting.start_date else None,
+            end_date=meeting.end_date.isoformat() if meeting.end_date else None,
+            created_by=meeting.created_by,
+            created_at=meeting.created_at.isoformat() if meeting.created_at else None,
         )
     background_tasks.add_task(_sync)
     return meeting
@@ -159,8 +164,12 @@ async def update_meeting(
         meeting_id=meeting.id,
         title=meeting.title,
         description=meeting.description,
-        status=str(meeting.status or "ACTIVE"),
-        meeting_type=str(getattr(meeting, "meeting_type", None) or getattr(meeting, "type", None) or ""),
+        guidelines=meeting.guidelines,
+        status=str(meeting.status or "active"),
+        meeting_type=str(meeting.type or ""),
+        start_date=meeting.start_date.isoformat() if meeting.start_date else None,
+        end_date=meeting.end_date.isoformat() if meeting.end_date else None,
+        created_by=meeting.created_by,
     )
     return meeting
 
