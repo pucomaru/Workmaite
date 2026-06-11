@@ -105,6 +105,10 @@ export function useAgentChat({
       console.error('[AgentChat] loadChatHistory error:', err?.response?.status, err?.message)
       allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
     }
+    await nextTick()
+    requestAnimationFrame(() => {
+      if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+    })
   }
 
   // ─── 사이드바가 열릴 때마다 히스토리 로드 ───────────────────────
