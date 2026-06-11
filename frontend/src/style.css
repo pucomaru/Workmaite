@@ -449,7 +449,7 @@ html.night-mode .app-btn-cancel { background:rgba(255,255,255,.06) !important;bo
 html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !important; }
 
 /* Required field marker */
-.req { color:#ef4444; }
+.req { color:#ef4444;vertical-align:middle; }
 .app-modal.dark .req { color:#f87171; }
 html.night-mode .req { color:#f87171 !important; }
 
