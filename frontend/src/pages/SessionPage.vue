@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -128,6 +128,8 @@ async function enterSession(s) {
   showMinutesTab.value = rec.showMinutesTab
   conversationBlocks.value = rec.conversationBlocks
   lastRefineIdx.value = rec.lastRefineIdx
+  nextAgendaItems.value = rec.nextAgendaItems || []
+  showNextAgendaBlock.value = rec.showNextAgendaBlock || false
   sessionContext.value = s.context || ''
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
@@ -153,14 +155,17 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await api.get(`/api/v1/sessions/${s.id}/minutes`)
-      if (data?.contentSummary) {
-        generatedMinutes.value = { content_summary: data.contentSummary }
+      const { data } = await apiAI.get(`/api/v1/sessions/${s.id}/minutes`)
+      const minutesContent = data?.content_original || data?.content_summary
+      if (minutesContent) {
+        const html = renderMd(minutesContent)
+        generatedMinutes.value = { content_summary: html }
         showMinutesTab.value = true
         rec.generatedMinutes = generatedMinutes.value
         rec.showMinutesTab = true
         await nextTick()
-        loadMinutesToEditor(data.contentSummary)
+        loadMinutesToEditor(html)
+        if (!rec.showNextAgendaBlock) loadDraftAgendas(s.meeting_id || s.meetingId || selectedMeeting.value?.id)
       }
     } catch { /* 404 = 저장된 회의록 없음, 정상 */ }
   }
@@ -174,6 +179,27 @@ const generatedMinutes = ref(null)
 const showMinutesTab = ref(false)
 const generatingMinutes = ref(false)
 const transcriptAreaRef = ref(null)
+const minutesScrollAreaRef = ref(null)
+const nabHeightPercent = ref(32)
+
+function onNabResizeStart(e) {
+  e.preventDefault()
+  const container = e.target.closest('.sp-tab-body')
+  if (!container) return
+  const startY = e.clientY
+  const containerH = container.getBoundingClientRect().height
+  const startPercent = nabHeightPercent.value
+  const onMove = (e) => {
+    const delta = e.clientY - startY
+    nabHeightPercent.value = Math.min(60, Math.max(15, startPercent - (delta / containerH) * 100))
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
 
 const editor = useEditor({
   extensions: [
@@ -216,7 +242,7 @@ const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcap
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
   if (!sessionRecords.value.has(id))
-    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false, conversationBlocks: [], lastRefineIdx: 0 })
+    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false, conversationBlocks: [], lastRefineIdx: 0, nextAgendaItems: [], showNextAgendaBlock: false })
   return sessionRecords.value.get(id)
 }
 
@@ -392,7 +418,7 @@ async function generateMinutes() {
     `회의록 초안 구성 중...`,
   ]
   await _runThinkingSteps(thinkingMsg, thinkingSteps)
-  const agentMsg = { role: 'agent', content: '회의록을 생성하고 있습니다...' }
+  const agentMsg = reactive({ role: 'agent', content: '회의록을 생성하고 있습니다...' })
   wmMessages.value.push(agentMsg)
   await nextTick()
 
@@ -402,33 +428,44 @@ async function generateMinutes() {
   try {
     await streamPost(
       '/api/agent/minutes/generate-minutes',
-      { meeting_id: activeSession.value?.meeting_id || 0, message: transcriptText, chat_history: [] },
+      { meeting_id: activeSession.value?.meeting_id || 0, session_id: activeSession.value?.id || null, message: transcriptText, chat_history: [] },
       (chunk) => {
         minutesContent += chunk
         generatedMinutes.value = { ...generatedMinutes.value, content_summary: minutesContent }
+        nextTick(() => {
+          if (minutesScrollAreaRef.value)
+            minutesScrollAreaRef.value.scrollTop = minutesScrollAreaRef.value.scrollHeight
+        })
       },
       async () => {
-        const html = renderMd(minutesContent)
-        generatedMinutes.value = {
-          content_summary: html,
-          sources: {
-            stt_count: sttCount,
-            session_title: sessionTitle,
-            transcript: [...transcriptLines.value]
+        let html = ''
+        try {
+          html = renderMd(minutesContent)
+          generatedMinutes.value = {
+            content_summary: html,
+            sources: {
+              stt_count: sttCount,
+              session_title: sessionTitle,
+              transcript: [...transcriptLines.value]
+            }
           }
+          if (activeSession.value) {
+            const rec = getOrCreateRecord(activeSession.value.id)
+            rec.generatedMinutes = generatedMinutes.value
+            rec.showMinutesTab = true
+          }
+          agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
+          wmLoading.value = false
+        } catch (e) {
+          console.error('[generateMinutes onDone]', e)
+          agentMsg.content = '회의록 생성 중 오류가 발생했습니다.'
+          wmLoading.value = false
+        } finally {
+          generatingMinutes.value = false  // 먼저 editor-content를 DOM에 마운트
+          await nextTick()                 // 마운트 완료 대기
+          if (html) loadMinutesToEditor(html)  // 마운트된 에디터에 내용 설정
+          extractNextAgendas()
         }
-        if (activeSession.value) {
-          const rec = getOrCreateRecord(activeSession.value.id)
-          rec.generatedMinutes = generatedMinutes.value
-          rec.showMinutesTab = true
-        }
-        await nextTick()
-        loadMinutesToEditor(html)
-        agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
-        wmLoading.value = false
-        generatingMinutes.value = false
-        // 다음 회의 과제 자동 추출
-        extractNextAgendas()
       }
     )
   } catch {
@@ -462,25 +499,6 @@ function downloadPDF() {
   setTimeout(() => { w.focus(); w.print() }, 400)
 }
 
-function downloadWord() {
-  const html = editor.value?.getHTML() || generatedMinutes.value?.content_summary || ''
-  const title = activeSession.value?.title || '회의록'
-  const full = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
-    <head><meta charset="utf-8">
-    <style>
-      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:11pt;line-height:1.6}
-      h1{font-size:16pt;font-weight:bold;border-bottom:1pt solid #ccc;padding-bottom:6pt}
-      h2{font-size:13pt;font-weight:bold;color:#1e40af}
-      h3{font-size:11pt;font-weight:bold;color:#475569}
-      table{border-collapse:collapse;width:100%}th,td{border:1pt solid #ccc;padding:4pt 8pt}th{background:#f1f5f9}
-    </style>
-    </head><body>${html}</body></html>`
-  const blob = new Blob([full], { type: 'application/msword;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `${title}.doc`; a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 
 const savingMinutes = ref(false)
 const minutesSavedAt = ref(null)
@@ -489,6 +507,36 @@ const minutesSavedAt = ref(null)
 const nextAgendaItems = ref([])
 const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
+const nabCollapsed = ref(false)
+
+const cleanStr = v => (v && v !== 'null' && v !== 'NULL') ? String(v).trim() : ''
+
+async function loadDraftAgendas(meetingId) {
+  if (!meetingId) return
+  try {
+    const { data } = await apiAI.get(`/api/agent/meetings/${meetingId}/draft-agendas`)
+    if (!data?.length) return
+    nextAgendaItems.value = data.map(a => {
+      const dept = Array.isArray(a.department) ? (a.department[0] || '') : (a.department || '')
+      const org = cleanStr(a.organization)
+      return {
+        title: a.title || '', org, dept,
+        db_id: a.db_id,
+        start_date: a.start_date || null,
+        end_date: a.due_date || null,
+        _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false,
+        _editTitle: a.title || '', _editOrg: org, _editDept: dept,
+        _editStartDate: a.start_date || null, _editEndDate: a.due_date || null,
+      }
+    })
+    showNextAgendaBlock.value = true
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      rec.nextAgendaItems = nextAgendaItems.value
+      rec.showNextAgendaBlock = true
+    }
+  } catch { /* 과제 없음, 정상 */ }
+}
 
 async function extractNextAgendas() {
   const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
@@ -521,7 +569,7 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
-      const org   = a.organization || a.company || ''
+      const org   = cleanStr(a.organization) || cleanStr(a.company)
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
         title, org, dept,
@@ -535,13 +583,20 @@ async function extractNextAgendas() {
         _editEndDate: a.due_date || null,
       }
     })
-    if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
-    }
+    if (!nextAgendaItems.value.length) showNextAgendaBlock.value = false
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    nextAgendaItems.value = []
+    showNextAgendaBlock.value = false
   } finally {
     nextAgendaExtracting.value = false
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      // 실제 항목(db_id 있는 것)이 있을 때만 block 캐시
+      const hasRealItems = nextAgendaItems.value.some(a => a.db_id)
+      rec.nextAgendaItems = hasRealItems ? nextAgendaItems.value : []
+      rec.showNextAgendaBlock = hasRealItems
+      if (!hasRealItems) showNextAgendaBlock.value = false
+    }
   }
 }
 
@@ -549,21 +604,63 @@ function addNextAgendaItem() {
   nextAgendaItems.value.push({ title: '', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
-function removeNextAgendaItem(i) {
+async function removeNextAgendaItem(i) {
+  const item = nextAgendaItems.value[i]
+  const meetingId = activeSession.value?.meeting_id
+    || activeSession.value?.meetingId
+    || selectedMeeting.value?.id
+    || 0
+  if (item?.db_id && meetingId) {
+    try {
+      await apiAI.post('/api/agent/archive/agendas/commit', {
+        meeting_id: meetingId,
+        approved: [],
+        rejected_ids: [item.db_id],
+      })
+    } catch (e) {
+      console.warn('[removeNextAgendaItem] draft 삭제 실패:', e)
+    }
+  }
   nextAgendaItems.value.splice(i, 1)
 }
 
 async function saveApprovedNextAgendas() {
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
-  if (!approved.length) return
+  const rejected = nextAgendaItems.value.filter(a => a._state === 'rejected' && a.db_id)
+  if (!approved.length && !rejected.length) return
+
+  // SpringBoot는 camelCase로 반환하므로 양쪽 모두 체크
+  const meetingId = activeSession.value?.meeting_id
+    || activeSession.value?.meetingId
+    || selectedMeeting.value?.id
+    || 0
+  if (!meetingId) { alert('회의체 정보를 찾을 수 없습니다.'); return }
+
   try {
-    const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
-    for (const a of approved) {
-      await api.post(`/api/v1/meetings/${meetingId}/agendas`, { title: a.title, priority: 'medium' })
+    await apiAI.post('/api/agent/archive/agendas/commit', {
+      meeting_id: meetingId,
+      approved: approved.map(a => ({
+        db_id: a.db_id || null,
+        title: a.title,
+        dept: a.dept || null,
+        start_date: a.start_date || null,
+        due_date: a.end_date || null,
+      })),
+      rejected_ids: rejected.map(a => a.db_id),
+    })
+    nextAgendaItems.value = nextAgendaItems.value
+      .filter(a => a._state !== 'approved' && a._state !== 'rejected')
+    // 저장 후 rec 동기화
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      const hasRealItems = nextAgendaItems.value.some(a => a.db_id)
+      rec.nextAgendaItems = nextAgendaItems.value
+      rec.showNextAgendaBlock = hasRealItems
+      if (!hasRealItems) showNextAgendaBlock.value = false
     }
-    nextAgendaItems.value.forEach(a => { if (a._state === 'approved') a._state = 'saved' })
   } catch (e) {
-    alert('저장에 실패했습니다.')
+    console.error('[saveApprovedNextAgendas]', e)
+    alert('저장에 실패했습니다: ' + (e?.response?.data?.detail || e?.message || '알 수 없는 오류'))
   }
 }
 
@@ -577,7 +674,6 @@ async function saveMinutesToDB() {
     const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
-    minutesFileUrl.value = data.file_path
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
     // 회의록 저장 완료 → 세션 archived 처리
     await api.post(`/api/v1/sessions/${activeSession.value.id}/archive`)
@@ -589,7 +685,7 @@ async function saveMinutesToDB() {
   }
 }
 
-function deleteMinutes() {
+async function deleteMinutes() {
   if (!confirm('작성된 회의록을 삭제하시겠습니까?')) return
   generatedMinutes.value = null
   showMinutesTab.value = false
@@ -598,6 +694,9 @@ function deleteMinutes() {
     const rec = getOrCreateRecord(activeSession.value.id)
     rec.generatedMinutes = null
     rec.showMinutesTab = false
+    try {
+      await apiAI.delete(`/api/v1/sessions/${activeSession.value.id}/minutes`)
+    } catch { /* 404(없는 경우) 무시 */ }
   }
 }
 
@@ -823,40 +922,6 @@ async function downloadChatFile(filePath) {
   }
 }
 
-// ─── 회의록 관련 파일 업로드 ─────────────────────────────────
-const minutesFileRef = ref(null)
-const minutesFileUrl = ref(null)
-const minutesFileUploading = ref(false)
-
-async function uploadMinutesFile(event) {
-  const file = event.target.files?.[0]
-  if (!file || !activeSession.value) return
-  minutesFileUploading.value = true
-  const fd = new FormData()
-  fd.append('file', file)
-  try {
-    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}/file`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    minutesFileUrl.value = data.file_path
-    minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    alert('파일 업로드에 실패했습니다.')
-  } finally {
-    minutesFileUploading.value = false
-    if (minutesFileRef.value) minutesFileRef.value.value = ''
-  }
-}
-
-async function downloadMinutesFile() {
-  if (!minutesFileUrl.value) return
-  try {
-    const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: minutesFileUrl.value } })
-    window.open(data.url, '_blank')
-  } catch {
-    alert('다운로드 링크 생성에 실패했습니다.')
-  }
-}
 </script>
 
 <template>
@@ -1003,7 +1068,7 @@ async function downloadMinutesFile() {
           </template>
 
           <template v-else-if="activeTab === 'minutes'">
-            <div class="minutes-scroll-area" :class="{ 'has-nab': showNextAgendaBlock && generatedMinutes }">
+            <div class="minutes-scroll-area" :class="{ 'has-nab': showNextAgendaBlock && generatedMinutes }" ref="minutesScrollAreaRef">
               <div v-if="generatingMinutes && !generatedMinutes?.content_summary" class="sp-empty">
                 <span class="spinner-border spinner-border-sm text-primary mb-2"></span>
                 <p class="text-muted small">AI가 회의록을 생성 중입니다...</p>
@@ -1044,43 +1109,54 @@ async function downloadMinutesFile() {
             </div>
 
             <!-- ── 다음 회의 과제 승인/반려 블록 (에디터 영역 밖) ── -->
-            <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block">
+            <div v-if="generatedMinutes && showNextAgendaBlock && !nabCollapsed" class="nab-resize-handle" @mousedown="onNabResizeStart"></div>
+            <div v-if="generatedMinutes && showNextAgendaBlock" class="next-agenda-block" :class="{ 'nab-collapsed': nabCollapsed }" :style="nabCollapsed ? {} : { flex: `0 0 ${nabHeightPercent}%`, minHeight: 0 }">
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
                   <span>다음 회의 과제</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
-                </div>
-                <p class="nab-desc">회의록에서 추출한 과제를 검토하고 승인/반려해 주세요.</p>
-              </div>
-
-              <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>과제 추출 중...</span>
-              </div>
-              <template v-else-if="nextAgendaItems.length">
-                <div class="nab-list">
-                  <AgendaReviewList
-                    :items="nextAgendaItems"
-                    :memberOrgs="sessionMemberOrgs"
-                    :memberDepts="sessionMemberDepts"
-                    :removeOnApprove="false"
-                    @approved="() => {}"
-                    @rejected="removeNextAgendaItem"
-                    @remove="removeNextAgendaItem"
-                  />
-                </div>
-
-                <div class="nab-footer">
-                  <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
+                  <button class="nab-collapse-btn" @click="nabCollapsed = !nabCollapsed" :title="nabCollapsed ? '펼치기' : '접기'">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path :d="nabCollapsed ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'"/>
+                    </svg>
                   </button>
-                  <div class="nab-footer-right">
-                    <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
-                    <button class="nab-save-btn" :disabled="!nextAgendaItems.filter(a=>a._state==='approved').length" @click="saveApprovedNextAgendas">
-                      승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건 저장
-                    </button>
-                  </div>
                 </div>
+              </div>
+
+              <template v-if="!nabCollapsed">
+                <div v-if="nextAgendaExtracting" class="nab-loading">
+                  <div class="nab-spinner"></div><span>과제 추출 중...</span>
+                </div>
+                <template v-else-if="nextAgendaItems.length">
+                  <div class="nab-list">
+                    <AgendaReviewList
+                      :items="nextAgendaItems"
+                      :memberOrgs="sessionMemberOrgs"
+                      :memberDepts="sessionMemberDepts"
+                      :removeOnApprove="false"
+                      @approved="() => {}"
+                      @rejected="() => {}"
+                      @remove="removeNextAgendaItem"
+                    />
+                  </div>
+
+                  <div class="nab-footer">
+                    <button class="nab-add-btn" @click="addNextAgendaItem">
+                      <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
+                    </button>
+                    <div class="nab-footer-right">
+                      <button class="nab-save-btn"
+                        :disabled="!nextAgendaItems.filter(a=>a._state==='approved'||a._state==='rejected').length"
+                        @click="saveApprovedNextAgendas">
+                        <template v-if="nextAgendaItems.filter(a=>a._state==='approved').length">승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건</template>
+                        <template v-if="nextAgendaItems.filter(a=>a._state==='approved').length && nextAgendaItems.filter(a=>a._state==='rejected').length"> · </template>
+                        <template v-if="nextAgendaItems.filter(a=>a._state==='rejected').length">반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}건</template>
+                        저장
+                      </button>
+                    </div>
+                  </div>
+                </template>
               </template>
             </div>
 
@@ -1160,18 +1236,6 @@ async function downloadMinutesFile() {
             <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadPDF">
               <i class="bi bi-file-earmark-pdf"></i> PDF
             </button>
-            <button class="mbar-btn" :disabled="!generatedMinutes || generatingMinutes" @click="downloadWord">
-              <i class="bi bi-file-earmark-word"></i> Word
-            </button>
-            <button class="mbar-btn" :disabled="minutesFileUploading" @click="minutesFileRef?.click()" title="회의록 관련 파일 업로드">
-              <i v-if="minutesFileUploading" class="bi bi-arrow-repeat spin"></i>
-              <i v-else class="bi bi-file-earmark-arrow-up"></i>
-              {{ minutesFileUploading ? '업로드 중...' : '파일 업로드' }}
-            </button>
-            <button v-if="minutesFileUrl" class="mbar-btn" @click="downloadMinutesFile" title="R2에 저장된 PDF 다운로드">
-              <i class="bi bi-cloud-download"></i> PDF 다운로드
-            </button>
-            <input ref="minutesFileRef" type="file" accept=".pdf,.doc,.docx,.hwp" style="display:none" @change="uploadMinutesFile" />
           </div>
           <div class="minutes-bar-right">
             <span v-if="minutesSavedAt" class="mbar-saved-label">
@@ -1432,7 +1496,9 @@ async function downloadMinutesFile() {
 
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0;display:flex;flex-direction:column; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
-.sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:0 1 50%;min-height:0; }
+.sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:1;min-height:0; }
+.nab-resize-handle { flex-shrink:0;height:5px;cursor:row-resize;background:transparent;border-top:1px solid var(--border);transition:background .15s; }
+.nab-resize-handle:hover { background:var(--primary-light, rgba(99,102,241,.12)); }
 .sp-tab-body.minutes-mode .minutes-action-row { padding:10px 16px 8px;margin:0; }
 .sp-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted); }
 
@@ -1592,7 +1658,11 @@ async function downloadMinutesFile() {
 /* ── 다음 회의 과제 블록 ── */
 .next-agenda-block { border:1px solid rgba(99,102,241,.25);border-radius:10px;background:rgba(99,102,241,.04);overflow-y:auto;flex-shrink:0; }
 .sp-tab-body.minutes-mode .next-agenda-block { flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;border-bottom:none;margin:0; }
-.nab-header { padding:12px 14px 8px;border-bottom:1px solid rgba(99,102,241,.12); }
+.sp-tab-body.minutes-mode .next-agenda-block.nab-collapsed { flex:0 0 auto;overflow:hidden; }
+.nab-collapse-btn { display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;border:1px solid rgba(99,102,241,.2);background:none;color:rgba(99,102,241,.6);cursor:pointer;flex-shrink:0;margin-left:auto;transition:background .15s,color .15s; }
+.nab-collapse-btn:hover { background:rgba(99,102,241,.1);color:rgba(99,102,241,1); }
+.nab-header { padding:10px 14px;border-bottom:1px solid rgba(99,102,241,.12);position:sticky;top:0;z-index:2;background:var(--bg-card, #fff); }
+.day-mode .nab-header { background:#fff; }
 .nab-title-row { display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#818cf8;margin-bottom:4px; }
 .nab-badge { font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;background:rgba(99,102,241,.15);color:#818cf8; }
 .nab-desc { font-size:11px;color:var(--text-muted);margin:0; }
