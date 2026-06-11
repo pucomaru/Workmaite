@@ -19,7 +19,7 @@ const {
   detailMemberDepts,
   detailMemberCompanies,
   goToProcessStep,
-  PRIORITY_LABEL, STATUS_LABEL,
+  PRIORITY_LABEL, STATUS_LABEL, NODE_TYPE_COLORS,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
@@ -153,7 +153,10 @@ const sbTopImprovements = computed(() => {
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="최종 보고일">
+              <SidebarInfoRow label="시작일">
+                <span style="font-size:10px;color:#999;white-space:nowrap">{{ detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-' }}</span>
+              </SidebarInfoRow>
+              <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
@@ -214,7 +217,7 @@ const sbTopImprovements = computed(() => {
               <div class="detail-log-list">
                 <template v-if="logFilteredItems.length">
                   <div v-for="(item, i) in logDisplayItems" :key="i" class="detail-log-item">
-                    <span class="detail-log-dot" :class="'ht-'+item.type"></span>
+                    <span class="detail-log-dot" :style="{ background: NODE_TYPE_COLORS[item.type] || '#555' }"></span>
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">{{ item.manager }} · {{ formatDate(item.date) }}</div>
@@ -510,7 +513,7 @@ const sbTopImprovements = computed(() => {
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
-              <div class="detail-meeting-name">{{ detailNode.label }}</div>
+              <div class="detail-meeting-name">{{ detailNode.type === 'agenda' ? (detailNode.data?.content || detailNode.data?.title || detailNode.label) : detailNode.label }}</div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
