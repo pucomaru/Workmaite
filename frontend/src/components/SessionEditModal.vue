@@ -7,7 +7,7 @@ const props = defineProps({
   show:    { type: Boolean, default: false },
   session: { type: Object,  default: null },
 })
-const emit = defineEmits(['close', 'saved'])
+const emit = defineEmits(['close', 'saved', 'delete'])
 
 const form = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
 const members = ref([])
@@ -96,13 +96,21 @@ async function doSave() {
             <MemberInvite v-model="members" />
           </div>
         </div>
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary" :disabled="!canSubmit" @click="doSave">
-            {{ saving ? '수정 중...' : '수정' }}
-          </button>
+        <div class="app-modal-footer modal-footer-split">
+          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div class="footer-right">
+            <button class="app-btn-cancel" @click="emit('close')">취소</button>
+            <button class="app-btn-primary" :disabled="!canSubmit" @click="doSave">
+              {{ saving ? '수정 중...' : '수정' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.modal-footer-split { justify-content: space-between !important; }
+.footer-right { display: flex; gap: 8px; }
+</style>

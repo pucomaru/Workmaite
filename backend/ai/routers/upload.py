@@ -352,18 +352,14 @@ async def submit_report_review(
         .first()
     )
 
-    review_prompt = data.get("ai_result", {})
-    review_comment = {"comment": data.get("feedback", "")}
-
     db.add(models.HitlReview(
         agent_log_id=agent_log.id if agent_log else None,
         target_type="report",
-        target_id=report_id,
-        review_prompt=review_prompt,      # dict → JSONB
+        report_id=report_id,
         ai_rationale=data.get("ai_rationale", ""),
         status=action,
         reviewer_id=current_user.id,
-        review_comment=review_comment,    # dict → JSONB
+        comment=data.get("feedback", "") or None,
         reviewed_at=_dt.utcnow(),
     ))
 
@@ -416,8 +412,7 @@ async def delete_report(
     db.query(models.Report).filter(models.Report.parent_id == report_id).update({"parent_id": report.parent_id})
     db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).delete()
     db.query(models.HitlReview).filter(
-        models.HitlReview.target_type == "report",
-        models.HitlReview.target_id == report_id,
+        models.HitlReview.report_id == report_id,
     ).delete()
     db.delete(report)
     db.flush()

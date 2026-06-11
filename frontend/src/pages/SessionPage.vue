@@ -3,7 +3,6 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import SessionEditModal from '../components/SessionEditModal.vue'
 import CreateSessionModal from '../components/CreateSessionModal.vue'
@@ -32,7 +31,7 @@ const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sidebarCollapsed = ref(false)
-const sidebarW = ref(220)
+const sidebarW = ref(330)
 let sidebarResizing = false, srStartX = 0, srStartW = 0
 function onSidebarResizeStart(e) {
   if (sidebarCollapsed.value) return
@@ -43,7 +42,7 @@ function onSidebarResizeStart(e) {
 }
 function onSidebarResizeMove(e) {
   if (!sidebarResizing) return
-  sidebarW.value = Math.max(180, Math.min(420, srStartW + (e.clientX - srStartX)))
+  sidebarW.value = Math.max(330, Math.min(450, srStartW + (e.clientX - srStartX)))
 }
 function onSidebarResizeEnd() {
   sidebarResizing = false
@@ -169,7 +168,7 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await apiAI.get(`/api/v1/sessions/${s.id}/minutes`)
+      const { data } = await apiAI.get(`/api/ai/sessions/${s.id}/minutes`)
       const minutesContent = data?.content_original || data?.content_summary
       if (minutesContent) {
         const html = renderMd(minutesContent)
@@ -218,7 +217,6 @@ function onNabResizeStart(e) {
 const editor = useEditor({
   extensions: [
     StarterKit,
-    Underline,
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
@@ -290,7 +288,7 @@ async function refineChunk() {
   const processedIdx = lastRefineIdx.value + newLines.length
   const text = newLines.map(l => l.text).join('\n')
   try {
-    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
@@ -534,14 +532,14 @@ async function loadDraftAgendas(meetingId) {
     if (!data?.length) return
     nextAgendaItems.value = data.map(a => {
       const dept = Array.isArray(a.department) ? (a.department[0] || '') : (a.department || '')
-      const org = cleanStr(a.organization)
+      const company = cleanStr(a.company) || cleanStr(a.organization)
       return {
-        title: a.title || '', org, dept,
+        title: a.title || '', company, dept,
         db_id: a.db_id,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: a.title || '', _editOrg: org, _editDept: dept,
+        _editTitle: a.title || '', _editCompany: company, _editDept: dept,
         _editStartDate: a.start_date || null, _editEndDate: a.due_date || null,
       }
     })
@@ -585,24 +583,25 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
-      const org   = cleanStr(a.organization) || cleanStr(a.company)
+      const company = cleanStr(a.company) || cleanStr(a.organization)
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
-        title, org, dept,
+        title, company, dept,
         db_id: a.db_id || null,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: agentLogId,
         _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: title, _editOrg: org, _editDept: dept,
+        _editTitle: title, _editCompany: company, _editDept: dept,
         _editStartDate: a.start_date || null,
         _editEndDate: a.due_date || null,
       }
     })
-    if (!nextAgendaItems.value.length) showNextAgendaBlock.value = false
+    if (!nextAgendaItems.value.length) {
+      nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    }
   } catch {
-    nextAgendaItems.value = []
-    showNextAgendaBlock.value = false
+    nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
     if (activeSession.value) {
@@ -617,7 +616,7 @@ async function extractNextAgendas() {
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({ title: '', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null })
+  nextAgendaItems.value.push({ title: '', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
 async function removeNextAgendaItem(i) {
@@ -711,7 +710,7 @@ async function deleteMinutes() {
     rec.generatedMinutes = null
     rec.showMinutesTab = false
     try {
-      await apiAI.delete(`/api/v1/sessions/${activeSession.value.id}/minutes`)
+      await apiAI.delete(`/api/ai/sessions/${activeSession.value.id}/minutes`)
     } catch { /* 404(없는 경우) 무시 */ }
   }
 }
@@ -758,7 +757,7 @@ async function loadMentionGraph() {
   } catch { /* 그래프 미연결 시 @멘션은 비활성 */ }
 }
 
-const sessionMemberOrgs = computed(() =>
+const sessionMemberCompanies = computed(() =>
   [...new Set((mentionMembers.value || []).map(mb => mb.company || '').filter(Boolean))]
 )
 const sessionMemberDepts = computed(() =>
@@ -984,7 +983,10 @@ async function downloadChatFile(filePath) {
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
               <div class="sp-session-info">
-                <div class="sp-session-name">{{ s.title }}</div>
+                <div class="sp-session-name">
+                  <span class="sp-session-title-text">{{ s.title }}</span>
+                  <span class="sp-session-status">{{ STATUS_LABEL[s.status] }}</span>
+                </div>
                 <div class="sp-session-meta">
                   <span v-if="s.location" class="sp-session-location"><i class="bi bi-geo-alt"></i> {{ s.location }}</span>
                   <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
@@ -1128,7 +1130,7 @@ async function downloadChatFile(filePath) {
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 과제</span>
+                  <span>다음 회의 아젠다</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                   <button class="nab-collapse-btn" @click="nabCollapsed = !nabCollapsed" :title="nabCollapsed ? '펼치기' : '접기'">
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -1136,41 +1138,36 @@ async function downloadChatFile(filePath) {
                     </svg>
                   </button>
                 </div>
+                <p class="nab-desc">회의록에서 추출한 아젠다를 검토하고 승인/반려해 주세요.</p>
               </div>
 
-              <template v-if="!nabCollapsed">
-                <div v-if="nextAgendaExtracting" class="nab-loading">
-                  <div class="nab-spinner"></div><span>과제 추출 중...</span>
+              <div v-if="nextAgendaExtracting" class="nab-loading">
+                <div class="nab-spinner"></div><span>아젠다 추출 중...</span>
+              </div>
+              <template v-else-if="nextAgendaItems.length">
+                <div class="nab-list">
+                  <AgendaReviewList
+                    :items="nextAgendaItems"
+                    :memberCompanies="sessionMemberCompanies"
+                    :memberDepts="sessionMemberDepts"
+                    :removeOnApprove="false"
+                    @approved="() => {}"
+                    @rejected="removeNextAgendaItem"
+                    @remove="removeNextAgendaItem"
+                  />
                 </div>
-                <template v-else-if="nextAgendaItems.length">
-                  <div class="nab-list">
-                    <AgendaReviewList
-                      :items="nextAgendaItems"
-                      :memberOrgs="sessionMemberOrgs"
-                      :memberDepts="sessionMemberDepts"
-                      :removeOnApprove="false"
-                      @approved="() => {}"
-                      @rejected="() => {}"
-                      @remove="removeNextAgendaItem"
-                    />
-                  </div>
 
-                  <div class="nab-footer">
-                    <button class="nab-add-btn" @click="addNextAgendaItem">
-                      <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
+                <div class="nab-footer">
+                  <button class="nab-add-btn" @click="addNextAgendaItem">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
+                  </button>
+                  <div class="nab-footer-right">
+                    <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
+                    <button class="nab-save-btn" :disabled="!nextAgendaItems.filter(a=>a._state==='approved').length" @click="saveApprovedNextAgendas">
+                      승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건 저장
                     </button>
-                    <div class="nab-footer-right">
-                      <button class="nab-save-btn"
-                        :disabled="!nextAgendaItems.filter(a=>a._state==='approved'||a._state==='rejected').length"
-                        @click="saveApprovedNextAgendas">
-                        <template v-if="nextAgendaItems.filter(a=>a._state==='approved').length">승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건</template>
-                        <template v-if="nextAgendaItems.filter(a=>a._state==='approved').length && nextAgendaItems.filter(a=>a._state==='rejected').length"> · </template>
-                        <template v-if="nextAgendaItems.filter(a=>a._state==='rejected').length">반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}건</template>
-                        저장
-                      </button>
-                    </div>
                   </div>
-                </template>
+                </div>
               </template>
             </div>
 
@@ -1460,11 +1457,12 @@ async function downloadChatFile(filePath) {
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-info { flex:1;min-width:0; }
-.sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
+.sp-session-name { font-size:11px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:5px;overflow:hidden; }
+.sp-session-title-text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0; }
+.sp-session-status { font-size:9px;font-weight:600;flex-shrink:0;color:var(--text-muted);background:var(--surface-2);border-radius:10px;padding:1px 6px;white-space:nowrap; }
+.sp-session-meta { display:flex;flex-direction:column;gap:2px;margin-top:3px;overflow:hidden; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
-.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
+.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
 

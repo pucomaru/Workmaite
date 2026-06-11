@@ -275,6 +275,7 @@ async def transcribe(
                         content       = seg["text"],
                         start_sec     = seg.get("start", 0),
                         end_sec       = seg.get("end", 0),
+                        provider      = effective_mode,
                     )
                     db.add(obj)
                     saved_objs.append(obj)
@@ -286,6 +287,7 @@ async def transcribe(
                     content       = full_text.strip(),
                     start_sec     = 0,
                     end_sec       = 0,
+                    provider      = effective_mode,
                 )
                 db.add(obj)
                 saved_objs.append(obj)

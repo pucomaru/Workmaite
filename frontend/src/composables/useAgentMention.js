@@ -30,7 +30,7 @@ export function useAgentMention({
   const mentionedContexts = ref([]) // [{id, type, label, icon, summary}]
 
   const AT_TYPE_ICONS = { meeting: '🏢', person: '👤', task: '✅', department: '🏬', session: '📅', document: '📄' }
-  const AT_TYPE_LABELS = { meeting: '회의체', person: '구성원', task: '과제', department: '부서', session: '회의', document: '문서' }
+  const AT_TYPE_LABELS = { meeting: '회의체', person: '구성원', task: '아젠다', department: '부서', session: '회의', document: '문서' }
 
   const atMenuItems = computed(() => {
     const q = atQuery.value.toLowerCase()
@@ -79,7 +79,7 @@ export function useAgentMention({
           const statusLabel = { pending: '대기', done: '완료', in_progress: '진행중', at_risk: '위험' }[t.status] || t.status || ''
           items.push({
             id, type: 'task', label, icon: '✅',
-            summary: ['[과제] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.deadline ? '마감: ' + t.deadline : ''].filter(Boolean).join('\n'),
+            summary: ['[아젠다] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.deadline ? '마감: ' + t.deadline : ''].filter(Boolean).join('\n'),
           })
         }
       }

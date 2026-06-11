@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Optional, Literal
+from typing import Any, List, Optional, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -27,6 +27,7 @@ from .prompts import (
     make_llm,
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
 )
+from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
 
 
 def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
-    """Return unique (organization, department) pairs from meeting members."""
+    """Return unique (company, department) pairs from meeting members."""
     from sqlalchemy.orm import joinedload
     members = (
         db.query(models.MeetingMember)
@@ -194,11 +195,11 @@ def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
     for m in members:
         if not m.user or not m.user.department:
             continue
-        org = m.user.company or ""
+        company = m.user.company or ""
         dept = m.user.department
-        if (org, dept) not in seen:
-            seen.add((org, dept))
-            result.append({"organization": org, "department": dept})
+        if (company, dept) not in seen:
+            seen.add((company, dept))
+            result.append({"company": company, "department": dept})
     return result
 
 
@@ -471,8 +472,6 @@ async def minutes_generate_minutes(
             meeting_id=data.meeting_id,
             session_id=data.session_id,
             title=minutes_title,
-            participants=participants,
-            session_info=session_info,
         ):
             collected_parts.append(chunk)
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
@@ -560,6 +559,17 @@ async def supervisor_chat(
     _thread_id = f"supervisor-{data.meeting_id or 0}"
 
     async def stream():
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="supervisor",
+            meeting_id=data.meeting_id or None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data={"message": msg[:300] if msg else None, "route": _route},
+        )
+        _stream_error = None
+
         print(f"DEBUG: stream() started, _route={_route!r}")
         # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
         _db_rows = (
@@ -643,11 +653,11 @@ async def supervisor_chat(
                             if t and t not in hl_candidates:
                                 hl_candidates.append(t)
                     else:
-                        org_rows = await run_cypher(
+                        company_rows = await run_cypher(
                             "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
                         )
-                        if org_rows:
-                            yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
+                        if company_rows:
+                            yield f"data: [PLANNING] 조직: {company_rows[0].get('name', '?')} 확인\n\n"
                 except Exception:
                     pass
 
@@ -675,6 +685,7 @@ async def supervisor_chat(
         try:
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
             print(f"DEBUG: routing block entered, _route={_route!r}")
+
             if _route in ('supervisor_direct', 'knowledge_manager'):
                 yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
 
@@ -732,7 +743,7 @@ async def supervisor_chat(
                 _org_dept_pairs = _get_member_org_depts(db, data.meeting_id)
                 _org_dept_list = (
                     "\n".join(
-                        f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+                        f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
                         for p in _org_dept_pairs
                     ) if _org_dept_pairs else "정보 없음"
                 )
@@ -773,8 +784,13 @@ async def supervisor_chat(
 
             yield "data: [DONE]\n\n"
 
+        except BaseException as _e:
+            _stream_error = _e
+            raise
         finally:
             # GeneratorExit·예외·정상 종료 모두에서 assistant 메시지 저장
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
             _assistant_text = "".join(_assistant_chunks)
             if _assistant_text:
                 _save_db = SessionLocal()
@@ -785,7 +801,7 @@ async def supervisor_chat(
                         role="assistant",
                         content=_assistant_text,
                         context_type="supervisor",
-                        meeting_id=data.meeting_id,
+                        meeting_id=data.meeting_id or None,
                     ))
                     _save_db.commit()
                 except Exception as _e:
@@ -803,7 +819,7 @@ async def supervisor_chat(
                 role="user",
                 content=msg,
                 context_type="supervisor",
-                meeting_id=data.meeting_id,
+                meeting_id=data.meeting_id or None,
             ))
             db.commit()
         except Exception as _e:
@@ -1169,6 +1185,68 @@ async def _analyze_graph() -> dict:
             "membership": membership, "counts": counts}
 
 
+async def _normalize_rel_directions() -> dict:
+    """관계 방향·명칭을 정규 흐름(REL_MATRIX)에 맞게 일괄 정규화합니다.
+    Neo4j는 엣지 방향을 in-place 변경할 수 없으므로 DELETE → MERGE 패턴을 사용합니다.
+    """
+    # 원칙: 포함/소속은 작은 단위 → 큰 단위 방향 (child → parent)
+    # 라이프사이클(agenda→session→minutes→human_judgment)은 흐름 방향 유지
+    steps = [
+        # (설명, 카운트 쿼리, 수정 쿼리)
+
+        # ── 포함 관계: 잘못된 big→small 복구 ──────────────────────────
+        ("회의체→회사 방향 복구 (포함, 작은→큰)",
+         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) RETURN count(r) AS cnt",
+         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) MERGE (mg)-[:`포함`]->(co) DELETE r"),
+
+        ("부서→회사 방향 복구 (소속, 작은→큰)",
+         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) RETURN count(r) AS cnt",
+         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) MERGE (d)-[:`소속`]->(co) DELETE r"),
+
+        ("사람→부서 방향 복구 (소속, 작은→큰)",
+         "MATCH (d:Department)-[r:`소속`]->(u:User) RETURN count(r) AS cnt",
+         "MATCH (d:Department)-[r:`소속`]->(u:User) MERGE (u)-[:`소속`]->(d) DELETE r"),
+
+        ("아젠다→회의체 방향 복구 (관할, 작은→큰)",
+         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r"),
+
+        # ── 라이프사이클 방향 정규화 ───────────────────────────────────
+        ("회의록→의사결정 방향 정규화 (판단)",
+         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) RETURN count(r) AS cnt",
+         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) MERGE (n)-[:`판단`]->(hj) DELETE r"),
+
+        ("'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
+         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
+
+        ("회의→아젠다 '다룸' 방향 정규화",
+         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) RETURN count(r) AS cnt",
+         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
+
+        # ── 누락 연결 보완 ─────────────────────────────────────────────
+        ("부서-회사 누락 연결 보완 (소속, 작은→큰)",
+         "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) RETURN count(d) AS cnt",
+         "MATCH (d:Department), (co:Company) WHERE NOT (d)-[:`소속`]->(co) MERGE (d)-[:`소속`]->(co)"),
+    ]
+
+    total = 0
+    details: dict[str, int] = {}
+    for desc, count_q, fix_q in steps:
+        try:
+            rows = await run_cypher(count_q)
+            cnt = int(rows[0]["cnt"]) if rows else 0
+            if cnt:
+                await run_cypher(fix_q)
+                details[desc] = cnt
+                total += cnt
+                logger.info(f"[RelNorm] {desc}: {cnt}건")
+        except Exception as e:
+            logger.warning(f"[RelNorm] {desc} 실패 (무시): {e}")
+
+    return {"total": total, "details": details}
+
+
 @router.post("/knowledge/analyze-relationships")
 async def analyze_relationships_stream(
     background_tasks: BackgroundTasks,
@@ -1299,20 +1377,11 @@ async def analyze_relationships_stream(
                     async for step in _stream_plan(system_actions, actions_text):
                         yield f"data: [PLANNING] {step}\n\n"
 
-            # ── 부서-조직 연결 보완 (항상 실행) ─────────────────────────
+            # ── 관계 방향·명칭 정규화 (항상 실행) ────────────────────
             try:
-                dept_fix_rows = await run_cypher(
-                    "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) "
-                    "RETURN count(d) AS cnt"
-                )
-                dept_fix_cnt = dept_fix_rows[0]["cnt"] if dept_fix_rows else 0
-                if dept_fix_cnt:
-                    await run_cypher(
-                        "MATCH (d:Department), (o:Company) "
-                        "WHERE NOT (d)-[:`소속`]->(o) "
-                        "MERGE (d)-[:`소속`]->(o)"
-                    )
-                    yield f"data: [PLANNING] 부서→조직 누락 연결 {dept_fix_cnt}건 복구\n\n"
+                norm = await _normalize_rel_directions()
+                if norm["total"]:
+                    yield f"data: [PLANNING] 관계 방향·명칭 정규화 {norm['total']}건 완료\n\n"
             except Exception:
                 pass
 
@@ -1513,13 +1582,13 @@ async def archive_extract_agendas(
 
     org_dept_list = (
         "\n".join(
-            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
             for p in org_dept_pairs
         ) if org_dept_pairs else "정보 없음"
     )
 
     try:
-        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list)
+        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list, user_id=current_user.id)
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
@@ -1548,7 +1617,7 @@ async def archive_extract_agendas(
                     due_date=due_val,
                     ai_evidence=json.dumps({
                         "reasoning": ag.get("reasoning") or "",
-                        "organization": ag.get("organization"),
+                        "company": ag.get("company") or ag.get("organization"),
                         "start_date": ag.get("start_date"),
                     }, ensure_ascii=False),
                 )
@@ -1613,7 +1682,7 @@ async def archive_extract_agendas(
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "organization": ag.get("organization"),
+                    "company": ag.get("company") or ag.get("organization"),
                     "department": ag.get("department"),
                     "start_date": ag.get("start_date"),
                     "due_date": ag.get("due_date"),
@@ -1650,7 +1719,7 @@ async def archive_chat_extract(
     org_dept_pairs = _get_member_org_depts(db, meeting_id) if meeting_id else []
     org_dept_list = (
         "\n".join(
-            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
             for p in org_dept_pairs
         ) if org_dept_pairs else "정보 없음"
     )
@@ -1677,7 +1746,7 @@ async def archive_chat_extract(
                 "agendas": [
                     {
                         "title": ag.get("title", ""),
-                        "organization": ag.get("organization"),
+                        "company": ag.get("company") or ag.get("organization"),
                         "department": ag.get("department"),
                         "priority": ag.get("priority", "normal"),
                         "start_date": ag.get("start_date"),
@@ -1949,7 +2018,7 @@ async def get_draft_agendas(
             "department": a.department,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
             "start_date": _parse_ev(a.ai_evidence).get("start_date"),
-            "organization": _parse_ev(a.ai_evidence).get("organization"),
+            "company": _parse_ev(a.ai_evidence).get("company") or _parse_ev(a.ai_evidence).get("organization"),
         }
         for a in agendas
     ]
@@ -2203,11 +2272,11 @@ async def delete_agenda_item(
 # ─── HITL 검토 저장 ──────────────────────────────────────────────────────────
 class HitlReviewCreate(BaseModel):
     target_type: str
-    target_id: int
+    agenda_id: Optional[int] = None
+    report_id: Optional[int] = None
     agent_log_id: Optional[int] = None
     status: str = "edited"
-    review_prompt: Optional[dict] = None
-    review_comment: Optional[dict] = None
+    comment: Optional[str] = None
 
 
 @router.post("/hitl-reviews")
@@ -2220,11 +2289,11 @@ async def create_hitl_review(
     review = models.HitlReview(
         agent_log_id=data.agent_log_id,
         target_type=data.target_type,
-        target_id=data.target_id,
+        agenda_id=data.agenda_id,
+        report_id=data.report_id,
         status=data.status,
         reviewer_id=current_user.id,
-        review_prompt=data.review_prompt,
-        review_comment=data.review_comment,
+        comment=data.comment,
         reviewed_at=datetime.utcnow(),
     )
     db.add(review)
@@ -2235,8 +2304,8 @@ async def create_hitl_review(
     try:
         from neo4j_sync import sync_human_judgment as _sync_hj
         meeting_id_for_sync: int | None = None
-        if review.target_type == "agenda" and review.target_id:
-            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+        if review.target_type == "agenda" and review.agenda_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
             if _ag:
                 meeting_id_for_sync = _ag.meeting_id
         background_tasks.add_task(
@@ -2244,10 +2313,9 @@ async def create_hitl_review(
             review_id=review.id,
             meeting_id=meeting_id_for_sync,
             judgment=review.status,
-            reason=str(review.review_comment) if review.review_comment else None,
+            reason=review.comment,
             target_type=review.target_type,
-            target_id=review.target_id,
-            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            target_id=review.agenda_id or review.report_id,
             judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
             created_at=review.created_at.isoformat() if review.created_at else None,
         )
@@ -2255,6 +2323,56 @@ async def create_hitl_review(
         logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
 
     return {"id": review.id, "status": review.status}
+
+
+class HitlReviewPatch(BaseModel):
+    status: Optional[str] = None
+    comment: Optional[str] = None
+
+
+@router.patch("/hitl-reviews/{hj_id}")
+async def update_hitl_review(
+    hj_id: int,
+    data: HitlReviewPatch,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    review = db.query(models.HitlReview).filter(models.HitlReview.id == hj_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="HitlReview not found")
+    if data.status is not None:
+        review.status = data.status
+    if data.comment is not None:
+        review.comment = data.comment
+    review.reviewed_at = datetime.utcnow()
+    review.reviewer_id = current_user.id
+    db.commit()
+    db.refresh(review)
+
+    try:
+        from neo4j_sync import sync_human_judgment as _sync_hj
+        meeting_id_for_sync: int | None = None
+        if review.target_type == "agenda" and review.agenda_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
+            if _ag:
+                meeting_id_for_sync = _ag.meeting_id
+        background_tasks.add_task(
+            _sync_hj,
+            review_id=review.id,
+            meeting_id=meeting_id_for_sync,
+            judgment=review.status,
+            reason=review.comment,
+            target_type=review.target_type,
+            target_id=review.agenda_id or review.report_id,
+            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
+            created_at=review.created_at.isoformat() if review.created_at else None,
+        )
+    except Exception as _se:
+        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+
+    return {"id": review.id, "status": review.status, "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None}
 
 
 # ─── 보고서 종합 검토 (스트리밍) ──────────────────────────────────────────────

@@ -9,6 +9,7 @@ def make_llm(temperature: float = 0.2, streaming: bool = False) -> ChatOpenAI:
         temperature=temperature,
         api_key=os.environ["OPENAI_API_KEY"],
         streaming=streaming,
+        stream_usage=streaming,  # streaming 시 usage 포함
     )
 
 
@@ -196,10 +197,10 @@ due_date 산출: 2주차 → 다음 보고회 5/28(목) → 5/28 - 2일 = 5/26(�
 
 [JSON 출력]
 {{"agendas": [
-  {{"title": "모집 배너 디자인", "organization": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "운영 첫 주 홍보팀의 시작점으로, 이후 SNS 광고 집행과 지원자 문의 대응이 모두 이 배너를 기반으로 이어진다. 아직 완료 기록이 없으므로 가장 먼저 착수해야 할 단계다. 2주차 보고회(5/21 목) 이틀 전인 5/19(화)까지 제출."}},
-  {{"title": "심사 기준 초안 작성", "organization": "ACME", "department": "심사팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "심사위원 위촉(2주차)과 서류 심사(3주차)는 기준이 먼저 정해져야 진행 가능하다. 1주차 작업이 미완료 상태이므로 후속 단계로 넘어갈 수 없으며, 5주차 최종 면접은 이 단계가 포함된 전 과정 완료 후 대상이 된다. 5/21 보고회 D-2인 5/19(화) 마감."}},
-  {{"title": "멘토링 프로그램 설계", "organization": "ACME", "department": "교육팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "프로그램 설계가 완성되어야 어떤 멘토가 필요한지 윤곽이 잡히고 멘토 풀 구성(2주차)에 착수할 수 있다. 현재 완료 기록이 없어 1주차가 우선 과제. 5/21 보고회 기준 D-2 마감일 5/19(화)."}},
-  {{"title": "장소 섭외 진행", "organization": "ACME", "department": "운영팀", "priority": "important", "start_date": "2026-05-12", "due_date": "2026-05-26", "reasoning": "회의록에 1주차 '공간 수요 파악' 완료가 명시되어 있어 다음 단계로 넘어갈 수 있는 상태다. 섭외가 완료되어야 계약(3주차)과 현장 준비로 이어지므로 지금 당장 진행해야 할 업무. 3주차 보고회(5/28 목) D-2인 5/26(화) 마감."}}
+  {{"title": "모집 배너 디자인", "company": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "운영 첫 주 홍보팀의 시작점으로, 이후 SNS 광고 집행과 지원자 문의 대응이 모두 이 배너를 기반으로 이어진다. 아직 완료 기록이 없으므로 가장 먼저 착수해야 할 단계다. 2주차 보고회(5/21 목) 이틀 전인 5/19(화)까지 제출."}},
+  {{"title": "심사 기준 초안 작성", "company": "ACME", "department": "심사팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "심사위원 위촉(2주차)과 서류 심사(3주차)는 기준이 먼저 정해져야 진행 가능하다. 1주차 작업이 미완료 상태이므로 후속 단계로 넘어갈 수 없으며, 5주차 최종 면접은 이 단계가 포함된 전 과정 완료 후 대상이 된다. 5/21 보고회 D-2인 5/19(화) 마감."}},
+  {{"title": "멘토링 프로그램 설계", "company": "ACME", "department": "교육팀", "priority": "urgent_important", "start_date": "2026-05-12", "due_date": "2026-05-19", "reasoning": "프로그램 설계가 완성되어야 어떤 멘토가 필요한지 윤곽이 잡히고 멘토 풀 구성(2주차)에 착수할 수 있다. 현재 완료 기록이 없어 1주차가 우선 과제. 5/21 보고회 기준 D-2 마감일 5/19(화)."}},
+  {{"title": "장소 섭외 진행", "company": "ACME", "department": "운영팀", "priority": "important", "start_date": "2026-05-12", "due_date": "2026-05-26", "reasoning": "회의록에 1주차 '공간 수요 파악' 완료가 명시되어 있어 다음 단계로 넘어갈 수 있는 상태다. 섭외가 완료되어야 계약(3주차)과 현장 준비로 이어지므로 지금 당장 진행해야 할 업무. 3주차 보고회(5/28 목) D-2인 5/26(화) 마감."}}
 ]}}
 
 ---
@@ -247,9 +248,9 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
 
 [JSON 출력]
 {{"agendas": [
-  {{"title": "포스터 시안 제작", "organization": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "문서에 홍보팀 전담 업무로 명시된 홍보 흐름의 첫 단계다. 온라인 배포와 언론 보도자료 모두 완성된 포스터를 전제로 하므로 다른 무엇보다 먼저 진행되어야 한다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}},
-  {{"title": "공연팀 후보 리스트업", "organization": "ACME", "department": "섭외팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "후보 목록이 없으면 출연 제안서(2주차) 발송 자체가 불가능하다. 문서에 섭외 전 과정이 섭외팀 소관으로 명시되어 있으며, 현재 완료 기록이 없어 1주차가 우선이다. 5/22 보고회 D-2인 5/20(수) 마감."}},
-  {{"title": "무대 설계 초안 작성", "organization": "ACME", "department": "무대팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "장비 견적(2주차)은 무대 규모와 구성이 정해진 뒤에야 요청할 수 있다. 무대 구성 전담인 무대팀의 시작점이며, 이후 발주·설치로 이어지는 흐름의 기반이 된다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}}
+  {{"title": "포스터 시안 제작", "company": "ACME", "department": "홍보팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "문서에 홍보팀 전담 업무로 명시된 홍보 흐름의 첫 단계다. 온라인 배포와 언론 보도자료 모두 완성된 포스터를 전제로 하므로 다른 무엇보다 먼저 진행되어야 한다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}},
+  {{"title": "공연팀 후보 리스트업", "company": "ACME", "department": "섭외팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "후보 목록이 없으면 출연 제안서(2주차) 발송 자체가 불가능하다. 문서에 섭외 전 과정이 섭외팀 소관으로 명시되어 있으며, 현재 완료 기록이 없어 1주차가 우선이다. 5/22 보고회 D-2인 5/20(수) 마감."}},
+  {{"title": "무대 설계 초안 작성", "company": "ACME", "department": "무대팀", "priority": "urgent_important", "start_date": "2026-05-11", "due_date": "2026-05-20", "reasoning": "장비 견적(2주차)은 무대 규모와 구성이 정해진 뒤에야 요청할 수 있다. 무대 구성 전담인 무대팀의 시작점이며, 이후 발주·설치로 이어지는 흐름의 기반이 된다. 2주차 보고회(5/22 금) D-2인 5/20(수) 마감."}}
 ]}}
 총괄팀 제외 사유: 일정표에 독립 수행 작업이 배정되어 있지 않으며, 역할 정의상 회의 조율·회의록 작성만 담당함. 아젠다 생성 대상에서 제외.
 
@@ -261,7 +262,7 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
   "agendas": [
     {{
       "title": "과제/아젠다 제목",
-      "organization": "담당 조직명 또는 null",
+      "company": "담당 회사명 또는 null",
       "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",
@@ -290,14 +291,14 @@ def chat_extract_system(meeting_context: str, org_dept_list: str, current_agenda
 2. 사용자가 과제 수정을 요청하면 해당 과제를 수정하세요
 3. 사용자가 과제 삭제를 요청하면 해당 과제를 제거하세요
 4. 변경되지 않은 과제는 그대로 유지하세요
-5. organization과 department는 반드시 위 목록에 있는 값만 사용하세요
+5. company와 department는 반드시 위 목록에 있는 값만 사용하세요
 6. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
 
 {{
   "agendas": [
     {{
       "title": "과제 제목",
-      "organization": "담당 조직명 또는 null",
+      "company": "담당 회사명 또는 null",
       "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",

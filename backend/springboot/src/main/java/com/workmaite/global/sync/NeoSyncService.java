@@ -56,8 +56,9 @@ public class NeoSyncService {
     }
 
     @Async
-    public void syncMember(Long meetingId, Long userId) {
-        call("/api/sync/member?meetingId=" + meetingId + "&userId=" + userId, "member:" + meetingId + "/" + userId);
+    public void syncMember(Long meetingId, Long userId, String role) {
+        call("/api/sync/member?meetingId=" + meetingId + "&userId=" + userId + "&role=" + role,
+                "member:" + meetingId + "/" + userId);
     }
 
     @Async

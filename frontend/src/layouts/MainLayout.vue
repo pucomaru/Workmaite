@@ -1,29 +1,19 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import AppHeader from '../components/AppHeader.vue'
 
-const router = useRouter()
 const route = useRoute()
-const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
 })
 
-const meetingId = ref(null)
 watch(() => route.params.meetingId, (id) => {
-  meetingId.value = id ? Number(id) : null
   meetingsStore.currentLoopIdx = 0
   if (id) meetingsStore.fetchRole(id)
-}, { immediate: true })
-
-const inMeetingPage = ref(false)
-watch(() => route.path, (p) => {
-  inMeetingPage.value = p.includes('/meetings/')
 }, { immediate: true })
 </script>
 

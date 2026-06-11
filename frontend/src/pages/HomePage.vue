@@ -114,7 +114,7 @@ const yearMonths = computed(() => {
 const dayEvents = computed(() => eventsOn(cursor.value))
 
 function evtCls(type) {
-  return type === 'session' ? 'evt-session' : 'evt-todo'
+  return type === 'session' ? 'evt-session' : 'evt-agenda'
 }
 
 function clickDay(d) {
@@ -190,29 +190,6 @@ async function hydrateMeetingMeta() {
   })
   meetingMeta.value = initial
 
-  // 아젠다 기반 마감일: 준비되는 즉시 개별 업데이트
-  await Promise.all(
-    active.map(async (m) => {
-      try {
-        const { data: agendas } = await api.get(`/api/v1/meetings/${m.id}/agendas`)
-        const openAgendas = (agendas ?? [])
-          .filter(a => a.status !== 'done')
-          .sort((a, b) => {
-            const da = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
-            const db = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
-            return da - db
-          })
-        const topAgenda = openAgendas[0]
-        meetingMeta.value = {
-          ...meetingMeta.value,
-          [m.id]: {
-            ...meetingMeta.value[m.id],
-            due_date: topAgenda?.due_date || null,
-          },
-        }
-      } catch {}
-    })
-  )
 }
 
 // ── 회의체 종료 / 삭제 ─────────────────────────────────────────
@@ -455,7 +432,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 
         <div class="cal-legend">
           <span><i class="dot-session"></i> 회의</span>
-          <span><i class="dot-todo"></i> To-do 마감</span>
+          <span><i class="dot-agenda"></i> 아젠다 마감</span>
         </div>
       </div>
     </div><!-- /main-grid -->
@@ -472,11 +449,11 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .section-title { font-size: 15px; font-weight: 700; }
 
 /* ── ① To-do 섹션 ───────────────────────────────────────────── */
-.todo-section { padding: 14px 16px; }
-.todo-section .section-title-row { margin-bottom: 12px; }
+.agenda-section { padding: 14px 16px; }
+.agenda-section .section-title-row { margin-bottom: 12px; }
 .empty-inline { font-size: 13px; color: var(--text-muted); padding: 4px 0; }
-.todo-list { display: flex; flex-direction: column; gap: 6px; }
-.todo-row {
+.agenda-list { display: flex; flex-direction: column; gap: 6px; }
+.agenda-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -486,17 +463,17 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
   border: 1px solid var(--border);
  
 }
-.todo-row:hover { background: var(--surface-2); }
-.todo-row.done .todo-content { text-decoration: line-through; color: var(--text-muted); }
-.todo-check { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; flex-shrink: 0; }
-.todo-circle { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); }
-.todo-content { flex: 1; font-size: 13px; }
-.todo-dday { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-.todo-dday.urgent { background: #fef3c7; color: #d97706; }
-.todo-dday.overdue { background: #fee2e2; color: var(--danger); }
-.todo-meeting { font-size: 11px; color: var(--text-muted); background: #eff6ff; border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
-.todo-row.pinned { background: #fffbeb; border-color: #fde68a; }
-.todo-row.pinned:hover { background: #fef3c7; }
+.agenda-row:hover { background: var(--surface-2); }
+.agenda-row.done .agenda-content { text-decoration: line-through; color: var(--text-muted); }
+.agenda-check { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; flex-shrink: 0; }
+.agenda-circle { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); }
+.agenda-content { flex: 1; font-size: 13px; }
+.agenda-dday { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.agenda-dday.urgent { background: #fef3c7; color: #d97706; }
+.agenda-dday.overdue { background: #fee2e2; color: var(--danger); }
+.agenda-meeting { font-size: 11px; color: var(--text-muted); background: #eff6ff; border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
+.agenda-row.pinned { background: #fffbeb; border-color: #fde68a; }
+.agenda-row.pinned:hover { background: #fef3c7; }
 .pin-fixed-icon { font-size: 13px; flex-shrink: 0; opacity: 0.8; }
 .pin-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0.3; flex-shrink: 0; }
 .pin-btn:hover { opacity: 0.8; }
@@ -569,7 +546,7 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .day-evt-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); }
 .day-evt-bar { width: 3px; min-height: 36px; border-radius: 2px; flex-shrink: 0; }
 .day-evt-bar.evt-session { background: var(--accent); }
-.day-evt-bar.evt-todo { background: var(--warning); }
+.day-evt-bar.evt-agenda { background: var(--warning); }
 .day-evt-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .day-evt-title { font-size: 13px; font-weight: 500; }
 .year-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
@@ -588,14 +565,25 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 
 /* 우선순위 배지 */
 .section-count { font-size: 13px; font-weight: 500; color: var(--text-muted); }
-.upcoming-dday { font-size: 12px; font-weight: 600; color: var(--text-muted); }
-.evt-pill.evt-todo   { background: #fef3c7; color: #92400e; }
+.upcoming-dday { font-size: 12px; font-weight: 700; }
+.upcoming-dday.dday-urgent { color: #d97706; }
+.upcoming-dday.dday-normal { color: var(--text-muted); }
+/* 유형 텍스트 (배지 없음) */
+.type-badge { font-size: 11px; font-weight: 600; }
+.type-badge-weekly    { color: #3b82f6; }
+.type-badge-monthly   { color: #8b5cf6; }
+.type-badge-quarterly { color: #f59e0b; }
+.type-badge-default   { color: var(--accent); }
+.role-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+.role-admin  { background: rgba(59,130,246,.15); color: #3b82f6; }
+.role-member { background: rgba(100,116,139,.12); color: var(--text-muted); }
+.evt-pill.evt-agenda   { background: #fef3c7; color: #92400e; }
 .evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .cal-legend span { display: flex; align-items: center; gap: 5px; }
-.dot-session, .dot-todo { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.dot-session, .dot-agenda { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 .dot-session { background: var(--accent); }
-.dot-todo { background: var(--warning); }
+.dot-agenda { background: var(--warning); }
 
 
 </style>

@@ -104,11 +104,11 @@ async def get_archive(
                      .all()
     }
 
-    # ── Step 1+2: User 조회 / org / dept — 동시에 시작 ─────────
+    # ── Step 1+2: User 조회 / company / dept — 동시에 시작 ──────
     # User 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
-    # User 는 별도 태스크로 먼저 쏘고 org/dept 와 concurrently 대기한다.
+    # User 는 별도 태스크로 먼저 쏘고 company/dept 와 concurrently 대기한다.
     try:
-        person_rows, org_rows, dept_rows = await asyncio.gather(
+        person_rows, company_rows, dept_rows = await asyncio.gather(
             _run_cypher(
                 "MATCH (p:User) WHERE p.email = $email OR p.name = $name "
                 "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
@@ -157,7 +157,7 @@ async def get_archive(
         return {
             "meetings": [], "minutes": [], "reports": [],
             "departments": dept_rows,
-            "org": org_rows[0] if org_rows else None,
+            "company": company_rows[0] if company_rows else None,
             "current_person": current_person,
         }
 
@@ -451,8 +451,7 @@ async def get_archive(
             db.query(models.Report, models.HitlReview, models.ReportScore)
             .outerjoin(
                 models.HitlReview,
-                (models.HitlReview.target_type == "report") &
-                (models.HitlReview.target_id == models.Report.id),
+                models.HitlReview.report_id == models.Report.id,
             )
             .outerjoin(
                 models.ReportScore,
@@ -639,7 +638,7 @@ async def get_archive(
         "minutes":  minutes,
         "reports":  reports,
         "departments": dept_rows,
-        "org":         org_rows[0] if org_rows else None,
+        "org":         company_rows[0] if company_rows else None,
         "current_person": current_person,
     }
 

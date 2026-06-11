@@ -224,7 +224,7 @@ async function saveSettings() {
 
 function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
 function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
-function getOrgs(gid) { const orgs = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.company || mb.user?.department; if (o) orgs.add(o) }); return [...orgs] }
+function getCompanies(gid) { const companies = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.company || mb.user?.department; if (o) companies.add(o) }); return [...companies] }
 
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
@@ -296,7 +296,7 @@ onMounted(async () => {
               <!-- 참여조직 -->
               <td>
                 <div v-if="membersCache[g.id]">
-                  <span v-if="getOrgs(g.id).length" class="mg-org-plain">{{ getOrgs(g.id).slice(0,3).join(', ') }}{{ getOrgs(g.id).length > 3 ? ` 외 ${getOrgs(g.id).length - 3}개` : '' }}</span>
+                  <span v-if="getCompanies(g.id).length" class="mg-company-plain">{{ getCompanies(g.id).slice(0,3).join(', ') }}{{ getCompanies(g.id).length > 3 ? ` 외 ${getCompanies(g.id).length - 3}개` : '' }}</span>
                   <span v-else class="mg-row-nodates">-</span>
                 </div>
                 <span v-else class="mg-row-nodates">-</span>
@@ -432,7 +432,7 @@ onMounted(async () => {
 .mg-type-text { font-size:12px;color:var(--text-muted); }
 .mg-admin-name { font-size:12px;color:var(--text-muted); }
 .mg-member-count-label { font-size:12px;color:var(--text-muted); }
-.mg-org-plain { font-size:12px;color:var(--text-muted); }
+.mg-company-plain { font-size:12px;color:var(--text-muted); }
 
 /* 상태 dot */
 .mg-status-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
@@ -468,7 +468,7 @@ onMounted(async () => {
 .mg-role-text { font-size:12px;color:var(--text-muted); }
 .mg-role-text.role-admin { font-weight:600; }
 .day-mode .mg-role-text { color:var(--text-dim); }
-.day-mode .mg-type-text,.day-mode .mg-admin-name,.day-mode .mg-member-count-label,.day-mode .mg-org-plain { color:var(--text-dim); }
+.day-mode .mg-type-text,.day-mode .mg-admin-name,.day-mode .mg-member-count-label,.day-mode .mg-company-plain { color:var(--text-dim); }
 
 /* 빈 상태 */
 .mg-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--text-muted);gap:8px;padding:60px 0; }
