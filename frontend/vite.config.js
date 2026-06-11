@@ -12,6 +12,14 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/api/v1/sessions/refine-chunk': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '^/api/v1/sessions/[^/]+/minutes': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/api/v1': {
         target: 'http://localhost:8080',
         changeOrigin: true,

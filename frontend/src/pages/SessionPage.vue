@@ -122,12 +122,13 @@ async function enterSession(s) {
   activeSession.value = s
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
-  showSummary.value = false
-  transcriptSummary.value = ''
   const rec = getOrCreateRecord(s.id)
   transcriptLines.value = rec.transcriptLines
   generatedMinutes.value = rec.generatedMinutes
   showMinutesTab.value = rec.showMinutesTab
+  conversationBlocks.value = rec.conversationBlocks
+  lastRefineIdx.value = rec.lastRefineIdx
+  sessionContext.value = s.context || ''
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
@@ -172,9 +173,6 @@ const transcriptLines = ref([])
 const generatedMinutes = ref(null)
 const showMinutesTab = ref(false)
 const generatingMinutes = ref(false)
-const transcriptSummary = ref('')
-const summarizingTranscript = ref(false)
-const showSummary = ref(false)
 const transcriptAreaRef = ref(null)
 
 const editor = useEditor({
@@ -218,8 +216,56 @@ const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcap
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
   if (!sessionRecords.value.has(id))
-    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false })
+    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false, conversationBlocks: [], lastRefineIdx: 0 })
   return sessionRecords.value.get(id)
+}
+
+// ─── 대화기록 ─────────────────────────────────────────────────
+const conversationBlocks = ref([])
+const sessionContext = ref('')
+const showContextModal = ref(false)
+const contextDraft = ref('')
+const lastRefineIdx = ref(0)
+const refiningConversation = ref(false)
+const REFINE_EVERY = 5
+
+const unprocessedLines = computed(() => transcriptLines.value.slice(lastRefineIdx.value))
+
+async function saveContext() {
+  sessionContext.value = contextDraft.value
+  showContextModal.value = false
+  if (activeSession.value) {
+    try {
+      await api.patch(`/api/v1/sessions/${activeSession.value.id}/context`, { context: contextDraft.value })
+    } catch (e) {
+      console.error('맥락 저장 실패', e)
+    }
+  }
+}
+
+async function refineChunk() {
+  const newLines = transcriptLines.value.slice(lastRefineIdx.value)
+  if (newLines.length < REFINE_EVERY || refiningConversation.value) return
+  refiningConversation.value = true
+  const processedIdx = lastRefineIdx.value + newLines.length
+  const text = newLines.map(l => l.text).join('\n')
+  try {
+    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+      text,
+      context: sessionContext.value || null,
+    })
+    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text })
+    lastRefineIdx.value = processedIdx
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      rec.conversationBlocks = conversationBlocks.value
+      rec.lastRefineIdx = lastRefineIdx.value
+    }
+  } catch (e) {
+    console.error('대화기록 정제 실패', e)
+  } finally {
+    refiningConversation.value = false
+  }
 }
 
 // 스피커 레이블 — 발화 등장 순서 기반으로 A/B/C... 동적 할당
@@ -250,6 +296,7 @@ function _pushLine(time, text, speaker = null, id = null) {
   transcriptLines.value.push(entry)
   if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
   nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
+  if ((transcriptLines.value.length - lastRefineIdx.value) >= REFINE_EVERY) refineChunk()
 }
 
 const stt = useSTT({
@@ -310,7 +357,7 @@ function toggleRecording() {
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
-    recordingState.value = 'paused'; stt.stop(); _pauseTimer(); fetchTranscriptSummary()
+    recordingState.value = 'paused'; stt.stop(); _pauseTimer()
   } else {
     stt.start()
       .then(() => { recordingState.value = 'recording'; _startTimer() })
@@ -321,33 +368,8 @@ function toggleRecording() {
 function stopRecording() {
   const was = recordingState.value === 'recording'
   recordingState.value = 'idle'; stt.stop(); _resetTimer()
-  if (was) fetchTranscriptSummary()
 }
 
-async function fetchTranscriptSummary() {
-  if (!transcriptLines.value.length) return
-  summarizingTranscript.value = true; showSummary.value = true; transcriptSummary.value = ''
-  const text = transcriptLines.value.map(l => `[${l.time}] ${l.text}`).join('\n')
-  const sessionTitle = activeSession.value?.title || '회의'
-
-  // ── 우측 채팅에 AI 사고 과정 표시 ──────────────────────────
-  const userMsg = `"${sessionTitle}" 대화 내용을 요약해줘`
-  const thinkingSteps = [
-    `대화 텍스트 분석 중 (${transcriptLines.value.length}개 발화)...`,
-    `핵심 발언 및 반복 주제 추출`,
-    `Neo4j Context Graph: Evidence 노드 연결 준비`,
-    `요약 생성 중...`,
-  ]
-  injectAction(userMsg, thinkingSteps, '').then(() => {/* noop */})
-  // 실제 summary는 스트리밍으로 별도 표시 (중앙 패널)
-  try {
-    await streamPost('/api/agent/supervisor/chat',
-      { meeting_id: activeSession.value?.meeting_id || 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
-      (chunk) => { transcriptSummary.value += chunk },
-      () => { summarizingTranscript.value = false }
-    )
-  } catch { transcriptSummary.value = '요약 중 오류가 발생했습니다.'; summarizingTranscript.value = false }
-}
 
 async function generateMinutes() {
   if (generatingMinutes.value) return
@@ -499,31 +521,32 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
+      const org   = a.organization || a.company || ''
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
-        title, dept,
+        title, org, dept,
         db_id: a.db_id || null,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: agentLogId,
         _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: title, _editDept: dept,
+        _editTitle: title, _editOrg: org, _editDept: dept,
         _editStartDate: a.start_date || null,
         _editEndDate: a.due_date || null,
       }
     })
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
   }
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({ title: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null })
+  nextAgendaItems.value.push({ title: '', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
 function removeNextAgendaItem(i) {
@@ -619,6 +642,13 @@ async function loadMentionGraph() {
     mentionTasks.value = (data?.meetings || []).flatMap(m => m.tasks || [])
   } catch { /* 그래프 미연결 시 @멘션은 비활성 */ }
 }
+
+const sessionMemberOrgs = computed(() =>
+  [...new Set((mentionMembers.value || []).map(mb => mb.company || '').filter(Boolean))]
+)
+const sessionMemberDepts = computed(() =>
+  [...new Set((mentionMembers.value || []).map(mb => mb.department || mb.dept || '').filter(Boolean))]
+)
 
 function wmAutoResize() {
   const el = wmTextareaEl.value; if (!el) return
@@ -927,44 +957,21 @@ async function downloadMinutesFile() {
         <!-- Tab content -->
         <div ref="transcriptAreaRef" class="sp-tab-body" :class="{ 'minutes-mode': activeTab==='minutes' }">
           <template v-if="activeTab === 'transcript'">
-            <div v-if="showSummary" class="ts-summary-box">
-              <div class="ts-summary-header">
-                <span><i class="bi bi-stars"></i> AI 요약</span>
-                <button class="ts-summary-close" @click="showSummary=false">✕</button>
-              </div>
-              <div v-if="summarizingTranscript" class="ts-summary-body">
-                <span class="spinner-border spinner-border-sm text-primary"></span>
-                <span style="font-size:12px;color:var(--text-muted);margin-left:6px">요약 중...</span>
-              </div>
-              <div v-else class="ts-summary-body minutes-md" v-html="renderMd(transcriptSummary)"></div>
-            </div>
             <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <template v-for="(line, idx) in transcriptLines" :key="idx">
-              <!-- 편집 모드 -->
-              <div v-if="editingIdx === idx" class="tline tline-editing">
-                <span class="tline-time">{{ line.time }}</span>
-                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
-                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
-                <div class="tline-edit-btns">
-                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
-                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
-                </div>
-              </div>
-              <!-- 일반 모드 -->
-              <div v-else class="tline">
-                <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-                <span class="tline-body">
-                  <span class="tline-text">{{ line.text }}</span>
-                  <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                </span>
-              </div>
-            </template>
+            <!-- 완성된 블록들 — 위 -->
+            <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
+              <div class="conv-block-title">{{ block.title }}</div>
+              <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
+              <div v-if="block.text" class="conv-block-original">{{ block.text }}</div>
+            </div>
+            <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
+            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
+              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
+              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
+            </div>
           </template>
 
           <template v-else-if="activeTab === 'script'">
@@ -1054,6 +1061,8 @@ async function downloadMinutesFile() {
                 <div class="nab-list">
                   <AgendaReviewList
                     :items="nextAgendaItems"
+                    :memberOrgs="sessionMemberOrgs"
+                    :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
                     @approved="() => {}"
                     @rejected="removeNextAgendaItem"
@@ -1122,6 +1131,15 @@ async function downloadMinutesFile() {
             </div>
 
             <!-- Record / pause -->
+            <!-- 맥락 입력 버튼 -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showContextModal }"
+                @click.stop="showContextModal=true;contextDraft=sessionContext" title="회의 맥락 입력">
+                <i class="bi bi-text-left"></i>
+                <span>맥락</span>
+              </button>
+            </div>
+
             <button class="ctrl-rec-btn" :class="{ recording: recordingState==='recording' }"
               @click.stop="toggleRecording"
               :title="recordingState==='idle'?'녹음 시작':recordingState==='recording'?'일시정지':'재개'">
@@ -1287,6 +1305,29 @@ async function downloadMinutesFile() {
     @close="showCreateSession=false"
     @saved="onSessionCreated"
   />
+
+  <!-- 맥락 입력 모달 -->
+  <Teleport to="body">
+    <div v-if="showContextModal" class="app-modal-backdrop" @click.self="showContextModal=false">
+      <div class="app-modal context-modal">
+        <div class="app-modal-header">
+          <span class="app-modal-title">맥락 입력</span>
+          <button class="app-modal-close" @click="showContextModal=false">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="app-modal-body">
+          <p class="context-modal-desc">대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 요약 정확도가 크게 높아져요.</p>
+          <textarea v-model="contextDraft" class="context-modal-textarea"
+            placeholder="예시:&#10;- 대화 상황: ABC 프로젝트 킥오프 미팅&#10;- 주제: Q3 마케팅 전략, 예산 논의&#10;- 고유명사: 김팀장, 이대리, 네트워크 인프라" rows="7" />
+        </div>
+        <div class="app-modal-footer">
+          <button class="app-modal-cancel" @click="showContextModal=false">취소</button>
+          <button class="app-modal-confirm" @click="saveContext">저장</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1331,7 +1372,6 @@ async function downloadMinutesFile() {
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
-.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
@@ -1344,14 +1384,14 @@ async function downloadMinutesFile() {
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
-.sp-session-date { font-size:10px;color:var(--text-muted);flex-shrink:0;margin-left:auto; }
+.sp-session-date { font-size:10px;color:var(--text-muted); }
 .sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
 
 /* ── Center panel ── */
-.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0 3px;overflow:visible;min-width:0; }
+.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0 10px;overflow:visible;min-width:0; }
 
 .sp-no-session { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text-muted); }
 .sp-no-session-text { font-size:14px;font-weight:600;margin:0; }
@@ -1367,12 +1407,29 @@ async function downloadMinutesFile() {
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
 
-.sp-tab-body { flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-height:0; }
+.sp-tab-body { flex:1;overflow-y:auto;padding:35px 60px;display:flex;flex-direction:column;gap:4px;min-height:0; }
 .sp-tab-body::-webkit-scrollbar { width:4px; }
 .sp-tab-body::-webkit-scrollbar-thumb { background:var(--border); }
 .minutes-scroll-area { flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0;padding-bottom:8px; }
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
+.conv-block { padding:20px 0 16px; }
+.conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
+.conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
+.conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
+.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden; }
+.conv-raw-loading { border-color:var(--primary);opacity:.7; }
+.conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
+@keyframes conv-scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+.conv-raw-line { font-size:13px;color:var(--text-muted);line-height:2; }
+.context-modal { width:480px;max-width:90vw; }
+.context-modal-desc { font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6; }
+.context-modal-textarea { width:100%;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:13px;background:var(--surface);color:var(--text);outline:none;resize:none;font-family:inherit;line-height:1.7; }
+.context-modal-textarea:focus { border-color:var(--primary); }
+.app-modal-footer { display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border); }
+.app-modal-cancel { padding:7px 16px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:13px;cursor:pointer; }
+.app-modal-confirm { padding:7px 18px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0;display:flex;flex-direction:column; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
 .sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:0 1 50%;min-height:0; }

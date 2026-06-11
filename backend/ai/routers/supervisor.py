@@ -180,7 +180,8 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     return "\n".join(lines)
 
 
-def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
+def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
+    """Return unique (organization, department) pairs from meeting members."""
     from sqlalchemy.orm import joinedload
     members = (
         db.query(models.MeetingMember)
@@ -188,7 +189,17 @@ def _get_member_departments(db: Session, meeting_id: int) -> List[str]:
         .filter(models.MeetingMember.meeting_id == meeting_id)
         .all()
     )
-    return list({m.user.department for m in members if m.user and m.user.department})
+    seen: set = set()
+    result: List[dict] = []
+    for m in members:
+        if not m.user or not m.user.department:
+            continue
+        org = m.user.company or ""
+        dept = m.user.department
+        if (org, dept) not in seen:
+            seen.add((org, dept))
+            result.append({"organization": org, "department": dept})
+    return result
 
 
 def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
@@ -654,7 +665,7 @@ async def supervisor_chat(
                     message=msg, chat_history=_chat_history_from_db,
                     previous_minutes=_get_previous_minutes(db, data.meeting_id),
                     knowledge=[],
-                    departments=_get_member_departments(db, data.meeting_id),
+                    departments=[p["department"] for p in _get_member_org_depts(db, data.meeting_id)],
                     meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
                 )
             elif _route == 'minutes_generator':
@@ -1355,7 +1366,7 @@ async def archive_extract_agendas(
         return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
 
     meeting_context = _get_meeting_context(db, meeting_id)
-    departments = _get_member_departments(db, meeting_id)
+    org_dept_pairs = _get_member_org_depts(db, meeting_id)
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
     current_agendas = db.query(models.Agenda).filter(
@@ -1425,10 +1436,15 @@ async def archive_extract_agendas(
     if file_texts:
         context_parts.append("[첨부 자료]\n" + "\n\n".join(file_texts))
 
-    dept_list = ", ".join(departments) if departments else "정보 없음"
+    org_dept_list = (
+        "\n".join(
+            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            for p in org_dept_pairs
+        ) if org_dept_pairs else "정보 없음"
+    )
 
     try:
-        parsed = await task_agent.extract_agendas_from_context(context_parts, dept_list)
+        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list)
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
@@ -1518,6 +1534,7 @@ async def archive_extract_agendas(
             "agendas": [
                 {
                     "title": ag.get("title", ""),
+                    "organization": ag.get("organization"),
                     "department": ag.get("department"),
                     "start_date": ag.get("start_date"),
                     "due_date": ag.get("due_date"),
@@ -1551,8 +1568,13 @@ async def archive_chat_extract(
     current_agendas = data.chat_history[0].get("agendas", []) if data.chat_history else []
 
     meeting_context = _get_meeting_context(db, meeting_id) if meeting_id else ""
-    departments = _get_member_departments(db, meeting_id) if meeting_id else []
-    dept_list = ", ".join(departments) if departments else "정보 없음"
+    org_dept_pairs = _get_member_org_depts(db, meeting_id) if meeting_id else []
+    org_dept_list = (
+        "\n".join(
+            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            for p in org_dept_pairs
+        ) if org_dept_pairs else "정보 없음"
+    )
     current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
 
     async def stream():
@@ -1567,7 +1589,7 @@ async def archive_chat_extract(
             async for _step in _stream_plan(_plan_sys, _plan_hmn):
                 yield f"data: [PLANNING] {_step}\n\n"
 
-            parsed = await task_agent.chat_update_agendas(message, meeting_context, dept_list, current_agendas_text)
+            parsed = await task_agent.chat_update_agendas(message, meeting_context, org_dept_list, current_agendas_text)
             if not parsed:
                 parsed = {"agendas": current_agendas, "message": message}
 
@@ -1576,6 +1598,7 @@ async def archive_chat_extract(
                 "agendas": [
                     {
                         "title": ag.get("title", ""),
+                        "organization": ag.get("organization"),
                         "department": ag.get("department"),
                         "priority": ag.get("priority", "normal"),
                         "start_date": ag.get("start_date"),
@@ -2255,7 +2278,7 @@ async def start_extraction_review_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    departments = data.departments or _get_member_departments(db, 0)
+    departments = data.departments or []
     result = await task_agent.start_extraction_review(
         thread_id=data.thread_id,
         content=data.content,

@@ -501,10 +501,18 @@ async function startNodeReview(reportId) {
 
 // 현재 회의체 참여 부서 목록
 const detailMemberDepts = computed(() => {
-  const depts = new Set((detailMeeting.value?.members || [])
+  return [...new Set((detailMeeting.value?.members || [])
     .map(mb => mb.department || mb.dept || '')
+    .filter(Boolean))]
+})
+
+// 현재 회의체 참여 조직 목록
+const detailMemberOrgs = computed(() => {
+  const orgs = new Set((detailMeeting.value?.members || [])
+    .map(mb => mb.company || '')
     .filter(Boolean))
-  return depts
+  if (orgs.size === 0 && currentOrg.value?.name) orgs.add(currentOrg.value.name)
+  return [...orgs]
 })
 
 // 팀별 그룹핑 (현재 회의체 관련 부서만)
@@ -660,10 +668,12 @@ async function _restoreDrafts(meetingId) {
     if (drafts && drafts.length) {
       extractResult.value = drafts.map(ag => ({
         ...ag,
+        org: ag.organization || '',
         dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         end_date: ag.due_date || '',
         _state: null, _editing: false,
         _editTitle: ag.title,
+        _editOrg: ag.organization || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
         _editEndDate: ag.due_date || '',
@@ -747,11 +757,13 @@ async function runExtract() {
       const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
+        org: ag.organization || '',
         dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         end_date: ag.due_date || '',
         _state: null,
         _editing: false,
         _editTitle: ag.title,
+        _editOrg: ag.organization || '',
         _editStartDate: ag.start_date || '',
         _editEndDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
@@ -789,7 +801,7 @@ async function openExtractModal() {
       meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
-    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, org: ag.organization || '', dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editOrg: ag.organization || '', _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
   } catch {
     extractResult.value = [
       { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
@@ -801,7 +813,7 @@ function setExtractState(i, state) {
   extractResult.value[i]._state = extractResult.value[i]._state === state ? null : state
 }
 function addExtractItem() {
-  extractResult.value.push({ title: '', dept: '', db_id: null, start_date: '', end_date: '', _state: null, _editing: true, _editTitle: '', _editDept: '', _editStartDate: '', _editEndDate: '', _agentLogId: null, _showReason: false, _feedbackAction: '', _reason: '' })
+  extractResult.value.push({ title: '', org: '', dept: '', db_id: null, start_date: '', end_date: '', _state: null, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: '', _editEndDate: '', _agentLogId: null, _showReason: false, _feedbackAction: '', _reason: '' })
 }
 
 async function approveItem(i) {
@@ -2493,6 +2505,7 @@ provide('archiveSidebar', {
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   detailMemberDepts,
+  detailMemberOrgs,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,

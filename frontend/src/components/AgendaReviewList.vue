@@ -4,6 +4,7 @@ import DateInput from './DateInput.vue'
 
 const props = defineProps({
   items: { type: Array, required: true },
+  memberOrgs:  { type: Array, default: () => [] },
   memberDepts: { type: Array, default: () => [] },
   removeOnApprove: { type: Boolean, default: true },
 })
@@ -18,6 +19,7 @@ function startApprove(i) {
     return
   }
   ag._origTitle = ag.title
+  ag._origOrg = ag.org
   ag._origDept = ag.dept
   ag._origStartDate = ag.start_date
   ag._origEndDate = ag.end_date
@@ -34,6 +36,7 @@ function startReject(i) {
     return
   }
   ag._origTitle = ag.title
+  ag._origOrg = ag.org
   ag._origDept = ag.dept
   ag._origStartDate = ag.start_date
   ag._origEndDate = ag.end_date
@@ -45,11 +48,13 @@ function startReject(i) {
 function startEdit(i) {
   const ag = props.items[i]
   ag._origTitle = ag.title
+  ag._origOrg = ag.org
   ag._origDept = ag.dept
   ag._origStartDate = ag.start_date
   ag._origEndDate = ag.end_date
   ag._editTitle = ag.title
-  ag._editDept = ag.dept
+  ag._editOrg = ag.org || ''
+  ag._editDept = ag.dept || ''
   ag._editStartDate = ag.start_date
   ag._editEndDate = ag.end_date
   ag._editing = true
@@ -58,6 +63,7 @@ function startEdit(i) {
 function saveEdit(i) {
   const ag = props.items[i]
   ag.title = ag._editTitle
+  ag.org = ag._editOrg
   ag.dept = ag._editDept
   ag.start_date = ag._editStartDate
   ag.end_date = ag._editEndDate
@@ -83,12 +89,14 @@ async function saveFeedback(i) {
         status: ag._feedbackAction || 'edited',
         review_prompt: {
           agenda: ag._origTitle ?? ag.title,
+          organization: ag._origOrg ?? ag.org ?? null,
           department: ag._origDept ?? ag.dept ?? null,
           start_date: ag._origStartDate ?? ag.start_date ?? null,
           end_date: ag._origEndDate ?? ag.end_date ?? null,
         },
         review_comment: {
           agenda: ag.title,
+          organization: ag.org ?? null,
           department: ag.dept ?? null,
           start_date: ag.start_date ?? null,
           end_date: ag.end_date ?? null,
@@ -150,9 +158,12 @@ function deptList(dept) {
               </div>
             </div>
             <div class="arl-title">{{ ag.title }}</div>
-            <div class="arl-meta" v-if="ag.dept || ag.start_date || ag.end_date">
+            <div class="arl-meta" v-if="ag.org || ag.dept || ag.start_date || ag.end_date">
+              <div class="arl-tags" v-if="ag.org">
+                <span class="arl-tag arl-tag-org" v-for="o in deptList(ag.org)" :key="o">{{ o }}</span>
+              </div>
               <div class="arl-tags" v-if="ag.dept">
-                <span class="arl-tag" v-for="d in deptList(ag.dept)" :key="d">{{ d }}</span>
+                <span class="arl-tag arl-tag-dept" v-for="d in deptList(ag.dept)" :key="d">{{ d }}</span>
               </div>
               <div class="arl-date-range" v-if="ag.start_date || ag.end_date">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -178,6 +189,11 @@ function deptList(dept) {
               </div>
             </div>
             <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" style="margin-top:5px" />
+            <select v-if="memberOrgs.length" class="app-select dei-app-select" v-model="ag._editOrg" style="margin-top:4px;width:100%">
+              <option value="">조직부서 선택</option>
+              <option v-for="o in memberOrgs" :key="o" :value="o">{{ o }}</option>
+            </select>
+            <input v-else class="dei-input" v-model="ag._editOrg" placeholder="조직 (선택)" style="margin-top:4px" />
             <select v-if="memberDepts.length" class="app-select dei-app-select" v-model="ag._editDept" style="margin-top:4px;width:100%">
               <option value="">담당부서 선택</option>
               <option v-for="d in memberDepts" :key="d" :value="d">{{ d }}</option>
@@ -235,6 +251,8 @@ function deptList(dept) {
 .arl-meta { display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px; }
 .arl-tags { display:flex;flex-wrap:wrap;gap:3px; }
 .arl-tag { font-size:10px;font-weight:500;color:rgba(148,163,184,.85);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:3px;padding:1px 6px;line-height:1.5; }
+.arl-tag-org  { color:rgba(45,212,191,.85);background:rgba(13,148,136,.12);border-color:rgba(13,148,136,.25); }
+.arl-tag-dept { color:rgba(167,139,250,.85);background:rgba(139,92,246,.1);border-color:rgba(139,92,246,.2); }
 .arl-date-range { display:flex;align-items:center;gap:4px;font-size:10px;color:rgba(148,163,184,.65);font-variant-numeric:tabular-nums; }
 .arl-date-range svg { opacity:.5;flex-shrink:0; }
 
@@ -256,6 +274,8 @@ function deptList(dept) {
 .day-mode .arl-item.arl-rejected .arl-accent { background:rgba(239,68,68,.3); }
 .day-mode .arl-index { color:rgba(99,102,241,.8);background:rgba(99,102,241,.08); }
 .day-mode .arl-tag { color:#64748b;background:#f1f5f9;border-color:#e2e8f0; }
+.day-mode .arl-tag-org  { color:#0d9488;background:#f0fdfa;border-color:#99f6e4; }
+.day-mode .arl-tag-dept { color:#7c3aed;background:#f5f3ff;border-color:#ddd6fe; }
 .day-mode .arl-date-range { color:#94a3b8; }
 .day-mode .arl-title { color:#1e293b; }
 .day-mode .arl-reason-below { background:rgba(0,0,0,.02);border-color:#e2e8f0; }
