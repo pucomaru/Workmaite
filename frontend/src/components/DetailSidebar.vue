@@ -95,6 +95,16 @@ const sbTopImprovements = computed(() => {
   const d = detailNode.value?.data
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
+
+function parseAiEvidence(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
+}
+
+function parseReason(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
+}
 </script>
 
 <template>
@@ -580,9 +590,9 @@ const sbTopImprovements = computed(() => {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
-              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+              <div v-if="parseAiEvidence(detailNode.data?.ai_evidence)" class="detail-section">
                 <div class="detail-section-label">AI 추천 아젠다</div>
-                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+                <div class="ai-evidence-box">{{ parseAiEvidence(detailNode.data.ai_evidence) }}</div>
               </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
@@ -814,7 +824,7 @@ const sbTopImprovements = computed(() => {
               </div>
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
-                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+                <div class="rs-feedback-box" style="white-space: pre-line;">{{ Array.isArray(detailNode.data.feedback) ? detailNode.data.feedback.join('\n') : detailNode.data.feedback }}</div>
               </div>
 
               <!-- 우선 개선 과제 -->
@@ -919,9 +929,9 @@ const sbTopImprovements = computed(() => {
                   </div>
                 </div>
               </div>
-              <div v-if="detailNode.data?.reason" class="detail-section">
+              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
                 <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
+                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 
