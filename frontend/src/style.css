@@ -450,6 +450,7 @@ html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !importa
 
 /* Required field marker */
 .req { color:#ef4444;vertical-align:middle; }
+.field-error { color:#ef4444;font-size:11px;margin:2px 0 0;padding:0; }
 .app-modal.dark .req { color:#f87171; }
 html.night-mode .req { color:#f87171 !important; }
 
