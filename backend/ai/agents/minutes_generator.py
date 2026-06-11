@@ -192,9 +192,6 @@ async def generate_minutes(
     meeting_id: int = None,
     session_id: int = None,
     title: str = "",
-    participants: list = None,
-    session_info: dict = None,
-    todos: list = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
