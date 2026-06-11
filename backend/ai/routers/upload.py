@@ -16,7 +16,6 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from xhtml2pdf import pisa
 
 import json
 import models
@@ -39,58 +38,42 @@ def _unique_key(prefix: str, filename: str) -> tuple[str, str]:
     return f"{prefix}/{uid}_{safe}", f"{uid}_{safe}"
 
 
-_KOREAN_FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",               # Linux (Nanum)
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",        # Linux (Noto)
-    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",            # macOS
-    "/System/Library/Fonts/Supplemental/NotoSansGothic-Regular.ttf", # macOS
-]
-
-def _korean_font_face() -> str:
-    import os
-    for path in _KOREAN_FONT_CANDIDATES:
-        if os.path.exists(path):
-            logger.info(f"[PDF폰트] 사용: {path}")
-            return f"@font-face {{ font-family: 'KoreanFont'; src: url('{path}'); }}\n"
-    logger.warning("[PDF폰트] 한글 폰트를 찾지 못했습니다.")
-    return ""
-
-_PDF_CSS_BASE = """
-body {
-    font-family: 'KoreanFont', sans-serif;
-    font-size: 11pt; line-height: 1.8; color: #1e293b;
-    padding: 40px 50px;
+_PDF_CSS = """
+@font-face {
+    font-family: 'NanumGothic';
+    src: local('NanumGothic'), local('Noto Sans CJK KR'), local('Apple SD Gothic Neo');
 }
-h1 { font-size: 17pt; font-weight: bold; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 14px; }
-h2 { font-size: 13pt; font-weight: bold; color: #1e40af; margin-top: 18px; margin-bottom: 6px; }
-h3 { font-size: 11pt; font-weight: bold; color: #475569; margin-top: 12px; margin-bottom: 4px; }
+body {
+    font-family: 'NanumGothic', 'Noto Sans CJK KR', 'Apple SD Gothic Neo', sans-serif;
+    font-size: 13px; line-height: 1.7; color: #1e293b;
+    padding: 40px; max-width: 820px; margin: 0 auto;
+}
+h1 { font-size: 20px; font-weight: 800; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 16px; }
+h2 { font-size: 16px; font-weight: 700; color: #1e40af; margin-top: 20px; margin-bottom: 6px; }
+h3 { font-size: 14px; font-weight: 700; color: #475569; margin-top: 12px; margin-bottom: 4px; }
 p  { margin: 0 0 6px; }
 ul, ol { padding-left: 20px; margin: 4px 0; }
 li { margin-bottom: 2px; }
-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10pt; }
-th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
-th { background: #f1f5f9; font-weight: bold; }
-hr { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+th { background: #f1f5f9; font-weight: 600; }
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
 """
 
 
 def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
-    """HTML 문자열을 PDF bytes로 변환합니다."""
+    """HTML 문자열을 WeasyPrint로 PDF bytes로 변환합니다."""
+    from weasyprint import HTML, CSS
     logger.info(f"[PDF변환] 시작 — title={title!r}, HTML 길이={len(html_content)}자")
-    css = _korean_font_face() + _PDF_CSS_BASE
     full_html = (
         f'<!DOCTYPE html><html><head>'
         f'<meta charset="utf-8"><title>{title}</title>'
-        f'<style>{css}</style>'
+        f'<style>{_PDF_CSS}</style>'
         f'</head><body>{html_content}</body></html>'
     )
-    buf = BytesIO()
-    result = pisa.CreatePDF(full_html.encode("utf-8"), dest=buf, encoding="utf-8")
-    if result.err:
-        raise RuntimeError(f"xhtml2pdf 변환 오류: {result.err}")
-    pdf_bytes = buf.getvalue()
+    pdf_bytes = HTML(string=full_html).write_pdf()
     logger.info(f"[PDF변환] 완료 — PDF 크기={len(pdf_bytes)} bytes")
-    if len(pdf_bytes) == 0:
+    if not pdf_bytes:
         raise RuntimeError("PDF 변환 결과가 비어있습니다 (0 bytes)")
     return pdf_bytes
 
@@ -352,18 +335,14 @@ async def submit_report_review(
         .first()
     )
 
-    review_prompt = data.get("ai_result", {})
-    review_comment = {"comment": data.get("feedback", "")}
-
     db.add(models.HitlReview(
         agent_log_id=agent_log.id if agent_log else None,
         target_type="report",
-        target_id=report_id,
-        review_prompt=review_prompt,      # dict → JSONB
+        report_id=report_id,
         ai_rationale=data.get("ai_rationale", ""),
         status=action,
         reviewer_id=current_user.id,
-        review_comment=review_comment,    # dict → JSONB
+        comment=data.get("feedback", "") or None,
         reviewed_at=_dt.utcnow(),
     ))
 
@@ -416,8 +395,7 @@ async def delete_report(
     db.query(models.Report).filter(models.Report.parent_id == report_id).update({"parent_id": report.parent_id})
     db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).delete()
     db.query(models.HitlReview).filter(
-        models.HitlReview.target_type == "report",
-        models.HitlReview.target_id == report_id,
+        models.HitlReview.report_id == report_id,
     ).delete()
     db.delete(report)
     db.flush()
@@ -446,6 +424,7 @@ async def delete_report(
 @router.post("/minutes/{session_id}")
 async def upload_minutes(
     session_id: int,
+    background_tasks: BackgroundTasks,
     content: str = Form(...),  # Tiptap 에디터 HTML
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -463,7 +442,10 @@ async def upload_minutes(
         logger.error(f"[minutes] PDF 변환 실패 — session_id={session_id}, error={e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
 
-    key, stored_name = _unique_key(f"minutes/{session_id}", "minutes.pdf")
+    safe_title = (session.title or f"회의_{session_id}").replace("/", "_").replace(" ", "_")
+    clean_name = f"{safe_title}_회의록.pdf"
+    key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{clean_name}"
+    stored_name = clean_name
     r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
     logger.info(f"[minutes] R2 업로드 완료 — key={key}, url={r2_url}")
 
@@ -512,6 +494,8 @@ async def upload_minutes(
         minutes_id = row[0]
         db.commit()
         logger.info(f"[minutes] commit 완료 — minutes_id={minutes_id}")
+        from neo4j_sync import sync_minutes
+        background_tasks.add_task(sync_minutes, minutes_id=minutes_id, session_id=session_id, content_summary=content[:500])
 
         # ── commit 후 SELECT로 실제 저장 값 검증 ──────────────────
         verify = db.execute(text(

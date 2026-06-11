@@ -1,7 +1,8 @@
-import { ref, computed, reactive, nextTick } from 'vue'
+import { ref, computed, reactive, nextTick, watch } from 'vue'
 import hyeanAvatar from '../assets/agents/hyean.png'
-import { apiAI, streamPost } from '../api'
+import api, { apiAI, streamPost } from '../api'
 import { useAgentMention } from './useAgentMention'
+import { useAuthStore } from '../stores/auth'
 
 export function useAgentChat({
   meetingGroups,
@@ -22,17 +23,24 @@ export function useAgentChat({
     name: '워크메이트 AI', nameEn: 'Workmate AI',
     avatar: hyeanAvatar,
     greeting: '안녕하세요! 저는 워크메이트 AI예요 😊\n무엇이든 물어보세요.',
-    suggested: ['회의체 현황을 브리핑해줘'],
+    suggested: [
+      '회의체 현황을 브리핑해줘',
+      '회의체별 아젠다 현황 알려줘',
+      '최근 보고서 제출 현황 알려줘',
+    ],
+    suggestedAt: ['@ 회의체 · 회의 범위 지정'],
     endpoint: '/api/agent/supervisor/chat',
   }
 
   const SUPERVISOR_EXTRACT = {
     name: '워크메이트 AI', nameEn: 'Workmate AI',
     avatar: hyeanAvatar,
-    greeting: '회의록과 자료를 분석해서 과제를 추출했습니다.\n추출된 과제 목록을 검토해보시고, 수정이 필요한 항목이 있으면 말씀해주세요.\n\n예시: "3번 과제 담당자를 홍길동으로 바꿔줘", "2번과 4번 과제를 합쳐줘", "이 과제가 왜 추출됐는지 설명해줘"',
-    suggested: ['각 과제가 추출된 이유를 설명해줘', '비슷한 과제들을 하나로 합쳐줘', '담당 부서 배정이 적절한지 검토해줘'],
+    greeting: '회의록과 자료를 분석해서 아젠다를 추출했습니다.\n추출된 아젠다 목록을 검토해보시고, 수정이 필요한 항목이 있으면 말씀해주세요.\n\n예시: "3번 아젠다 담당자를 홍길동으로 바꿔줘", "2번과 4번 아젠다를 합쳐줘", "이 아젠다가 왜 추출됐는지 설명해줘"',
+    suggested: ['각 아젠다가 추출된 이유를 설명해줘', '비슷한 아젠다들을 하나로 합쳐줘', '담당 부서 배정이 적절한지 검토해줘'],
     endpoint: '/api/agent/supervisor/chat',
   }
+
+  const authStore = useAuthStore()
 
   const agentSidebarOpen = ref(false)
   const currentAgent = ref('supervisor')
@@ -66,18 +74,59 @@ export function useAgentChat({
     autoResize: () => agentAutoResize(),
   })
 
+  // ─── thread_id 계산 ──────────────────────────────────────────
+  // 아카이브 탭은 회의체 선택과 무관하게 사용자별 단일 스레드로 유지
+  function getThreadId() {
+    const uid = authStore.user?.id
+    return uid ? `archive_${uid}` : null
+  }
+
+  // ─── 채팅 히스토리 로드 (Spring Boot GET) ─────────────────────
+  async function loadChatHistory() {
+    const threadId = getThreadId()
+    if (!threadId) {
+      allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
+      return
+    }
+    try {
+      const res = await api.get('/api/v1/chat/messages', { params: { threadId } })
+      // 인터셉터가 ApiResponse를 언랩하므로 res.data 가 바로 List<ChatMessageResponse>
+      const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+      if (messages.length === 0) {
+        allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
+      } else {
+        // DB의 role: 'user' | 'assistant' → UI: 'user' | 'agent'
+        allMessages.value['supervisor'] = messages.map(m => ({
+          role: m.role === 'assistant' ? 'agent' : m.role,
+          content: m.content,
+        }))
+      }
+    } catch (err) {
+      console.error('[AgentChat] loadChatHistory error:', err?.response?.status, err?.message)
+      allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
+    }
+  }
+
+  // ─── 사이드바가 열릴 때마다 히스토리 로드 ───────────────────────
+  // archive 스레드는 회의체 변경과 무관하므로 열릴 때만 로드
+  watch(agentSidebarOpen, (open) => { if (open) loadChatHistory() })
+
   function initAgentGreeting() {
     if (!allMessages.value['supervisor'].length)
       allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
   }
 
   function switchAgent(_key) {
-    // 사용자에게는 단일 워크메이트 AI로 표시 — 내부 라우팅은 supervisor 엔드포인트가 처리
     agentSidebarOpen.value = true
-    initAgentGreeting()
+    loadChatHistory()
   }
 
-  function clearAgentChat() {
+  // 새 채팅: DB 삭제 + UI 초기화
+  async function clearAgentChat() {
+    const threadId = getThreadId()
+    if (threadId) {
+      try { await api.delete('/api/v1/chat/messages', { params: { threadId } }) } catch { /* 무시 */ }
+    }
     allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
     agentInput.value = ''; agentPendingFiles.value = []
   }
@@ -142,7 +191,7 @@ export function useAgentChat({
           },
           undefined,  // onHighlight
           (result) => {
-            agentMsg.content = result.reply || '과제 목록을 업데이트했습니다.'
+            agentMsg.content = result.reply || '아젠다 목록을 업데이트했습니다.'
             if (result.agendas && result.agendas.length) {
               const oldList = extractResult.value
               extractResult.value = result.agendas.map((ag, i) => {
@@ -160,7 +209,7 @@ export function useAgentChat({
           },
         )
       } catch {
-        agentMsg.content = '과제 업데이트 중 오류가 발생했습니다.'
+        agentMsg.content = '아젠다 업데이트 중 오류가 발생했습니다.'
         planningMsg.done = true; planningMsg.open = false
         agentLoading.value = false
       }
@@ -175,7 +224,7 @@ export function useAgentChat({
     try {
       await streamPost(
         agentInfo.value.endpoint,
-        { meeting_id: toNumericId(detailMeeting.value?.id), message: content, chat_history: history },
+        { thread_id: getThreadId(), meeting_id: toNumericId(detailMeeting.value?.id) || 0, message: content, chat_history: history },
         (chunk) => {
           agentMsg.content += chunk
           nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
@@ -212,6 +261,19 @@ export function useAgentChat({
       !!detailMeeting.value
   }
 
+  // ─── @ 범위 지정 버튼 — "@" 입력 후 드롭다운 오픈 ──────────────
+  function triggerAtSuggest() {
+    agentInput.value = '@'
+    atQuery.value = ''
+    atCursorPos.value = 0
+    atMenuOpen.value = true
+    atHighlight.value = 0
+    nextTick(() => {
+      const el = agentTextareaEl.value
+      if (el) { el.focus(); el.setSelectionRange(1, 1) }
+    })
+  }
+
   function onAgentKeydown(e) {
     if (handleMentionKeydown(e)) return
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMsg() }
@@ -236,7 +298,7 @@ export function useAgentChat({
 
   // ─── 좌측 액션 → 우측 에이전트 채팅 주입 ─────────────────────
   async function injectActionToAgent(userText, planningSteps, agentReply) {
-    if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; initAgentGreeting() }
+    if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; await loadChatHistory() }
     await nextTick()
     allMessages.value['supervisor'].push({ role: 'user', content: userText })
     const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
@@ -260,7 +322,7 @@ export function useAgentChat({
   // 실시간 [PLANNING] 스텝을 수신하며, 완료 시 onComplete(그래프 새로고침)를 호출합니다.
   async function runRelationshipAnalysis(onComplete) {
     if (agentLoading.value) return
-    if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; initAgentGreeting() }
+    if (!agentSidebarOpen.value) { agentSidebarOpen.value = true; await loadChatHistory() }
     await nextTick()
 
     allMessages.value['supervisor'].push({
@@ -313,8 +375,8 @@ export function useAgentChat({
     atMenuOpen, atQuery, atCursorPos, atHighlight, mentionedContexts,
     AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
     onAgentInput, selectAtItem, removeMentionCtx, initAgentGreeting,
-    switchAgent, clearAgentChat, sendAgentMsg, isExtractModeActive,
-    onAgentKeydown, onAgentFileSelected, agentAutoResize,
+    loadChatHistory, switchAgent, clearAgentChat, sendAgentMsg, isExtractModeActive,
+    triggerAtSuggest, onAgentKeydown, onAgentFileSelected, agentAutoResize,
     _runPlanningSteps, injectActionToAgent, runRelationshipAnalysis,
   }
 }

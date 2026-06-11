@@ -12,18 +12,18 @@ const {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
+  detailAgendas, groupedAgendas, doneAgendasWithReport, completeAgenda, deleteAgenda,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   detailMemberDepts,
-  detailMemberOrgs,
+  detailMemberCompanies,
   goToProcessStep,
-  PRIORITY_LABEL, STATUS_LABEL,
+  PRIORITY_LABEL, STATUS_LABEL, NODE_TYPE_COLORS,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks, reportRelatedAgendas,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentCompany, personMeetingGroups, personTasks, reportRelatedAgendas,
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
@@ -36,9 +36,9 @@ const {
 const doneExpanded = ref(false)
 const doneDeptFilter = ref('')
 watch(() => detailMeeting?.value?.id, () => { doneExpanded.value = false; doneDeptFilter.value = '' })
-const doneDepts = computed(() => [...new Set((doneTodosWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
+const doneDepts = computed(() => [...new Set((doneAgendasWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
 const doneFiltered = computed(() => {
-  const items = doneTodosWithReport?.value || []
+  const items = doneAgendasWithReport?.value || []
   return doneDeptFilter.value ? items.filter(t => t.dept === doneDeptFilter.value) : items
 })
 const doneDisplayItems = computed(() => doneExpanded.value ? doneFiltered.value : doneFiltered.value.slice(0, 5))
@@ -95,6 +95,87 @@ const sbTopImprovements = computed(() => {
   const d = detailNode.value?.data
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
+
+function parseAiEvidence(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
+}
+
+function parseReason(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
+}
+
+// ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
+const fromSearch   = ref('')
+const toSearch     = ref('')
+const showFromList = ref(false)
+const showToList   = ref(false)
+const relSuggest   = ref(false)
+const editRelSuggest = ref(false)
+
+const NODE_TYPE_KO = {
+  Meetings: '회의체',
+  session: '회의', agenda: '아젠다', minutes: '회의록',
+  report: '보고자료', dept: '부서', person: '구성원', company: '회사',
+  human_judgment: '의사결정',
+}
+
+const filteredFromNodes = computed(() => {
+  const q = fromSearch.value.trim().toLowerCase()
+  if (!q) return allGraphNodeList.value.slice(0, 30)
+  return allGraphNodeList.value.filter(n =>
+    n.label?.toLowerCase().includes(q) || NODE_TYPE_KO[n.type]?.includes(q)
+  ).slice(0, 30)
+})
+const filteredToNodes = computed(() => {
+  const q = toSearch.value.trim().toLowerCase()
+  const list = allGraphNodeList.value.filter(n => n.id !== relAddForm.value.fromId)
+  if (!q) return list.slice(0, 30)
+  return list.filter(n =>
+    n.label?.toLowerCase().includes(q) || NODE_TYPE_KO[n.type]?.includes(q)
+  ).slice(0, 30)
+})
+const filteredRelSuggestions = computed(() => {
+  const q = (relAddForm.value.rel || '').trim().toLowerCase()
+  if (!q) return ALL_REL_TYPES.slice(0, 15)
+  return ALL_REL_TYPES.filter(r => r.toLowerCase().includes(q)).slice(0, 15)
+})
+const filteredEditRelSuggestions = computed(() => {
+  const q = (relEditRel.value || '').trim().toLowerCase()
+  if (!q) return ALL_REL_TYPES.slice(0, 15)
+  return ALL_REL_TYPES.filter(r => r.toLowerCase().includes(q)).slice(0, 15)
+})
+
+const fromNodeData = computed(() => allGraphNodeList.value.find(n => n.id === relAddForm.value.fromId))
+const toNodeData   = computed(() => allGraphNodeList.value.find(n => n.id === relAddForm.value.toId))
+
+function selectFromNode(n) {
+  relAddForm.value.fromId = n.id
+  fromSearch.value = ''
+  showFromList.value = false
+}
+function clearFromNode() {
+  relAddForm.value.fromId = ''
+  fromSearch.value = ''
+}
+function selectToNode(n) {
+  relAddForm.value.toId = n.id
+  toSearch.value = ''
+  showToList.value = false
+}
+function clearToNode() {
+  relAddForm.value.toId = ''
+  toSearch.value = ''
+}
+function hideFrom()      { setTimeout(() => { showFromList.value = false }, 160) }
+function hideTo()        { setTimeout(() => { showToList.value = false }, 160) }
+function hideRelSuggest(){ setTimeout(() => { relSuggest.value = false }, 160) }
+function hideEditRelSuggest(){ setTimeout(() => { editRelSuggest.value = false }, 160) }
+
+watch(relAddActive, v => {
+  if (!v) { fromSearch.value = ''; toSearch.value = ''; showFromList.value = false; showToList.value = false }
+})
 </script>
 
 <template>
@@ -133,8 +214,8 @@ const sbTopImprovements = computed(() => {
           <!-- 탭 -->
           <div class="detail-tabs">
             <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
-            <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
-            <button class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'; if(!showExtractFlow) showExtractFlow=true">과제추출</button>
+            <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">아젠다</button>
+            <button class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'; if(!showExtractFlow) showExtractFlow=true">아젠다 추출</button>
             <button class="detail-tab" :class="{ active: detailTab==='rel' }" @click="detailTab='rel'">관계</button>
           </div>
 
@@ -149,17 +230,24 @@ const sbTopImprovements = computed(() => {
               <div class="detail-purpose">{{ detailMeeting.purpose || detailMeeting.description }}</div>
             </div>
 
+            <!-- 맥락 -->
+            <div v-if="detailMeeting?.context" class="detail-section">
+              <div class="detail-section-label">회의 맥락</div>
+              <div class="detail-purpose detail-context">{{ detailMeeting.context }}</div>
+            </div>
+
             <!-- 간사 + 참여부서 -->
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="최종 보고일">
+              <SidebarInfoRow label="시작일" :value="detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-'" />
+              <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
                     <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
                   </template>
-                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">없음</span>
+                  <span v-else class="dday-label" style="white-space:nowrap">없음</span>
                 </div>
               </SidebarInfoRow>
             </div>
@@ -182,7 +270,7 @@ const sbTopImprovements = computed(() => {
                     <div class="dsi-dot" :class="{ 'dsi-dot-done': ds.submitted, 'dsi-dot-pending': !ds.submitted, 'dsi-dot-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }"></div>
                     <span class="dsi-name">{{ ds.dept }}</span>
                     <template v-if="ds.noTask">
-                      <span class="dsi-status" style="color:#94a3b8">과제 없음</span>
+                      <span class="dsi-status" style="color:#94a3b8">아젠다 없음</span>
                     </template>
                     <template v-else-if="ds.submitted">
                       <span class="dsi-status dsi-status-done">제출 완료</span>
@@ -209,12 +297,12 @@ const sbTopImprovements = computed(() => {
                 <button class="log-chip" :class="{ active: logTypeFilter === '' }" @click="logTypeFilter = ''">전체</button>
                 <button class="log-chip" :class="{ active: logTypeFilter === 'minutes' }" @click="logTypeFilter = 'minutes'">회의록</button>
                 <button class="log-chip" :class="{ active: logTypeFilter === 'report' }" @click="logTypeFilter = 'report'">보고서</button>
-                <button class="log-chip" :class="{ active: logTypeFilter === 'agenda' }" @click="logTypeFilter = 'agenda'">과제</button>
+                <button class="log-chip" :class="{ active: logTypeFilter === 'agenda' }" @click="logTypeFilter = 'agenda'">아젠다</button>
               </div>
               <div class="detail-log-list">
                 <template v-if="logFilteredItems.length">
                   <div v-for="(item, i) in logDisplayItems" :key="i" class="detail-log-item">
-                    <span class="detail-log-dot" :class="'ht-'+item.type"></span>
+                    <span class="detail-log-dot" :style="{ background: NODE_TYPE_COLORS[item.type] || '#555' }"></span>
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">{{ item.manager }} · {{ formatDate(item.date) }}</div>
@@ -232,45 +320,45 @@ const sbTopImprovements = computed(() => {
             <!-- ── 과제 탭 ── -->
             <template v-if="detailTab==='task'">
 
-                <!-- AI 과제 추출 실행 버튼 -->
+                <!-- AI 아젠다 추출 실행 버튼 -->
                 <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                  AI 과제 추출 실행
+                  AI 아젠다 추출 실행
                 </button>
 
-                <!-- 진행중 과제 목록 -->
+                <!-- 진행중 아젠다 목록 -->
                 <div class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">진행중 과제</span>
-                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.filter(t => t.status !== 'done').length }}건</span>
+                    <span class="detail-section-label">진행중 아젠다</span>
+                    <span class="detail-section-label" style="font-weight:400">{{ detailAgendas.filter(t => t.status !== 'done').length }}건</span>
                   </div>
-                  <div v-if="!detailTodos.length" class="detail-log-empty">등록된 과제가 없습니다.</div>
+                  <div v-if="!detailAgendas.length" class="detail-log-empty">등록된 아젠다가 없습니다.</div>
                   <template v-else>
-                    <div v-for="(todos, dept) in groupedTodos" :key="dept" class="todo-dept-group">
-                      <div class="todo-dept-header">
-                        <span class="todo-dept-name">{{ dept || '미배정' }}</span>
-                        <span class="todo-dept-count">{{ todos.length }}건</span>
+                    <div v-for="(agendas, dept) in groupedAgendas" :key="dept" class="agenda-dept-group">
+                      <div class="agenda-dept-header">
+                        <span class="agenda-dept-name">{{ dept || '미배정' }}</span>
+                        <span class="agenda-dept-count">{{ agendas.length }}건</span>
                       </div>
-                      <div class="detail-todo-list">
-                        <div v-for="todo in todos" :key="todo.id||todo.content" class="detail-todo-item">
-                          <div class="detail-todo-status" :class="{
-                            'ts-done': todo.status==='done',
-                            'ts-progress': todo.status==='in_progress'||todo.status==='ongoing',
-                            'ts-risk': todo.status==='at_risk',
-                            'ts-pending': !todo.status||todo.status==='pending'
+                      <div class="detail-agenda-list">
+                        <div v-for="agenda in agendas" :key="agenda.id||agenda.content" class="detail-agenda-item">
+                          <div class="detail-agenda-status" :class="{
+                            'ts-done': agenda.status==='done',
+                            'ts-progress': agenda.status==='in_progress'||agenda.status==='ongoing',
+                            'ts-risk': agenda.status==='at_risk',
+                            'ts-pending': !agenda.status||agenda.status==='pending'
                           }">
-                            {{ todo.status==='done' ? '완료' : todo.status==='in_progress'||todo.status==='ongoing' ? '진행' : todo.status==='at_risk' ? '위험' : '대기' }}
+                            {{ agenda.status==='done' ? '완료' : agenda.status==='in_progress'||agenda.status==='ongoing' ? '진행' : agenda.status==='at_risk' ? '위험' : '대기' }}
                           </div>
-                          <div class="detail-todo-info">
-                            <div class="detail-todo-title">{{ todo.content || todo.title }}</div>
-                            <div class="detail-todo-meta">
-                              <div v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">담당부서 - {{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</div>
-                              <div v-if="todo.due_date">마감기한 - {{ formatDateOnly(todo.due_date) }}</div>
+                          <div class="detail-agenda-info">
+                            <div class="detail-agenda-title">{{ agenda.content || agenda.title }}</div>
+                            <div class="detail-agenda-meta">
+                              <div v-if="agenda.dept||(Array.isArray(agenda.department)?agenda.department[0]:agenda.department)">담당부서 - {{ agenda.dept || (Array.isArray(agenda.department)?agenda.department[0]:agenda.department) }}</div>
+                              <div v-if="agenda.due_date">마감기한 - {{ formatDateOnly(agenda.due_date) }}</div>
                             </div>
                           </div>
-                          <div class="detail-todo-actions">
-                            <button class="todo-action-btn todo-done-btn" :class="{'is-done': todo.status==='done'}" @click="completeTodo(todo)" title="완료/취소">✓</button>
-                            <button class="todo-action-btn todo-del-btn" @click="deleteTodo(todo)" title="삭제">✕</button>
+                          <div class="detail-agenda-actions">
+                            <button class="agenda-action-btn agenda-done-btn" :class="{'is-done': agenda.status==='done'}" @click="completeAgenda(agenda)" title="완료/취소">✓</button>
+                            <button class="agenda-action-btn agenda-del-btn" @click="deleteAgenda(agenda)" title="삭제">✕</button>
                           </div>
                         </div>
                       </div>
@@ -278,31 +366,31 @@ const sbTopImprovements = computed(() => {
                   </template>
                 </div>
 
-                <!-- 완료된 과제 -->
-                <div v-if="doneTodosWithReport.length" class="detail-section" style="margin-top:12px">
+                <!-- 완료된 아젠다 -->
+                <div v-if="doneAgendasWithReport.length" class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">완료된 과제</span>
-                    <span class="detail-log-total">{{ doneTodosWithReport.length }}건</span>
+                    <span class="detail-section-label">완료된 아젠다</span>
+                    <span class="detail-log-total">{{ doneAgendasWithReport.length }}건</span>
                   </div>
                   <div v-if="doneExpanded && doneDepts.length > 1" class="detail-log-filters">
                     <button class="log-chip" :class="{ active: doneDeptFilter === '' }" @click="doneDeptFilter = ''">전체</button>
                     <button v-for="dept in doneDepts" :key="dept" class="log-chip" :class="{ active: doneDeptFilter === dept }" @click="doneDeptFilter = dept">{{ dept }}</button>
                   </div>
-                  <div class="done-todo-list">
-                    <div v-for="todo in doneDisplayItems" :key="todo.id" class="done-todo-item">
-                      <div class="done-todo-check">
+                  <div class="done-agenda-list">
+                    <div v-for="agenda in doneDisplayItems" :key="agenda.id" class="done-agenda-item">
+                      <div class="done-agenda-check">
                         <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
                       </div>
-                      <div class="done-todo-body">
-                        <div class="done-todo-title">{{ todo.title || todo.content }}</div>
-                        <div class="done-todo-meta"><span>{{ todo.dept }}</span></div>
-                        <div v-if="todo.reportFileName" class="done-todo-report">
+                      <div class="done-agenda-body">
+                        <div class="done-agenda-title">{{ agenda.title || agenda.content }}</div>
+                        <div class="done-agenda-meta"><span>{{ agenda.dept }}</span></div>
+                        <div v-if="agenda.reportFileName" class="done-agenda-report">
                           <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          <span class="done-todo-filename">{{ todo.reportFileName }}</span>
+                          <span class="done-agenda-filename">{{ agenda.reportFileName }}</span>
                         </div>
-                        <div class="done-todo-dates">
-                          <span v-if="todo.reportDate">제출 {{ formatDate(todo.reportDate) }}</span>
-                          <span v-if="todo.due_date">마감 {{ formatDateOnly(todo.due_date) }}</span>
+                        <div class="done-agenda-dates">
+                          <span v-if="agenda.reportDate">제출 {{ formatDate(agenda.reportDate) }}</span>
+                          <span v-if="agenda.due_date">마감 {{ formatDateOnly(agenda.due_date) }}</span>
                         </div>
                       </div>
                     </div>
@@ -370,7 +458,7 @@ const sbTopImprovements = computed(() => {
 
                   <button class="ctx-run-btn" @click="runExtract">
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                    과제 추출하기
+                    아젠다 추출하기
                   </button>
                   <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem">
                     <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가
@@ -381,15 +469,17 @@ const sbTopImprovements = computed(() => {
                 <template v-if="extractLoading || extractResult.length">
                     <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
                     <template v-else>
-                      <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
+                      <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 아젠다를 추천했습니다.</div>
                       <AgendaReviewList
                         :items="extractResult"
-                        :memberOrgs="detailMemberOrgs"
+                        :memberCompanies="detailMemberCompanies"
                         :memberDepts="detailMemberDepts"
-                        :removeOnApprove="true"
-                        @approved="approveItem"
-                        @rejected="rejectItem"
-                        @remove="rejectItem"
+                        :removeOnApprove="false"
+                        :showFooter="true"
+                        @approved="() => {}"
+                        @rejected="() => {}"
+                        @remove="(i) => extractResult.splice(i, 1)"
+                        @save="finishExtract"
                       />
                     </template>
 
@@ -410,9 +500,22 @@ const sbTopImprovements = computed(() => {
                     <!-- 인라인 편집 -->
                     <template v-if="relEditIdx === edge._idx">
                       <div class="rel-edit-row">
-                        <select v-model="relEditRel" class="rel-type-select">
-                          <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                        </select>
+                        <div class="rel-inline-suggest-wrap">
+                          <input
+                            v-model="relEditRel"
+                            class="rel-search-input"
+                            placeholder="관계 유형 입력..."
+                            @focus="editRelSuggest=true"
+                            @blur="hideEditRelSuggest"
+                          />
+                          <div v-if="editRelSuggest && filteredEditRelSuggestions.length" class="rel-suggest-list">
+                            <div v-for="rt in filteredEditRelSuggestions" :key="rt"
+                              class="rel-suggest-item"
+                              @mousedown.prevent="relEditRel=rt; editRelSuggest=false">
+                              {{ rt }}
+                            </div>
+                          </div>
+                        </div>
                         <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
                         <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
                       </div>
@@ -442,41 +545,94 @@ const sbTopImprovements = computed(() => {
 
               <!-- 관계 추가 폼 -->
               <div v-if="relAddActive" class="detail-section rel-add-panel">
-                <div class="detail-section-label-row" style="margin-bottom:8px">
+                <div class="detail-section-label-row" style="margin-bottom:10px">
                   <span class="detail-section-label">새 관계 추가</span>
                   <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
                     <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
                   </button>
                 </div>
                 <div class="rel-add-form">
+                  <!-- 출발 노드 검색 -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">출발 노드</label>
-                    <select v-model="relAddForm.fromId" class="rel-type-select">
-                      <option value="">선택...</option>
-                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <div v-if="fromNodeData" class="rel-node-selected" @click="clearFromNode">
+                        <span class="rel-node-sel-label">{{ fromNodeData.label }}</span>
+                        <span class="rel-node-sel-type">{{ NODE_TYPE_KO[fromNodeData.type] || fromNodeData.type }}</span>
+                        <span class="rel-node-sel-clear">×</span>
+                      </div>
+                      <input v-else
+                        v-model="fromSearch"
+                        class="rel-search-input"
+                        placeholder="노드 이름 검색..."
+                        @focus="showFromList=true"
+                        @blur="hideFrom"
+                      />
+                      <div v-if="showFromList && !fromNodeData" class="rel-node-list">
+                        <div v-if="!filteredFromNodes.length" class="rel-node-empty">결과 없음</div>
+                        <div v-for="n in filteredFromNodes" :key="n.id"
+                          class="rel-node-item"
+                          @mousedown.prevent="selectFromNode(n)">
+                          <span class="rel-node-item-label">{{ n.label }}</span>
+                          <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- 관계 유형 (자연어) -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">관계 유형</label>
-                    <select v-model="relAddForm.rel" class="rel-type-select">
-                      <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">
-                        {{ rt }}
-                      </option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <input
+                        v-model="relAddForm.rel"
+                        class="rel-search-input"
+                        placeholder="예: 참조, 근거, 판단, 포함..."
+                        @focus="relSuggest=true"
+                        @blur="hideRelSuggest"
+                      />
+                      <div v-if="relSuggest && filteredRelSuggestions.length" class="rel-node-list rel-suggest-list">
+                        <div v-for="rt in filteredRelSuggestions" :key="rt"
+                          class="rel-node-item"
+                          @mousedown.prevent="relAddForm.rel=rt; relSuggest=false">
+                          {{ rt }}
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- 도착 노드 검색 -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">도착 노드</label>
-                    <select v-model="relAddForm.toId" class="rel-type-select">
-                      <option value="">선택...</option>
-                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
-                        {{ n.label }} ({{ n.type }})
-                      </option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <div v-if="toNodeData" class="rel-node-selected" @click="clearToNode">
+                        <span class="rel-node-sel-label">{{ toNodeData.label }}</span>
+                        <span class="rel-node-sel-type">{{ NODE_TYPE_KO[toNodeData.type] || toNodeData.type }}</span>
+                        <span class="rel-node-sel-clear">×</span>
+                      </div>
+                      <input v-else
+                        v-model="toSearch"
+                        class="rel-search-input"
+                        placeholder="노드 이름 검색..."
+                        @focus="showToList=true"
+                        @blur="hideTo"
+                      />
+                      <div v-if="showToList && !toNodeData" class="rel-node-list">
+                        <div v-if="!filteredToNodes.length" class="rel-node-empty">결과 없음</div>
+                        <div v-for="n in filteredToNodes" :key="n.id"
+                          class="rel-node-item"
+                          @mousedown.prevent="selectToNode(n)">
+                          <span class="rel-node-item-label">{{ n.label }}</span>
+                          <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
                   <button
                     class="app-btn-primary"
-                    style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
-                    :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                    style="width:100%;margin-top:8px;font-size:12px;padding:7px 0"
+                    :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel?.trim()"
                     @click="doAddRel">
                     관계 추가
                   </button>
@@ -510,7 +666,7 @@ const sbTopImprovements = computed(() => {
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
-              <div class="detail-meeting-name">{{ detailNode.label }}</div>
+              <div class="detail-meeting-name">{{ detailNode.type === 'agenda' ? (detailNode.data?.content || detailNode.data?.title || detailNode.label) : detailNode.label }}</div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
@@ -580,9 +736,9 @@ const sbTopImprovements = computed(() => {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
-              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+              <div v-if="parseAiEvidence(detailNode.data?.ai_evidence)" class="detail-section">
                 <div class="detail-section-label">AI 추천 아젠다</div>
-                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+                <div class="ai-evidence-box">{{ parseAiEvidence(detailNode.data.ai_evidence) }}</div>
               </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
@@ -610,11 +766,11 @@ const sbTopImprovements = computed(() => {
                         'sb-low':      detailNode.data?.priority==='low' || detailNode.data?.priority==='하',
                         'sb-minimal':  detailNode.data?.priority==='minimal',
                         'sb-pending':  !detailNode.data?.priority
-                      }">{{ { critical:'^^  최상', high:'^   상', medium:'-   중', low:'v   하', minimal:'vv  최하', 상:'^   상', 중:'-   중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                      }">{{ { critical:'최상', high:'상', medium:'중', low:'하', minimal:'최하', 상:'상', 중:'중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
                     </span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">발생일</span>
+                    <span class="detail-info-key">등록일</span>
                     <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : '-' }}</span>
                   </div>
                   <div class="detail-info-item">
@@ -722,7 +878,7 @@ const sbTopImprovements = computed(() => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
               </div>
             </template>
 
@@ -814,14 +970,14 @@ const sbTopImprovements = computed(() => {
               </div>
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
-                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+                <div class="rs-feedback-box" style="white-space: pre-line;">{{ Array.isArray(detailNode.data.feedback) ? detailNode.data.feedback.join('\n') : detailNode.data.feedback }}</div>
               </div>
 
-              <!-- 우선 개선 과제 -->
+              <!-- 우선 개선 아젠다 -->
               <div v-if="detailNode.type==='report' && sbTopImprovements.length" class="detail-section">
                 <div class="detail-section-label">
                   <svg width="11" height="11" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-1px;margin-right:3px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                  우선 개선 과제
+                  우선 개선 아젠다
                 </div>
                 <div class="sb-top-improvements">
                   <div v-for="(imp, i) in sbTopImprovements" :key="i" class="sb-top-item">
@@ -832,9 +988,9 @@ const sbTopImprovements = computed(() => {
                 </div>
               </div>
 
-              <!-- 연관 과제 -->
+              <!-- 연관 아젠다 -->
               <div v-if="detailNode.type==='report'" class="detail-section">
-                <div class="detail-section-label">연관 과제</div>
+                <div class="detail-section-label">연관 아젠다</div>
                 <template v-if="reportRelatedAgendas(detailNode).length">
                   <div class="detail-info-grid">
                     <div v-for="ag in reportRelatedAgendas(detailNode)" :key="ag.data?.id" class="detail-info-item">
@@ -847,7 +1003,7 @@ const sbTopImprovements = computed(() => {
                     </div>
                   </div>
                 </template>
-                <div v-else class="detail-log-empty">연관된 과제가 없습니다.</div>
+                <div v-else class="detail-log-empty">연관된 아젠다가 없습니다.</div>
               </div>
             </template>
 
@@ -857,7 +1013,7 @@ const sbTopImprovements = computed(() => {
                 <div class="detail-info-grid">
                   <div class="detail-info-item">
                     <span class="detail-info-key">회사</span>
-                    <span class="detail-info-val">{{ detailNode.data?.company || currentOrg?.name || '-' }}</span>
+                    <span class="detail-info-val">{{ detailNode.data?.company || currentCompany?.name || '-' }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">부서</span>
@@ -880,7 +1036,7 @@ const sbTopImprovements = computed(() => {
                 <div v-else class="detail-log-empty">회의체 정보 없음</div>
               </div>
               <div class="detail-section">
-                <div class="detail-section-label">할당된 과제</div>
+                <div class="detail-section-label">할당된 아젠다</div>
                 <div v-if="personTasks(detailNode).length" class="detail-info-grid">
                   <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item">
                     <span class="detail-info-key">
@@ -889,26 +1045,18 @@ const sbTopImprovements = computed(() => {
                     <span class="detail-info-val detail-info-val--wrap">{{ t.content }}</span>
                   </div>
                 </div>
-                <div v-else class="detail-log-empty">할당된 과제 없음</div>
+                <div v-else class="detail-log-empty">할당된 아젠다 없음</div>
               </div>
             </template>
 
             <!-- 의사결정 (human_judgment) -->
             <template v-else-if="detailNode.type==='human_judgment'">
               <div class="detail-section">
-                <div class="detail-info-grid">
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">결정유형</span>
-                    <span class="detail-info-val">
-                      <span class="status-badge" :class="{
-                        'sb-done':     detailNode.data?.judgment==='approved',
-                        'sb-progress': detailNode.data?.judgment==='edited',
-                        'sb-pending':  detailNode.data?.judgment==='pending' || !detailNode.data?.judgment,
-                      }" :style="detailNode.data?.judgment==='rejected' ? 'background:rgba(239,68,68,.18);color:#f87171' : ''">
-                        {{ { approved:'승인', rejected:'반려', edited:'수정', pending:'검토중' }[detailNode.data?.judgment] || detailNode.data?.judgment || '-' }}
-                      </span>
-                    </span>
-                  </div>
+                <div v-if="detailNode.data?.judgment" class="hj-judgment-text">
+                  {{ detailNode.data.judgment }}
+                </div>
+                <div v-else class="hj-judgment-empty">결정 내용 없음</div>
+                <div class="detail-info-grid" style="margin-top:10px">
                   <div class="detail-info-item">
                     <span class="detail-info-key">결정일시</span>
                     <span class="detail-info-val">{{ detailNode.data?.judged_at ? formatDate(detailNode.data.judged_at) : '-' }}</span>
@@ -919,9 +1067,9 @@ const sbTopImprovements = computed(() => {
                   </div>
                 </div>
               </div>
-              <div v-if="detailNode.data?.reason" class="detail-section">
+              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
                 <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
+                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 
@@ -940,9 +1088,22 @@ const sbTopImprovements = computed(() => {
                 <div v-for="edge in currentNodeEdges" :key="edge._idx" class="rel-item">
                   <template v-if="relEditIdx === edge._idx">
                     <div class="rel-edit-row">
-                      <select v-model="relEditRel" class="rel-type-select">
-                        <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                      </select>
+                      <div class="rel-inline-suggest-wrap">
+                        <input
+                          v-model="relEditRel"
+                          class="rel-search-input"
+                          placeholder="관계 유형 입력..."
+                          @focus="editRelSuggest=true"
+                          @blur="hideEditRelSuggest"
+                        />
+                        <div v-if="editRelSuggest && filteredEditRelSuggestions.length" class="rel-suggest-list">
+                          <div v-for="rt in filteredEditRelSuggestions" :key="rt"
+                            class="rel-suggest-item"
+                            @mousedown.prevent="relEditRel=rt; editRelSuggest=false">
+                            {{ rt }}
+                          </div>
+                        </div>
+                      </div>
                       <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
                       <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
                     </div>
@@ -971,7 +1132,7 @@ const sbTopImprovements = computed(() => {
 
             <!-- 관계 추가 폼 (노드 공통) -->
             <div v-if="relAddActive" class="detail-section rel-add-panel">
-              <div class="detail-section-label-row" style="margin-bottom:8px">
+              <div class="detail-section-label-row" style="margin-bottom:10px">
                 <span class="detail-section-label">새 관계 추가</span>
                 <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
                   <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -980,30 +1141,79 @@ const sbTopImprovements = computed(() => {
               <div class="rel-add-form">
                 <div class="rel-add-field">
                   <label class="rel-add-label">출발 노드</label>
-                  <select v-model="relAddForm.fromId" class="rel-type-select">
-                    <option value="">선택...</option>
-                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <div v-if="fromNodeData" class="rel-node-selected" @click="clearFromNode">
+                      <span class="rel-node-sel-label">{{ fromNodeData.label }}</span>
+                      <span class="rel-node-sel-type">{{ NODE_TYPE_KO[fromNodeData.type] || fromNodeData.type }}</span>
+                      <span class="rel-node-sel-clear">×</span>
+                    </div>
+                    <input v-else
+                      v-model="fromSearch"
+                      class="rel-search-input"
+                      placeholder="노드 이름 검색..."
+                      @focus="showFromList=true"
+                      @blur="hideFrom"
+                    />
+                    <div v-if="showFromList && !fromNodeData" class="rel-node-list">
+                      <div v-if="!filteredFromNodes.length" class="rel-node-empty">결과 없음</div>
+                      <div v-for="n in filteredFromNodes" :key="n.id"
+                        class="rel-node-item"
+                        @mousedown.prevent="selectFromNode(n)">
+                        <span class="rel-node-item-label">{{ n.label }}</span>
+                        <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rel-add-field">
                   <label class="rel-add-label">관계 유형</label>
-                  <select v-model="relAddForm.rel" class="rel-type-select">
-                    <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <input
+                      v-model="relAddForm.rel"
+                      class="rel-search-input"
+                      placeholder="예: 참조, 근거, 판단, 포함..."
+                      @focus="relSuggest=true"
+                      @blur="hideRelSuggest"
+                    />
+                    <div v-if="relSuggest && filteredRelSuggestions.length" class="rel-node-list rel-suggest-list">
+                      <div v-for="rt in filteredRelSuggestions" :key="rt"
+                        class="rel-node-item"
+                        @mousedown.prevent="relAddForm.rel=rt; relSuggest=false">
+                        {{ rt }}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rel-add-field">
                   <label class="rel-add-label">도착 노드</label>
-                  <select v-model="relAddForm.toId" class="rel-type-select">
-                    <option value="">선택...</option>
-                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
-                      {{ n.label }} ({{ n.type }})
-                    </option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <div v-if="toNodeData" class="rel-node-selected" @click="clearToNode">
+                      <span class="rel-node-sel-label">{{ toNodeData.label }}</span>
+                      <span class="rel-node-sel-type">{{ NODE_TYPE_KO[toNodeData.type] || toNodeData.type }}</span>
+                      <span class="rel-node-sel-clear">×</span>
+                    </div>
+                    <input v-else
+                      v-model="toSearch"
+                      class="rel-search-input"
+                      placeholder="노드 이름 검색..."
+                      @focus="showToList=true"
+                      @blur="hideTo"
+                    />
+                    <div v-if="showToList && !toNodeData" class="rel-node-list">
+                      <div v-if="!filteredToNodes.length" class="rel-node-empty">결과 없음</div>
+                      <div v-for="n in filteredToNodes" :key="n.id"
+                        class="rel-node-item"
+                        @mousedown.prevent="selectToNode(n)">
+                        <span class="rel-node-item-label">{{ n.label }}</span>
+                        <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <button
                   class="app-btn-primary"
-                  style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
-                  :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                  style="width:100%;margin-top:8px;font-size:12px;padding:7px 0"
+                  :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel?.trim()"
                   @click="doAddRel">
                   관계 추가
                 </button>
@@ -1030,3 +1240,13 @@ const sbTopImprovements = computed(() => {
           </svg>
         </button>
 </template>
+
+<style scoped>
+.ai-evidence-box :deep(h1),
+.ai-evidence-box :deep(h2),
+.ai-evidence-box :deep(h3) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+</style>

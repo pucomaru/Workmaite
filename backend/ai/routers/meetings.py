@@ -154,6 +154,7 @@ async def update_meeting(
     if "start_date" in data: meeting.start_date = data["start_date"]
     if "end_date" in data:   meeting.end_date = data["end_date"]
     if "guidelines" in data: meeting.guidelines = data["guidelines"]
+    if "context" in data:   meeting.context = data["context"]
     if "meeting_type" in data: meeting.type = data["meeting_type"]
     db.commit()
     db.refresh(meeting)
@@ -165,6 +166,7 @@ async def update_meeting(
         title=meeting.title,
         description=meeting.description,
         guidelines=meeting.guidelines,
+        context=meeting.context,
         status=str(meeting.status or "active"),
         meeting_type=str(meeting.type or ""),
         start_date=meeting.start_date.isoformat() if meeting.start_date else None,
@@ -317,7 +319,7 @@ async def delete_meeting(
 
     # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.report_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
 
     # ── 6. 보고서 ─────────────────────────────────────────────────
@@ -585,7 +587,7 @@ async def ai_delete_meeting(
 
     # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.report_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
 
     # ── 6. 보고서 ─────────────────────────────────────────────────

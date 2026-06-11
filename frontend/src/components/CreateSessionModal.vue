@@ -14,10 +14,29 @@ const emit = defineEmits(['close', 'saved'])
 
 const authStore = useAuthStore()
 
-const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null })
+const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null, context: '' })
 const members = ref([])
 const creating = ref(false)
 const showPastDateAlert = ref(false)
+const showTimePicker = ref(false)
+const timePickerListEl = ref(null)
+
+function selectTime(t) {
+  form.value.timeOnly = t
+  showTimePicker.value = false
+  showPastDateAlert.value = false
+}
+
+watch(showTimePicker, (v) => {
+  if (!v) return
+  setTimeout(() => {
+    if (!timePickerListEl.value) return
+    const idx = timeOptions.value.indexOf(form.value.timeOnly)
+    if (idx < 0) return
+    const itemHeight = timePickerListEl.value.scrollHeight / timeOptions.value.length
+    timePickerListEl.value.scrollTop = Math.max(0, idx * itemHeight - 85)
+  }, 0)
+})
 
 function toNumericId(id) {
   if (!id && id !== 0) return 0
@@ -28,13 +47,31 @@ function toNumericId(id) {
 
 watch(() => props.show, (v) => {
   if (!v) return
+  const now = new Date()
+  const minutes = now.getMinutes() < 30 ? 30 : 0
+  const hours = minutes === 0 ? now.getHours() + 1 : now.getHours()
+  const safeHours = hours > 22 ? 22 : (hours < 8 ? 8 : hours)
   form.value = {
-    title: '', location: '', dateOnly: '', timeOnly: '',
+    title: '', location: '', dateOnly: '',
+    timeOnly: `${String(safeHours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`,
     meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+    context: '',
   }
   const me = authStore.user
   members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
   showPastDateAlert.value = false
+})
+
+const timeOptions = computed(() => {
+  const options = []
+  for (let h = 8; h <= 22; h++) {
+    for (let m of [0, 30]) {
+      const hh = String(h).padStart(2, '0')
+      const mm = String(m).padStart(2, '0')
+      options.push(`${hh}:${mm}`)
+    }
+  }
+  return options
 })
 
 const canSubmit = computed(() => {
@@ -54,6 +91,7 @@ async function doCreate() {
       location:     f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
       type:         'localwhisper',
+      context:      f.context || null,
       attendees:    members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })
     emit('saved', { meetingId: f.meeting_id })
@@ -94,12 +132,44 @@ async function doCreate() {
           </div>
           <div class="app-modal-field">
             <label>회의 날짜 <span class="req">*</span></label>
-            <div class="datetime-split-input">
-              <input type="date" v-model="form.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
-              <span class="datetime-split-sep"></span>
-              <input type="text" v-model="form.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="date" v-model="form.dateOnly" class="app-modal-input" style="flex: 1;" @change="showPastDateAlert=false" />
+              <div style="position: relative; width: 110px;">
+                <div v-if="showTimePicker" style="position: fixed; inset: 0; z-index: 1001;" @click="showTimePicker = false"></div>
+                <div
+                  class="app-modal-input"
+                  style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;"
+                  @click.stop="showTimePicker = !showTimePicker"
+                >
+                  <span>{{ form.timeOnly || '시간 선택' }}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+                <div
+                  v-if="showTimePicker"
+                  ref="timePickerListEl"
+                  style="position: absolute; top: calc(100% + 4px); left: 0; z-index: 1002; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 6px; max-height: 140px; overflow-y: auto; width: 100%; box-shadow: 0 4px 16px rgba(0,0,0,0.12);"
+                >
+                  <div
+                    v-for="t in timeOptions"
+                    :key="t"
+                    @click.stop="selectTime(t)"
+                    :style="{
+                      padding: '6px 12px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      background: form.timeOnly === t ? 'var(--primary, #6366f1)' : 'transparent',
+                      color: form.timeOnly === t ? '#fff' : 'inherit',
+                    }"
+                  >{{ t }}</div>
+                </div>
+              </div>
             </div>
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
+          </div>
+          <div class="app-modal-field">
+            <label>회의 맥락</label>
+            <textarea v-model="form.context" class="app-modal-input context-modal-textarea" rows="4"
+              placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"></textarea>
           </div>
           <div class="app-modal-field">
             <MemberInvite v-model="members" :lockedUserId="lockedUserId" />

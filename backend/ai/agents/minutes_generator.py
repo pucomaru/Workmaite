@@ -10,6 +10,7 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 
 from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
+from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -30,6 +31,7 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
         temperature=temperature,
         api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
+        stream_usage=True,
     )
 
 
@@ -180,17 +182,16 @@ async def chat_stream(
                 yield chunk.content
 
 
-async def generate_minutes_stream(
-    transcript: str,
-    meeting_context: str = "",
-    agenda_text: str = "없음",
-    now: str = "",
+async def generate_minutes(
+    raw_transcript: str,
+    session_info: dict = None,
+    meeting_info: dict = None,
+    participants: list = None,
+    agendas: list = None,
+    todos: list = None,
     meeting_id: int = None,
     session_id: int = None,
     title: str = "",
-    participants: list = None,
-    session_info: dict = None,
-    todos: list = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
@@ -232,12 +233,84 @@ async def generate_minutes_stream(
     if similar_minutes:
         context_parts.append("[유사 회의록 참고]\n" + "\n\n".join(similar_minutes[:2]))
 
-    rich_context = "\n\n".join(context_parts)
+    prompt = f"""{context_block}[회의 녹취/기록]
+{raw_transcript[:5000]}
+
+위 회의 내용을 바탕으로 두 파트로 응답하세요.
+
+## [1]
+# 회의록
+## 1. 회의 목적 및 배경
+## 2. 주요 논의 사항
+## 3. 결정 사항
+## 4. 액션 아이템
+| 담당자 | 내용 | 기한 |
+|--------|------|------|
+## 5. 보류 및 추가 검토 사항
+## 6. 다음 회의 안건
+
+## [2]
+```json
+{{
+  "attendees": ["참석자 목록"],
+  "decisions": ["결정 사항 목록"],
+  "action_items": [{{"assignee": "담당자", "content": "내용", "due_date": "기한"}}],
+  "tbd_items": ["보류 사항 목록"],
+  "next_meeting_note": "다음 회의 안건"
+}}
+```"""
+
+    llm = _make_llm(temperature=0.2)
+    response = await llm.ainvoke([SystemMessage(content=MINUTES_SYSTEM), HumanMessage(content=prompt)])
+    full_text = response.content
+
+    md_part = full_text
+    json_part = {}
+    split_marker = "## [2]"
+    if split_marker in full_text:
+        parts = full_text.split(split_marker, 1)
+        md_part = parts[0].replace("## [1]", "").strip()
+        raw_json_text = parts[1]
+        m = _re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', raw_json_text)
+        if m:
+            try:
+                json_part = _json.loads(m.group(1))
+            except Exception:
+                pass
+
+    if meeting_id and md_part:
+        try:
+            from agents import knowledge_manager as _ka
+            _title = session_info.get("title", "회의록") if session_info else "회의록"
+            await _ka.store_minutes(
+                title=_title,
+                content=md_part,
+                meeting_id=meeting_id,
+                session_id=session_id,
+            )
+        except Exception:
+            pass
+
+    return md_part, json_part
+
+
+async def generate_minutes_stream(
+    transcript: str,
+    meeting_context: str = "",
+    agenda_text: str = "없음",
+    now: str = "",
+    meeting_id: int = None,
+    session_id: int = None,
+    title: str = "",
+) -> AsyncGenerator[str, None]:
+    from datetime import datetime as _dt
+    if not now:
+        now = _dt.now().strftime("%Y년 %m월 %d일")
 
     llm = _make_llm(temperature=0.2)
     collected_parts: List[str] = []
     async for chunk in llm.astream([
-        SystemMessage(content=generate_minutes_system(rich_context, agenda_text)),
+        SystemMessage(content=generate_minutes_system(meeting_context, agenda_text)),
         HumanMessage(content=generate_minutes_human(transcript, now)),
     ]):
         if chunk.content:

@@ -4,7 +4,7 @@ const props = defineProps({
   nightMode: Boolean,
   saving: Boolean,
 })
-const emit = defineEmits(['close', 'save'])
+const emit = defineEmits(['close', 'save', 'delete'])
 
 const STATUS_OPTIONS = [
   { value: 'DRAFT',     label: '초안' },
@@ -42,13 +42,16 @@ const STATUS_OPTIONS = [
         </div>
 
         <!-- Footer -->
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary"
-            :disabled="saving"
-            @click="emit('save')">
-            {{ saving ? '저장 중...' : '저장' }}
-          </button>
+        <div class="app-modal-footer modal-footer-split">
+          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div class="footer-right">
+            <button class="app-btn-cancel" @click="emit('close')">취소</button>
+            <button class="app-btn-primary"
+              :disabled="saving"
+              @click="emit('save')">
+              {{ saving ? '저장 중...' : '저장' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -57,4 +60,6 @@ const STATUS_OPTIONS = [
 
 <style scoped>
 .minutes-edit-modal { max-width: 400px; width: 100%; }
+.modal-footer-split { justify-content: space-between !important; }
+.footer-right { display: flex; gap: 8px; }
 </style>

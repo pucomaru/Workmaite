@@ -1,29 +1,19 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import AppHeader from '../components/AppHeader.vue'
 
-const router = useRouter()
 const route = useRoute()
-const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 onMounted(async () => {
   await meetingsStore.fetchMeetings()
 })
 
-const meetingId = ref(null)
 watch(() => route.params.meetingId, (id) => {
-  meetingId.value = id ? Number(id) : null
   meetingsStore.currentLoopIdx = 0
   if (id) meetingsStore.fetchRole(id)
-}, { immediate: true })
-
-const inMeetingPage = ref(false)
-watch(() => route.path, (p) => {
-  inMeetingPage.value = p.includes('/meetings/')
 }, { immediate: true })
 </script>
 
@@ -35,7 +25,6 @@ watch(() => route.path, (p) => {
         <RouterView :key="route.params.meetingId ?? route.path" />
       </main>
     </div>
-    <HyeanAgent v-if="inMeetingPage && meetingId" :meeting-id="meetingId" />
     <div class="ai-disclaimer">Workma!te의 AI는 실수할 수 있으니 반드시 결과를 검토해주세요.</div>
   </div>
 </template>

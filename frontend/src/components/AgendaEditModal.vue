@@ -7,14 +7,14 @@ const props = defineProps({
   nightMode: Boolean,
   saving: Boolean,
 })
-const emit = defineEmits(['close', 'save'])
+const emit = defineEmits(['close', 'save', 'delete'])
 
 const PRIORITY_OPTIONS = [
-  { value: 'critical', label: '^^  최상 (Critical)', color: '#ef4444' },
-  { value: 'high',     label: '^   상 (High)',       color: '#f97316' },
-  { value: 'medium',   label: '-   중 (Medium)',     color: '#f59e0b' },
-  { value: 'low',      label: 'v   하 (Low)',        color: '#10b981' },
-  { value: 'minimal',  label: 'vv  최하 (Minimal)',  color: '#6b7280' },
+  { value: 'critical', label: '최상', color: '#ef4444' },
+  { value: 'high',     label: '상',       color: '#f97316' },
+  { value: 'medium',   label: '중',     color: '#f59e0b' },
+  { value: 'low',      label: '하',        color: '#10b981' },
+  { value: 'minimal',  label: '최하',  color: '#6b7280' },
 ]
 
 const STATUS_OPTIONS = [
@@ -79,13 +79,16 @@ function priorityColor(val) {
         </div>
 
         <!-- Footer -->
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary"
-            :disabled="!modal.form.title?.trim() || saving"
-            @click="emit('save')">
-            {{ saving ? '저장 중...' : '저장' }}
-          </button>
+        <div class="app-modal-footer agenda-footer">
+          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div class="footer-right">
+            <button class="app-btn-cancel" @click="emit('close')">취소</button>
+            <button class="app-btn-primary"
+              :disabled="!modal.form.title?.trim() || saving"
+              @click="emit('save')">
+              {{ saving ? '저장 중...' : '저장' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -95,8 +98,8 @@ function priorityColor(val) {
 <style scoped>
 .agenda-edit-modal { max-width: 480px; width: 100%; }
 
-/* 우선순위 select 색상 힌트 */
 .priority-select { padding-left: 10px; }
 
-/* Dark mode */
+.agenda-footer { justify-content: space-between !important; }
+.footer-right { display: flex; gap: 8px; }
 </style>

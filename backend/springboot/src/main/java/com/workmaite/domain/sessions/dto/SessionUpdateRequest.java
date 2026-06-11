@@ -16,6 +16,7 @@ public class SessionUpdateRequest {
     private String description;
     private String location;
     private String type;
+    private String context;
 
     @JsonProperty("scheduled_at")
     private LocalDateTime scheduledAt;

@@ -17,7 +17,7 @@ const props = defineProps({
   getHubFill:     { type: Function, required: true },
   computeUrgency: { type: Function, required: true },
   relColors:      { type: Object,   default: () => ({}) },
-  groupTodoRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
+  groupAgendaRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
   selfNodeId:     { type: String,   default: null },
 })
 const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
@@ -190,17 +190,20 @@ function buildSimulation(nodes, edges) {
   const ns = nodes ?? props.gNodes
   const es = edges ?? props.gEdges
 
-  // Build sim nodes (preserve positions if possible)
-  const prevPos = new Map(simNodes.map(n => [n._idx, { x: n.x, y: n.y }]))
+  // node.id 기준으로 위치 보존 — 인덱스가 바뀌어도 같은 노드는 제자리 유지
+  const prevPosById = new Map(simNodes.map(n => [n.id, { x: n.x, y: n.y }]))
+  const hasNewNodes = ns.some(n => !prevPosById.has(n.id))
+  const isFirstLoad = prevPosById.size === 0
+
   simNodes = ns.map((n, i) => {
-    const prev = prevPos.get(i)
+    const prev = prevPosById.get(n.id)
     return {
       _idx:  i,
       id:    n.id,
       type:  n.type,
       ended: n.ended ?? false,
-      x:    prev ? prev.x : w / 2 + (Math.random() - 0.5) * 200,
-      y:    prev ? prev.y : h / 2 + (Math.random() - 0.5) * 200,
+      x:    prev?.x ?? w / 2 + (Math.random() - 0.5) * 200,
+      y:    prev?.y ?? h / 2 + (Math.random() - 0.5) * 200,
       vx: 0, vy: 0,
     }
   })
@@ -219,6 +222,12 @@ function buildSimulation(nodes, edges) {
 
   if (sim) sim.stop()
 
+  // alpha 전략:
+  //   최초 로딩       → 1.0 (풀 레이아웃)
+  //   새 노드 추가    → 0.3 (신규 노드만 자리 잡도록 살짝)
+  //   단순 데이터 갱신 → 0   (노드 이동 없음)
+  const startAlpha = isFirstLoad ? 1 : hasNewNodes ? 0.3 : 0
+
   sim = forceSimulation(simNodes)
     .force('link', forceLink(simEdges)
       .id(d => d._idx)
@@ -229,6 +238,7 @@ function buildSimulation(nodes, edges) {
     .force('center',  forceCenter(w / 2, h / 2).strength(0.06))
     .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.85))
     .alphaDecay(0.025)
+    .alpha(startAlpha)
     .on('tick', () => { _simDirty = true })
 
   rebuildNodeObjects()
@@ -254,44 +264,79 @@ function nodeRadiusForIdx(idx, type, id) {
 // ─── Node Objects ─────────────────────────────────────────────
 function rebuildNodeObjects() {
   if (!nodeContainer) return
-  nodeContainer.removeChildren()
-  labelContainer.removeChildren()
-  nodeObjs.clear()
+
+  // node.id → 기존 obj 매핑 (재사용 판단용)
+  const existingByNodeId = new Map()
+  nodeObjs.forEach(obj => existingByNodeId.set(obj.node.id, obj))
+
+  const newNodeObjs = new Map()
+  const newNodeIdSet = new Set(props.gNodes.map(n => n.id))
 
   props.gNodes.forEach((n, i) => {
     const type = n.type
     const r = nodeRadiusForIdx(i, type, n.id)
+    const existing = existingByNodeId.get(n.id)
 
-    // Graphics
-    const gfx = new PIXI.Graphics()
-    gfx.eventMode = 'static'
-    gfx.cursor = 'pointer'
-    gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
-    gfx._nodeIdx = i
-    gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i, e) })
-    gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
-    gfx.on('pointerover', ()  => { onNodeOver(i) })
-    gfx.on('pointerout',  ()  => { onNodeOut(i) })
-    nodeContainer.addChild(gfx)
+    if (existing) {
+      // 기존 PIXI 객체 재사용 — 인덱스·핸들러만 갱신
+      existing.node = n
+      existing.type = type
+      existing.r = r
+      existing.gfx._nodeIdx = i
+      existing.gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
+      existing.gfx.removeAllListeners()
+      existing.gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i, e) })
+      existing.gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
+      existing.gfx.on('pointerover', ()  => { onNodeOver(i) })
+      existing.gfx.on('pointerout',  ()  => { onNodeOut(i) })
+      const newText = (n.label || '').slice(0, 9)
+      if (existing.label.text !== newText) existing.label.text = newText
+      newNodeObjs.set(i, existing)
+    } else {
+      // 새 노드 — PIXI 객체 신규 생성
+      const gfx = new PIXI.Graphics()
+      gfx.eventMode = 'static'
+      gfx.cursor = 'pointer'
+      gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
+      gfx._nodeIdx = i
+      gfx.on('pointerdown', (e) => { e.stopPropagation(); onNodeDown(i, e) })
+      gfx.on('pointerup',   (e) => { e.stopPropagation(); onNodeUp(i) })
+      gfx.on('pointerover', ()  => { onNodeOver(i) })
+      gfx.on('pointerout',  ()  => { onNodeOut(i) })
+      nodeContainer.addChild(gfx)
 
-    // Label
-    const label = new PIXI.Text({
-      text: (n.label || '').slice(0, 9),
-      style: {
-        fontSize:   10,
-        fontFamily: 'sans-serif',
-        fontWeight: 'normal',
-        fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
-        align:      'center',
-      },
-      resolution: (window.devicePixelRatio || 1) * 3,
-    })
-    label.anchor.set(0.5, 0)
-    label.eventMode = 'none'  // labels must not intercept pointer events
-    labelContainer.addChild(label)
+      // Label
+      const label = new PIXI.Text({
+        text: (n.label || '').length > 10 ? (n.label || '').slice(0, 10) + '…' : (n.label || ''),
+        style: {
+          fontSize:   10,
+          fontFamily: 'sans-serif',
+          fontWeight: 'normal',
+          fill:       props.nightMode ? 0xe2e8f0 : 0x0f172a,
+          align:      'center',
+        },
+        resolution: (window.devicePixelRatio || 1) * 3,
+      })
+      label.anchor.set(0.5, 0)
+      label.eventMode = 'none'
+      labelContainer.addChild(label)
 
-    nodeObjs.set(i, { gfx, label, node: n, type, r, hovered: false, focused: false })
+      newNodeObjs.set(i, { gfx, label, node: n, type, r, hovered: false, focused: false })
+    }
   })
+
+  // 사라진 노드 정리
+  existingByNodeId.forEach((obj, nodeId) => {
+    if (!newNodeIdSet.has(nodeId)) {
+      nodeContainer.removeChild(obj.gfx)
+      labelContainer.removeChild(obj.label)
+      obj.gfx.destroy()
+      obj.label.destroy()
+    }
+  })
+
+  nodeObjs = newNodeObjs
+  _simDirty = true
 }
 
 function drawNode(obj, sn) {
@@ -339,9 +384,9 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
   }
 
-  // Todo progress arc (Meetings, 진행 중인 회의체만)
+  // Agenda progress arc (Meetings, 진행 중인 회의체만)
   const ratio = (type === 'Meetings' && !node.ended)
-    ? (props.groupTodoRatio?.get(node.data?.id ?? node.id) ?? null)
+    ? (props.groupAgendaRatio?.get(node.data?.id ?? node.id) ?? null)
     : null
   if (ratio != null && ratio > 0) {
     gfx.arc(0, 0, r + 4, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2)
@@ -371,15 +416,22 @@ function drawIcon(gfx, type, r) {
     gfx.moveTo(-cs, cs * 0.1).lineTo(-cs * 0.18, cs * 0.78).lineTo(cs, -cs * 0.62)
     gfx.stroke({ color: ic, width: Math.max(1.5, r * 0.13), alpha: 0.92, cap: 'round', join: 'round' })
   } else if (type === 'session') {
-    // calendar
-    const cw = r * 0.6, ch = r * 0.52
-    const fx = -cw / 2, fy = -ch / 2 + r * 0.05
-    gfx.rect(fx, fy, cw, ch).stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92 })
-    gfx.moveTo(fx, fy + ch * 0.33).lineTo(fx + cw, fy + ch * 0.33)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92 })
-    const cr = r * 0.09
-    gfx.circle(fx + cw * 0.28, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
-    gfx.circle(fx + cw * 0.72, fy - cr * 0.3, cr).fill({ color: ic, alpha: 0.92 })
+    // microphone icon (SVG 24x24 centered at 12,12 → PIXI coords)
+    const s = r / 18, sw = Math.max(1.2, r * 0.09)
+    // capsule body: x ±3s, y -11s to 0
+    gfx.roundRect(-3 * s, -11 * s, 6 * s, 11 * s, 3 * s)
+    gfx.stroke({ color: ic, width: sw, alpha: 0.92 })
+    // stand arc: M19 10v2a7 7 0 01-14 0v-2
+    gfx.moveTo(7 * s, -2 * s).lineTo(7 * s, 0)
+    gfx.arc(0, 0, 7 * s, 0, Math.PI, false)
+    gfx.lineTo(-7 * s, -2 * s)
+    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
+    // stem: M12 19v4
+    gfx.moveTo(0, 7 * s).lineTo(0, 11 * s)
+    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
+    // base: M8 23h8
+    gfx.moveTo(-4 * s, 11 * s).lineTo(4 * s, 11 * s)
+    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
   } else if (type === 'minutes' || type === 'report') {
     // folded doc — minutes: plain, report: with line accent
     const fw = r * 0.44, fh = r * 0.56, fold = fw * 0.3
@@ -770,7 +822,7 @@ function hexToNum(hex) {
 }
 
 // ─── Watchers ─────────────────────────────────────────────────
-watch(() => props.gNodes.length, () => buildSimulation())
+watch([() => props.gNodes, () => props.gEdges], () => buildSimulation())
 watch(() => props.queryHlIdxs, (val) => {
   _hlActive = (val?.size > 0) || (props.queryHlEdgeIdxs?.size > 0)
   if (!_hlActive) _hlPhase = 0

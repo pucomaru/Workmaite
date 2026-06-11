@@ -186,7 +186,7 @@ async function onSubmitFeedback() {
 function aiMatchReason(t) {
   const id = String(t.agenda_id ?? t.id)
   const m = (aiResult.value?.matched_agendas || []).find(x => String(x.id) === id)
-  return m ? (m.reason || 'AI가 관련 과제로 추천') : ''
+  return m ? (m.reason || 'AI가 관련 아젠다로 추천') : ''
 }
 const agendaSearch = ref('')
 const agendaDropdownOpen = ref(false)
@@ -272,7 +272,7 @@ function closeAgendaDropdown() {
             </div>
             <p class="agenda-auto-note">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 16v-4M12 8h.01"/></svg>
-              연관 과제는 AI 검토 과정에서 자동으로 판별되어 연결됩니다.
+              연관 아젠다는 AI 검토 과정에서 자동으로 판별되어 연결됩니다.
             </p>
             <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
               <span class="conn-node">{{ deptConnectableNodes.find(n => n.id === uploadForm.connectNodeId)?.label }}</span>
@@ -415,7 +415,7 @@ function closeAgendaDropdown() {
             <div v-if="aiResult && !aiAnalyzing && aiResult.top_improvements?.length" class="ai-top-improvements">
               <div class="ai-section-title" style="margin-bottom:8px">
                 <svg width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                우선 개선 과제
+                우선 개선 아젠다
               </div>
               <div v-for="(imp, i) in aiResult.top_improvements" :key="i" class="ai-top-item">
                 <span class="ai-top-num">{{ i + 1 }}</span>
@@ -430,22 +430,22 @@ function closeAgendaDropdown() {
               <div class="ai-section">
                 <div class="ai-section-title">
                   <svg width="13" height="13" fill="none" stroke="#8b5cf6" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                  연관 과제 연결
+                  연관 아젠다 연결
                   <span v-if="aiResult.matched_agendas?.length" class="ai-badge">AI 추천 {{ aiResult.matched_agendas.length }}건</span>
                 </div>
 
                 <!-- 선택된 과제 태그 -->
-                <div v-if="uploadForm.relatedTodoIds.length" class="agenda-tags">
-                  <span v-for="id in uploadForm.relatedTodoIds" :key="id" class="agenda-tag">
+                <div v-if="uploadForm.relatedAgendaIds.length" class="agenda-tags">
+                  <span v-for="id in uploadForm.relatedAgendaIds" :key="id" class="agenda-tag">
                     {{ 업로드회의체과제.find(t => String(t.agenda_id ?? t.id) === id)?.content?.slice(0,20) || id }}
-                    <button class="agenda-tag-remove" @click.stop="uploadForm.relatedTodoIds = uploadForm.relatedTodoIds.filter(x => x !== id)">×</button>
+                    <button class="agenda-tag-remove" @click.stop="uploadForm.relatedAgendaIds = uploadForm.relatedAgendaIds.filter(x => x !== id)">×</button>
                   </span>
                 </div>
 
                 <!-- 드롭다운 트리거 버튼 -->
                 <div class="agenda-dropdown-wrap">
                   <button class="agenda-dropdown-trigger" @click.stop="toggleAgendaDropdown">
-                    <span>{{ agendaDropdownOpen ? '과제 선택 닫기' : '과제 선택하기' }}</span>
+                    <span>{{ agendaDropdownOpen ? '아젠다 선택 닫기' : '아젠다 선택하기' }}</span>
                     <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"
                       :style="{ transform: agendaDropdownOpen ? 'rotate(180deg)' : '', transition: 'transform .2s' }">
                       <path d="M6 9l6 6 6-6"/>
@@ -455,7 +455,7 @@ function closeAgendaDropdown() {
                   <div v-if="agendaDropdownOpen" class="agenda-dropdown">
                     <!-- 검색 -->
                     <input v-model="agendaSearch" class="agenda-search-input" type="text"
-                      placeholder="과제 내용 검색…" autofocus @click.stop/>
+                      placeholder="아젠다 내용 검색…" autofocus @click.stop/>
 
                     <div class="agenda-dropdown-list">
                       <!-- AI 추천 -->
@@ -463,11 +463,11 @@ function closeAgendaDropdown() {
                         <div v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length" class="agenda-group-label">AI 추천</div>
                         <label v-for="t in 업로드회의체과제.filter(t => aiMatchReason(t))" :key="'ai-'+t.id"
                           class="agenda-dropdown-item recommended" @click.stop>
-                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedTodoIds"/>
+                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedAgendaIds"/>
                           <span>{{ t.content }}</span>
                           <span class="ai-badge sm" style="margin-left:auto">AI 추천</span>
                         </label>
-                        <div v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length" class="agenda-group-label" style="margin-top:6px">전체 과제</div>
+                        <div v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length" class="agenda-group-label" style="margin-top:6px">전체 아젠다</div>
                       </template>
 
                       <!-- 검색 결과 or 전체 -->
@@ -476,7 +476,7 @@ function closeAgendaDropdown() {
                         (!agendaSearch.trim() || t.content.toLowerCase().includes(agendaSearch.trim().toLowerCase()))
                       )" :key="t.id">
                         <label class="agenda-dropdown-item" @click.stop>
-                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedTodoIds"/>
+                          <input type="checkbox" :value="String(t.agenda_id ?? t.id)" v-model="uploadForm.relatedAgendaIds"/>
                           <span>{{ t.content }}</span>
                         </label>
                       </template>
@@ -485,7 +485,7 @@ function closeAgendaDropdown() {
                         agendaSearch.trim()
                           ? t.content.toLowerCase().includes(agendaSearch.trim().toLowerCase())
                           : true
-                      ).length" class="agenda-auto-note" style="padding:8px 4px">과제가 없습니다.</p>
+                      ).length" class="agenda-auto-note" style="padding:8px 4px">아젠다가 없습니다.</p>
                     </div>
                   </div>
                 </div>
@@ -500,7 +500,7 @@ function closeAgendaDropdown() {
               </div>
               <p class="hitl-feedback-desc">AI가 보고서를 잘 평가했나요? 개선이 필요한 부분이 있으면 알려주세요.</p>
               <textarea v-model="hitlFeedback" class="hitl-textarea"
-                placeholder="예) 리스크 항목 평가가 너무 관대했습니다 / 연관 과제 추천이 정확했습니다 (선택)"
+                placeholder="예) 리스크 항목 평가가 너무 관대했습니다 / 연관 아젠다 추천이 정확했습니다 (선택)"
                 rows="3"/>
             </div>
 
