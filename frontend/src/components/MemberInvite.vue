@@ -63,7 +63,7 @@ function updateRole(idx, role) {
 
     <div class="mi-search-wrap">
       <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      <input :value="searchQ" @input="onSearch($event.target.value)" class="mi-search-input" placeholder="이름 또는 이메일로 검색 후 추가..." />
+      <input :value="searchQ" @input="onSearch($event.target.value)" class="mi-search-input" placeholder="이름 또는 이메일로 검색 후 추가" />
       <span v-if="loading" class="mi-spinner">↻</span>
     </div>
 
@@ -105,7 +105,7 @@ function updateRole(idx, role) {
 .mi-section { display: flex; flex-direction: column; gap: 10px; }
 
 .mi-title { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
-.mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: #93c5fd; border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; }
+.mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: #93c5fd; border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; line-height: 1.6; }
 
 .mi-search-wrap { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .mi-search-wrap svg { color: var(--dark-muted); flex-shrink: 0; }
@@ -126,7 +126,7 @@ function updateRole(idx, role) {
 .mi-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .mi-name { font-size: 13px; font-weight: 600; color: var(--dark-card); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mi-email { font-size: 11px; color: var(--dark-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mi-me-badge { margin-left: 5px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; vertical-align: middle; }
+.mi-me-badge { margin-left: 5px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; vertical-align: baseline; line-height: 1.6; }
 
 .mi-remove { width: 22px; height: 22px; border-radius: 5px; border: none; background: rgba(239,68,68,.08); color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s; }
 .mi-remove:hover { background: rgba(239,68,68,.2); }
