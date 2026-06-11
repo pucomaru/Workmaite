@@ -415,7 +415,6 @@ async def minutes_sessions_chat(
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
-
 @router.post("/minutes/generate-minutes")
 async def minutes_generate_minutes(
     data: schemas.AgentChatRequest,
@@ -507,7 +506,6 @@ async def supervisor_chat(
             {"role": m.role, "content": m.content or ""}
             for m in reversed(_db_rows)
         ]
-        logger.info(f"[supervisor_chat] chat_history_from_db: {_chat_history_from_db}")
 
         neo4j_ctx = {}
         neo4j_ctx_str = ""
