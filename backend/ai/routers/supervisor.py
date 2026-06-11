@@ -8,7 +8,7 @@ from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 import models, schemas
 from database import get_db, SessionLocal
@@ -422,7 +422,6 @@ async def minutes_generate_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from datetime import datetime
     transcript = data.message or ""
     meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
@@ -431,13 +430,84 @@ async def minutes_generate_minutes(
     meeting_obj = db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first() if data.meeting_id else None
     minutes_title = f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"
 
+    # session_info
+    session_info = None
+    if data.session_id:
+        session = db.query(models.MeetingSession).filter(models.MeetingSession.id == data.session_id).first()
+        if session:
+            session_info = {
+                "title": session.title,
+                "started_at": session.started_at.strftime("%Y-%m-%d %H:%M") if session.started_at else None,
+                "ended_at": session.ended_at.strftime("%Y-%m-%d %H:%M") if session.ended_at else None,
+                "location": session.location,
+            }
+
+    # participants: session_id 있으면 세션 참석자, 없으면 회의체 멤버 전체
+    participants = []
+    if data.session_id:
+        sm_rows = db.query(models.SessionMember).filter(models.SessionMember.session_id == data.session_id).all()
+        user_ids = [sm.user_id for sm in sm_rows]
+        role_map = {sm.user_id: sm.role for sm in sm_rows}
+        users = db.query(models.User).filter(models.User.id.in_(user_ids)).all() if user_ids else []
+        participants = [
+            {"name": u.name, "dept": u.department or "", "role": role_map.get(u.id, "member")}
+            for u in users
+        ]
+    elif data.meeting_id:
+        mm_rows = (
+            db.query(models.MeetingMember)
+            .options(joinedload(models.MeetingMember.user))
+            .filter(models.MeetingMember.meeting_id == data.meeting_id)
+            .all()
+        )
+        participants = [
+            {"name": mm.user.name, "dept": mm.user.department or "", "role": mm.role}
+            for mm in mm_rows if mm.user
+        ]
+
     async def stream():
+        collected_parts = []
         async for chunk in minutes_agent.generate_minutes_stream(
             transcript, meeting_context, agenda_text, now,
             meeting_id=data.meeting_id,
+            session_id=data.session_id,
             title=minutes_title,
+            participants=participants,
+            session_info=session_info,
         ):
+            collected_parts.append(chunk)
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+        try:
+            if data.session_id and collected_parts:
+                full_content = "".join(collected_parts)
+                _save_db = SessionLocal()
+                try:
+                    existing = _save_db.query(models.Minutes).filter(
+                        models.Minutes.session_id == data.session_id
+                    ).first()
+                    if existing:
+                        existing.content_original = full_content
+                        existing.content_summary = full_content[:500]
+                        existing.recorder_id = current_user.id
+                        existing.generated_at = datetime.utcnow()
+                    else:
+                        _save_db.add(models.Minutes(
+                            session_id=data.session_id,
+                            content_original=full_content,
+                            content_summary=full_content[:500],
+                            recorder_id=current_user.id,
+                        ))
+                    _save_db.commit()
+                except Exception as e:
+                    logger.warning(f"[generate-minutes] PostgreSQL 저장 실패: {e}")
+                    try: _save_db.rollback()
+                    except Exception: pass
+                finally:
+                    try: _save_db.close()
+                    except Exception: pass
+        except Exception as e:
+            logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -1478,7 +1548,11 @@ async def archive_extract_agendas(
                     status="draft",
                     department=dept_json,
                     due_date=due_val,
-                    ai_evidence=ag.get("reasoning"),
+                    ai_evidence=json.dumps({
+                        "reasoning": ag.get("reasoning") or "",
+                        "organization": ag.get("organization"),
+                        "start_date": ag.get("start_date"),
+                    }, ensure_ascii=False),
                 )
                 db.add(db_agenda)
                 db.flush()
@@ -1865,13 +1939,19 @@ async def get_draft_agendas(
         .order_by(models.Agenda.created_at.asc())
         .all()
     )
+    def _parse_ev(ev):
+        if not ev: return {}
+        try: return json.loads(ev)
+        except: return {}
+
     return [
         {
             "db_id": a.id,
             "title": a.title,
             "department": a.department,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
-            "start_date": None,
+            "start_date": _parse_ev(a.ai_evidence).get("start_date"),
+            "organization": _parse_ev(a.ai_evidence).get("organization"),
         }
         for a in agendas
     ]
