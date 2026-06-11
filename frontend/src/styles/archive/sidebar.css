@@ -67,8 +67,6 @@
 .day-mode .task-back-btn { border-color:var(--border);color:var(--dark-muted); }
 .day-mode .task-back-btn:hover { background:var(--surface-2);color:var(--text-dim); }
 .ctx-section-title-flex { display:flex;align-items:center;gap:5px;margin-bottom:8px; }
-.detail-extract-footer--col { flex-direction:column;align-items:stretch;gap:8px; }
-.detail-extract-footer--col .detail-action-btn { width:100%; }
 .detail-extract-header { display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px; }
 .detail-extract-title { display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--dark-muted);text-transform:uppercase;letter-spacing:.06em; }
 .detail-extract-loading { display:flex;align-items:center;gap:8px;padding:14px 0;color:var(--text-muted);font-size:12px; }
@@ -101,8 +99,6 @@
 .dei-input { width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 7px;font-size:12px;color:var(--dark-text);outline:none; }
 .dei-date-row { display:flex;gap:6px;margin-top:4px; }
 .dei-date-input { flex:1; }
-.detail-extract-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px; }
-.dei-count { font-size:11px;color:var(--text-muted); }
 .detail-divider { height:1px;background:rgba(255,255,255,.06);margin:10px 0; }
 .detail-tabs { display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);padding:0 6px; }
 .detail-tab { background:none;border:none;padding:8px 10px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap; }
@@ -292,14 +288,6 @@
 .mf-reports { background:rgba(160,160,200,.5); }
 .mf-tasks { background:rgba(120,220,150,.55); }
 .detail-metric-sub { font-size:10px;color:#404040; }
-/* 과제 버튼 */
-.detail-action-row { display:flex;gap:7px;padding:12px 0; }
-.detail-action-btn { flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 8px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid; }
-.btn-extract { background:rgba(251,191,36,.06);color:#a08040;border-color:rgba(251,191,36,.15); }
-.btn-extract:hover { background:rgba(251,191,36,.13);color:#d4a830;border-color:rgba(251,191,36,.3); }
-.btn-assign { background:rgba(99,179,237,.06);color:#4a80a0;border-color:rgba(99,179,237,.15); }
-.btn-assign:hover:not(:disabled) { background:rgba(99,179,237,.13);color:#63b3ed;border-color:rgba(99,179,237,.3); }
-.detail-action-btn:disabled { opacity:.35;cursor:not-allowed; }
 /* 로그 */
 .detail-log-total { font-size:10px;color:#454545; }
 .detail-log-filters { display:flex;gap:4px;margin:6px 0 4px; }

@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick } from 'vue'
+import { nextTick, computed } from 'vue'
 import { apiAI } from '../api'
 import DateInput from './DateInput.vue'
 
@@ -8,9 +8,13 @@ const props = defineProps({
   memberCompanies:  { type: Array, default: () => [] },
   memberDepts: { type: Array, default: () => [] },
   removeOnApprove: { type: Boolean, default: true },
+  showFooter: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['approved', 'rejected', 'remove'])
+const emit = defineEmits(['approved', 'rejected', 'remove', 'save'])
+
+const approvedCount = computed(() => props.items.filter(a => a._state === 'approved').length)
+const rejectedCount = computed(() => props.items.filter(a => a._state === 'rejected').length)
 
 function startApprove(i) {
   const ag = props.items[i]
@@ -210,6 +214,16 @@ function deptList(dept) {
         </div>
       </div>
     </template>
+
+    <div v-if="showFooter && items.length" class="nab-footer">
+      <slot name="footer-left" />
+      <div class="nab-footer-right">
+        <span class="nab-count">승인 {{ approvedCount }} / 반려 {{ rejectedCount }}</span>
+        <button class="nab-save-btn" :disabled="!approvedCount" @click="emit('save')">
+          승인 {{ approvedCount }}건 저장
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -305,4 +319,12 @@ function deptList(dept) {
 .day-mode .dei-input { background:#f8fafc;border-color:#e2e8f0;color:#1e293b; }
 .day-mode .dei-feedback-input { background:#f8fafc;border-color:#cbd5e1;color:#1e293b; }
 .day-mode .dei-feedback-input::placeholder { color:#94a3b8; }
+
+/* ── shared footer ── */
+.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border); }
+.nab-footer-right { display:flex;align-items:center;gap:8px;margin-left:auto; }
+.nab-count { font-size:11px;color:var(--text-muted); }
+.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
+.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer; }
+.nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>
