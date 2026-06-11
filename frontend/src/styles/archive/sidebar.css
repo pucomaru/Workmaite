@@ -298,7 +298,8 @@
 .btn-extract { background:rgba(251,191,36,.06);color:#a08040;border-color:rgba(251,191,36,.15); }
 .btn-extract:hover { background:rgba(251,191,36,.13);color:#d4a830;border-color:rgba(251,191,36,.3); }
 .btn-assign { background:rgba(99,179,237,.06);color:#4a80a0;border-color:rgba(99,179,237,.15); }
-.btn-assign:hover { background:rgba(99,179,237,.13);color:#63b3ed;border-color:rgba(99,179,237,.3); }
+.btn-assign:hover:not(:disabled) { background:rgba(99,179,237,.13);color:#63b3ed;border-color:rgba(99,179,237,.3); }
+.detail-action-btn:disabled { opacity:.35;cursor:not-allowed; }
 /* 로그 */
 .detail-log-total { font-size:10px;color:#454545; }
 .detail-log-filters { display:flex;gap:4px;margin:6px 0 4px; }

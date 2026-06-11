@@ -84,7 +84,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       function pushAgenda(task, connIdx) {
         const agIdx = nodes.length
         allAgendaIdxList.push(agIdx)
-        const agLabel = (task.content || '아젠다').slice(0, 12) + ((task.content || '').length > 12 ? '…' : '')
+        const agLabel = (task.content || '아젠다').length > 10 ? (task.content || '아젠다').slice(0, 10) + '…' : (task.content || '아젠다')
         nodes.push({
           id: `agenda-${g.id || gi}-${task.id || agIdx}`, label: agLabel, type: 'agenda',
           groupIdx: gi, data: task, meetingGroupId: mgNodeId, neo4jId: task.id || null,
