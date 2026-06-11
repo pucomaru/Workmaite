@@ -20,7 +20,7 @@ NEO4J_DB = os.environ["NEO4J_DATABASE"]
 ALLOWED_LABELS = {"Meetings", "User", "Department", "Agenda", "Report", "Minutes", "Session", "Company"}
 ALLOWED_REL_TYPES = {
     # User 관계
-    "소속", "소속회사", "구성원", "개설", "참석", "작성",
+    "소속", "소속회사", "구성원", "간사", "참석", "작성",
     # Meetings/Session 관계
     "소속", "기록",
     # Agenda 관계
@@ -130,7 +130,7 @@ async def get_archive(
             person_id = person_rows[0]["pid"]
             allowed_rows = await _run_cypher(
                 """
-                MATCH (p:User)-[:`구성원`|`개설`]->(mg:Meetings)
+                MATCH (p:User)-[:`구성원`|`간사`]->(mg:Meetings)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
                 RETURN mg.id AS mg_id
                 """,
@@ -168,7 +168,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (mg:Meetings) WHERE mg.id IN $ids
-                OPTIONAL MATCH (p:User)-[rel:`개설`|`구성원`]->(mg)
+                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`]->(mg)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,

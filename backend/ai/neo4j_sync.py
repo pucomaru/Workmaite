@@ -263,7 +263,7 @@ async def sync_meeting_group(
     WITH mg
     OPTIONAL MATCH (creator:User {pg_id: $created_by})
     FOREACH (_ IN CASE WHEN creator IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (creator)-[:개설]->(mg)
+        MERGE (creator)-[:간사]->(mg)
     )
     """
     params = {
