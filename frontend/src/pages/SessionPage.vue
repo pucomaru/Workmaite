@@ -276,6 +276,7 @@ async function refineChunk() {
       rec.conversationBlocks = conversationBlocks.value
       rec.lastRefineIdx = lastRefineIdx.value
     }
+    nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
   } catch (e) {
     console.error('대화기록 정제 실패', e)
   } finally {
@@ -971,7 +972,6 @@ async function downloadMinutesFile() {
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
               <div class="conv-block-title">{{ block.title }}</div>
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
-              <div v-if="block.text" class="conv-block-original">{{ block.text }}</div>
             </div>
             <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
             <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
@@ -1421,8 +1421,8 @@ async function downloadMinutesFile() {
 .conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
-.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden; }
-.conv-raw-loading { border-color:var(--primary);opacity:.7; }
+.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
+.conv-raw.conv-raw-loading { overflow:hidden; }
 .conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
 @keyframes conv-scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
 .conv-raw-line { font-size:13px;color:var(--text-muted);line-height:2; }
