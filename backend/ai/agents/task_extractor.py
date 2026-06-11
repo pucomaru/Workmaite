@@ -13,7 +13,6 @@ from langgraph.types import interrupt, Command
 from pydantic import BaseModel, Field
 
 from routers.prompts import (
-    task_system, task_extract_human,
     extract_agendas_system, chat_extract_system,
 )
 
@@ -24,7 +23,7 @@ MODEL = os.environ["OPENAI_MODEL"]
 class TaskState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     remaining_steps: RemainingSteps
-    departments: List[str]
+    org_dept_list: str
     knowledge: List[dict]
     meeting_context: str
 
@@ -32,7 +31,7 @@ class TaskState(TypedDict):
 class ExtractionState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     content: str
-    departments: List[str]
+    org_dept_list: str
     knowledge: List[dict]
     proposed: Optional[dict]
 
@@ -134,11 +133,10 @@ TASK_TOOLS: list = [search_related_agendas, search_previous_minutes]
 
 # ── Chat graph ─────────────────────────────────────────────────────────────────
 def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
-    """런타임 컨텍스트(departments·knowledge·meeting_context)를 시스템 메시지로 주입합니다."""
-    system = task_system(
-        state.get("knowledge"),
-        state.get("departments"),
-        state.get("meeting_context", ""),
+    system = extract_agendas_system(
+        org_dept_list=state.get("org_dept_list") or "정보 없음",
+        meeting_context=state.get("meeting_context", ""),
+        knowledge=state.get("knowledge"),
     )
     return [SystemMessage(content=system)] + list(state.get("messages", []))
 
@@ -159,15 +157,14 @@ _chat_graph = _build_chat_graph()
 
 # ── HITL 추출 그래프 ─────────────────────────────────────────────────────
 async def _extract_propose_node(state: ExtractionState) -> dict:
-    dept_hint = ""
-    if state.get("departments"):
-        dept_hint = f"\n담당 부서는 반드시 다음 목록에서 선택하세요: {', '.join(state['departments'])}"
-
     llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
-        SystemMessage(content=task_system(state.get("knowledge"), state.get("departments"))),
+        SystemMessage(content=extract_agendas_system(
+            org_dept_list=state.get("org_dept_list") or "정보 없음",
+            knowledge=state.get("knowledge"),
+        )),
         HumanMessage(content=(
-            f"다음 문서에서 아젠다와 Todo를 추출해 JSON 형식으로만 응답하세요.{dept_hint}\n\n"
+            f"다음 문서에서 아젠다와 Todo를 추출해 JSON 형식으로만 응답하세요.\n\n"
             f"[문서]\n{state['content'][:8000]}"
         )),
     ])
@@ -201,7 +198,7 @@ async def chat_stream(
     file_content: str = "",
     previous_minutes: List[str] = None,
     knowledge: List[dict] = None,
-    departments: List[str] = None,
+    org_dept_list: str = "",
     meeting_id: int = 0,
     meeting_context: str = "",
 ) -> AsyncGenerator[str, None]:
@@ -220,7 +217,7 @@ async def chat_stream(
     async for event in _chat_graph.astream_events(
         {
             "messages": input_msgs,
-            "departments": departments or [],
+            "org_dept_list": org_dept_list or "정보 없음",
             "knowledge": knowledge or [],
             "meeting_context": meeting_context,
         },
@@ -237,20 +234,16 @@ async def extract_agendas_and_todos(
     content: str,
     previous_minutes: List[str] = None,
     knowledge: List[dict] = None,
-    departments: List[str] = None,
+    org_dept_list: str = "",
 ) -> dict:
-    dept_hint = ""
-    if departments:
-        dept_hint = f"\n담당 부서는 반드시 다음 목록에서 선택하세요: {', '.join(d for d in departments if d)}"
-
     prev_hint = ""
     if previous_minutes:
         prev_hint = "\n\n[이전 회의록 참고]\n" + "\n\n".join(previous_minutes[:2])[:2000]
 
     llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
-        SystemMessage(content=task_system(knowledge, departments)),
-        HumanMessage(content=task_extract_human(content, dept_hint, prev_hint)),
+        SystemMessage(content=extract_agendas_system(org_dept_list or "정보 없음", knowledge=knowledge)),
+        HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}\n\n{content[:8000]}"),
     ])
     parsed = _parse_json_from_text(response.content)
     reason = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', response.content).strip()
@@ -265,7 +258,7 @@ async def extract_agendas_and_todos(
 async def start_extraction_review(
     thread_id: str,
     content: str,
-    departments: List[str] = None,
+    org_dept_list: str = "",
     knowledge: List[dict] = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
@@ -273,7 +266,7 @@ async def start_extraction_review(
         {
             "messages": [],
             "content": content,
-            "departments": departments or [],
+            "org_dept_list": org_dept_list or "정보 없음",
             "knowledge": knowledge or [],
             "proposed": None,
         },
