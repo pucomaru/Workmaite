@@ -7,7 +7,7 @@ const props = defineProps({
   show:    { type: Boolean, default: false },
   session: { type: Object,  default: null },
 })
-const emit = defineEmits(['close', 'saved', 'delete'])
+const emit = defineEmits(['close', 'saved', 'deleted'])
 
 const form = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper', context: '' })
 const members = ref([])
@@ -44,6 +44,20 @@ const canSubmit = computed(() => {
   const f = form.value
   return !saving.value && f.title.trim() && f.location.trim() && f.dateOnly && members.value.length > 0
 })
+
+async function doDelete() {
+  if (!confirm('회의를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  saving.value = true
+  try {
+    await api.delete(`/api/v1/sessions/${form.value.id}`)
+    emit('deleted', { meetingId: form.value.meetingId })
+    emit('close')
+  } catch (e) {
+    alert(e.response?.data?.message || '삭제 실패')
+  } finally {
+    saving.value = false
+  }
+}
 
 async function doSave() {
   if (!canSubmit.value) return
@@ -103,9 +117,9 @@ async function doSave() {
             <MemberInvite v-model="members" />
           </div>
         </div>
-        <div class="app-modal-footer modal-footer-split">
-          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
-          <div class="footer-right">
+        <div class="app-modal-footer">
+          <button class="app-btn-danger" :disabled="saving" @click="doDelete">삭제</button>
+          <div class="app-modal-footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button class="app-btn-primary" :disabled="!canSubmit" @click="doSave">
               {{ saving ? '수정 중...' : '수정' }}
@@ -118,6 +132,5 @@ async function doSave() {
 </template>
 
 <style scoped>
-.modal-footer-split { justify-content: space-between !important; }
-.footer-right { display: flex; gap: 8px; }
+.app-modal-footer { justify-content: space-between; }
 </style>

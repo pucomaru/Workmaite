@@ -174,6 +174,8 @@ class RefineChunkRequest(BaseModel):
     session_id: int
     text: str
     context: Optional[str] = None
+    recording_start_sec: Optional[float] = None
+    recording_end_sec: Optional[float] = None
 
 class RefineChunkResponse(BaseModel):
     title: str
@@ -220,6 +222,8 @@ async def refine_chunk(
         block_index=block_index,
         title=title,
         bullets=bullets,
+        recording_start_sec=body.recording_start_sec,
+        recording_end_sec=body.recording_end_sec,
     ))
     db.commit()
 

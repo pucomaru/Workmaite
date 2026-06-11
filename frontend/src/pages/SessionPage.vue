@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick } from 'vue'
 import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -135,12 +135,33 @@ async function enterSession(s) {
     const { data } = await api.get(`/api/v1/sessions/${s.id}`)
     const full = data.data ?? data
     if (full.summary_blocks?.length) {
-      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets }))
+      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets, recording_start_sec: b.recording_start_sec, recording_end_sec: b.recording_end_sec }))
       lastRefineIdx.value = conversationBlocks.value.length * REFINE_EVERY
       rec.conversationBlocks = conversationBlocks.value
       rec.lastRefineIdx = lastRefineIdx.value
     }
     if (full.context) sessionContext.value = full.context
+    if (full.recording_seconds != null) {
+      let secs = full.recording_seconds
+      if (full.last_resumed_at && full.status === 'ongoing') {
+        // 서버가 elapsed 계산 (timezone 문제 없음)
+        recordingState.value = 'paused'
+        api.post(`/api/v1/sessions/${full.id}/pause`)
+          .then(res => {
+            const data = res.data?.data ?? res.data
+            const saved = data?.recording_seconds ?? secs
+            recordingSecs.value = saved
+            _lastRefineEndSec = saved
+          })
+          .catch(() => {
+            recordingSecs.value = secs
+            _lastRefineEndSec = secs
+          })
+      } else {
+        recordingSecs.value = secs
+        _lastRefineEndSec = secs
+      }
+    }
   } catch (e) {
     console.error('세션 상세 조회 실패', e)
   }
@@ -288,12 +309,17 @@ async function refineChunk() {
   const processedIdx = lastRefineIdx.value + newLines.length
   const text = newLines.map(l => l.text).join('\n')
   try {
-    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
+    const startSec = _lastRefineEndSec
+    const endSec = recordingSecs.value
+    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
+      recording_start_sec: startSec,
+      recording_end_sec: endSec,
     })
-    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text })
+    _lastRefineEndSec = endSec
+    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text, recording_start_sec: startSec, recording_end_sec: endSec })
     lastRefineIdx.value = processedIdx
     if (activeSession.value) {
       const rec = getOrCreateRecord(activeSession.value.id)
@@ -353,14 +379,17 @@ const stt = useSTT({
 // ─── 녹음 타이머 ──────────────────────────────────────────────
 const recordingSecs = ref(0)
 let _timerInterval = null
+let _lastRefineEndSec = 0
 
 function _startTimer() {
+  if (_timerInterval) clearInterval(_timerInterval)
   _timerInterval = setInterval(() => { recordingSecs.value++ }, 1000)
 }
 function _pauseTimer() { clearInterval(_timerInterval); _timerInterval = null }
-function _resetTimer() { _pauseTimer(); recordingSecs.value = 0 }
+function _resetTimer() { _pauseTimer(); recordingSecs.value = 0; _lastRefineEndSec = 0 }
 function formatTimer(s) {
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  const sec = Math.floor(s)
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
 }
 
 // ─── 발화 편집 ────────────────────────────────────────────────
@@ -390,17 +419,47 @@ function toggleRecording() {
     stt.start()
       .then(() => {
         recordingState.value = 'recording'
-        _resetTimer(); _startTimer()
         if (activeSession.value?.id) {
-          api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
+          const isOngoing = activeSession.value.status === 'ongoing'
+          const endpoint = isOngoing ? 'resume' : 'start'
+          api.post(`/api/v1/sessions/${activeSession.value.id}/${endpoint}`)
+            .then(res => {
+              const data = res.data?.data ?? res.data
+              if (data?.status) activeSession.value = { ...activeSession.value, status: data.status }
+              recordingSecs.value = data?.recording_seconds ?? recordingSecs.value
+              _startTimer()
+            })
+            .catch(() => { _startTimer() })
+        } else {
+          _startTimer()
         }
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
     recordingState.value = 'paused'; stt.stop(); _pauseTimer()
+    if (activeSession.value?.id) {
+      api.post(`/api/v1/sessions/${activeSession.value.id}/pause`)
+        .then(res => {
+          const data = res.data?.data ?? res.data
+          if (data?.recording_seconds != null) recordingSecs.value = data.recording_seconds
+        })
+        .catch(() => {})
+    }
   } else {
     stt.start()
-      .then(() => { recordingState.value = 'recording'; _startTimer() })
+      .then(() => {
+        if (activeSession.value?.id) {
+          api.post(`/api/v1/sessions/${activeSession.value.id}/resume`)
+            .then(res => {
+              recordingSecs.value = res.data?.data?.recording_seconds ?? recordingSecs.value
+              recordingState.value = 'recording'
+              _startTimer()
+            })
+            .catch(() => { recordingState.value = 'recording'; _startTimer() })
+        } else {
+          recordingState.value = 'recording'; _startTimer()
+        }
+      })
       .catch(() => { micError.value = '마이크 권한이 필요합니다.' })
   }
 }
@@ -925,6 +984,17 @@ async function onSessionEditSaved({ meetingId }) {
   }
 }
 
+async function onSessionDeleted({ meetingId }) {
+  if (activeSession.value && activeSession.value.meeting_id === meetingId) {
+    activeSession.value = null
+  }
+  if (meetingId) {
+    delete sessionsCache.value[meetingId]
+    await loadSessions(meetingId)
+  }
+  showEditSession.value = false
+}
+
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
 
@@ -937,6 +1007,15 @@ async function onSessionCreated({ meetingId }) {
 onMounted(() => {
   fetchMeetings()
   loadMentionGraph()
+})
+
+onBeforeUnmount(() => {
+  if (recordingState.value === 'recording' && activeSession.value?.id) {
+    _pauseTimer()
+    recordingState.value = 'paused'
+    stt.stop()
+    api.post(`/api/v1/sessions/${activeSession.value.id}/pause`).catch(() => {})
+  }
 })
 
 // 공통 컴포저가 마운트되면 내부 textarea를 @멘션 ref에 연결
@@ -1061,8 +1140,6 @@ async function downloadChatFile(filePath) {
               <div class="sp-panel-title">{{ activeSession.title }}</div>
             </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
-              <i class="bi bi-record-fill"></i>
-              {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
               <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
           </div>
@@ -1082,7 +1159,10 @@ async function downloadChatFile(filePath) {
             </div>
             <!-- 완성된 블록들 — 위 -->
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
-              <div class="conv-block-title">{{ block.title }}</div>
+              <div class="conv-block-header">
+                <span class="conv-block-title">{{ block.title }}</span>
+                <span v-if="block.recording_start_sec != null && block.recording_end_sec != null" class="conv-block-time">{{ formatTimer(block.recording_start_sec) }} ~ {{ formatTimer(block.recording_end_sec) }}</span>
+              </div>
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
             </div>
             <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
@@ -1406,6 +1486,7 @@ async function downloadChatFile(filePath) {
     :session="currentEditSession"
     @close="showEditSession=false"
     @saved="onSessionEditSaved"
+    @deleted="onSessionDeleted"
   />
 
   <CreateSessionModal
@@ -1514,8 +1595,8 @@ async function downloadChatFile(filePath) {
 .sp-panel-title-group { display:flex;flex-direction:column;min-width:0;flex:1; }
 .sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-panel-location { font-size:11px;color:var(--text-muted);margin-top:1px; }
-.rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+.rec-live { display:flex;align-items:center;flex-shrink:0; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:35px 60px;display:flex;flex-direction:column;gap:4px;min-height:0; }
@@ -1525,7 +1606,9 @@ async function downloadChatFile(filePath) {
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
 .conv-block { padding:20px 0 16px; }
-.conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
+.conv-block-header { display:flex;align-items:baseline;gap:8px;margin-bottom:8px; }
+.conv-block-title { font-size:13px;font-weight:700;color:var(--text); }
+.conv-block-time { font-size:11px;color:var(--text-muted);font-family:'Pretendard',inherit;white-space:nowrap; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
 .conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
@@ -1573,8 +1656,8 @@ async function downloadChatFile(filePath) {
 .tline-cancel-btn { font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer; }
 
 /* REC 타이머 */
-.rec-live.paused { background:rgba(100,116,139,.15);color:var(--text-muted); }
-.rec-timer { font-family:monospace;font-size:11px;margin-left:4px;letter-spacing:.05em; }
+.rec-timer { font-family:'Pretendard',inherit;font-size:11px;font-weight:600;color:var(--danger);letter-spacing:.02em; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */

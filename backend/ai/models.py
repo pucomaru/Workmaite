@@ -50,16 +50,18 @@ class MeetingMember(Base):
 
 class MeetingSession(Base):
     __tablename__ = "meeting_sessions"
-    id           = Column(Integer, primary_key=True, index=True)
-    meeting_id   = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    title        = Column(String(255), nullable=True)
-    description  = Column(String(255), nullable=True)
-    location     = Column(String(255), nullable=True)
-    type         = Column(String(50), nullable=False)
-    scheduled_at = Column(DateTime, nullable=True)
-    started_at   = Column(DateTime, nullable=True)
-    ended_at     = Column(DateTime, nullable=True)
-    status       = Column(String(20), default="scheduled")
+    id                = Column(Integer, primary_key=True, index=True)
+    meeting_id        = Column(Integer, ForeignKey("meetings.id"), nullable=False)
+    title             = Column(String(255), nullable=True)
+    description       = Column(String(255), nullable=True)
+    location          = Column(String(255), nullable=True)
+    type              = Column(String(50), nullable=False)
+    scheduled_at      = Column(DateTime, nullable=True)
+    started_at        = Column(DateTime, nullable=True)
+    ended_at          = Column(DateTime, nullable=True)
+    status            = Column(String(20), default="scheduled")
+    recording_seconds = Column(Integer, default=0, nullable=False)
+    last_resumed_at   = Column(DateTime, nullable=True)
 
     minutes = relationship("Minutes", back_populates="session", uselist=False)
 
@@ -189,12 +191,14 @@ class TokenUsageLog(Base):
 
 class SessionSummaryBlock(Base):
     __tablename__ = "session_summary_blocks"
-    id            = Column(Integer, primary_key=True, index=True)
-    session_id    = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
-    block_index   = Column(Integer, nullable=False)
-    title         = Column(String(500), nullable=True)
-    bullets       = Column(JSON, nullable=True)
-    created_at    = Column(DateTime, default=datetime.utcnow)
+    id                  = Column(Integer, primary_key=True, index=True)
+    session_id          = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    block_index         = Column(Integer, nullable=False)
+    title               = Column(String(500), nullable=True)
+    bullets             = Column(JSON, nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    recording_start_sec = Column(Float, nullable=True)
+    recording_end_sec   = Column(Float, nullable=True)
 
 
 class HitlReview(Base):

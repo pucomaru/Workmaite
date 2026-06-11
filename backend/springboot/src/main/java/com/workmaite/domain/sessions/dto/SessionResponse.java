@@ -42,6 +42,12 @@ public class SessionResponse {
     @JsonProperty("summary_blocks")
     private List<SummaryBlockResponse> summaryBlocks;
 
+    @JsonProperty("recording_seconds")
+    private Long recordingSeconds;
+
+    @JsonProperty("last_resumed_at")
+    private LocalDateTime lastResumedAt;
+
     public static SessionResponse from(MeetingSession session) {
         return SessionResponse.builder()
                 .id(session.getId())
@@ -55,6 +61,8 @@ public class SessionResponse {
                 .endedAt(session.getEndedAt())
                 .attendeeIds(List.of())
                 .attendees(List.of())
+                .recordingSeconds(session.getRecordingSeconds())
+                .lastResumedAt(session.getLastResumedAt())
                 .build();
     }
 
@@ -80,6 +88,8 @@ public class SessionResponse {
                 .attendeeIds(ids)
                 .attendees(attendees)
                 .summaryBlocks(blocks)
+                .recordingSeconds(session.getRecordingSeconds())
+                .lastResumedAt(session.getLastResumedAt())
                 .build();
     }
 }

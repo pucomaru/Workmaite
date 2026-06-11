@@ -34,4 +34,10 @@ public class SessionSummaryBlock {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(name = "recording_start_sec")
+    private Double recordingStartSec;
+
+    @Column(name = "recording_end_sec")
+    private Double recordingEndSec;
 }
