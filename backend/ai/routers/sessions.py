@@ -188,8 +188,45 @@ async def refine_chunk(
     db: Session = Depends(get_db),
     _: models.User = Depends(get_current_user),
 ):
+    session = db.query(models.MeetingSession).filter(
+        models.MeetingSession.id == body.session_id
+    ).first()
+
+    prev_block_titles = (
+        db.query(models.SessionSummaryBlock.title)
+        .filter(
+            models.SessionSummaryBlock.session_id == body.session_id,
+            models.SessionSummaryBlock.title.isnot(None),
+        )
+        .order_by(models.SessionSummaryBlock.block_index)
+        .all()
+    )
+
+    agenda_titles = []
+    if session and session.meeting_id:
+        agenda_titles = (
+            db.query(models.Agenda.title)
+            .filter(
+                models.Agenda.meeting_id == session.meeting_id,
+                models.Agenda.title.isnot(None),
+            )
+            .order_by(models.Agenda.created_at)
+            .limit(10)
+            .all()
+        )
+
     context_line = f"회의 맥락: {body.context}\n" if body.context else ""
-    prompt = f"""{context_line}아래는 회의 중 발화된 원문입니다.
+    if agenda_titles:
+        agendas = "\n".join(f"  • {row.title}" for row in agenda_titles)
+        agenda_line = f"[회의 안건]\n{agendas}\n"
+    else:
+        agenda_line = ""
+    if prev_block_titles:
+        titles = "\n".join(f"  • {row.title}" for row in prev_block_titles)
+        prev_line = f"[이번 회의 앞선 논의]\n{titles}\n"
+    else:
+        prev_line = ""
+    prompt = f"""{context_line}{agenda_line}{prev_line}아래는 회의 중 발화된 원문입니다.
         다음 조건에 따라 정리해주세요:
         1. 필러워드(어, 음, 그, 아 등) 제거
         2. 오탈자 교정
