@@ -16,6 +16,7 @@ from routers.prompts import (
     task_system, task_extract_human,
     extract_agendas_system, chat_extract_system,
 )
+from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -233,6 +234,7 @@ async def chat_stream(
                 yield chunk.content
 
 
+@log_agent_run("task_extract")
 async def extract_agendas_and_todos(
     content: str,
     previous_minutes: List[str] = None,
@@ -318,6 +320,7 @@ async def confirm_extraction_review(
 
 
 # ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
+@log_agent_run("task_extract")
 async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str) -> dict:
     llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([

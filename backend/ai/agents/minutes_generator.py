@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
 from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
+from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -193,6 +194,7 @@ async def chat_stream(
                 yield chunk.content
 
 
+@log_agent_run("minutes_generate", meeting_id="meeting_id", session_id="session_id")
 async def generate_minutes(
     raw_transcript: str,
     session_info: dict = None,
@@ -325,6 +327,7 @@ async def generate_minutes(
     return md_part, json_part
 
 
+@log_agent_run("minutes_stream", meeting_id="meeting_id", session_id="session_id")
 async def generate_minutes_stream(
     transcript: str,
     meeting_context: str = "",
