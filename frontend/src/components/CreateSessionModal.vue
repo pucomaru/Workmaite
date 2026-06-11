@@ -14,7 +14,7 @@ const emit = defineEmits(['close', 'saved'])
 
 const authStore = useAuthStore()
 
-const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null })
+const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null, context: '' })
 const members = ref([])
 const creating = ref(false)
 const showPastDateAlert = ref(false)
@@ -55,6 +55,7 @@ watch(() => props.show, (v) => {
     title: '', location: '', dateOnly: '',
     timeOnly: `${String(safeHours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`,
     meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+    context: '',
   }
   const me = authStore.user
   members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
@@ -90,6 +91,7 @@ async function doCreate() {
       location:     f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
       type:         'localwhisper',
+      context:      f.context || null,
       attendees:    members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })
     emit('saved', { meetingId: f.meeting_id })
@@ -163,6 +165,11 @@ async function doCreate() {
               </div>
             </div>
             <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
+          </div>
+          <div class="app-modal-field">
+            <label>회의 맥락</label>
+            <textarea v-model="form.context" class="app-modal-input context-modal-textarea" rows="4"
+              placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"></textarea>
           </div>
           <div class="app-modal-field">
             <MemberInvite v-model="members" :lockedUserId="lockedUserId" />

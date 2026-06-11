@@ -19,9 +19,9 @@ _MEETING_CONTEXTS = {"minutes_generate", "minutes_stream", "supervisor",
                      "agenda_extraction", "agenda_commit"}
 
 _SECTION_LABELS = {
-    "task_extraction": "과제 추출",
-    "report_analysis": "보고서 분석",
-    "meeting":         "회의 AI",
+    "task_extraction": "아젠다 추출 Agent",
+    "report_analysis": "보고서 분석 Agent",
+    "meeting":         "회의 Agent",
     "other":           "기타",
 }
 _SECTION_ORDER = ["task_extraction", "report_analysis", "meeting", "other"]

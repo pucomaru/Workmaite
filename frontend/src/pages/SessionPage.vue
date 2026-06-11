@@ -1169,22 +1169,18 @@ async function downloadChatFile(filePath) {
                     :memberCompanies="sessionMemberCompanies"
                     :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
+                    :showFooter="true"
                     @approved="() => {}"
-                    @rejected="removeNextAgendaItem"
+                    @rejected="() => {}"
                     @remove="removeNextAgendaItem"
-                  />
-                </div>
-
-                <div class="nab-footer">
-                  <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
-                  </button>
-                  <div class="nab-footer-right">
-                    <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
-                    <button class="nab-save-btn" :disabled="!nextAgendaItems.filter(a=>a._state==='approved').length" @click="saveApprovedNextAgendas">
-                      승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건 저장
-                    </button>
-                  </div>
+                    @save="saveApprovedNextAgendas"
+                  >
+                    <template #footer-left>
+                      <button class="nab-add-btn" @click="addNextAgendaItem">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
+                      </button>
+                    </template>
+                  </AgendaReviewList>
                 </div>
               </template>
             </div>
@@ -1700,10 +1696,4 @@ async function downloadChatFile(filePath) {
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .nab-list { padding:8px; }
-.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border); }
-.nab-footer-right { display:flex;align-items:center;gap:8px; }
-.nab-count { font-size:11px;color:var(--text-muted); }
-.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
-.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer; }
-.nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>

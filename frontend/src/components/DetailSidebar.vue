@@ -96,6 +96,16 @@ const sbTopImprovements = computed(() => {
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
 
+function parseAiEvidence(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
+}
+
+function parseReason(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
+}
+
 // ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
 const fromSearch   = ref('')
 const toSearch     = ref('')
@@ -220,20 +230,24 @@ watch(relAddActive, v => {
               <div class="detail-purpose">{{ detailMeeting.purpose || detailMeeting.description }}</div>
             </div>
 
+            <!-- 맥락 -->
+            <div v-if="detailMeeting?.context" class="detail-section">
+              <div class="detail-section-label">회의 맥락</div>
+              <div class="detail-purpose detail-context">{{ detailMeeting.context }}</div>
+            </div>
+
             <!-- 간사 + 참여부서 -->
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="시작일">
-                <span style="font-size:10px;color:#999;white-space:nowrap">{{ detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-' }}</span>
-              </SidebarInfoRow>
+              <SidebarInfoRow label="시작일" :value="detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-'" />
               <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
                     <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
                   </template>
-                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">없음</span>
+                  <span v-else class="dday-label" style="white-space:nowrap">없음</span>
                 </div>
               </SidebarInfoRow>
             </div>
@@ -461,18 +475,12 @@ watch(relAddActive, v => {
                         :memberCompanies="detailMemberCompanies"
                         :memberDepts="detailMemberDepts"
                         :removeOnApprove="false"
+                        :showFooter="true"
                         @approved="() => {}"
                         @rejected="() => {}"
                         @remove="(i) => extractResult.splice(i, 1)"
+                        @save="finishExtract"
                       />
-                      <div class="detail-extract-footer">
-                        <span class="dei-count">승인 {{ extractResult.filter(a => a._state === 'approved').length }} / 반려 {{ extractResult.filter(a => a._state === 'rejected').length }}</span>
-                        <button class="detail-action-btn btn-assign"
-                          :disabled="!extractResult.filter(a => a._state === 'approved').length"
-                          @click="finishExtract">
-                          승인 {{ extractResult.filter(a => a._state === 'approved').length }}건 저장
-                        </button>
-                      </div>
                     </template>
 
                 </template><!-- /추출 결과 -->
@@ -728,9 +736,9 @@ watch(relAddActive, v => {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
-              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+              <div v-if="parseAiEvidence(detailNode.data?.ai_evidence)" class="detail-section">
                 <div class="detail-section-label">AI 추천 아젠다</div>
-                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+                <div class="ai-evidence-box">{{ parseAiEvidence(detailNode.data.ai_evidence) }}</div>
               </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
@@ -870,7 +878,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
               </div>
             </template>
 
@@ -962,7 +970,7 @@ watch(relAddActive, v => {
               </div>
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
-                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+                <div class="rs-feedback-box" style="white-space: pre-line;">{{ Array.isArray(detailNode.data.feedback) ? detailNode.data.feedback.join('\n') : detailNode.data.feedback }}</div>
               </div>
 
               <!-- 우선 개선 아젠다 -->
@@ -1059,9 +1067,9 @@ watch(relAddActive, v => {
                   </div>
                 </div>
               </div>
-              <div v-if="detailNode.data?.reason" class="detail-section">
+              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
                 <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
+                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 
@@ -1232,3 +1240,13 @@ watch(relAddActive, v => {
           </svg>
         </button>
 </template>
+
+<style scoped>
+.ai-evidence-box :deep(h1),
+.ai-evidence-box :deep(h2),
+.ai-evidence-box :deep(h3) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+</style>

@@ -78,6 +78,9 @@
 .neo4j-error-retry:hover { background: rgba(59,130,246,0.12); }
 .graph-loading { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--text-dim);font-size:13px; }
 .graph-loading-spinner { width:28px;height:28px;border:2px solid rgba(96,165,250,.2);border-top-color:var(--accent-light);border-radius:50%;animation:spin .8s linear infinite; }
+.graph-refresh-overlay { position:absolute;top:12px;right:16px;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);color:var(--text-dim);font-size:11px;pointer-events:none;z-index:10; }
+.graph-refresh-fade-enter-active,.graph-refresh-fade-leave-active { transition:opacity .2s; }
+.graph-refresh-fade-enter-from,.graph-refresh-fade-leave-to { opacity:0; }
 
 /* Zoom controls */
 .graph-zoom-controls {
