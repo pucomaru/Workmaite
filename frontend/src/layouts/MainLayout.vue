@@ -35,7 +35,6 @@ watch(() => route.path, (p) => {
         <RouterView :key="route.params.meetingId ?? route.path" />
       </main>
     </div>
-    <HyeanAgent v-if="inMeetingPage && meetingId" :meeting-id="meetingId" />
     <div class="ai-disclaimer">Workma!te의 AI는 실수할 수 있으니 반드시 결과를 검토해주세요.</div>
   </div>
 </template>

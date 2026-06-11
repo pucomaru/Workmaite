@@ -19,6 +19,7 @@ public class SessionStatusConverter implements AttributeConverter<SessionStatus,
             case "scheduled" -> SessionStatus.SCHEDULED;
             case "ongoing" -> SessionStatus.ONGOING;
             case "ended" -> SessionStatus.ENDED;
+            case "archived" -> SessionStatus.ARCHIVED;
             default -> throw new IllegalArgumentException("Unknown SessionStatus: " + dbValue);
         };
     }
