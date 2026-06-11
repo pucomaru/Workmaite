@@ -416,7 +416,18 @@ async function generateMinutes() {
   generatingMinutes.value = true; showMinutesTab.value = true; activeTab.value = 'minutes'
 
   const sessionTitle = activeSession.value?.title || '회의'
-  const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
+  // 같은 발화자의 연속 발화를 하나로 합치기
+  const consolidated = []
+  for (const line of transcriptLines.value) {
+    const speaker = line.speakerLabel || '발화자'
+    const last = consolidated[consolidated.length - 1]
+    if (last && last.speaker === speaker) {
+      last.text += ' ' + line.text
+    } else {
+      consolidated.push({ speaker, text: line.text })
+    }
+  }
+  const transcriptText = consolidated.map(l => `[${l.speaker}] ${l.text}`).join('\n')
 
   // ── 우측 채팅에 AI 사고 과정 표시 (완료 메시지는 생성 후 추가) ──
   wmMessages.value.push({ role: 'user', content: `"${sessionTitle}" 회의록을 생성해줘` })
@@ -1581,7 +1592,7 @@ async function downloadChatFile(filePath) {
 .tiptap-content :deep(.ProseMirror th),.tiptap-content :deep(.ProseMirror td) { border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;word-break:break-word; }
 .tiptap-content :deep(.ProseMirror th) { background:var(--surface-2);font-weight:600;font-size:12px; }
 .tiptap-content :deep(.ProseMirror td > p),.tiptap-content :deep(.ProseMirror th > p) { margin:0; }
-.tiptap-content :deep(.ProseMirror hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+.tiptap-content :deep(.ProseMirror hr) { border:none;border-top:2px solid var(--text-muted);margin:16px 0; }
 .tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid var(--border);padding-left:12px;color:var(--text-muted);margin:6px 0; }
 
 /* Streaming preview uses same styles */
@@ -1595,7 +1606,7 @@ async function downloadChatFile(filePath) {
 .minutes-md :deep(table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px; }
 .minutes-md :deep(th),.minutes-md :deep(td) { border:1px solid var(--border);padding:5px 8px;text-align:left; }
 .minutes-md :deep(th) { background:var(--surface);font-weight:600; }
-.minutes-md :deep(hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+.minutes-md :deep(hr) { border:none;border-top:2px solid var(--text-muted);margin:16px 0; }
 
 .tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--dark-muted);padding:0 4px;white-space:nowrap;cursor:default; }
 
