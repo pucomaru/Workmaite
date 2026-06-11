@@ -75,41 +75,10 @@ export function useAgentChat({
   })
 
   // ─── thread_id 계산 ──────────────────────────────────────────
-  const _LS_THREAD_KEY = 'workmaite_last_chat_thread'
-
-  function _saveLastThread(threadId) {
-    try { localStorage.setItem(_LS_THREAD_KEY, threadId) } catch {}
-  }
-
-  function _getLastThread() {
-    try { return localStorage.getItem(_LS_THREAD_KEY) } catch { return null }
-  }
-
+  // 아카이브 탭은 회의체 선택과 무관하게 사용자별 단일 스레드로 유지
   function getThreadId() {
-    const mid = toNumericId(detailMeeting.value?.id)
-    if (mid) {
-      const tid = `meeting_${mid}`
-      _saveLastThread(tid)
-      return tid
-    }
     const uid = authStore.user?.id
-    if (!uid) return null
-    // 회의가 선택되지 않은 경우: 마지막 활성 스레드로 복원 (새로고침 후 히스토리 유지)
-    const last = _getLastThread()
-    if (last) return last
-    return `global_${uid}`
-  }
-
-  // localStorage 복원 스레드에서 meeting_id 추출 (메시지 전송 시 올바른 AI 컨텍스트 유지)
-  function _getEffectiveMeetingId() {
-    const mid = toNumericId(detailMeeting.value?.id)
-    if (mid) return mid
-    const last = _getLastThread()
-    if (last?.startsWith('meeting_')) {
-      const id = parseInt(last.slice('meeting_'.length), 10)
-      return isNaN(id) ? 0 : id
-    }
-    return 0
+    return uid ? `archive_${uid}` : null
   }
 
   // ─── 채팅 히스토리 로드 (Spring Boot GET) ─────────────────────
@@ -138,11 +107,9 @@ export function useAgentChat({
     }
   }
 
-  // ─── 사이드바가 열릴 때마다 히스토리 자동 로드 ──────────────────
+  // ─── 사이드바가 열릴 때마다 히스토리 로드 ───────────────────────
+  // archive 스레드는 회의체 변경과 무관하므로 열릴 때만 로드
   watch(agentSidebarOpen, (open) => { if (open) loadChatHistory() })
-
-  // 회의체가 변경되면 해당 회의체 히스토리로 갱신
-  watch(detailMeeting, () => { if (agentSidebarOpen.value) loadChatHistory() })
 
   function initAgentGreeting() {
     if (!allMessages.value['supervisor'].length)
@@ -154,13 +121,12 @@ export function useAgentChat({
     loadChatHistory()
   }
 
-  // 새 채팅: DB 삭제 + UI 초기화 + localStorage 초기화
+  // 새 채팅: DB 삭제 + UI 초기화
   async function clearAgentChat() {
     const threadId = getThreadId()
     if (threadId) {
       try { await api.delete('/api/v1/chat/messages', { params: { threadId } }) } catch { /* 무시 */ }
     }
-    try { localStorage.removeItem(_LS_THREAD_KEY) } catch {}
     allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
     agentInput.value = ''; agentPendingFiles.value = []
   }
@@ -258,7 +224,7 @@ export function useAgentChat({
     try {
       await streamPost(
         agentInfo.value.endpoint,
-        { meeting_id: _getEffectiveMeetingId(), message: content, chat_history: history },
+        { thread_id: getThreadId(), meeting_id: toNumericId(detailMeeting.value?.id) || 0, message: content, chat_history: history },
         (chunk) => {
           agentMsg.content += chunk
           nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })

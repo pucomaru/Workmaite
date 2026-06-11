@@ -113,9 +113,13 @@ _ROUTING_SYSTEM = """\
 - report_reviewer: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
 - knowledge_manager: 과거 회의 내용 검색, 지식 베이스 저장·관리, HITL 검토·승인, 관계 그래프 조회
 - supervisor_direct: 회의체 현황·브리핑, 과제 진행 상황 조회, 보고서 제출 현황 조회, 소속 회의체 목록, 구성원 안내, 인사·일반 질문
+- off_topic: 회의체 운영과 전혀 관련 없는 질문 (날씨, 나이, 코딩, 개인 신상, 잡담, 일반 상식 등)
 
 ★ supervisor_direct 우선 케이스 (아래 패턴은 반드시 supervisor_direct):
   "브리핑", "현황", "상황 어때", "속해있어", "소속", "제출 현황", "진행 상황"
+
+★ off_topic 케이스 예시 (반드시 off_topic):
+  "너 몇살이야", "오늘 날씨 어때", "파이썬 코드 짜줘", "주식 어때", "점심 뭐 먹지", "농담 해줘"
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
@@ -559,7 +563,11 @@ async def supervisor_chat(
     except Exception:
         pass
 
-    _thread_id = f"meeting_{data.meeting_id}" if data.meeting_id else f"global_{current_user.id}"
+    _thread_id = (
+        data.thread_id
+        if data.thread_id
+        else (f"meeting_{data.meeting_id}" if data.meeting_id else f"global_{current_user.id}")
+    )
 
     async def stream():
         _collector = TokenUsageCollector()
@@ -597,6 +605,20 @@ async def supervisor_chat(
             print(f"DEBUG: outer try entered, meeting_id={data.meeting_id!r}")
             for _s in (_route_steps or [_route_thinking]):
                 yield f"data: [PLANNING] {_s}\n\n"
+
+            # ── off_topic 조기 종료: Neo4j·DB 조회 없이 안내 메시지 반환 ──────────
+            if _route == 'off_topic':
+                _off_msg = (
+                    "저는 회의체 운영 관련 질문에 특화되어 있어요.\n"
+                    "회의체 현황, 아젠다, 보고서, 회의록 관련 질문을 해주세요.\n\n"
+                    "예를 들어:\n"
+                    "- \"소속 회의체 현황 브리핑해줘\"\n"
+                    "- \"아젠다 진행 상황 알려줘\"\n"
+                    "- \"최근 보고서 제출 현황은?\""
+                )
+                yield f"data: {_off_msg.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield "data: [DONE]\n\n"
+                return
 
             print(f"DEBUG: after planning steps")
             if data.meeting_id:
