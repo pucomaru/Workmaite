@@ -23,6 +23,7 @@ import java.util.List;
  * POST   /api/v1/meetings/{meetingId}/sessions         - 회의 생성 (secretary 권한)
  * GET    /api/v1/sessions/{sessionId}                  - 회의 상세 조회
  * PATCH  /api/v1/sessions/{sessionId}                  - 회의 수정 (secretary 권한)
+ * PATCH  /api/v1/sessions/{sessionId}/context          - 회의 맥락 수정
  * DELETE /api/v1/sessions/{sessionId}                  - 회의 삭제 (secretary 권한)
  * POST   /api/v1/sessions/{sessionId}/start            - 회의 시작 (secretary 권한)
  * POST   /api/v1/sessions/{sessionId}/pause            - 회의 정지 (secretary 권한)
@@ -101,5 +102,12 @@ public class SessionController {
     public ResponseEntity<ApiResponse<SessionResponse>> archiveSession(
             @PathVariable Long sessionId) {
         return ResponseEntity.ok(ApiResponse.ok(sessionService.archiveSession(sessionId)));
+    }
+
+    @PatchMapping("/sessions/{sessionId}/context")
+    public ResponseEntity<ApiResponse<SessionResponse>> updateContext(
+            @PathVariable Long sessionId,
+            @RequestBody java.util.Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.updateContext(sessionId, body.get("context"))));
     }
 }

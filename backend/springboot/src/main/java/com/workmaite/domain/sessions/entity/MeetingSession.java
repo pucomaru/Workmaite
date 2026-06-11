@@ -48,6 +48,9 @@ public class MeetingSession {
     @Column(length = 20, nullable = false)
     private SessionStatus status;
 
+    @Column(columnDefinition = "TEXT")
+    private String context;
+
     public static MeetingSession create(Long meetingId, String title, String description, String location, String type, LocalDateTime scheduledAt) {
         MeetingSession session = new MeetingSession();
         session.meetingId = meetingId;
@@ -89,5 +92,9 @@ public class MeetingSession {
     // ENDED → ARCHIVED: 회의록 아카이브 저장 완료
     public void archive() {
         this.status = SessionStatus.ARCHIVED;
+    }
+
+    public void updateContext(String context) {
+        this.context = context;
     }
 }
