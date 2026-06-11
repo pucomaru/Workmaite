@@ -220,6 +220,12 @@ watch(relAddActive, v => {
               <div class="detail-purpose">{{ detailMeeting.purpose || detailMeeting.description }}</div>
             </div>
 
+            <!-- 맥락 -->
+            <div v-if="detailMeeting?.context" class="detail-section">
+              <div class="detail-section-label">회의 맥락</div>
+              <div class="detail-purpose detail-context">{{ detailMeeting.context }}</div>
+            </div>
+
             <!-- 간사 + 참여부서 -->
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />

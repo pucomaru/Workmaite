@@ -926,6 +926,7 @@ async function openGroupSetting() {
       title: src.title || '',
       purpose: src.description || src.purpose || '',
       guidelines: src.guidelines || '',
+      context: src.context || '',
       meeting_type: src.meeting_type || src.type || 'Weekly',
       start_date: src.start_date ? String(src.start_date).slice(0, 10) : '',
       end_date: src.end_date ? String(src.end_date).slice(0, 10) : '',
@@ -944,7 +945,7 @@ async function saveSettings() {
   const { meeting, form, members, removedIds } = settingsModal.value
   const numId = meeting._numId || toNumericId(meeting.id)
   try {
-    await apiAI.patch(`/api/v1/meetings/${numId}`, { title: form.title, description: form.purpose, guidelines: form.guidelines, start_date: form.start_date || null, end_date: form.end_date || null, meeting_type: form.meeting_type || null })
+    await apiAI.patch(`/api/v1/meetings/${numId}`, { title: form.title, description: form.purpose, guidelines: form.guidelines, context: form.context || null, start_date: form.start_date || null, end_date: form.end_date || null, meeting_type: form.meeting_type || null })
     for (const memberId of removedIds) {
       await apiAI.delete(`/api/v1/meetings/${numId}/members/${memberId}`)
     }
@@ -955,6 +956,7 @@ async function saveSettings() {
       detailMeeting.value.title = form.title
       detailMeeting.value.purpose = form.purpose
       detailMeeting.value.guidelines = form.guidelines
+      detailMeeting.value.context = form.context
     }
     await meetingsStore.fetchMeetings()
     settingsModal.value = null
@@ -2110,8 +2112,10 @@ onBeforeUnmount(()=>{
 // ── archive 데이터 재로드 헬퍼 (CRUD 후 호출) ─────────────────
 async function refreshArchive() {
   neo4jRetrying.value = true
-  neo4jError.value = ''   // 즉시 오버레이 해제 → 로딩 상태로 전환
-  loading.value = true
+  neo4jError.value = ''
+  // 최초 로딩일 때만 loading을 올림 — 이미 그래프가 있으면 백그라운드 갱신(깜빡임 방지)
+  const isFirstLoad = gNodes.length === 0
+  if (isFirstLoad) loading.value = true
   try {
     const res = await apiAI.get('/api/neo4j/archive')
     neo4jError.value = ''
@@ -2709,14 +2713,21 @@ provide('archiveSidebar', {
 
         <DetailSidebar />
 
-        <!-- Graph view -->
+        <!-- Graph view: 최초 로딩 스피너 -->
         <div v-if="loading && viewMode==='graph'" class="graph-loading">
           <div class="graph-loading-spinner"></div>
           <span>불러오는 중...</span>
         </div>
+        <!-- 리프레시 중 오버레이 (그래프 유지한 채 상단에 표시) -->
+        <Transition name="graph-refresh-fade">
+          <div v-if="neo4jRetrying && !loading && viewMode==='graph'" class="graph-refresh-overlay">
+            <div class="graph-loading-spinner" style="width:16px;height:16px;border-width:2px;"></div>
+            <span>갱신 중...</span>
+          </div>
+        </Transition>
 
         <!-- Zoom controls (top-left) -->
-        <div v-if="!loading && viewMode==='graph'" class="graph-zoom-controls"
+        <div v-if="(!loading || neo4jRetrying) && viewMode==='graph'" class="graph-zoom-controls"
           :style="{ left: (detailOpen ? sidebarW + 10 : 10) + 'px', transition: 'left 0.28s cubic-bezier(.22,.68,0,1.2)' }">
           <template v-if="viewMode==='graph'">
             <button class="zoom-btn" @click="graphViewRef?.zoomIn()" title="확대 (Zoom In)">+</button>
@@ -2743,7 +2754,7 @@ provide('archiveSidebar', {
           </button>
         </div>
         <GraphView
-          v-if="!loading && viewMode==='graph' && !neo4jError"
+          v-if="viewMode==='graph' && !neo4jError && (!loading || neo4jRetrying)"
           ref="graphViewRef"
           class="archive-canvas"
           :class="{ 'graph-pan-only': graphPanOnly }"

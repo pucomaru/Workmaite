@@ -26,6 +26,7 @@ class Meeting(Base):
     title       = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     guidelines  = Column(Text, nullable=True)
+    context     = Column(Text, nullable=True)
     type        = Column(String(20), nullable=True)
     start_date  = Column(DateTime, nullable=True)
     end_date    = Column(DateTime, nullable=True)

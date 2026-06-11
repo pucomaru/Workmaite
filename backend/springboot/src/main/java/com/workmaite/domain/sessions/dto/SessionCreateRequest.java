@@ -17,6 +17,7 @@ public class SessionCreateRequest {
     private String title;
     private String description;
     private String location;
+    private String context;
 
     @NotBlank(message = "회의 타입은 필수입니다.")
     private String type;
