@@ -158,7 +158,7 @@ def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"[ActivityLog Error] {e}")
+        logger.warning(f"[ActivityLog Error] {e}")
     finally:
         db.close()
 
@@ -614,8 +614,6 @@ async def supervisor_chat(
             input_data={"message": msg[:300] if msg else None, "route": _route},
         )
         _stream_error = None
-
-        print(f"DEBUG: stream() started, _route={_route!r}")
         # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
         _db_rows = (
             db.query(models.ChatMessage)
@@ -636,7 +634,6 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
-            print(f"DEBUG: outer try entered, meeting_id={data.meeting_id!r}")
             for _s in (_route_steps or [_route_thinking]):
                 yield f"data: [PLANNING] {_s}\n\n"
 
@@ -653,8 +650,6 @@ async def supervisor_chat(
                 yield f"data: {_off_msg.replace(chr(10), chr(92)+chr(110))}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-
-            print(f"DEBUG: after planning steps")
             if data.meeting_id:
                 mid_neo4j = f"mg-{int(data.meeting_id)}"
 
@@ -663,7 +658,6 @@ async def supervisor_chat(
                         mid_neo4j in user_allowed_mg_ids if user_allowed_mg_ids
                         else int(data.meeting_id) in pg_meeting_ids
                     )
-                    print(f"DEBUG: mid_neo4j={mid_neo4j!r}, user_allowed_mg_ids={user_allowed_mg_ids}, pg_meeting_ids={pg_meeting_ids}, has_access={has_access}")
                     if not has_access:
                         yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
                         yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
@@ -854,7 +848,6 @@ async def supervisor_chat(
                     pass
 
         except Exception as _outer_e:
-            print(f"DEBUG: outer except caught: {type(_outer_e).__name__}: {_outer_e}")
             yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
 
         _user_scope_header = (
@@ -876,7 +869,6 @@ async def supervisor_chat(
 
         try:
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
-            print(f"DEBUG: routing block entered, _route={_route!r}")
 
             if _route in ('supervisor_direct', 'knowledge_manager'):
                 yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
@@ -1613,7 +1605,8 @@ async def analyze_relationships_stream(
                 _sa_rows = await run_cypher(
                     "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings) "
                     "WHERE (mg)<-[:`관할`]-(:Agenda) "
-                    "  AND NOT (s)-[:`진행`|`다룸멌`|`도출`]->(:Agenda) "
+                    "  AND NOT (s)-[:`진행`|`다룸`|`도출`]->(:Agenda) "
+                    "  AND NOT (:Agenda)-[:`다룸`]->(s) "
                     "  AND NOT (:Agenda)-[:`발제세션`]->(s) "
                     "RETURN count(s) AS cnt"
                 )
@@ -1869,7 +1862,7 @@ async def archive_extract_agendas(
                 if text.strip():
                     file_texts.append(f"[보고서: {report.file_name}]\n{text[:4000]}")
         except Exception as e:
-            print(f"[DB 파일 추출 오류] {e}")
+            logger.warning(f"[DB 파일 추출 오류] {e}")
 
     current_minutes_texts = []  # 현재 회의록 (최우선 컨텍스트)
     for upload in files:
@@ -1888,7 +1881,7 @@ async def archive_extract_agendas(
             else:
                 file_texts.append(f"[첨부: {fname}] - 텍스트 추출 불가")
         except Exception as e:
-            print(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
+            logger.warning(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
 
     # 현재 회의록을 이전 회의록보다 앞에 배치 (가장 최신 = 가장 높은 우선순위)
     all_minutes = current_minutes_texts + previous_minutes
@@ -2024,7 +2017,7 @@ async def archive_extract_agendas(
             },
         }
     except Exception as e:
-        print(f"[archive/extract-agendas 오류] {e}")
+        logger.error(f"[archive/extract-agendas 오류] {e}")
         return {"agendas": [], "error": f"AI 분석 중 오류: {str(e)}"}
 
 

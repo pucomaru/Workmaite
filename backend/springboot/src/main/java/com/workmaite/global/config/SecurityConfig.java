@@ -60,7 +60,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        // 허용 오리진 화이트리스트 (와일드카드 + allowCredentials 조합은 토큰 탈취 공격면이 됨)
+        config.setAllowedOrigins(List.of(
+                "https://workmaite.project.skala-ai.com",
+                "http://localhost:5173",
+                "http://localhost:4173"
+        ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

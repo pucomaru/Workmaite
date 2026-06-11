@@ -645,7 +645,7 @@ async def get_archive(
     }
 
 @router.post("/relationships")
-async def create_relationship(data: dict):
+async def create_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
     to_id = data.get("to_id", "")
@@ -672,7 +672,7 @@ async def create_relationship(data: dict):
 
 
 @router.delete("/relationships")
-async def delete_relationship(data: dict):
+async def delete_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
     """두 노드 사이의 특정 관계 삭제"""
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
@@ -708,7 +708,7 @@ async def delete_relationship(data: dict):
 
 
 @router.put("/relationships")
-async def update_relationship(data: dict):
+async def update_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
     """관계 유형 변경 (old → new)"""
     from_id = data.get("from_id", "")
     old_rel = data.get("old_rel", "")
@@ -733,7 +733,7 @@ async def update_relationship(data: dict):
 
 
 @router.post("/meeting-groups")
-async def create_meeting_group(data: dict):
+async def create_meeting_group(data: dict, current_user: models.User = Depends(get_current_user)):
     """Meetings 노드 생성 및 Company에 연결"""
     mg_id = data.get("id", "")
     title = data.get("title", "")
@@ -773,7 +773,7 @@ async def create_meeting_group(data: dict):
 
 
 @router.put("/meeting-groups/{mg_id}")
-async def update_meeting_group(mg_id: str, data: dict):
+async def update_meeting_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """Meetings 노드 속성 수정"""
     fields = {k: v for k, v in data.items() if k in ("title", "purpose", "guidelines", "status", "meeting_type")}
     if not fields:
@@ -792,7 +792,7 @@ async def update_meeting_group(mg_id: str, data: dict):
 
 
 @router.delete("/meeting-groups/{mg_id}")
-async def delete_meeting_group(mg_id: str):
+async def delete_meeting_group(mg_id: str, current_user: models.User = Depends(get_current_user)):
     """Meetings 노드 및 연결 관계 삭제"""
     try:
         await _run_cypher(
@@ -807,7 +807,7 @@ async def delete_meeting_group(mg_id: str):
 
 
 @router.post("/meeting-groups/{mg_id}/members")
-async def add_member_to_group(mg_id: str, data: dict):
+async def add_member_to_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """User → Meetings 멤버 관계 추가"""
     person_name = data.get("name", "")
     person_email = data.get("email", "")
@@ -830,7 +830,7 @@ async def add_member_to_group(mg_id: str, data: dict):
 
 
 @router.delete("/meeting-groups/{mg_id}/members")
-async def remove_member_from_group(mg_id: str, data: dict):
+async def remove_member_from_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """User → Meetings 멤버 관계 삭제"""
     person_name = data.get("name", "")
     person_email = data.get("email", "")
@@ -851,7 +851,7 @@ async def remove_member_from_group(mg_id: str, data: dict):
 
 
 @router.post("/sessions")
-async def create_session_node(data: dict):
+async def create_session_node(data: dict, current_user: models.User = Depends(get_current_user)):
     """Session 노드 생성 및 Meetings에 연결"""
     s_id = data.get("id", "")
     title = data.get("title", "")
@@ -884,7 +884,7 @@ async def create_session_node(data: dict):
 
 
 @router.post("/agendas")
-async def create_agenda_node(data: dict):
+async def create_agenda_node(data: dict, current_user: models.User = Depends(get_current_user)):
     """Agenda 노드 생성 및 Meetings에 연결"""
     ag_id = data.get("id", "")
     content = data.get("content", "")
@@ -924,7 +924,7 @@ async def create_agenda_node(data: dict):
 
 
 @router.patch("/agendas/{ag_id}")
-async def update_agenda_node(ag_id: str, data: dict):
+async def update_agenda_node(ag_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """Agenda 노드 속성 수정"""
     allowed = ("content", "category", "priority", "status", "due_date", "description")
     fields = {k: v for k, v in data.items() if k in allowed}

@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 _base = os.path.dirname(__file__)
 load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 
-# LangSmith 트레이싱 비활성화 (유효한 API 키 없을 때 403 방지)
-os.environ["LANGCHAIN_TRACING_V2"] = "false"
-os.environ["LANGSMITH_TRACING"] = "false"
+# LangSmith 트레이싱: API 키가 있고 LANGSMITH_TRACING=true일 때만 활성화 (키 없이 켜면 403 스팸)
+_tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool(os.environ.get("LANGSMITH_API_KEY"))
+os.environ["LANGCHAIN_TRACING_V2"] = "true" if _tracing_on else "false"
+os.environ["LANGSMITH_TRACING"] = "true" if _tracing_on else "false"
 
 from database import get_db
 from websocket_manager import manager
@@ -36,16 +37,19 @@ _RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:
-    """잘못 생성된 Todo 노드, todo-* Agenda, draft 상태 Agenda 노드를 정리합니다."""
+    """레거시 Todo 노드와 todo-* Agenda 노드만 정리합니다.
+
+    주의: draft 상태 Agenda는 삭제하지 않는다 — 사용자가 검토 중인 추출 결과일 수 있어
+    재시작 시점 일괄 삭제는 데이터 유실로 이어진다 (Plan.md P0-7).
+    """
     from neo4j_client import run_cypher as _run
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
-            "   OR (n:Agenda AND n.status = 'draft') "
             "DETACH DELETE n"
         )
-        logger.info("[Cleanup] 스테일 Todo/Agenda(todo-*, draft) 노드 정리 완료")
+        logger.info("[Cleanup] 레거시 Todo/todo-* 노드 정리 완료")
     except Exception as e:
         logger.warning(f"[Cleanup] 노드 정리 실패 (무시): {e}")
 
@@ -93,9 +97,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="workma!te AI API", lifespan=lifespan)
 
+# CORS: 허용 오리진 화이트리스트 (추가 오리진은 CORS_ALLOWED_ORIGINS 환경변수, 콤마 구분)
+_default_origins = [
+    "https://workmaite.project.skala-ai.com",
+    "http://localhost:5173",
+    "http://localhost:4173",
+]
+_extra_origins = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(dict.fromkeys(_default_origins + _extra_origins)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -118,8 +129,26 @@ app.include_router(usage_router.router)
 
 
 # WebSocket endpoints
+def _ws_user_id(websocket: WebSocket) -> int | None:
+    """쿼리 파라미터 token의 JWT를 검증해 user id를 반환합니다 (실패 시 None)."""
+    from jose import jwt as _jwt, JWTError as _JWTError
+    from auth import SECRET_KEY, ALGORITHM
+    token = websocket.query_params.get("token", "")
+    if not token:
+        return None
+    try:
+        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        sub = payload.get("sub")
+        return int(sub) if sub is not None else None
+    except (_JWTError, ValueError):
+        return None
+
+
 @app.websocket("/ws/meetings/{meeting_id}/agenda")
 async def ws_meeting_agenda(meeting_id: int, websocket: WebSocket):
+    if _ws_user_id(websocket) is None:
+        await websocket.close(code=4401)
+        return
     await manager.connect_meeting(meeting_id, websocket)
     try:
         while True:
@@ -130,6 +159,9 @@ async def ws_meeting_agenda(meeting_id: int, websocket: WebSocket):
 
 @app.websocket("/ws/sessions/{session_id}/minutes")
 async def ws_session_minutes(session_id: int, websocket: WebSocket):
+    if _ws_user_id(websocket) is None:
+        await websocket.close(code=4401)
+        return
     await manager.connect_session(session_id, websocket)
     try:
         while True:

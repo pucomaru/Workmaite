@@ -8,10 +8,12 @@ export const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 // 로컬: VITE_AI_URL=http://localhost:8000, k8s: 미설정(상대경로, Ingress가 /ai 라우팅)
 export const AI_BASE_URL = import.meta.env.VITE_AI_URL ?? ''
 
-/** AI 서버 WebSocket URL 변환 */
+/** AI 서버 WebSocket URL 변환 (인증 토큰 자동 부착) */
 export function toWsUrl(path) {
   const base = AI_BASE_URL.replace(/^http/, 'ws')
-  return `${base}${path}`
+  const token = sessionStorage.getItem('token')
+  const sep = path.includes('?') ? '&' : '?'
+  return token ? `${base}${path}${sep}token=${encodeURIComponent(token)}` : `${base}${path}`
 }
 
 // ── 공유 토큰 갱신 헬퍼 ────────────────────────────────────────────────────

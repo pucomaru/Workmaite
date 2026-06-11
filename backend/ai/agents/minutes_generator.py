@@ -1,6 +1,9 @@
+import logging
 import os, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
+
+logger = logging.getLogger(__name__)
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
@@ -42,18 +45,31 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
         embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
         query_vec = await embeddings.aembed_query(text[:500])
 
-        rows = await run_cypher(
-            """CALL db.index.vector.queryNodes('minutes_embedding_index', $k, $embedding)
-               YIELD node, score
-               RETURN node.content AS content, node.title AS title, score
-               ORDER BY score DESC""",
-            {"k": k, "embedding": query_vec},
-        )
+        # 인덱스명은 neo4j_sync._VECTOR_INDEXES의 'minutesEmbedding'과 일치해야 한다.
+        # 구버전 DB에는 레거시 이름(minutes_embedding_index)으로 존재할 수 있어 폴백한다.
+        rows = []
+        last_err = None
+        for idx in ("minutesEmbedding", "minutes_embedding_index"):
+            try:
+                rows = await run_cypher(
+                    f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
+                       YIELD node, score
+                       RETURN node.content AS content, node.title AS title, score
+                       ORDER BY score DESC""",
+                    {"k": k, "embedding": query_vec},
+                )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise last_err
         return [
             f"[{r.get('title', '유사 회의록')}]\n{r.get('content', '')}"
             for r in rows if r.get("content")
         ]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[_search_similar_minutes] 유사 회의록 검색 실패: {e}")
         return []
 
 

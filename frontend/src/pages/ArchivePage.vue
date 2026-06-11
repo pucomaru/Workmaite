@@ -1143,7 +1143,7 @@ const REL_COLORS = {
   '관할':   '#6abba5',  // agenda → meetingGroup
   '개최':   '#c9a870',  // session → meetingGroup
   '도출':   '#f472b6',  // session → agenda (캐리포워드 · 미니츠→안건)
-  '다룸멌': '#6ee7b7',  // session → agenda (직접 담당 안건)
+  '다룸': '#6ee7b7',  // session → agenda (직접 담당 안건)
   '산출':   '#a8a5a2',  // session → document
   '첨부':   '#fb923c',  // document → meetingGroup
   '근거':   '#38bdf8',  // decision → session
