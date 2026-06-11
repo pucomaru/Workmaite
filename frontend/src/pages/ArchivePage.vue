@@ -600,7 +600,10 @@ const detailEndDateFormatted = computed(() => {
 const detailDeptStatus = computed(() => {
   const depts = [...new Set((detailMeeting.value?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))]
   return depts.map(dept => {
-    const tasks = detailTodos.value.filter(t => (t.assignee_dept||t.dept||'') === dept)
+    const tasks = detailTodos.value.filter(t => {
+      const d = t.assignee_dept || t.dept || (Array.isArray(t.department) ? t.department[0] : t.department) || ''
+      return d === dept
+    })
     const noTask = tasks.length === 0
     const submitted = !noTask && tasks.every(t => t.status === 'done')
     const pending = tasks.filter(t => t.status !== 'done')
