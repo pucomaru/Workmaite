@@ -1011,25 +1011,13 @@ watch(relAddActive, v => {
               </div>
               <div class="detail-section">
                 <div class="detail-section-label">참여 회의체</div>
-                <div v-if="personMeetingGroups(detailNode).length" class="detail-info-grid">
-                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="detail-info-item">
-                    <span class="detail-info-key">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
-                    <span class="detail-info-val">{{ mg.title }}</span>
+                <div v-if="personMeetingGroups(detailNode).length" class="person-mg-list">
+                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="person-mg-item">
+                    <span class="detail-role-badge" :class="mg.role==='admin' ? 'role-admin' : 'role-member'">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
+                    <span class="person-mg-title">{{ mg.title }}</span>
                   </div>
                 </div>
                 <div v-else class="detail-log-empty">회의체 정보 없음</div>
-              </div>
-              <div class="detail-section">
-                <div class="detail-section-label">할당된 아젠다</div>
-                <div v-if="personTasks(detailNode).length" class="detail-info-grid">
-                  <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item">
-                    <span class="detail-info-key">
-                      <span class="status-badge" :class="{'sb-done':t.status==='done','sb-progress':t.status==='in_progress','sb-pending':!t.status||t.status==='pending'}">{{ {done:'완료',in_progress:'진행',pending:'대기'}[t.status]||t.status }}</span>
-                    </span>
-                    <span class="detail-info-val detail-info-val--wrap">{{ t.content }}</span>
-                  </div>
-                </div>
-                <div v-else class="detail-log-empty">할당된 아젠다 없음</div>
               </div>
             </template>
 

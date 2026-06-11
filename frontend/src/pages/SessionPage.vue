@@ -804,6 +804,10 @@ async function wmLoadHistory() {
     wmMessages.value = messages.length
       ? messages.map(m => ({ role: m.role === 'assistant' ? 'agent' : m.role, content: m.content }))
       : [{ role: 'agent', content: _WM_GREETING }]
+    await nextTick()
+    requestAnimationFrame(() => {
+      if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    })
   } catch {
     wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
   }

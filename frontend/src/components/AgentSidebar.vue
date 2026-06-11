@@ -12,8 +12,13 @@ const {
   sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory,
 } = inject('agentSidebar')
 
-// 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드
-onMounted(() => { loadChatHistory() })
+// 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드 후 맨 아래로 스크롤
+onMounted(async () => {
+  await loadChatHistory()
+  requestAnimationFrame(() => {
+    if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+  })
+})
 
 const composerRef = ref(null)
 // 공통 컴포저가 마운트되면 내부 textarea를 컴포저블 ref에 연결 (@멘션 커서/포커스용)
