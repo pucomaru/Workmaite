@@ -188,7 +188,7 @@ function deptList(dept) {
                 </button>
               </div>
             </div>
-            <input class="dei-input" v-model="ag._editTitle" placeholder="과제 제목" style="margin-top:5px" />
+            <input class="dei-input" v-model="ag._editTitle" placeholder="아젠다 제목" style="margin-top:5px" />
             <select v-if="memberOrgs.length" class="app-select dei-app-select" v-model="ag._editOrg" style="margin-top:4px;width:100%">
               <option value="">조직부서 선택</option>
               <option v-for="o in memberOrgs" :key="o" :value="o">{{ o }}</option>

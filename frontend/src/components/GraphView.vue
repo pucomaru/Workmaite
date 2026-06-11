@@ -17,7 +17,7 @@ const props = defineProps({
   getHubFill:     { type: Function, required: true },
   computeUrgency: { type: Function, required: true },
   relColors:      { type: Object,   default: () => ({}) },
-  groupTodoRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
+  groupAgendaRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
   selfNodeId:     { type: String,   default: null },
 })
 const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
@@ -339,9 +339,9 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
   }
 
-  // Todo progress arc (Meetings, 진행 중인 회의체만)
+  // Agenda progress arc (Meetings, 진행 중인 회의체만)
   const ratio = (type === 'Meetings' && !node.ended)
-    ? (props.groupTodoRatio?.get(node.data?.id ?? node.id) ?? null)
+    ? (props.groupAgendaRatio?.get(node.data?.id ?? node.id) ?? null)
     : null
   if (ratio != null && ratio > 0) {
     gfx.arc(0, 0, r + 4, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2)

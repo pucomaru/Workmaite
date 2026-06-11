@@ -52,8 +52,8 @@
 .day-mode .detail-tabs { border-bottom-color:rgba(0,0,0,.08); }
 .day-mode .detail-tab { color:var(--dark-muted); }
 .day-mode .detail-tab.active { color:var(--dark-card);border-bottom-color:var(--accent); }
-.day-mode .detail-todo-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.06); }
-.day-mode .detail-todo-title { color:var(--dark-card); }
+.day-mode .detail-agenda-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.06); }
+.day-mode .detail-agenda-title { color:var(--dark-card); }
 .day-mode .detail-extract-item { background:rgba(0,0,0,.03);border-color:rgba(0,0,0,.06); }
 .day-mode .dei-title { color:var(--dark-card); }
 .day-mode .dei-input,.day-mode .dei-textarea { background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.1);color:var(--dark-card); }

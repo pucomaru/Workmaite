@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import SessionEditModal from '../components/SessionEditModal.vue'
 import CreateSessionModal from '../components/CreateSessionModal.vue'
@@ -178,7 +177,6 @@ const transcriptAreaRef = ref(null)
 const editor = useEditor({
   extensions: [
     StarterKit,
-    Underline,
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
@@ -536,10 +534,10 @@ async function extractNextAgendas() {
       }
     })
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+      nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
   }
@@ -1048,14 +1046,14 @@ async function downloadMinutesFile() {
               <div class="nab-header">
                 <div class="nab-title-row">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1" ry="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  <span>다음 회의 과제</span>
+                  <span>다음 회의 아젠다</span>
                   <span class="nab-badge">회의록 기반 AI 추출</span>
                 </div>
-                <p class="nab-desc">회의록에서 추출한 과제를 검토하고 승인/반려해 주세요.</p>
+                <p class="nab-desc">회의록에서 추출한 아젠다를 검토하고 승인/반려해 주세요.</p>
               </div>
 
               <div v-if="nextAgendaExtracting" class="nab-loading">
-                <div class="nab-spinner"></div><span>과제 추출 중...</span>
+                <div class="nab-spinner"></div><span>아젠다 추출 중...</span>
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
@@ -1072,7 +1070,7 @@ async function downloadMinutesFile() {
 
                 <div class="nab-footer">
                   <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 과제 직접 추가
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
                   </button>
                   <div class="nab-footer-right">
                     <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>

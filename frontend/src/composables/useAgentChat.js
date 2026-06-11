@@ -29,8 +29,8 @@ export function useAgentChat({
   const SUPERVISOR_EXTRACT = {
     name: '워크메이트 AI', nameEn: 'Workmate AI',
     avatar: hyeanAvatar,
-    greeting: '회의록과 자료를 분석해서 과제를 추출했습니다.\n추출된 과제 목록을 검토해보시고, 수정이 필요한 항목이 있으면 말씀해주세요.\n\n예시: "3번 과제 담당자를 홍길동으로 바꿔줘", "2번과 4번 과제를 합쳐줘", "이 과제가 왜 추출됐는지 설명해줘"',
-    suggested: ['각 과제가 추출된 이유를 설명해줘', '비슷한 과제들을 하나로 합쳐줘', '담당 부서 배정이 적절한지 검토해줘'],
+    greeting: '회의록과 자료를 분석해서 아젠다를 추출했습니다.\n추출된 아젠다 목록을 검토해보시고, 수정이 필요한 항목이 있으면 말씀해주세요.\n\n예시: "3번 아젠다 담당자를 홍길동으로 바꿔줘", "2번과 4번 아젠다를 합쳐줘", "이 아젠다가 왜 추출됐는지 설명해줘"',
+    suggested: ['각 아젠다가 추출된 이유를 설명해줘', '비슷한 아젠다들을 하나로 합쳐줘', '담당 부서 배정이 적절한지 검토해줘'],
     endpoint: '/api/agent/supervisor/chat',
   }
 
@@ -142,7 +142,7 @@ export function useAgentChat({
           },
           undefined,  // onHighlight
           (result) => {
-            agentMsg.content = result.reply || '과제 목록을 업데이트했습니다.'
+            agentMsg.content = result.reply || '아젠다 목록을 업데이트했습니다.'
             if (result.agendas && result.agendas.length) {
               const oldList = extractResult.value
               extractResult.value = result.agendas.map((ag, i) => {
@@ -160,7 +160,7 @@ export function useAgentChat({
           },
         )
       } catch {
-        agentMsg.content = '과제 업데이트 중 오류가 발생했습니다.'
+        agentMsg.content = '아젠다 업데이트 중 오류가 발생했습니다.'
         planningMsg.done = true; planningMsg.open = false
         agentLoading.value = false
       }

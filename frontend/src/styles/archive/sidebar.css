@@ -111,28 +111,28 @@
 .detail-tab-extract { color:#7ac8b0; }
 .detail-tab-extract.active { color:#7ac8b0;border-bottom-color:#7ac8b0; }
 .detail-tab-extract:hover:not(.active) { color:#a0d8c8; }
-.detail-todo-list { display:flex;flex-direction:column;gap:6px;margin-top:4px; }
-.todo-dept-group { margin-bottom:10px; }
-.todo-dept-header { display:flex;align-items:center;justify-content:space-between;padding:4px 6px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:5px; }
-.todo-dept-name { font-size:11px;font-weight:700;color:var(--dark-muted); }
-.todo-dept-count { font-size:10px;color:var(--text-dim); }
+.detail-agenda-list { display:flex;flex-direction:column;gap:6px;margin-top:4px; }
+.agenda-dept-group { margin-bottom:10px; }
+.agenda-dept-header { display:flex;align-items:center;justify-content:space-between;padding:4px 6px;background:rgba(255,255,255,.04);border-radius:5px;margin-bottom:5px; }
+.agenda-dept-name { font-size:11px;font-weight:700;color:var(--dark-muted); }
+.agenda-dept-count { font-size:10px;color:var(--text-dim); }
 .upload-file-drop { border:1.5px dashed rgba(255,255,255,.15);border-radius:8px;padding:12px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-muted); }
 .upload-file-drop:hover { border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.04);color:var(--dark-muted); }
-.detail-todo-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid rgba(255,255,255,.05); }
-.detail-todo-status { font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;margin-top:1px; }
+.detail-agenda-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid rgba(255,255,255,.05); }
+.detail-agenda-status { font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;margin-top:1px; }
 .ts-done { background:rgba(16,185,129,.15);color:#10b981; }
 .ts-progress { background:rgba(59,130,246,.15);color:var(--accent); }
 .ts-risk { background:rgba(239,68,68,.15);color:#ef4444; }
 .ts-pending { background:rgba(100,116,139,.15);color:var(--dark-muted); }
-.detail-todo-info { flex:1;min-width:0; }
-.detail-todo-title { font-size:12px;font-weight:500;color:var(--dark-text);line-height:1.4; }
-.detail-todo-meta { font-size:10px;color:var(--text-muted);margin-top:3px; }
-.detail-todo-actions { display:flex;flex-direction:column;gap:3px;flex-shrink:0; }
-.todo-action-btn { width:20px;height:20px;border-radius:4px;border:none;cursor:pointer;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center; }
-.todo-done-btn { background:rgba(16,185,129,.12);color:#10b981; }
-.todo-done-btn:hover, .todo-done-btn.is-done { background:rgba(16,185,129,.3);color:#10b981; }
-.todo-del-btn { background:rgba(239,68,68,.1);color:#ef4444; }
-.todo-del-btn:hover { background:rgba(239,68,68,.25); }
+.detail-agenda-info { flex:1;min-width:0; }
+.detail-agenda-title { font-size:12px;font-weight:500;color:var(--dark-text);line-height:1.4; }
+.detail-agenda-meta { font-size:10px;color:var(--text-muted);margin-top:3px; }
+.detail-agenda-actions { display:flex;flex-direction:column;gap:3px;flex-shrink:0; }
+.agenda-action-btn { width:20px;height:20px;border-radius:4px;border:none;cursor:pointer;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center; }
+.agenda-done-btn { background:rgba(16,185,129,.12);color:#10b981; }
+.agenda-done-btn:hover, .agenda-done-btn.is-done { background:rgba(16,185,129,.3);color:#10b981; }
+.agenda-del-btn { background:rgba(239,68,68,.1);color:#ef4444; }
+.agenda-del-btn:hover { background:rgba(239,68,68,.25); }
 .detail-body { flex:1;overflow-y:auto;padding:8px 14px 8px;display:flex;flex-direction:column;gap:0; }
 .detail-body::-webkit-scrollbar { width:3px; }
 .detail-body::-webkit-scrollbar-track { background:transparent; }
@@ -273,15 +273,15 @@
 .detail-log-more { display:block;width:100%;text-align:center;margin-top:4px;font-size:10px;font-weight:600;color:#454545;background:none;border:none;cursor:pointer;padding:4px 0;transition:color .15s; }
 .detail-log-more:hover { color:#999; }
 /* 완료된 과제 */
-.done-todo-list { display:flex;flex-direction:column;gap:6px;margin-top:6px; }
-.done-todo-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:7px;background:rgba(16,185,129,.04);border:1px solid rgba(16,185,129,.1); }
-.done-todo-check { width:16px;height:16px;border-radius:50%;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px; }
-.done-todo-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:3px; }
-.done-todo-title { font-size:12px;font-weight:600;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.done-todo-meta { font-size:10px;color:#555;display:flex;gap:4px; }
-.done-todo-report { display:flex;align-items:center;gap:4px;margin-top:2px; }
-.done-todo-filename { font-size:10px;color:#454545;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
-.done-todo-dates { display:flex;flex-direction:column;gap:2px;font-size:10px;color:#3a3a3a;margin-top:2px; }
+.done-agenda-list { display:flex;flex-direction:column;gap:6px;margin-top:6px; }
+.done-agenda-item { display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:7px;background:rgba(16,185,129,.04);border:1px solid rgba(16,185,129,.1); }
+.done-agenda-check { width:16px;height:16px;border-radius:50%;background:rgba(16,185,129,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px; }
+.done-agenda-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:3px; }
+.done-agenda-title { font-size:12px;font-weight:600;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.done-agenda-meta { font-size:10px;color:#555;display:flex;gap:4px; }
+.done-agenda-report { display:flex;align-items:center;gap:4px;margin-top:2px; }
+.done-agenda-filename { font-size:10px;color:#454545;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
+.done-agenda-dates { display:flex;flex-direction:column;gap:2px;font-size:10px;color:#3a3a3a;margin-top:2px; }
 /* 로그 */
 .detail-log-list { display:flex;flex-direction:column;gap:1px; }
 .detail-log-item { display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:6px; }
