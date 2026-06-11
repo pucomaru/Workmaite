@@ -19,7 +19,7 @@ spec:
         - name: harbor-secret
       containers:
         - name: workmaite-ai
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:24f1857
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:675f65a
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
