@@ -288,7 +288,7 @@ async def sync_meeting_group(
         logger.debug(f"[Neo4jSync] Meetings {meeting_id} 동기화 완료")
     except Exception as e:
         logger.error(f"[Neo4jSync] Meetings {meeting_id} 실패: {e}")
-        _log_failure("sync_meeting_group", "meeting_group", str(meeting_id), e, params)
+        _log_failure("sync_meeting_group", "meetings", str(meeting_id), e, params)
 
 async def sync_meeting(*args, **kwargs):
     return await sync_meeting_group(*args, **kwargs)

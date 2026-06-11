@@ -95,6 +95,77 @@ const sbTopImprovements = computed(() => {
   const d = detailNode.value?.data
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
+
+// ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
+const fromSearch   = ref('')
+const toSearch     = ref('')
+const showFromList = ref(false)
+const showToList   = ref(false)
+const relSuggest   = ref(false)
+const editRelSuggest = ref(false)
+
+const NODE_TYPE_KO = {
+  Meetings: '회의체',
+  session: '회의', agenda: '아젠다', minutes: '회의록',
+  report: '보고자료', dept: '부서', person: '구성원', company: '회사',
+  human_judgment: '의사결정',
+}
+
+const filteredFromNodes = computed(() => {
+  const q = fromSearch.value.trim().toLowerCase()
+  if (!q) return allGraphNodeList.value.slice(0, 30)
+  return allGraphNodeList.value.filter(n =>
+    n.label?.toLowerCase().includes(q) || NODE_TYPE_KO[n.type]?.includes(q)
+  ).slice(0, 30)
+})
+const filteredToNodes = computed(() => {
+  const q = toSearch.value.trim().toLowerCase()
+  const list = allGraphNodeList.value.filter(n => n.id !== relAddForm.value.fromId)
+  if (!q) return list.slice(0, 30)
+  return list.filter(n =>
+    n.label?.toLowerCase().includes(q) || NODE_TYPE_KO[n.type]?.includes(q)
+  ).slice(0, 30)
+})
+const filteredRelSuggestions = computed(() => {
+  const q = (relAddForm.value.rel || '').trim().toLowerCase()
+  if (!q) return ALL_REL_TYPES.slice(0, 15)
+  return ALL_REL_TYPES.filter(r => r.toLowerCase().includes(q)).slice(0, 15)
+})
+const filteredEditRelSuggestions = computed(() => {
+  const q = (relEditRel.value || '').trim().toLowerCase()
+  if (!q) return ALL_REL_TYPES.slice(0, 15)
+  return ALL_REL_TYPES.filter(r => r.toLowerCase().includes(q)).slice(0, 15)
+})
+
+const fromNodeData = computed(() => allGraphNodeList.value.find(n => n.id === relAddForm.value.fromId))
+const toNodeData   = computed(() => allGraphNodeList.value.find(n => n.id === relAddForm.value.toId))
+
+function selectFromNode(n) {
+  relAddForm.value.fromId = n.id
+  fromSearch.value = ''
+  showFromList.value = false
+}
+function clearFromNode() {
+  relAddForm.value.fromId = ''
+  fromSearch.value = ''
+}
+function selectToNode(n) {
+  relAddForm.value.toId = n.id
+  toSearch.value = ''
+  showToList.value = false
+}
+function clearToNode() {
+  relAddForm.value.toId = ''
+  toSearch.value = ''
+}
+function hideFrom()      { setTimeout(() => { showFromList.value = false }, 160) }
+function hideTo()        { setTimeout(() => { showToList.value = false }, 160) }
+function hideRelSuggest(){ setTimeout(() => { relSuggest.value = false }, 160) }
+function hideEditRelSuggest(){ setTimeout(() => { editRelSuggest.value = false }, 160) }
+
+watch(relAddActive, v => {
+  if (!v) { fromSearch.value = ''; toSearch.value = ''; showFromList.value = false; showToList.value = false }
+})
 </script>
 
 <template>
@@ -413,9 +484,22 @@ const sbTopImprovements = computed(() => {
                     <!-- 인라인 편집 -->
                     <template v-if="relEditIdx === edge._idx">
                       <div class="rel-edit-row">
-                        <select v-model="relEditRel" class="rel-type-select">
-                          <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                        </select>
+                        <div class="rel-inline-suggest-wrap">
+                          <input
+                            v-model="relEditRel"
+                            class="rel-search-input"
+                            placeholder="관계 유형 입력..."
+                            @focus="editRelSuggest=true"
+                            @blur="hideEditRelSuggest"
+                          />
+                          <div v-if="editRelSuggest && filteredEditRelSuggestions.length" class="rel-suggest-list">
+                            <div v-for="rt in filteredEditRelSuggestions" :key="rt"
+                              class="rel-suggest-item"
+                              @mousedown.prevent="relEditRel=rt; editRelSuggest=false">
+                              {{ rt }}
+                            </div>
+                          </div>
+                        </div>
                         <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
                         <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
                       </div>
@@ -445,41 +529,94 @@ const sbTopImprovements = computed(() => {
 
               <!-- 관계 추가 폼 -->
               <div v-if="relAddActive" class="detail-section rel-add-panel">
-                <div class="detail-section-label-row" style="margin-bottom:8px">
+                <div class="detail-section-label-row" style="margin-bottom:10px">
                   <span class="detail-section-label">새 관계 추가</span>
                   <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
                     <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
                   </button>
                 </div>
                 <div class="rel-add-form">
+                  <!-- 출발 노드 검색 -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">출발 노드</label>
-                    <select v-model="relAddForm.fromId" class="rel-type-select">
-                      <option value="">선택...</option>
-                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <div v-if="fromNodeData" class="rel-node-selected" @click="clearFromNode">
+                        <span class="rel-node-sel-label">{{ fromNodeData.label }}</span>
+                        <span class="rel-node-sel-type">{{ NODE_TYPE_KO[fromNodeData.type] || fromNodeData.type }}</span>
+                        <span class="rel-node-sel-clear">×</span>
+                      </div>
+                      <input v-else
+                        v-model="fromSearch"
+                        class="rel-search-input"
+                        placeholder="노드 이름 검색..."
+                        @focus="showFromList=true"
+                        @blur="hideFrom"
+                      />
+                      <div v-if="showFromList && !fromNodeData" class="rel-node-list">
+                        <div v-if="!filteredFromNodes.length" class="rel-node-empty">결과 없음</div>
+                        <div v-for="n in filteredFromNodes" :key="n.id"
+                          class="rel-node-item"
+                          @mousedown.prevent="selectFromNode(n)">
+                          <span class="rel-node-item-label">{{ n.label }}</span>
+                          <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- 관계 유형 (자연어) -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">관계 유형</label>
-                    <select v-model="relAddForm.rel" class="rel-type-select">
-                      <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">
-                        {{ rt }}
-                      </option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <input
+                        v-model="relAddForm.rel"
+                        class="rel-search-input"
+                        placeholder="예: 참조, 근거, 판단, 포함..."
+                        @focus="relSuggest=true"
+                        @blur="hideRelSuggest"
+                      />
+                      <div v-if="relSuggest && filteredRelSuggestions.length" class="rel-node-list rel-suggest-list">
+                        <div v-for="rt in filteredRelSuggestions" :key="rt"
+                          class="rel-node-item"
+                          @mousedown.prevent="relAddForm.rel=rt; relSuggest=false">
+                          {{ rt }}
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- 도착 노드 검색 -->
                   <div class="rel-add-field">
                     <label class="rel-add-label">도착 노드</label>
-                    <select v-model="relAddForm.toId" class="rel-type-select">
-                      <option value="">선택...</option>
-                      <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
-                        {{ n.label }} ({{ n.type }})
-                      </option>
-                    </select>
+                    <div class="rel-node-search-wrap">
+                      <div v-if="toNodeData" class="rel-node-selected" @click="clearToNode">
+                        <span class="rel-node-sel-label">{{ toNodeData.label }}</span>
+                        <span class="rel-node-sel-type">{{ NODE_TYPE_KO[toNodeData.type] || toNodeData.type }}</span>
+                        <span class="rel-node-sel-clear">×</span>
+                      </div>
+                      <input v-else
+                        v-model="toSearch"
+                        class="rel-search-input"
+                        placeholder="노드 이름 검색..."
+                        @focus="showToList=true"
+                        @blur="hideTo"
+                      />
+                      <div v-if="showToList && !toNodeData" class="rel-node-list">
+                        <div v-if="!filteredToNodes.length" class="rel-node-empty">결과 없음</div>
+                        <div v-for="n in filteredToNodes" :key="n.id"
+                          class="rel-node-item"
+                          @mousedown.prevent="selectToNode(n)">
+                          <span class="rel-node-item-label">{{ n.label }}</span>
+                          <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
                   <button
                     class="app-btn-primary"
-                    style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
-                    :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                    style="width:100%;margin-top:8px;font-size:12px;padding:7px 0"
+                    :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel?.trim()"
                     @click="doAddRel">
                     관계 추가
                   </button>
@@ -935,9 +1072,22 @@ const sbTopImprovements = computed(() => {
                 <div v-for="edge in currentNodeEdges" :key="edge._idx" class="rel-item">
                   <template v-if="relEditIdx === edge._idx">
                     <div class="rel-edit-row">
-                      <select v-model="relEditRel" class="rel-type-select">
-                        <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                      </select>
+                      <div class="rel-inline-suggest-wrap">
+                        <input
+                          v-model="relEditRel"
+                          class="rel-search-input"
+                          placeholder="관계 유형 입력..."
+                          @focus="editRelSuggest=true"
+                          @blur="hideEditRelSuggest"
+                        />
+                        <div v-if="editRelSuggest && filteredEditRelSuggestions.length" class="rel-suggest-list">
+                          <div v-for="rt in filteredEditRelSuggestions" :key="rt"
+                            class="rel-suggest-item"
+                            @mousedown.prevent="relEditRel=rt; editRelSuggest=false">
+                            {{ rt }}
+                          </div>
+                        </div>
+                      </div>
                       <button class="rel-btn rel-btn-save" @click="saveRelEdit">저장</button>
                       <button class="rel-btn rel-btn-cancel" @click="cancelRelEdit">취소</button>
                     </div>
@@ -966,7 +1116,7 @@ const sbTopImprovements = computed(() => {
 
             <!-- 관계 추가 폼 (노드 공통) -->
             <div v-if="relAddActive" class="detail-section rel-add-panel">
-              <div class="detail-section-label-row" style="margin-bottom:8px">
+              <div class="detail-section-label-row" style="margin-bottom:10px">
                 <span class="detail-section-label">새 관계 추가</span>
                 <button class="rel-btn rel-btn-cancel" @click="relAddActive=false">
                   <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -975,30 +1125,79 @@ const sbTopImprovements = computed(() => {
               <div class="rel-add-form">
                 <div class="rel-add-field">
                   <label class="rel-add-label">출발 노드</label>
-                  <select v-model="relAddForm.fromId" class="rel-type-select">
-                    <option value="">선택...</option>
-                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id">{{ n.label }} ({{ n.type }})</option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <div v-if="fromNodeData" class="rel-node-selected" @click="clearFromNode">
+                      <span class="rel-node-sel-label">{{ fromNodeData.label }}</span>
+                      <span class="rel-node-sel-type">{{ NODE_TYPE_KO[fromNodeData.type] || fromNodeData.type }}</span>
+                      <span class="rel-node-sel-clear">×</span>
+                    </div>
+                    <input v-else
+                      v-model="fromSearch"
+                      class="rel-search-input"
+                      placeholder="노드 이름 검색..."
+                      @focus="showFromList=true"
+                      @blur="hideFrom"
+                    />
+                    <div v-if="showFromList && !fromNodeData" class="rel-node-list">
+                      <div v-if="!filteredFromNodes.length" class="rel-node-empty">결과 없음</div>
+                      <div v-for="n in filteredFromNodes" :key="n.id"
+                        class="rel-node-item"
+                        @mousedown.prevent="selectFromNode(n)">
+                        <span class="rel-node-item-label">{{ n.label }}</span>
+                        <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rel-add-field">
                   <label class="rel-add-label">관계 유형</label>
-                  <select v-model="relAddForm.rel" class="rel-type-select">
-                    <option v-for="rt in ALL_REL_TYPES" :key="rt" :value="rt">{{ rt }}</option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <input
+                      v-model="relAddForm.rel"
+                      class="rel-search-input"
+                      placeholder="예: 참조, 근거, 판단, 포함..."
+                      @focus="relSuggest=true"
+                      @blur="hideRelSuggest"
+                    />
+                    <div v-if="relSuggest && filteredRelSuggestions.length" class="rel-node-list rel-suggest-list">
+                      <div v-for="rt in filteredRelSuggestions" :key="rt"
+                        class="rel-node-item"
+                        @mousedown.prevent="relAddForm.rel=rt; relSuggest=false">
+                        {{ rt }}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="rel-add-field">
                   <label class="rel-add-label">도착 노드</label>
-                  <select v-model="relAddForm.toId" class="rel-type-select">
-                    <option value="">선택...</option>
-                    <option v-for="n in allGraphNodeList" :key="n.id" :value="n.id" :disabled="n.id===relAddForm.fromId">
-                      {{ n.label }} ({{ n.type }})
-                    </option>
-                  </select>
+                  <div class="rel-node-search-wrap">
+                    <div v-if="toNodeData" class="rel-node-selected" @click="clearToNode">
+                      <span class="rel-node-sel-label">{{ toNodeData.label }}</span>
+                      <span class="rel-node-sel-type">{{ NODE_TYPE_KO[toNodeData.type] || toNodeData.type }}</span>
+                      <span class="rel-node-sel-clear">×</span>
+                    </div>
+                    <input v-else
+                      v-model="toSearch"
+                      class="rel-search-input"
+                      placeholder="노드 이름 검색..."
+                      @focus="showToList=true"
+                      @blur="hideTo"
+                    />
+                    <div v-if="showToList && !toNodeData" class="rel-node-list">
+                      <div v-if="!filteredToNodes.length" class="rel-node-empty">결과 없음</div>
+                      <div v-for="n in filteredToNodes" :key="n.id"
+                        class="rel-node-item"
+                        @mousedown.prevent="selectToNode(n)">
+                        <span class="rel-node-item-label">{{ n.label }}</span>
+                        <span class="rel-node-item-type">{{ NODE_TYPE_KO[n.type] || n.type }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <button
                   class="app-btn-primary"
-                  style="width:100%;margin-top:6px;font-size:12px;padding:7px 0"
-                  :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel"
+                  style="width:100%;margin-top:8px;font-size:12px;padding:7px 0"
+                  :disabled="!relAddForm.fromId || !relAddForm.toId || !relAddForm.rel?.trim()"
                   @click="doAddRel">
                   관계 추가
                 </button>
