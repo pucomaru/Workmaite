@@ -5,10 +5,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from openai import AsyncOpenAI
 import models, schemas
 from database import get_db
 from auth import get_current_user
 from neo4j_sync import sync_minutes
+
+_openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 logger = logging.getLogger(__name__)
 
@@ -107,3 +110,48 @@ async def save_minutes(
     )
 
     return minutes
+
+
+# ─── 대화기록 문단 정제 ────────────────────────────────────────────────────────
+
+class RefineChunkRequest(BaseModel):
+    text: str                        # 원문 스크립트 텍스트
+    context: Optional[str] = None   # 회의 맥락 (선택)
+
+class RefineChunkResponse(BaseModel):
+    title: str
+    bullets: List[str]
+
+
+@router.post("/sessions/refine-chunk", response_model=RefineChunkResponse)
+async def refine_chunk(
+    body: RefineChunkRequest,
+    _: models.User = Depends(get_current_user),
+):
+    context_line = f"회의 맥락: {body.context}\n" if body.context else ""
+    prompt = f"""{context_line}아래는 회의 중 발화된 원문입니다.
+        다음 조건에 따라 정리해주세요:
+        1. 필러워드(어, 음, 그, 아 등) 제거
+        2. 오탈자 교정
+        3. 핵심 내용을 나타내는 짧은 제목 1개 생성
+        4. 핵심 내용을 3~5개 불릿포인트로 요약
+
+        반드시 아래 JSON 형식으로만 응답하세요:
+        {{"title": "제목", "bullets": ["• 내용1", "• 내용2", "• 내용3"]}}
+
+        원문:
+        {body.text}"""
+
+    resp = await _openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+    )
+
+    import json
+    result = json.loads(resp.choices[0].message.content)
+    return RefineChunkResponse(
+        title=result.get("title", ""),
+        bullets=result.get("bullets", []),
+    )

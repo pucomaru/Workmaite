@@ -5,7 +5,8 @@ import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
-import MemberInvite from '../components/MemberInvite.vue'
+import SessionEditModal from '../components/SessionEditModal.vue'
+import CreateSessionModal from '../components/CreateSessionModal.vue'
 import DateInput from '../components/DateInput.vue'
 import AgentComposer from '../components/AgentComposer.vue'
 import AgendaReviewList from '../components/AgendaReviewList.vue'
@@ -15,7 +16,9 @@ import { useSTT } from '../composables/useSTT'
 import { useAgentMention } from '../composables/useAgentMention'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 
 const renderMd = (t) => marked.parse(t || '', { breaks: true })
 
@@ -119,12 +122,13 @@ async function enterSession(s) {
   activeSession.value = s
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
-  showSummary.value = false
-  transcriptSummary.value = ''
   const rec = getOrCreateRecord(s.id)
   transcriptLines.value = rec.transcriptLines
   generatedMinutes.value = rec.generatedMinutes
   showMinutesTab.value = rec.showMinutesTab
+  conversationBlocks.value = rec.conversationBlocks
+  lastRefineIdx.value = rec.lastRefineIdx
+  sessionContext.value = s.context || ''
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
@@ -169,9 +173,6 @@ const transcriptLines = ref([])
 const generatedMinutes = ref(null)
 const showMinutesTab = ref(false)
 const generatingMinutes = ref(false)
-const transcriptSummary = ref('')
-const summarizingTranscript = ref(false)
-const showSummary = ref(false)
 const transcriptAreaRef = ref(null)
 
 const editor = useEditor({
@@ -215,8 +216,56 @@ const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcap
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
   if (!sessionRecords.value.has(id))
-    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false })
+    sessionRecords.value.set(id, { transcriptLines: [], generatedMinutes: null, showMinutesTab: false, conversationBlocks: [], lastRefineIdx: 0 })
   return sessionRecords.value.get(id)
+}
+
+// ─── 대화기록 ─────────────────────────────────────────────────
+const conversationBlocks = ref([])
+const sessionContext = ref('')
+const showContextModal = ref(false)
+const contextDraft = ref('')
+const lastRefineIdx = ref(0)
+const refiningConversation = ref(false)
+const REFINE_EVERY = 5
+
+const unprocessedLines = computed(() => transcriptLines.value.slice(lastRefineIdx.value))
+
+async function saveContext() {
+  sessionContext.value = contextDraft.value
+  showContextModal.value = false
+  if (activeSession.value) {
+    try {
+      await api.patch(`/api/v1/sessions/${activeSession.value.id}/context`, { context: contextDraft.value })
+    } catch (e) {
+      console.error('맥락 저장 실패', e)
+    }
+  }
+}
+
+async function refineChunk() {
+  const newLines = transcriptLines.value.slice(lastRefineIdx.value)
+  if (newLines.length < REFINE_EVERY || refiningConversation.value) return
+  refiningConversation.value = true
+  const processedIdx = lastRefineIdx.value + newLines.length
+  const text = newLines.map(l => l.text).join('\n')
+  try {
+    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+      text,
+      context: sessionContext.value || null,
+    })
+    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text })
+    lastRefineIdx.value = processedIdx
+    if (activeSession.value) {
+      const rec = getOrCreateRecord(activeSession.value.id)
+      rec.conversationBlocks = conversationBlocks.value
+      rec.lastRefineIdx = lastRefineIdx.value
+    }
+  } catch (e) {
+    console.error('대화기록 정제 실패', e)
+  } finally {
+    refiningConversation.value = false
+  }
 }
 
 // 스피커 레이블 — 발화 등장 순서 기반으로 A/B/C... 동적 할당
@@ -247,13 +296,14 @@ function _pushLine(time, text, speaker = null, id = null) {
   transcriptLines.value.push(entry)
   if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
   nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
+  if ((transcriptLines.value.length - lastRefineIdx.value) >= REFINE_EVERY) refineChunk()
 }
 
 const stt = useSTT({
-  onResult: (text) => { _pushLine(nowTime(), text, null) },
+  onResult: (text, id = null) => { _pushLine(nowTime(), text, null, id) },
   onSegments: (segments) => {
     const t = nowTime()
-    segments.forEach(seg => { if (seg.text?.trim()) _pushLine(t, seg.text.trim(), seg.speaker) })
+    segments.forEach(seg => { if (seg.text?.trim()) _pushLine(t, seg.text.trim(), seg.speaker ?? null, seg.id ?? null) })
   },
   getLang: () => transcriptLang.value,
   getSessionId: () => activeSession.value?.id ?? null,
@@ -307,7 +357,7 @@ function toggleRecording() {
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
-    recordingState.value = 'paused'; stt.stop(); _pauseTimer(); fetchTranscriptSummary()
+    recordingState.value = 'paused'; stt.stop(); _pauseTimer()
   } else {
     stt.start()
       .then(() => { recordingState.value = 'recording'; _startTimer() })
@@ -318,33 +368,8 @@ function toggleRecording() {
 function stopRecording() {
   const was = recordingState.value === 'recording'
   recordingState.value = 'idle'; stt.stop(); _resetTimer()
-  if (was) fetchTranscriptSummary()
 }
 
-async function fetchTranscriptSummary() {
-  if (!transcriptLines.value.length) return
-  summarizingTranscript.value = true; showSummary.value = true; transcriptSummary.value = ''
-  const text = transcriptLines.value.map(l => `[${l.time}] ${l.text}`).join('\n')
-  const sessionTitle = activeSession.value?.title || '회의'
-
-  // ── 우측 채팅에 AI 사고 과정 표시 ──────────────────────────
-  const userMsg = `"${sessionTitle}" 대화 내용을 요약해줘`
-  const thinkingSteps = [
-    `대화 텍스트 분석 중 (${transcriptLines.value.length}개 발화)...`,
-    `핵심 발언 및 반복 주제 추출`,
-    `Neo4j Context Graph: Evidence 노드 연결 준비`,
-    `요약 생성 중...`,
-  ]
-  injectAction(userMsg, thinkingSteps, '').then(() => {/* noop */})
-  // 실제 summary는 스트리밍으로 별도 표시 (중앙 패널)
-  try {
-    await streamPost('/api/agent/supervisor/chat',
-      { meeting_id: activeSession.value?.meeting_id || 0, message: `다음 대화 내용을 간결하게 요약해줘:\n${text}`, chat_history: [] },
-      (chunk) => { transcriptSummary.value += chunk },
-      () => { summarizingTranscript.value = false }
-    )
-  } catch { transcriptSummary.value = '요약 중 오류가 발생했습니다.'; summarizingTranscript.value = false }
-}
 
 async function generateMinutes() {
   if (generatingMinutes.value) return
@@ -466,23 +491,24 @@ const showNextAgendaBlock = ref(false)
 const nextAgendaExtracting = ref(false)
 
 async function extractNextAgendas() {
-  if (!generatedMinutes.value?.content_summary) return
+  const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
+  if (!meetingId) return
+
   nextAgendaExtracting.value = true
   showNextAgendaBlock.value = true
   try {
-    const meetingId = activeSession.value?.meeting_id || selectedMeeting.value?.id || 0
-
-    // HTML → 플레인텍스트 변환
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
-    const plainText = doc.body.textContent || generatedMinutes.value.content_summary
-
-    // 기존 archive/extract-agendas 엔드포인트 재사용
-    // 현재 회의록을 파일로 넘겨 과거 회의록 + 현재 회의록 기반으로 추출
     const formData = new FormData()
     formData.append('meeting_id', String(meetingId))
-    const blob = new Blob([plainText], { type: 'text/plain' })
-    formData.append('files', blob, '현재_회의록.txt')
+
+    // content_summary 있으면 현재 회의록을 파일로 첨부
+    if (generatedMinutes.value?.content_summary) {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(generatedMinutes.value.content_summary, 'text/html')
+      const plainText = doc.body.textContent || generatedMinutes.value.content_summary
+      const blob = new Blob([plainText], { type: 'text/plain' })
+      formData.append('files', blob, '현재_회의록.txt')
+    }
+    // content_summary 없어도 meeting_id만으로 추출 시도 (백엔드가 DB에서 회의록 파일 직접 읽음)
 
     const { data } = await apiAI.post('/api/agent/archive/extract-agendas', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -729,107 +755,30 @@ function formatDate(d) {
 const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '회의록 미생성', archived: '완료' }
 const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#ef4444', archived: '#94a3b8' }
 
-const showPastDateAlert = ref(false)
-
 // ─── Session edit modal ───────────────────────────────────────
 const showEditSession = ref(false)
-const editSessionForm = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
-const editSessionMembers = ref([])
-const editingSession = ref(false)
+const currentEditSession = ref(null)
 
-async function openEditSession(s, e) {
+function openEditSession(s, e) {
   e.stopPropagation()
-  editSessionForm.value = {
-    id: s.id,
-    meetingId: s.meeting_id,
-    title: s.title,
-    location: s.location || '',
-    dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
-    timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
-    type: s.type || 'localwhisper',
-  }
-  editSessionMembers.value = []
-  if (s.attendee_ids?.length) {
-    try {
-      const { data } = await api.get(`/api/v1/users/by-ids?ids=${s.attendee_ids.join(',')}`)
-      const roleMap = Object.fromEntries((s.attendees || []).map(a => [a.userId, a.role]))
-      editSessionMembers.value = (data.data ?? data).map(u => ({ userId: u.id, name: u.name, email: u.email, role: roleMap[u.id] || 'member' }))
-    } catch {}
-  }
+  currentEditSession.value = s
   showEditSession.value = true
 }
 
-async function doEditSession() {
-  if (!editSessionForm.value.title.trim()) return
-  if (editSessionForm.value.dateOnly) {
-    const scheduled = new Date(`${editSessionForm.value.dateOnly}T${editSessionForm.value.timeOnly || '00:00'}`)
-    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
-  }
-  editingSession.value = true
-  try {
-    const { id, meetingId } = editSessionForm.value
-    await api.patch(`/api/v1/sessions/${id}`, {
-      title: editSessionForm.value.title,
-      location: editSessionForm.value.location || null,
-      scheduled_at: editSessionForm.value.dateOnly ? `${editSessionForm.value.dateOnly}T${editSessionForm.value.timeOnly || '00:00'}:00` : null,
-      type: editSessionForm.value.type,
-      attendees: editSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
-    })
+async function onSessionEditSaved({ meetingId }) {
+  if (meetingId) {
     delete sessionsCache.value[meetingId]
     await loadSessions(meetingId)
-    showEditSession.value = false
-  } catch(e) {
-    alert(e.response?.data?.message || '수정 실패')
-  } finally {
-    editingSession.value = false
   }
 }
 
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
-const createSessionForm = ref({ title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' })
-const createSessionMembers = ref([])
-const creatingSessionForm = ref(false)
 
-function openCreateSession() {
-  createSessionForm.value = { title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
-  createSessionMembers.value = []
-  showPastDateAlert.value = false
-  showCreateSession.value = true
-}
-function closeCreateSession() {
-  showCreateSession.value = false
-  createSessionForm.value = { title: '', location: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
-  createSessionMembers.value = []
-  showPastDateAlert.value = false
-}
-
-async function doCreateSessionForm() {
-  if (!createSessionForm.value.title.trim() || !createSessionForm.value.meetingId) return
-  if (createSessionForm.value.dateOnly) {
-    const scheduled = new Date(`${createSessionForm.value.dateOnly}T${createSessionForm.value.timeOnly || '00:00'}`)
-    if (scheduled < new Date()) { showPastDateAlert.value = true; return }
-  }
-  creatingSessionForm.value = true
-  try {
-    const meetingId = createSessionForm.value.meetingId
-    await api.post(`/api/v1/meetings/${meetingId}/sessions`, {
-      title: createSessionForm.value.title,
-      location: createSessionForm.value.location || null,
-      scheduled_at: createSessionForm.value.dateOnly ? `${createSessionForm.value.dateOnly}T${createSessionForm.value.timeOnly || '00:00'}:00` : null,
-      type: createSessionForm.value.type,
-      attendees: createSessionMembers.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
-    })
-    delete sessionsCache.value[meetingId]
-    await loadSessions(meetingId)
-    showCreateSession.value = false
-    createSessionForm.value = { title: '', purpose: '', dateOnly: '', timeOnly: '', meetingId: null, type: 'localwhisper' }
-    createSessionMembers.value = []
-  } catch(e) {
-    alert(e.response?.data?.message || '생성 실패')
-  } finally {
-    creatingSessionForm.value = false
-  }
+function openCreateSession() { showCreateSession.value = true }
+async function onSessionCreated({ meetingId }) {
+  delete sessionsCache.value[meetingId]
+  await loadSessions(meetingId)
 }
 
 onMounted(() => {
@@ -955,9 +904,9 @@ async function downloadMinutesFile() {
               @click="enterSession(s)">
               <div class="sp-session-info">
                 <div class="sp-session-name">{{ s.title }}</div>
-                <div class="sp-session-date">{{ formatDate(s.scheduled_at) }}</div>
-                <div v-if="s.location" class="sp-session-location">
-                  <i class="bi bi-geo-alt"></i> {{ s.location }}
+                <div class="sp-session-meta">
+                  <span v-if="s.location" class="sp-session-location"><i class="bi bi-geo-alt"></i> {{ s.location }}</span>
+                  <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
                 </div>
               </div>
               <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
@@ -1008,44 +957,21 @@ async function downloadMinutesFile() {
         <!-- Tab content -->
         <div ref="transcriptAreaRef" class="sp-tab-body" :class="{ 'minutes-mode': activeTab==='minutes' }">
           <template v-if="activeTab === 'transcript'">
-            <div v-if="showSummary" class="ts-summary-box">
-              <div class="ts-summary-header">
-                <span><i class="bi bi-stars"></i> AI 요약</span>
-                <button class="ts-summary-close" @click="showSummary=false">✕</button>
-              </div>
-              <div v-if="summarizingTranscript" class="ts-summary-body">
-                <span class="spinner-border spinner-border-sm text-primary"></span>
-                <span style="font-size:12px;color:var(--text-muted);margin-left:6px">요약 중...</span>
-              </div>
-              <div v-else class="ts-summary-body minutes-md" v-html="renderMd(transcriptSummary)"></div>
-            </div>
             <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <template v-for="(line, idx) in transcriptLines" :key="idx">
-              <!-- 편집 모드 -->
-              <div v-if="editingIdx === idx" class="tline tline-editing">
-                <span class="tline-time">{{ line.time }}</span>
-                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
-                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
-                <div class="tline-edit-btns">
-                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
-                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
-                </div>
-              </div>
-              <!-- 일반 모드 -->
-              <div v-else class="tline">
-                <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
-                <span class="tline-body">
-                  <span class="tline-text">{{ line.text }}</span>
-                  <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                </span>
-              </div>
-            </template>
+            <!-- 완성된 블록들 — 위 -->
+            <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
+              <div class="conv-block-title">{{ block.title }}</div>
+              <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
+              <div v-if="block.text" class="conv-block-original">{{ block.text }}</div>
+            </div>
+            <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
+            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
+              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
+              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
+            </div>
           </template>
 
           <template v-else-if="activeTab === 'script'">
@@ -1205,6 +1131,15 @@ async function downloadMinutesFile() {
             </div>
 
             <!-- Record / pause -->
+            <!-- 맥락 입력 버튼 -->
+            <div class="ctrl-pop-wrap">
+              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showContextModal }"
+                @click.stop="showContextModal=true;contextDraft=sessionContext" title="회의 맥락 입력">
+                <i class="bi bi-text-left"></i>
+                <span>맥락</span>
+              </button>
+            </div>
+
             <button class="ctrl-rec-btn" :class="{ recording: recordingState==='recording' }"
               @click.stop="toggleRecording"
               :title="recordingState==='idle'?'녹음 시작':recordingState==='recording'?'일시정지':'재개'">
@@ -1356,92 +1291,39 @@ async function downloadMinutesFile() {
   </div>
 
 
-  <!-- 회의 편집 모달 -->
-  <Teleport to="body">
-    <div v-if="showEditSession" class="app-modal-backdrop">
-      <div class="app-modal app-modal-sm">
-        <div class="app-modal-header">
-          <span class="app-modal-title">회의 편집</span>
-          <button class="app-modal-close" @click="showEditSession=false">
-            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div class="app-modal-body">
-          <div class="app-modal-field">
-            <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="editSessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
-          </div>
-          <div class="app-modal-field">
-            <label>장소</label>
-            <input v-model="editSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
-          </div>
-          <div class="app-modal-field">
-            <label>회의 날짜</label>
-            <div class="datetime-split-input">
-              <input type="date" v-model="editSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
-              <span class="datetime-split-sep"></span>
-              <input type="text" v-model="editSessionForm.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
-            </div>
-            <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
-          </div>
-          <div class="app-modal-field">
-            <MemberInvite v-model="editSessionMembers" />
-          </div>
-        </div>
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="showEditSession=false">취소</button>
-          <button class="app-btn-primary" :disabled="editingSession||!editSessionForm.title.trim()" @click="doEditSession">
-            {{ editingSession ? '수정 중...' : '수정' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <SessionEditModal
+    :show="showEditSession"
+    :session="currentEditSession"
+    @close="showEditSession=false"
+    @saved="onSessionEditSaved"
+  />
 
-  <!-- 회의 생성 모달 -->
+  <CreateSessionModal
+    :show="showCreateSession"
+    :meetings="meetings"
+    :lockedUserId="authStore.user?.id"
+    @close="showCreateSession=false"
+    @saved="onSessionCreated"
+  />
+
+  <!-- 맥락 입력 모달 -->
   <Teleport to="body">
-    <div v-if="showCreateSession" class="app-modal-backdrop">
-      <div class="app-modal app-modal-sm">
+    <div v-if="showContextModal" class="app-modal-backdrop" @click.self="showContextModal=false">
+      <div class="app-modal context-modal">
         <div class="app-modal-header">
-          <span class="app-modal-title">회의 생성</span>
-          <button class="app-modal-close" @click="closeCreateSession()">
+          <span class="app-modal-title">맥락 입력</span>
+          <button class="app-modal-close" @click="showContextModal=false">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div class="app-modal-body">
-          <div class="app-modal-field">
-            <label>회의체 <span style="color:#ef4444">*</span></label>
-            <select v-model="createSessionForm.meetingId" class="app-modal-input">
-              <option :value="null" disabled>회의체를 선택하세요</option>
-              <option v-for="m in meetings" :key="m.id" :value="m.id">{{ m.title }}</option>
-            </select>
-          </div>
-          <div class="app-modal-field">
-            <label>회의명 <span style="color:#ef4444">*</span></label>
-            <input v-model="createSessionForm.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
-          </div>
-          <div class="app-modal-field">
-            <label>장소</label>
-            <input v-model="createSessionForm.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
-          </div>
-          <div class="app-modal-field">
-            <label>회의 날짜</label>
-            <div class="datetime-split-input">
-              <input type="date" v-model="createSessionForm.dateOnly" class="datetime-split-date" @change="showPastDateAlert=false" />
-              <span class="datetime-split-sep"></span>
-              <input type="text" v-model="createSessionForm.timeOnly" class="datetime-split-time" placeholder="HH:MM" maxlength="5" @input="showPastDateAlert=false" />
-            </div>
-            <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
-          </div>
-          <div class="app-modal-field">
-            <MemberInvite v-model="createSessionMembers" />
-          </div>
+          <p class="context-modal-desc">대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 요약 정확도가 크게 높아져요.</p>
+          <textarea v-model="contextDraft" class="context-modal-textarea"
+            placeholder="예시:&#10;- 대화 상황: ABC 프로젝트 킥오프 미팅&#10;- 주제: Q3 마케팅 전략, 예산 논의&#10;- 고유명사: 김팀장, 이대리, 네트워크 인프라" rows="7" />
         </div>
         <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="closeCreateSession()">취소</button>
-          <button class="app-btn-primary" :disabled="creatingSessionForm||!createSessionForm.title.trim()||!createSessionForm.meetingId" @click="doCreateSessionForm">
-            {{ creatingSessionForm ? '생성 중...' : '생성' }}
-          </button>
+          <button class="app-modal-cancel" @click="showContextModal=false">취소</button>
+          <button class="app-modal-confirm" @click="saveContext">저장</button>
         </div>
       </div>
     </div>
@@ -1490,7 +1372,6 @@ async function downloadMinutesFile() {
 
 .sp-mtg-group { border-bottom:1px solid var(--surface-2); }
 .sp-mtg-header { display:flex;align-items:center;gap:7px;padding:10px 14px;cursor:pointer;user-select:none; }
-.sp-mtg-header.expanded { background:var(--surface); }
 .sp-mtg-dot { width:6px;height:6px;background:var(--primary);border-radius:50%;flex-shrink:0; }
 .sp-mtg-title { flex:1;font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-mtg-chev { color:var(--text-muted);transition:transform .2s;flex-shrink:0; }
@@ -1502,20 +1383,15 @@ async function downloadMinutesFile() {
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-date { font-size:10px;color:var(--text-muted);margin-top:4px; }
-.sp-session-location { font-size:10px;color:var(--text-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
+.sp-session-date { font-size:10px;color:var(--text-muted); }
+.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
-.datetime-split-input { display:flex;align-items:center;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:hidden; }
-.datetime-split-input:focus-within { border-color:rgba(96,165,250,.6); }
-.datetime-split-date, .datetime-split-time { border:none;background:transparent;outline:none;padding:8px 10px;font-size:13px;font-family:inherit;color:#1e293b; }
-.datetime-split-date { flex:1; }
-.datetime-split-time { width:130px; }
-.datetime-split-sep { width:1px;height:20px;background:#e2e8f0;flex-shrink:0; }
 
 /* ── Center panel ── */
-.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0 3px;overflow:visible;min-width:0; }
+.sp-main { flex:1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0 10px;overflow:visible;min-width:0; }
 
 .sp-no-session { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text-muted); }
 .sp-no-session-text { font-size:14px;font-weight:600;margin:0; }
@@ -1531,12 +1407,29 @@ async function downloadMinutesFile() {
 @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
 
 
-.sp-tab-body { flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-height:0; }
+.sp-tab-body { flex:1;overflow-y:auto;padding:35px 60px;display:flex;flex-direction:column;gap:4px;min-height:0; }
 .sp-tab-body::-webkit-scrollbar { width:4px; }
 .sp-tab-body::-webkit-scrollbar-thumb { background:var(--border); }
 .minutes-scroll-area { flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0;padding-bottom:8px; }
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
+.conv-block { padding:20px 0 16px; }
+.conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
+.conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
+.conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
+.conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden; }
+.conv-raw-loading { border-color:var(--primary);opacity:.7; }
+.conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
+@keyframes conv-scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+.conv-raw-line { font-size:13px;color:var(--text-muted);line-height:2; }
+.context-modal { width:480px;max-width:90vw; }
+.context-modal-desc { font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6; }
+.context-modal-textarea { width:100%;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:13px;background:var(--surface);color:var(--text);outline:none;resize:none;font-family:inherit;line-height:1.7; }
+.context-modal-textarea:focus { border-color:var(--primary); }
+.app-modal-footer { display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border); }
+.app-modal-cancel { padding:7px 16px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-muted);font-size:13px;cursor:pointer; }
+.app-modal-confirm { padding:7px 18px;border-radius:7px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+
 .sp-tab-body.minutes-mode { overflow:hidden;padding:0;display:flex;flex-direction:column; }
 .sp-tab-body.minutes-mode .minutes-scroll-area { padding:12px 16px 0; }
 .sp-tab-body.minutes-mode .minutes-scroll-area.has-nab { flex:0 1 50%;min-height:0; }
@@ -1552,6 +1445,7 @@ async function downloadMinutesFile() {
   padding:1px 6px;border-radius:99px;border:1px solid;
   letter-spacing:.04em;
 }
+.tline-body { display:flex;align-items:baseline;flex:1;min-width:0; }
 .tline-text { font-size:13px;color:var(--dark-card);line-height:1.5;flex:1; }
 .tline-edit-btn { opacity:0;transition:opacity .15s;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:1px 4px;border-radius:4px;flex-shrink:0;margin-left:2px; }
 .tline-edit-btn:hover { color:var(--accent);background:rgba(96,165,250,.1); }
