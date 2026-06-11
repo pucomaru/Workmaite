@@ -1099,8 +1099,6 @@ async function downloadChatFile(filePath) {
               <div class="sp-panel-title">{{ activeSession.title }}</div>
             </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
-              <i class="bi bi-record-fill"></i>
-              {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
               <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
           </div>
@@ -1564,8 +1562,8 @@ async function downloadChatFile(filePath) {
 .sp-panel-title-group { display:flex;flex-direction:column;min-width:0;flex:1; }
 .sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-panel-location { font-size:11px;color:var(--text-muted);margin-top:1px; }
-.rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+.rec-live { display:flex;align-items:center;flex-shrink:0; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:35px 60px;display:flex;flex-direction:column;gap:4px;min-height:0; }
@@ -1575,9 +1573,9 @@ async function downloadChatFile(filePath) {
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
 .conv-block { padding:20px 0 16px; }
-.conv-block-header { display:flex;align-items:center;gap:8px;margin-bottom:8px; }
+.conv-block-header { display:flex;align-items:baseline;gap:8px;margin-bottom:8px; }
 .conv-block-title { font-size:13px;font-weight:700;color:var(--text); }
-.conv-block-time { font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap; }
+.conv-block-time { font-size:11px;color:var(--text-muted);font-family:'Pretendard',inherit;white-space:nowrap; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
 .conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
@@ -1625,8 +1623,8 @@ async function downloadChatFile(filePath) {
 .tline-cancel-btn { font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer; }
 
 /* REC 타이머 */
-.rec-live.paused { background:rgba(100,116,139,.15);color:var(--text-muted); }
-.rec-timer { font-family:monospace;font-size:11px;margin-left:4px;letter-spacing:.05em; }
+.rec-timer { font-family:'Pretendard',inherit;font-size:11px;font-weight:600;color:var(--danger);letter-spacing:.02em; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
