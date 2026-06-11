@@ -174,7 +174,8 @@ async def get_archive(
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
                     p.position AS position, type(rel) AS role, rel.role AS rel_role,
-                    coalesce(d.name, p.department, '') AS department
+                    coalesce(d.name, p.department, '') AS department,
+                    coalesce(p.company, '') AS company
                 ORDER BY mg_id
                 """,
                 {"ids": mg_ids_list},
@@ -289,6 +290,7 @@ async def get_archive(
                     "position": row.get("position", ""),
                     "role": "admin" if row.get("role") == "간사" or row.get("rel_role") == "admin" else "member",
                     "department": row.get("department") or "",
+                    "company": row.get("company") or "",
                 })
 
     # 동일 Agenda에 담당 관계가 여러 개면 중복 row가 생기므로 id 기준으로 병합
@@ -605,6 +607,7 @@ async def get_archive(
                         "position": u.position or "",
                         "role": "admin" if str(mb.role) == "admin" else "presenter",
                         "department": u.department or "",
+                        "company": u.company or "",
                     }
                     for mb, u in members_db
                 ],

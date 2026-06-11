@@ -43,13 +43,14 @@ def supervisor_direct_human(msg: str, context: str) -> str:
 
 
 # ─── archive/extract-agendas ─────────────────────────────────────────────────
-def extract_agendas_system(dept_list: str) -> str:
+def extract_agendas_system(org_dept_list: str) -> str:
     return f"""\
 당신은 회의체 운영 전문 AI입니다.
 주어진 컨텍스트(회의체 정보, 회의록, 미완료 과제, 첨부 자료)를 분석하여
 다음 회의에서 다뤄야 할 핵심 과제와 아젠다를 추출해 주세요.
 
-참여 부서: {dept_list}
+참여 (조직, 부서) 목록:
+{org_dept_list}
 
 규칙:
 1. 첨부 자료가 있으면 그 내용을 최우선으로 분석하여 구체적인 후속 과제를 추출하세요
@@ -57,13 +58,15 @@ def extract_agendas_system(dept_list: str) -> str:
 3. 과제는 실행 가능하고 구체적으로 작성하세요 (문서에서 언급된 날짜, 수치, 담당자 반영)
 4. 3-6개 과제를 추출하세요
 5. 문서에 시작일/마감일이 명시되어 있으면 반드시 start_date/due_date에 반영하세요
+6. organization과 department는 반드시 위 목록에 있는 값만 사용하세요. 목록에 없는 값은 null로 처리하세요
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
   "agendas": [
     {{
       "title": "과제/아젠다 제목",
-      "department": "담당부서명 또는 null",
+      "organization": "담당 조직명 또는 null",
+      "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",
       "due_date": "YYYY-MM-DD 또는 null",
@@ -74,13 +77,14 @@ def extract_agendas_system(dept_list: str) -> str:
 
 
 # ─── archive/chat-extract ─────────────────────────────────────────────────────
-def chat_extract_system(meeting_context: str, dept_list: str, current_agendas_text: str) -> str:
+def chat_extract_system(meeting_context: str, org_dept_list: str, current_agendas_text: str) -> str:
     return f"""\
 당신은 회의체 과제 관리 AI입니다.
 현재 추출된 과제 목록과 사용자의 요청을 바탕으로 과제 목록을 업데이트해주세요.
 
 회의체 정보: {meeting_context}
-참여 부서: {dept_list}
+참여 (조직, 부서) 목록:
+{org_dept_list}
 
 현재 과제 목록:
 {current_agendas_text}
@@ -90,13 +94,15 @@ def chat_extract_system(meeting_context: str, dept_list: str, current_agendas_te
 2. 사용자가 과제 수정을 요청하면 해당 과제를 수정하세요
 3. 사용자가 과제 삭제를 요청하면 해당 과제를 제거하세요
 4. 변경되지 않은 과제는 그대로 유지하세요
-5. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
+5. organization과 department는 반드시 위 목록에 있는 값만 사용하세요
+6. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
 
 {{
   "agendas": [
     {{
       "title": "과제 제목",
-      "department": "담당부서 또는 null",
+      "organization": "담당 조직명 또는 null",
+      "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",
       "due_date": "YYYY-MM-DD 또는 null"

@@ -318,10 +318,10 @@ async def confirm_extraction_review(
 
 
 # ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
-async def extract_agendas_from_context(context_parts: List[str], dept_list: str) -> dict:
+async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str) -> dict:
     llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
-        SystemMessage(content=extract_agendas_system(dept_list)),
+        SystemMessage(content=extract_agendas_system(org_dept_list)),
         HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
     ])
     return _parse_json_from_text(response.content.strip()) or {"agendas": []}
@@ -330,12 +330,12 @@ async def extract_agendas_from_context(context_parts: List[str], dept_list: str)
 async def chat_update_agendas(
     message: str,
     meeting_context: str,
-    dept_list: str,
+    org_dept_list: str,
     current_agendas_text: str,
 ) -> dict:
     llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
-        SystemMessage(content=chat_extract_system(meeting_context, dept_list, current_agendas_text)),
+        SystemMessage(content=chat_extract_system(meeting_context, org_dept_list, current_agendas_text)),
         HumanMessage(content=message),
     ])
     return _parse_json_from_text(response.content.strip()) or {}

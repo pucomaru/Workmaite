@@ -17,6 +17,7 @@ const {
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   detailMemberDepts,
+  detailMemberOrgs,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
@@ -383,6 +384,7 @@ const sbTopImprovements = computed(() => {
                       <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
                       <AgendaReviewList
                         :items="extractResult"
+                        :memberOrgs="detailMemberOrgs"
                         :memberDepts="detailMemberDepts"
                         :removeOnApprove="true"
                         @approved="approveItem"
