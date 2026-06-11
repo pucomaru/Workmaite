@@ -661,11 +661,18 @@ async def supervisor_chat(
 
             # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
             if _route == 'task_extractor':
+                _org_dept_pairs = _get_member_org_depts(db, data.meeting_id)
+                _org_dept_list = (
+                    "\n".join(
+                        f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+                        for p in _org_dept_pairs
+                    ) if _org_dept_pairs else "정보 없음"
+                )
                 gen = task_agent.chat_stream(
                     message=msg, chat_history=_chat_history_from_db,
                     previous_minutes=_get_previous_minutes(db, data.meeting_id),
                     knowledge=[],
-                    departments=[p["department"] for p in _get_member_org_depts(db, data.meeting_id)],
+                    org_dept_list=_org_dept_list,
                     meeting_context=_enrich(_get_meeting_context(db, data.meeting_id)),
                 )
             elif _route == 'minutes_generator':
@@ -2269,7 +2276,7 @@ async def confirm_report_review_ep(
 class StartExtractionRequest(BaseModel):
     thread_id: str
     content: str
-    departments: Optional[List[str]] = []
+    org_dept_list: Optional[str] = ""
 
 
 @router.post("/extraction/review/start")
@@ -2278,11 +2285,10 @@ async def start_extraction_review_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    departments = data.departments or []
     result = await task_agent.start_extraction_review(
         thread_id=data.thread_id,
         content=data.content,
-        departments=departments,
+        org_dept_list=data.org_dept_list or "",
     )
     return result
 
