@@ -19,7 +19,7 @@ const {
   detailMemberDepts,
   detailMemberCompanies,
   goToProcessStep,
-  PRIORITY_LABEL, STATUS_LABEL,
+  PRIORITY_LABEL, STATUS_LABEL, NODE_TYPE_COLORS,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
@@ -95,6 +95,16 @@ const sbTopImprovements = computed(() => {
   const d = detailNode.value?.data
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
+
+function parseAiEvidence(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
+}
+
+function parseReason(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
+}
 
 // ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
 const fromSearch   = ref('')
@@ -230,7 +240,10 @@ watch(relAddActive, v => {
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="최종 보고일">
+              <SidebarInfoRow label="시작일">
+                <span style="font-size:10px;color:#999;white-space:nowrap">{{ detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-' }}</span>
+              </SidebarInfoRow>
+              <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
@@ -291,7 +304,7 @@ watch(relAddActive, v => {
               <div class="detail-log-list">
                 <template v-if="logFilteredItems.length">
                   <div v-for="(item, i) in logDisplayItems" :key="i" class="detail-log-item">
-                    <span class="detail-log-dot" :class="'ht-'+item.type"></span>
+                    <span class="detail-log-dot" :style="{ background: NODE_TYPE_COLORS[item.type] || '#555' }"></span>
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">{{ item.manager }} · {{ formatDate(item.date) }}</div>
@@ -463,10 +476,12 @@ watch(relAddActive, v => {
                         :items="extractResult"
                         :memberCompanies="detailMemberCompanies"
                         :memberDepts="detailMemberDepts"
-                        :removeOnApprove="true"
-                        @approved="approveItem"
-                        @rejected="rejectItem"
-                        @remove="rejectItem"
+                        :removeOnApprove="false"
+                        :showFooter="true"
+                        @approved="() => {}"
+                        @rejected="() => {}"
+                        @remove="(i) => extractResult.splice(i, 1)"
+                        @save="finishExtract"
                       />
                     </template>
 
@@ -653,7 +668,7 @@ watch(relAddActive, v => {
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
-              <div class="detail-meeting-name">{{ detailNode.label }}</div>
+              <div class="detail-meeting-name">{{ detailNode.type === 'agenda' ? (detailNode.data?.content || detailNode.data?.title || detailNode.label) : detailNode.label }}</div>
               <div class="detail-meta-row">
                 <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
               </div>
@@ -723,9 +738,9 @@ watch(relAddActive, v => {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
-              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+              <div v-if="parseAiEvidence(detailNode.data?.ai_evidence)" class="detail-section">
                 <div class="detail-section-label">AI 추천 아젠다</div>
-                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+                <div class="ai-evidence-box">{{ parseAiEvidence(detailNode.data.ai_evidence) }}</div>
               </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
@@ -865,7 +880,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
               </div>
             </template>
 
@@ -957,7 +972,7 @@ watch(relAddActive, v => {
               </div>
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
-                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+                <div class="rs-feedback-box" style="white-space: pre-line;">{{ Array.isArray(detailNode.data.feedback) ? detailNode.data.feedback.join('\n') : detailNode.data.feedback }}</div>
               </div>
 
               <!-- 우선 개선 아젠다 -->
@@ -1054,9 +1069,9 @@ watch(relAddActive, v => {
                   </div>
                 </div>
               </div>
-              <div v-if="detailNode.data?.reason" class="detail-section">
+              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
                 <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
+                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 
@@ -1227,3 +1242,13 @@ watch(relAddActive, v => {
           </svg>
         </button>
 </template>
+
+<style scoped>
+.ai-evidence-box :deep(h1),
+.ai-evidence-box :deep(h2),
+.ai-evidence-box :deep(h3) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+</style>

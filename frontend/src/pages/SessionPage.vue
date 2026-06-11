@@ -31,7 +31,7 @@ const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sidebarCollapsed = ref(false)
-const sidebarW = ref(220)
+const sidebarW = ref(330)
 let sidebarResizing = false, srStartX = 0, srStartW = 0
 function onSidebarResizeStart(e) {
   if (sidebarCollapsed.value) return
@@ -42,7 +42,7 @@ function onSidebarResizeStart(e) {
 }
 function onSidebarResizeMove(e) {
   if (!sidebarResizing) return
-  sidebarW.value = Math.max(180, Math.min(420, srStartW + (e.clientX - srStartX)))
+  sidebarW.value = Math.max(330, Math.min(450, srStartW + (e.clientX - srStartX)))
 }
 function onSidebarResizeEnd() {
   sidebarResizing = false
@@ -168,7 +168,7 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await apiAI.get(`/api/v1/sessions/${s.id}/minutes`)
+      const { data } = await apiAI.get(`/api/ai/sessions/${s.id}/minutes`)
       const minutesContent = data?.content_original || data?.content_summary
       if (minutesContent) {
         const html = renderMd(minutesContent)
@@ -288,7 +288,7 @@ async function refineChunk() {
   const processedIdx = lastRefineIdx.value + newLines.length
   const text = newLines.map(l => l.text).join('\n')
   try {
-    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
@@ -683,18 +683,25 @@ async function saveMinutesToDB() {
   if (!activeSession.value || !generatedMinutes.value?.content_summary) return
   savingMinutes.value = true
   try {
+    const sessionId = activeSession.value.id
+    const meetingId = activeSession.value.meeting_id || activeSession.value.meetingId
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
     const fd = new FormData()
     fd.append('content', html)
-    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+    await apiAI.post(`/api/upload/minutes/${sessionId}`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    // 회의록 저장 완료 → 세션 archived 처리
-    await api.post(`/api/v1/sessions/${activeSession.value.id}/archive`)
+    await api.post(`/api/v1/sessions/${sessionId}/archive`)
     if (activeSession.value) activeSession.value.status = 'archived'
+    // 사이드바 세션 목록 업데이트
+    if (meetingId && sessionsCache.value[meetingId]) {
+      const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)
+      if (s) s.status = 'archived'
+    }
   } catch (e) {
-    alert('저장에 실패했습니다.')
+    const msg = e?.response?.data?.detail || e?.message || '알 수 없는 오류'
+    alert(`저장에 실패했습니다: ${msg}`)
   } finally {
     savingMinutes.value = false
   }
@@ -710,7 +717,7 @@ async function deleteMinutes() {
     rec.generatedMinutes = null
     rec.showMinutesTab = false
     try {
-      await apiAI.delete(`/api/v1/sessions/${activeSession.value.id}/minutes`)
+      await apiAI.delete(`/api/ai/sessions/${activeSession.value.id}/minutes`)
     } catch { /* 404(없는 경우) 무시 */ }
   }
 }
@@ -983,7 +990,10 @@ async function downloadChatFile(filePath) {
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
               <div class="sp-session-info">
-                <div class="sp-session-name">{{ s.title }}</div>
+                <div class="sp-session-name">
+                  <span class="sp-session-title-text">{{ s.title }}</span>
+                  <span class="sp-session-status">{{ STATUS_LABEL[s.status] }}</span>
+                </div>
                 <div class="sp-session-meta">
                   <span v-if="s.location" class="sp-session-location"><i class="bi bi-geo-alt"></i> {{ s.location }}</span>
                   <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
@@ -1148,22 +1158,18 @@ async function downloadChatFile(filePath) {
                     :memberCompanies="sessionMemberCompanies"
                     :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
+                    :showFooter="true"
                     @approved="() => {}"
-                    @rejected="removeNextAgendaItem"
+                    @rejected="() => {}"
                     @remove="removeNextAgendaItem"
-                  />
-                </div>
-
-                <div class="nab-footer">
-                  <button class="nab-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
-                  </button>
-                  <div class="nab-footer-right">
-                    <span class="nab-count">승인 {{ nextAgendaItems.filter(a=>a._state==='approved'||a._state==='saved').length }} / 반려 {{ nextAgendaItems.filter(a=>a._state==='rejected').length }}</span>
-                    <button class="nab-save-btn" :disabled="!nextAgendaItems.filter(a=>a._state==='approved').length" @click="saveApprovedNextAgendas">
-                      승인 {{ nextAgendaItems.filter(a=>a._state==='approved').length }}건 저장
-                    </button>
-                  </div>
+                    @save="saveApprovedNextAgendas"
+                  >
+                    <template #footer-left>
+                      <button class="nab-add-btn" @click="addNextAgendaItem">
+                        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 아젠다 직접 추가
+                      </button>
+                    </template>
+                  </AgendaReviewList>
                 </div>
               </template>
             </div>
@@ -1454,11 +1460,12 @@ async function downloadChatFile(filePath) {
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-info { flex:1;min-width:0; }
-.sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
+.sp-session-name { font-size:11px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:5px;overflow:hidden; }
+.sp-session-title-text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0; }
+.sp-session-status { font-size:9px;font-weight:600;flex-shrink:0;color:var(--text-muted);background:var(--surface-2);border-radius:10px;padding:1px 6px;white-space:nowrap; }
+.sp-session-meta { display:flex;flex-direction:column;gap:2px;margin-top:3px;overflow:hidden; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
-.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
+.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
 
@@ -1678,10 +1685,4 @@ async function downloadChatFile(filePath) {
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .nab-list { padding:8px; }
-.nab-footer { display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--border); }
-.nab-footer-right { display:flex;align-items:center;gap:8px; }
-.nab-count { font-size:11px;color:var(--text-muted); }
-.nab-add-btn { font-size:11px;color:#818cf8;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;padding:0; }
-.nab-save-btn { font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;border:none;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;cursor:pointer; }
-.nab-save-btn:disabled { opacity:.35;cursor:not-allowed; }
 </style>

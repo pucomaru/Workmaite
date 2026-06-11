@@ -108,11 +108,14 @@ _ROUTING_SYSTEM = """\
 사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하고, 처리 계획을 세우세요.
 
 에이전트 선택 기준:
-- task_extractor: 아젠다·과제·할 일·투두·Todo 추출/관리, 안건 목록, 다음 회의 준비, 아카이브 파일 분석
+- task_extractor: 아젠다·과제·할 일·투두·Todo 새로 추출, 다음 회의 준비, 아카이브 파일 분석·추출
 - minutes_generator: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
 - report_reviewer: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
 - knowledge_manager: 과거 회의 내용 검색, 지식 베이스 저장·관리, HITL 검토·승인, 관계 그래프 조회
-- supervisor_direct: 회의체 현황 조회(Neo4j), 구성원 안내, 인사·일반 질문
+- supervisor_direct: 회의체 현황·브리핑, 과제 진행 상황 조회, 보고서 제출 현황 조회, 소속 회의체 목록, 구성원 안내, 인사·일반 질문
+
+★ supervisor_direct 우선 케이스 (아래 패턴은 반드시 supervisor_direct):
+  "브리핑", "현황", "상황 어때", "속해있어", "소속", "제출 현황", "진행 상황"
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
@@ -590,7 +593,7 @@ async def supervisor_chat(
     except Exception:
         pass
 
-    _thread_id = f"supervisor-{data.meeting_id or 0}"
+    _thread_id = f"meeting_{data.meeting_id}" if data.meeting_id else f"global_{current_user.id}"
 
     async def stream():
         _collector = TokenUsageCollector()
@@ -662,36 +665,169 @@ async def supervisor_chat(
                     hl_candidates.append(neo4j_ctx["meeting"]["title"])
             else:
                 try:
+                    mg_detail_rows: list[dict] = []
                     if user_person_id:
-                        person_rows = await run_cypher(
-                            "MATCH (p:User {id: $pid})-[r:`구성원`|`간사`]->(mg:Meetings) "
-                            "RETURN p.name AS person, mg.title AS meeting, type(r) AS role",
+                        mg_detail_rows = await run_cypher(
+                            """MATCH (me:User {id: $pid})-[:`구성원`|`간사`]->(mg:Meetings)
+                               WITH DISTINCT mg
+                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               WITH mg,
+                                    head(collect(DISTINCT
+                                        sec.name + '||' + coalesce(sec.department, '')
+                                    )) AS sec_info,
+                                    [d IN collect(DISTINCT mem.department)
+                                     WHERE d IS NOT NULL AND d <> ''] AS member_depts
+                               OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
+                               WITH mg, sec_info, member_depts,
+                                    max(s.scheduled_at) AS latest_session_date
+                               OPTIONAL MATCH (d:Report)-[:`첨부`]->(mg)
+                               RETURN mg.id AS mg_id, mg.title AS title,
+                                      coalesce(mg.meeting_type, '') AS meeting_type,
+                                      sec_info, member_depts, latest_session_date,
+                                      count(DISTINCT d) AS report_count
+                               ORDER BY mg.title""",
                             {"pid": user_person_id},
                         )
                     elif is_admin:
-                        person_rows = await run_cypher(
-                            "MATCH (p:User)-[r:`구성원`]->(mg:Meetings) "
-                            "RETURN p.name AS person, mg.title AS meeting, r.role AS role"
+                        mg_detail_rows = await run_cypher(
+                            """MATCH (mg:Meetings)
+                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               WITH mg,
+                                    head(collect(DISTINCT
+                                        sec.name + '||' + coalesce(sec.department, '')
+                                    )) AS sec_info,
+                                    [d IN collect(DISTINCT mem.department)
+                                     WHERE d IS NOT NULL AND d <> ''] AS member_depts
+                               OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
+                               WITH mg, sec_info, member_depts,
+                                    max(s.scheduled_at) AS latest_session_date
+                               OPTIONAL MATCH (d:Report)-[:`첨부`]->(mg)
+                               RETURN mg.id AS mg_id, mg.title AS title,
+                                      coalesce(mg.meeting_type, '') AS meeting_type,
+                                      sec_info, member_depts, latest_session_date,
+                                      count(DISTINCT d) AS report_count
+                               ORDER BY mg.title LIMIT 20"""
                         )
+
+                    if mg_detail_rows:
+                        # mg_id 기준 중복 제거
+                        seen_mg_ids: set = set()
+                        unique_rows: list[dict] = []
+                        for _row in mg_detail_rows:
+                            _mid = _row.get("mg_id", "")
+                            if _mid and _mid in seen_mg_ids:
+                                continue
+                            if _mid:
+                                seen_mg_ids.add(_mid)
+                            unique_rows.append(_row)
+
+                        yield f"data: [PLANNING] 소속 회의체 {len(unique_rows)}건 상세 조회\n\n"
+
+                        ctx_lines = ["[소속 회의체 목록]"]
+                        for _row in unique_rows:
+                            _title = _row.get("title") or "?"
+                            _mtype = _row.get("meeting_type") or ""
+                            _sec_info = _row.get("sec_info") or ""
+                            _depts: list = _row.get("member_depts") or []
+                            _latest = _row.get("latest_session_date") or ""
+                            _rcount = _row.get("report_count") or 0
+
+                            _type_label = f" — {_mtype}" if _mtype else ""
+                            ctx_lines.append(f"\n📋 {_title}{_type_label}")
+
+                            if _sec_info:
+                                _parts = _sec_info.split("||", 1)
+                                _sec_name = _parts[0].strip()
+                                _sec_dept = f"({_parts[1].strip()})" if len(_parts) > 1 and _parts[1].strip() else ""
+                                ctx_lines.append(f"  - 간사: {_sec_name} {_sec_dept}".rstrip())
+                            else:
+                                ctx_lines.append("  - 간사: 미지정")
+
+                            _unique_depts = list(dict.fromkeys(d for d in _depts if d))
+                            ctx_lines.append(f"  - 참여부서: {', '.join(_unique_depts[:8])}" if _unique_depts else "  - 참여부서: 없음")
+
+                            if _latest:
+                                _date_str = str(_latest)[:10].replace("-", ".")
+                                ctx_lines.append(f"  - 최근 회의: {_date_str}")
+                            else:
+                                ctx_lines.append("  - 최근 회의: 없음")
+
+                            ctx_lines.append(f"  - 보고자료: {_rcount}건 제출")
+
+                            if _title not in hl_candidates:
+                                hl_candidates.append(_title)
+
+                        neo4j_ctx_str = "\n".join(ctx_lines)
+
                     else:
-                        person_rows = []
-                    if person_rows:
-                        yield f"data: [PLANNING] 구성원 소속 회의체 {len(person_rows)}건 확인\n\n"
-                        pm: dict = defaultdict(list)
-                        for row in person_rows:
-                            pm[row.get("person", "?")].append(row.get("meeting", "?"))
-                        lines = [f"- {person}: {', '.join(mtgs)}" for person, mtgs in pm.items()]
-                        neo4j_ctx_str = "[구성원 소속 회의체]\n" + "\n".join(lines)
-                        for row in person_rows:
-                            t = row.get("meeting", "")
-                            if t and t not in hl_candidates:
-                                hl_candidates.append(t)
-                    else:
-                        company_rows = await run_cypher(
-                            "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
-                        )
-                        if company_rows:
-                            yield f"data: [PLANNING] 조직: {company_rows[0].get('name', '?')} 확인\n\n"
+                        # PostgreSQL fallback: Neo4j에 데이터 없는 경우
+                        _pg_mids = list(pg_meeting_ids)[:20]
+                        _pg_meetings = (
+                            db.query(models.Meeting)
+                            .filter(models.Meeting.id.in_(_pg_mids))
+                            .order_by(models.Meeting.title)
+                            .all()
+                        ) if _pg_mids else []
+
+                        if _pg_meetings:
+                            yield f"data: [PLANNING] 소속 회의체 {len(_pg_meetings)}건 조회\n\n"
+                            ctx_lines = ["[소속 회의체 목록]"]
+                            for _mg in _pg_meetings:
+                                _mems = (
+                                    db.query(models.MeetingMember)
+                                    .filter(models.MeetingMember.meeting_id == _mg.id)
+                                    .all()
+                                )
+                                _user_ids = [m.user_id for m in _mems]
+                                _users = {
+                                    u.id: u for u in db.query(models.User)
+                                    .filter(models.User.id.in_(_user_ids)).all()
+                                }
+                                _admin_mem = next((m for m in _mems if m.role == "admin"), None)
+                                _sec = _users.get(_admin_mem.user_id) if _admin_mem else None
+                                _depts = list(dict.fromkeys(
+                                    _users[m.user_id].department
+                                    for m in _mems
+                                    if m.user_id in _users and _users[m.user_id].department
+                                ))
+                                _latest_s = (
+                                    db.query(models.MeetingSession)
+                                    .filter(
+                                        models.MeetingSession.meeting_id == _mg.id,
+                                        models.MeetingSession.status.in_(["ended", "ENDED"]),
+                                    )
+                                    .order_by(models.MeetingSession.ended_at.desc())
+                                    .first()
+                                )
+                                _rcount = (
+                                    db.query(models.Report)
+                                    .filter(models.Report.meeting_id == _mg.id)
+                                    .count()
+                                )
+                                _type_label = f" — {_mg.meeting_type}" if _mg.meeting_type else ""
+                                ctx_lines.append(f"\n📋 {_mg.title}{_type_label}")
+                                if _sec:
+                                    _sec_dept = f"({_sec.department})" if _sec.department else ""
+                                    ctx_lines.append(f"  - 간사: {_sec.name} {_sec_dept}".rstrip())
+                                else:
+                                    ctx_lines.append("  - 간사: 미지정")
+                                ctx_lines.append(f"  - 참여부서: {', '.join(_depts[:8])}" if _depts else "  - 참여부서: 없음")
+                                if _latest_s and _latest_s.ended_at:
+                                    ctx_lines.append(f"  - 최근 회의: {_latest_s.ended_at.strftime('%Y.%m.%d')}")
+                                else:
+                                    ctx_lines.append("  - 최근 회의: 없음")
+                                ctx_lines.append(f"  - 보고자료: {_rcount}건 제출")
+                                if _mg.title not in hl_candidates:
+                                    hl_candidates.append(_mg.title)
+                            neo4j_ctx_str = "\n".join(ctx_lines)
+                        else:
+                            org_rows = await run_cypher(
+                                "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
+                            )
+                            if org_rows:
+                                yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
                 except Exception:
                     pass
 
@@ -745,6 +881,123 @@ async def supervisor_chat(
                 _ctx_parts: list[str] = [_user_scope_header]
                 if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                     _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
+
+                # Neo4j에 멤버 데이터가 없을 경우 PostgreSQL로 보완
+                if data.meeting_id and not neo4j_ctx.get("members"):
+                    _pg_ctx = _get_meeting_context(db, data.meeting_id)
+                    if _pg_ctx:
+                        _ctx_parts.append(f"[회의체 기본 정보]\n{_pg_ctx}")
+
+                # 최근 AgentLog 활동 추가 (있을 경우)
+                if data.meeting_id:
+                    try:
+                        _recent_logs = (
+                            db.query(models.AgentLog)
+                            .filter(models.AgentLog.meeting_id == data.meeting_id)
+                            .order_by(models.AgentLog.ended_at.desc())
+                            .limit(5)
+                            .all()
+                        )
+                        if _recent_logs:
+                            _log_lines = []
+                            for _log in _recent_logs:
+                                _detail = (_log.output_data or {}).get("action", "") or (_log.output_data or {}).get("detail", "")
+                                _log_lines.append(f"  - {_log.context_type}: {_detail[:60]}" if _detail else f"  - {_log.context_type}")
+                            _ctx_parts.append("[최근 활동 로그]\n" + "\n".join(_log_lines))
+                    except Exception:
+                        pass
+
+                # ── 과제 진행 상황 — 회의체별 집계 (PostgreSQL) ──────────────
+                try:
+                    _agenda_meeting_ids = (
+                        [data.meeting_id] if data.meeting_id
+                        else [mid for mid in pg_meeting_ids][:10]
+                    )
+                    if _agenda_meeting_ids:
+                        _agendas = (
+                            db.query(models.Agenda)
+                            .filter(
+                                models.Agenda.meeting_id.in_(_agenda_meeting_ids),
+                            )
+                            .order_by(models.Agenda.meeting_id, models.Agenda.due_date)
+                            .all()
+                        )
+                        if _agendas:
+                            from collections import Counter as _Counter, defaultdict as _dd_a
+                            # 회의체별 status 카운트
+                            _by_mg_agenda: dict = _dd_a(list)
+                            for _a in _agendas:
+                                _by_mg_agenda[_a.meeting_id].append(_a)
+
+                            # 회의체 title 캐시
+                            _mg_title_cache: dict[int, str] = {}
+                            for _mid in _agenda_meeting_ids:
+                                _m = db.query(models.Meeting).filter(models.Meeting.id == _mid).first()
+                                if _m:
+                                    _mg_title_cache[_mid] = _m.title
+
+                            _a_lines = [f"[아젠다 현황] 총 {len(_agendas)}건 (회의체별 집계)"]
+                            for _mid, _alist in _by_mg_agenda.items():
+                                _mg_name = _mg_title_cache.get(_mid, f"회의체 {_mid}")
+                                _cnt = _Counter(a.status for a in _alist)
+                                _a_lines.append(f"\n  [{_mg_name}]")
+                                for _s, _label in [
+                                    ("ongoing", "진행 중"),
+                                    ("done", "완료"),
+                                    ("pending", "대기"),
+                                    ("submitted", "제출완료"),
+                                    ("draft", "초안"),
+                                ]:
+                                    if _cnt.get(_s):
+                                        _a_lines.append(f"    - {_label}: {_cnt[_s]}건")
+                            _ctx_parts.append("\n".join(_a_lines))
+                except Exception:
+                    pass
+
+                # ── 보고서 제출 현황 (PostgreSQL) ─────────────────────────────
+                try:
+                    _report_meeting_ids = (
+                        [data.meeting_id] if data.meeting_id
+                        else [mid for mid in pg_meeting_ids][:10]
+                    )
+                    if _report_meeting_ids:
+                        _reports = (
+                            db.query(models.Report)
+                            .filter(models.Report.meeting_id.in_(_report_meeting_ids))
+                            .order_by(models.Report.created_at.desc())
+                            .limit(30)
+                            .all()
+                        )
+                        if _reports:
+                            _mg_titles: dict[int, str] = {}
+                            for _mid in _report_meeting_ids:
+                                _m = db.query(models.Meeting).filter(models.Meeting.id == _mid).first()
+                                if _m:
+                                    _mg_titles[_mid] = _m.title
+                            _r_status_label = {
+                                "pending": "검토중", "approved": "승인",
+                                "rejected": "반려", "draft": "초안",
+                            }
+                            from collections import defaultdict as _dd
+                            _by_mg: dict = _dd(list)
+                            for _r in _reports:
+                                _by_mg[_r.meeting_id].append(_r)
+                            _r_lines = [f"[보고서 제출 현황] 총 {len(_reports)}건"]
+                            for _mid, _rlist in _by_mg.items():
+                                _mg_name = _mg_titles.get(_mid, f"회의체 {_mid}")
+                                _r_lines.append(f"\n  [{_mg_name}] {len(_rlist)}건")
+                                for _r in _rlist[:5]:
+                                    _rs = _r_status_label.get(_r.human_status or "", _r.human_status or "")
+                                    _rdate = _r.created_at.strftime("%Y.%m.%d") if _r.created_at else ""
+                                    _dept = _r.submitter_department or "미상"
+                                    _r_lines.append(
+                                        f"    - {_r.file_name or '(파일없음)'} "
+                                        f"[{_dept}] [{_rs}] ({_rdate})"
+                                    )
+                            _ctx_parts.append("\n".join(_r_lines))
+                except Exception:
+                    pass
+
                 if _kb_results:
                     _ctx_parts.append(
                         "[Knowledge Base 관련 자료]\n" + "\n".join(

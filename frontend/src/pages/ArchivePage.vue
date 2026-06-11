@@ -886,6 +886,11 @@ async function finishExtract() {
 
 const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
 const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승인대기', done: '완료' }
+const NODE_TYPE_COLORS = {
+  Meetings: '#3b82f6', agenda: '#f59e0b', session: '#f97316',
+  minutes: '#60a5fa', report: '#34d399', dept: '#8b5cf6',
+  person: '#f472b6', company: '#0d9488', human_judgment: '#22d3ee',
+}
 
 function goToProcessStep(step) {
   if (step === 'context' && extractPhase.value === 'result') {
@@ -1988,18 +1993,19 @@ const fileListMap = computed(() => {
   meetingGroups.value.forEach(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const managerName = adminMember?.userName || adminMember?.name || '간사'
+    const hostDept = adminMember?.department || adminMember?.dept || managerName
     const items = []
-    g.minutes.forEach(m => {
+    g.minutes.filter(m => m.session_status === 'archived').forEach(m => {
       const rawId = String(m.id || '')
       const pgSessionId = rawId.startsWith('session-') ? parseInt(rawId.replace('session-', '')) : null
       items.push({
         type: 'minutes',
         desc: `${m.session_title || '회의'} 진행`,
-        manager: managerName,
+        manager: hostDept,
         fileName: m.session_title || '회의록',
-        score: null, dept: null,
+        score: null, dept: hostDept || null,
         date: m.ended_at,
-        hasFile: true, filePath: null,
+        hasFile: !!m.minutes_file_name, filePath: null,
         sessionId: Number.isFinite(pgSessionId) ? pgSessionId : null,
       })
     })
@@ -2183,8 +2189,8 @@ async function _openPresigned(filePath) {
   window.open(data.url, '_blank')
 }
 async function _fetchMinutesFilePath(sessionId) {
-  const res = await api.get(`/api/v1/sessions/${sessionId}/minutes`)
-  return res?.data?.data?.filePath || res?.data?.filePath || null
+  const res = await apiAI.get(`/api/ai/sessions/${sessionId}/minutes`)
+  return res?.data?.file_path || null
 }
 async function downloadFile(item) {
   try {
@@ -2210,6 +2216,34 @@ async function downloadNode(node) {
   } catch(e) { console.error('[downloadNode]', e); alert('파일 다운로드에 실패했습니다.') }
 }
 const downloadDummy = downloadNode
+async function deleteMinutes(sessionId) {
+  if (!confirm('회의록을 삭제하시겠습니까?')) return
+  try {
+    await apiAI.delete(`/api/ai/sessions/${sessionId}/minutes`)
+    setTimeout(refreshArchive, 600)
+  } catch (e) { alert('삭제에 실패했습니다.') }
+}
+
+async function downloadScript(sessionId) {
+  try {
+    const { data } = await api.get(`/api/v1/sessions/${sessionId}/scripts`)
+    if (!data?.length) { alert('저장된 스크립트가 없습니다.'); return }
+    const rows = data.map(s => `<tr><td>${s.speakerLabel || '발화자'}</td><td>${s.content || ''}</td></tr>`).join('')
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>STT 스크립트</title>
+      <style>body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:#1e293b;padding:40px;max-width:820px;margin:0 auto}
+      h1{font-size:18px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;font-size:12px}
+      td{border:1px solid #e2e8f0;padding:6px 10px;vertical-align:top}
+      td:first-child{width:100px;font-weight:600;color:#475569;white-space:nowrap}
+      @media print{body{padding:20px}}</style>
+      </head><body><h1>STT 스크립트</h1><table>${rows}</table></body></html>`)
+    w.document.close()
+    setTimeout(() => { w.focus(); w.print() }, 400)
+  } catch (e) { alert('스크립트 다운로드에 실패했습니다.') }
+}
+
 async function deleteReport(reportId) {
   if (!reportId) return
   if (!confirm('보고서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
@@ -2269,7 +2303,7 @@ provide('archiveList', {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap: filteredFileListMap,
-  formatDate, downloadDummy: downloadFile, deleteReport, resumePendingReport,
+  formatDate, downloadDummy: downloadFile, deleteReport, deleteMinutes, downloadScript, resumePendingReport,
 })
 
 // ─── Provide for Modals ───────────────────────────────────────
@@ -2625,7 +2659,7 @@ provide('archiveSidebar', {
   detailMemberDepts,
   detailMemberCompanies,
   goToProcessStep,
-  PRIORITY_LABEL, STATUS_LABEL,
+  PRIORITY_LABEL, STATUS_LABEL, NODE_TYPE_COLORS,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
