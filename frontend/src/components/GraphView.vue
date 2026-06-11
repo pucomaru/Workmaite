@@ -77,20 +77,28 @@ let isPanning = false, panStartX = 0, panStartY = 0, panOrigX = 0, panOrigY = 0
 // dirty flag — sim이 움직이거나 인터랙션이 발생했을 때만 리드로우
 let _simDirty = true
 
-// highlight blink state
-let _hlBlinkVisible = false
-let _blinkTimer = null
-function _startBlink() {
-  clearInterval(_blinkTimer)
-  _hlBlinkVisible = true
-  _simDirty = true
-  let count = 0
-  _blinkTimer = setInterval(() => {
-    count++
-    _hlBlinkVisible = !_hlBlinkVisible
-    _simDirty = true
-    if (count >= 6) { clearInterval(_blinkTimer); _hlBlinkVisible = true; _simDirty = true }
-  }, 200)
+// rainbow highlight state
+const _RAINBOW_STOPS = [
+  [147, 197, 253],
+  [167, 139, 250],
+  [244, 114, 182],
+  [251, 191,  36],
+  [ 52, 211, 153],
+  [ 96, 165, 250],
+]
+let _hlPhase = 0
+let _hlActive = false
+
+function _rainbowHex(phase) {
+  const n = _RAINBOW_STOPS.length
+  const pos = (((phase % 1) + 1) % 1) * n
+  const i = Math.floor(pos) % n
+  const f = pos - Math.floor(pos)
+  const [r1, g1, b1] = _RAINBOW_STOPS[i]
+  const [r2, g2, b2] = _RAINBOW_STOPS[(i + 1) % n]
+  return (Math.round(r1 + (r2 - r1) * f) << 16) |
+         (Math.round(g1 + (g2 - g1) * f) << 8) |
+          Math.round(b1 + (b2 - b1) * f)
 }
 
 // node drag state
@@ -319,8 +327,11 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0x0f172a : 0x0f172a, width: 2.5, alpha: 0.9 })
   }
 
-  // Focus / hover ring
-  if (isFocus || obj.focused) {
+  // Rainbow highlight border (takes priority over focus/hover)
+  if (isHl && _hlActive) {
+    gfx.circle(0, 0, r)
+    gfx.stroke({ color: _rainbowHex(_hlPhase), width: 2.5, alpha: 0.95 })
+  } else if (isFocus || obj.focused) {
     gfx.circle(0, 0, r)
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 2.5, alpha: 1 })
   } else if (obj.hovered) {
@@ -443,6 +454,12 @@ function tick() {
   // viewport lerp 진행 중이면 dirty
   if (_targetVpX !== null) _simDirty = true
 
+  // rainbow highlight 진행 중이면 phase 업데이트 + dirty 유지
+  if (_hlActive) {
+    _hlPhase = (_hlPhase + 0.005) % 1
+    _simDirty = true
+  }
+
   // 리드로우가 필요 없으면 skip
   if (!_simDirty) return
   _simDirty = false
@@ -505,16 +522,17 @@ function tick() {
     const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id) + 3
     const sx2 = sn.x + ux * sr, sy2 = sn.y + uy * sr
 
-    const hlOn = isHlEdge && _hlBlinkVisible
-    const finalAlpha = hlOn && focusedIdx === null ? 0.75 : alpha
+    const isHlOn = isHlEdge && _hlActive
+    const edgeColor = isHlOn ? _rainbowHex(_hlPhase) : relColor
+    const finalAlpha = isHlOn && focusedIdx === null ? 0.9 : alpha
     edgeLayer.moveTo(sx2, sy2).lineTo(ex, ey)
-    edgeLayer.stroke({ color: relColor, width: (isFocEdge || hlOn) ? 1.8 : 0.9, alpha: finalAlpha })
+    edgeLayer.stroke({ color: edgeColor, width: (isFocEdge || isHlOn) ? 2.2 : 0.9, alpha: finalAlpha })
 
     // Arrowhead
     const as = 7
     const px2 = -uy * as * 0.44, py2 = ux * as * 0.44
     edgeLayer.poly([ex, ey, ex - ux * as + px2, ey - uy * as + py2, ex - ux * as - px2, ey - uy * as - py2])
-    edgeLayer.fill({ color: relColor, alpha: finalAlpha })
+    edgeLayer.fill({ color: edgeColor, alpha: finalAlpha })
   })
 
   // ── Draw nodes ───────────────────────────────────────────
@@ -551,6 +569,7 @@ function tick() {
     const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
     if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
   })
+
 }
 
 function isNeighbor(a, b) {
@@ -753,10 +772,15 @@ function hexToNum(hex) {
 // ─── Watchers ─────────────────────────────────────────────────
 watch(() => props.gNodes.length, () => buildSimulation())
 watch(() => props.queryHlIdxs, (val) => {
-  if (val?.size > 0) _startBlink()
-  else { clearInterval(_blinkTimer); _hlBlinkVisible = false; _simDirty = true }
+  _hlActive = (val?.size > 0) || (props.queryHlEdgeIdxs?.size > 0)
+  if (!_hlActive) _hlPhase = 0
+  _simDirty = true
 })
-watch(() => props.queryHlEdgeIdxs, () => { _simDirty = true })
+watch(() => props.queryHlEdgeIdxs, (val) => {
+  _hlActive = (val?.size > 0) || (props.queryHlIdxs?.size > 0)
+  if (!_hlActive) _hlPhase = 0
+  _simDirty = true
+})
 watch(() => props.nightMode, () => {
   // update label colors
   nodeObjs.forEach(obj => {
