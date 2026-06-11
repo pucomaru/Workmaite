@@ -872,7 +872,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
               </div>
             </template>
 
@@ -1234,3 +1234,13 @@ watch(relAddActive, v => {
           </svg>
         </button>
 </template>
+
+<style scoped>
+.ai-evidence-box :deep(h1),
+.ai-evidence-box :deep(h2),
+.ai-evidence-box :deep(h3) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+</style>
