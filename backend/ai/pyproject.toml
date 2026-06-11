@@ -31,4 +31,5 @@ dependencies = [
     "xhtml2pdf>=0.2.16",
     "google-cloud-speech>=2.26.0",
     "weasyprint>=69.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
 ]

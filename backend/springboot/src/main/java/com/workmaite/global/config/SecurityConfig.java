@@ -44,7 +44,7 @@ public class SecurityConfig {
             // 요청별 권한 설정
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()      // 로그인/회원가입
-                .requestMatchers("/actuator/health").permitAll()    // 헬스체크
+                .requestMatchers("/actuator/**").permitAll()        // actuator (prometheus, health 등)
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Swagger
                 .requestMatchers("/", "/error").permitAll()          // 루트/에러
                 .anyRequest().authenticated()                       // 나머지는 인증 필요

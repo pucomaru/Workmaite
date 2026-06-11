@@ -91,6 +91,13 @@ spec:
                 name: workmaite-ai
                 port:
                   number: 8000
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-grafana
+                port:
+                  number: 3000
           - path: /
             pathType: Prefix  # 위 경로에 매칭 안 된 나머지 전부 → Vue 프론트엔드
             backend:

@@ -27,6 +27,7 @@ from routers import stt as stt_router
 from routers import upload as upload_router
 from routers import usage as usage_router
 from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
+from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # 라우터
 app.include_router(auth_router.router)
