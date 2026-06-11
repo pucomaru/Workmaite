@@ -451,8 +451,7 @@ async def get_archive(
             db.query(models.Report, models.HitlReview, models.ReportScore)
             .outerjoin(
                 models.HitlReview,
-                (models.HitlReview.target_type == "report") &
-                (models.HitlReview.target_id == models.Report.id),
+                models.HitlReview.report_id == models.Report.id,
             )
             .outerjoin(
                 models.ReportScore,

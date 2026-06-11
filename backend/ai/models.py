@@ -198,15 +198,15 @@ class SessionSummaryBlock(Base):
 
 class HitlReview(Base):
     __tablename__ = "hitl_reviews"
-    id             = Column(Integer, primary_key=True, index=True)
-    agent_log_id   = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
-    target_type    = Column(String(30), nullable=False)
-    target_id      = Column(Integer, nullable=False)
-    review_prompt  = Column(JSON, nullable=True)
-    ai_rationale   = Column(Text, nullable=True)
-    status         = Column(Text, default="검토중")
-    reviewer_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
-    review_comment = Column(JSON, nullable=True)
-    reviewed_at    = Column(DateTime, nullable=True)
-    created_at     = Column(DateTime, default=datetime.utcnow)
+    id            = Column(Integer, primary_key=True, index=True)
+    agent_log_id  = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
+    target_type   = Column(String(30), nullable=False)
+    agenda_id     = Column(Integer, ForeignKey("agenda.id"), nullable=True)
+    report_id     = Column(Integer, ForeignKey("reports.id"), nullable=True)
+    ai_rationale  = Column(Text, nullable=True)
+    status        = Column(Text, default="검토중")
+    reviewer_id   = Column(Integer, ForeignKey("users.id"), nullable=True)
+    comment       = Column(Text, nullable=True)
+    reviewed_at   = Column(DateTime, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
 

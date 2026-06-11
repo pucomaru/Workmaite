@@ -317,7 +317,7 @@ async def delete_meeting(
 
     # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.report_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
 
     # ── 6. 보고서 ─────────────────────────────────────────────────
@@ -585,7 +585,7 @@ async def ai_delete_meeting(
 
     # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
     if report_ids:
-        db.query(models.HitlReview).filter(models.HitlReview.target_type == "report", models.HitlReview.target_id.in_(report_ids)).delete(synchronize_session=False)
+        db.query(models.HitlReview).filter(models.HitlReview.report_id.in_(report_ids)).delete(synchronize_session=False)
         db.query(models.ReportScore).filter(models.ReportScore.report_id.in_(report_ids)).delete(synchronize_session=False)
 
     # ── 6. 보고서 ─────────────────────────────────────────────────

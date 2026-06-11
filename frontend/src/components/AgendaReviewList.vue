@@ -96,24 +96,10 @@ async function saveFeedback(i) {
     try {
       await apiAI.post('/api/agent/hitl-reviews', {
         target_type: 'agenda',
-        target_id: ag.db_id,
+        agenda_id: ag.db_id,
         agent_log_id: ag._agentLogId || null,
         status: ag._feedbackAction || 'edited',
-        review_prompt: {
-          agenda: ag._origTitle ?? ag.title,
-          company: ag._origCompany ?? ag.company ?? null,
-          department: ag._origDept ?? ag.dept ?? null,
-          start_date: ag._origStartDate ?? ag.start_date ?? null,
-          end_date: ag._origEndDate ?? ag.end_date ?? null,
-        },
-        review_comment: {
-          agenda: ag.title,
-          company: ag.company ?? null,
-          department: ag.dept ?? null,
-          start_date: ag.start_date ?? null,
-          end_date: ag.end_date ?? null,
-          comment: ag._reason || null,
-        },
+        comment: ag._reason || null,
       })
     } catch (e) { console.warn('[hitl-reviews] 저장 실패 (계속 진행):', e) }
   }
