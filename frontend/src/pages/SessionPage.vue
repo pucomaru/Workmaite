@@ -521,31 +521,32 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
+      const org   = a.organization || a.company || ''
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
-        title, dept,
+        title, org, dept,
         db_id: a.db_id || null,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: agentLogId,
         _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: title, _editDept: dept,
+        _editTitle: title, _editOrg: org, _editDept: dept,
         _editStartDate: a.start_date || null,
         _editEndDate: a.due_date || null,
       }
     })
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+      nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    nextAgendaItems.value = [{ title: '다음 회의 과제를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
   }
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({ title: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editDept: '', _editStartDate: null, _editEndDate: null })
+  nextAgendaItems.value.push({ title: '', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
 function removeNextAgendaItem(i) {
@@ -641,6 +642,13 @@ async function loadMentionGraph() {
     mentionTasks.value = (data?.meetings || []).flatMap(m => m.tasks || [])
   } catch { /* 그래프 미연결 시 @멘션은 비활성 */ }
 }
+
+const sessionMemberOrgs = computed(() =>
+  [...new Set((mentionMembers.value || []).map(mb => mb.company || '').filter(Boolean))]
+)
+const sessionMemberDepts = computed(() =>
+  [...new Set((mentionMembers.value || []).map(mb => mb.department || mb.dept || '').filter(Boolean))]
+)
 
 function wmAutoResize() {
   const el = wmTextareaEl.value; if (!el) return
@@ -1053,6 +1061,8 @@ async function downloadMinutesFile() {
                 <div class="nab-list">
                   <AgendaReviewList
                     :items="nextAgendaItems"
+                    :memberOrgs="sessionMemberOrgs"
+                    :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
                     @approved="() => {}"
                     @rejected="removeNextAgendaItem"

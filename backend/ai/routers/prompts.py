@@ -43,12 +43,13 @@ def supervisor_direct_human(msg: str, context: str) -> str:
 
 
 # ─── archive/extract-agendas ─────────────────────────────────────────────────
-def extract_agendas_system(dept_list: str) -> str:
+def extract_agendas_system(org_dept_list: str) -> str:
     return f"""\
 당신은 회의체 운영을 지원하는 AI입니다.
 제공된 보고서, 회의록, 참고자료를 종합하여 각 팀이 다음으로 수행해야 할 아젠다를 추출합니다.
 
-참여 부서: {dept_list}
+참여 (조직, 부서) 목록:
+{org_dept_list}
 
 ---
 
@@ -242,8 +243,9 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
 {{
   "agendas": [
     {{
-      "title": "아젠다 제목 (단일 단계, 구체적이고 실행 가능하게)",
-      "department": "담당부서명 (참여 부서 중 하나, 없으면 null)",
+      "title": "과제/아젠다 제목",
+      "organization": "담당 조직명 또는 null",
+      "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",
       "due_date": "YYYY-MM-DD 또는 null",
@@ -254,13 +256,14 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
 
 
 # ─── archive/chat-extract ─────────────────────────────────────────────────────
-def chat_extract_system(meeting_context: str, dept_list: str, current_agendas_text: str) -> str:
+def chat_extract_system(meeting_context: str, org_dept_list: str, current_agendas_text: str) -> str:
     return f"""\
 당신은 회의체 과제 관리 AI입니다.
 현재 추출된 과제 목록과 사용자의 요청을 바탕으로 과제 목록을 업데이트해주세요.
 
 회의체 정보: {meeting_context}
-참여 부서: {dept_list}
+참여 (조직, 부서) 목록:
+{org_dept_list}
 
 현재 과제 목록:
 {current_agendas_text}
@@ -270,13 +273,15 @@ def chat_extract_system(meeting_context: str, dept_list: str, current_agendas_te
 2. 사용자가 과제 수정을 요청하면 해당 과제를 수정하세요
 3. 사용자가 과제 삭제를 요청하면 해당 과제를 제거하세요
 4. 변경되지 않은 과제는 그대로 유지하세요
-5. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
+5. organization과 department는 반드시 위 목록에 있는 값만 사용하세요
+6. 반드시 아래 JSON 형식으로 전체 과제 목록을 반환하세요
 
 {{
   "agendas": [
     {{
       "title": "과제 제목",
-      "department": "담당부서 또는 null",
+      "organization": "담당 조직명 또는 null",
+      "department": "담당 부서명 또는 null",
       "priority": "urgent_important" | "important" | "urgent" | "normal",
       "start_date": "YYYY-MM-DD 또는 null",
       "due_date": "YYYY-MM-DD 또는 null"
