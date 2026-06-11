@@ -96,6 +96,16 @@ const sbTopImprovements = computed(() => {
   return d?.detail_scores?._top_improvements || d?.top_improvements || []
 })
 
+function parseAiEvidence(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
+}
+
+function parseReason(val) {
+  if (!val) return ''
+  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
+}
+
 // ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
 const fromSearch   = ref('')
 const toSearch     = ref('')
@@ -728,9 +738,9 @@ watch(relAddActive, v => {
 
             <!-- 아젠다 -->
             <template v-else-if="detailNode.type==='agenda'">
-              <div v-if="detailNode.data?.ai_evidence" class="detail-section">
+              <div v-if="parseAiEvidence(detailNode.data?.ai_evidence)" class="detail-section">
                 <div class="detail-section-label">AI 추천 아젠다</div>
-                <div class="ai-evidence-box">{{ detailNode.data.ai_evidence }}</div>
+                <div class="ai-evidence-box">{{ parseAiEvidence(detailNode.data.ai_evidence) }}</div>
               </div>
               <div class="detail-section">
                 <div class="detail-info-grid">
@@ -870,7 +880,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box">{{ detailNode.data.content_summary }}</div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
               </div>
             </template>
 
@@ -962,7 +972,7 @@ watch(relAddActive, v => {
               </div>
               <div v-if="detailNode.type==='report' && detailNode.data?.feedback" class="detail-section">
                 <div class="detail-section-label">AI 피드백</div>
-                <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
+                <div class="rs-feedback-box" style="white-space: pre-line;">{{ Array.isArray(detailNode.data.feedback) ? detailNode.data.feedback.join('\n') : detailNode.data.feedback }}</div>
               </div>
 
               <!-- 우선 개선 아젠다 -->
@@ -1059,9 +1069,9 @@ watch(relAddActive, v => {
                   </div>
                 </div>
               </div>
-              <div v-if="detailNode.data?.reason" class="detail-section">
+              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
                 <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ detailNode.data.reason }}</div>
+                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 
@@ -1232,3 +1242,13 @@ watch(relAddActive, v => {
           </svg>
         </button>
 </template>
+
+<style scoped>
+.ai-evidence-box :deep(h1),
+.ai-evidence-box :deep(h2),
+.ai-evidence-box :deep(h3) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 4px 0;
+}
+</style>
