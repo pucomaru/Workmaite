@@ -115,6 +115,7 @@ class SttSegment(Base):
     start_sec       = Column(Float, nullable=False)
     end_sec         = Column(Float, nullable=False)
     confidence      = Column(Float, nullable=True)
+    provider        = Column(String(30), nullable=True)  # localwhisper | gcapi | whisperapi
     created_at      = Column(DateTime, default=datetime.utcnow)
 
 

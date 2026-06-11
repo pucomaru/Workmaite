@@ -47,7 +47,6 @@ public class MeetingService {
         MeetingMember admin = MeetingMember.create(saved.getId(), requesterId, MeetingMemberRole.ADMIN);
         meetingMemberRepository.save(admin);
         neoSyncService.syncMeeting(saved.getId());
-        neoSyncService.syncMember(saved.getId(), requesterId);
         return MeetingResponse.from(saved);
     }
 
@@ -136,7 +135,8 @@ public class MeetingService {
         MeetingMember member = MeetingMember.create(meetingId, request.getUserId(), request.getRole());
         MeetingMember saved = meetingMemberRepository.save(member);
         User user = userRepository.findById(saved.getUserId()).orElse(null);
-        neoSyncService.syncMember(meetingId, request.getUserId());
+        String roleStr = (request.getRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
+        neoSyncService.syncMember(meetingId, request.getUserId(), roleStr);
         return MeetingMemberResponse.from(saved, user);
     }
 
@@ -158,7 +158,8 @@ public class MeetingService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
         member.updateRole(request.getRole());
         User user = userRepository.findById(member.getUserId()).orElse(null);
-        neoSyncService.syncMember(meetingId, member.getUserId());
+        String roleStr = (request.getRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
+        neoSyncService.syncMember(meetingId, member.getUserId(), roleStr);
         return MeetingMemberResponse.from(member, user);
     }
 

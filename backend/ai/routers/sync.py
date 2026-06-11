@@ -306,13 +306,14 @@ async def sync_minutes_manual(
 async def sync_member_manual(
     meetingId: int,
     userId: int,
+    role: str = "member",
     _: None = Depends(verify_internal),
 ):
-    """Spring Boot에서 회의 멤버 추가 시 Neo4j에 (User)-[:구성원]->(Meetings) 관계를 동기화합니다."""
+    """Spring Boot에서 회의 멤버 추가/수정 시 Neo4j에 (User)-[:구성원]->(Meetings) 관계를 동기화합니다."""
     await sync_meeting_member(
         meeting_id=meetingId,
         user_id=userId,
-        role="member",
+        role=role,
     )
     return {"status": "ok"}
 

@@ -27,6 +27,7 @@ from .prompts import (
     make_llm,
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
 )
+from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 
 logger = logging.getLogger(__name__)
 
@@ -472,8 +473,6 @@ async def minutes_generate_minutes(
             meeting_id=data.meeting_id,
             session_id=data.session_id,
             title=minutes_title,
-            participants=participants,
-            session_info=session_info,
         ):
             collected_parts.append(chunk)
             yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
@@ -561,6 +560,17 @@ async def supervisor_chat(
     _thread_id = f"supervisor-{data.meeting_id or 0}"
 
     async def stream():
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="supervisor",
+            meeting_id=data.meeting_id or None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data={"message": msg[:300] if msg else None, "route": _route},
+        )
+        _stream_error = None
+
         print(f"DEBUG: stream() started, _route={_route!r}")
         # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
         _db_rows = (
@@ -677,6 +687,7 @@ async def supervisor_chat(
         try:
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
             print(f"DEBUG: routing block entered, _route={_route!r}")
+
             if _route in ('supervisor_direct', 'knowledge_manager'):
                 yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
 
@@ -775,8 +786,13 @@ async def supervisor_chat(
 
             yield "data: [DONE]\n\n"
 
+        except BaseException as _e:
+            _stream_error = _e
+            raise
         finally:
             # GeneratorExit·예외·정상 종료 모두에서 assistant 메시지 저장
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
             _assistant_text = "".join(_assistant_chunks)
             if _assistant_text:
                 _save_db = SessionLocal()
@@ -787,7 +803,7 @@ async def supervisor_chat(
                         role="assistant",
                         content=_assistant_text,
                         context_type="supervisor",
-                        meeting_id=data.meeting_id,
+                        meeting_id=data.meeting_id or None,
                     ))
                     _save_db.commit()
                 except Exception as _e:
@@ -805,7 +821,7 @@ async def supervisor_chat(
                 role="user",
                 content=msg,
                 context_type="supervisor",
-                meeting_id=data.meeting_id,
+                meeting_id=data.meeting_id or None,
             ))
             db.commit()
         except Exception as _e:
@@ -1521,7 +1537,7 @@ async def archive_extract_agendas(
     )
 
     try:
-        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list)
+        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list, user_id=current_user.id)
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid

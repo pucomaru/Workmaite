@@ -406,6 +406,9 @@ select.app-modal-input { appearance:none;-webkit-appearance:none;background:#f8f
 .app-btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;}
 .app-btn-primary:hover { opacity:.85; }
 .app-btn-primary:disabled { opacity:.4;cursor:not-allowed; }
+.app-btn-danger { padding:8px 16px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:700;cursor:pointer; }
+.app-btn-danger:hover { background:#dc2626; }
+.app-btn-danger:disabled { opacity:.4;cursor:not-allowed; }
 
 /* App Modal: dark class variant (MeetingGroupsPage, ArchivePage) */
 .app-modal.dark { background:#1e293b;border-color:rgba(255,255,255,.1);box-shadow:0 24px 64px rgba(0,0,0,.4); }

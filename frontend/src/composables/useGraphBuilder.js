@@ -77,7 +77,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         if (depts.length > 0) tasksByDept.get(depts[ti % depts.length]).push(task)
       })
 
-      const agendaIdxByTodoId = new Map()
+      const agendaIdxById = new Map()
       const allAgendaIdxList = []
 
       function pushAgenda(task, connIdx) {
@@ -105,7 +105,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
             if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
           }
         }
-        agendaIdxByTodoId.set(String(task.id), agIdx)
+        agendaIdxById.set(String(task.id), agIdx)
         if (task.id != null) globalAgendaIdxMap.set(String(task.id), agIdx)
       }
 
@@ -167,7 +167,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
         let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
         for (const aid of agendaIds) {
-          if (agendaIdxByTodoId.has(aid)) { primaryFromIdx = agendaIdxByTodoId.get(aid); break }
+          if (agendaIdxById.has(aid)) { primaryFromIdx = agendaIdxById.get(aid); break }
         }
         const rIdx = nodes.length
         nodes.push({
@@ -176,7 +176,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         })
         if (agendaIds.length > 0) {
           agendaIds.forEach(aid => {
-            if (agendaIdxByTodoId.has(aid)) edges.push({ from: rIdx, to: agendaIdxByTodoId.get(aid), rel: '첨부' })
+            if (agendaIdxById.has(aid)) edges.push({ from: rIdx, to: agendaIdxById.get(aid), rel: '첨부' })
           })
         } else {
           edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
@@ -186,17 +186,17 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       // ── Lifecycle edges (아젠다→세션/회의록) ────────────────────
       ;(g.minutes_agendas || []).forEach(ma => {
         const mIdx  = ma.session_id != null ? minutesFileIdxBySessionNeoId.get(String(ma.session_id)) : undefined
-        const agIdx = ma.agenda_id  != null ? agendaIdxByTodoId.get(String(ma.agenda_id)) : undefined
+        const agIdx = ma.agenda_id  != null ? agendaIdxById.get(String(ma.agenda_id)) : undefined
         if (mIdx != null && agIdx != null) edges.push({ from: agIdx, to: mIdx, rel: '도출' })
       })
       ;(g.session_agendas || []).forEach(sa => {
         const sIdx  = sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
-        const agIdx = sa.agenda_id  != null ? agendaIdxByTodoId.get(String(sa.agenda_id)) : undefined
+        const agIdx = sa.agenda_id  != null ? agendaIdxById.get(String(sa.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '다룸' })
       })
       ;(g.derivations || []).forEach(d => {
         const sIdx  = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined
-        const agIdx = d.agenda_id  != null ? agendaIdxByTodoId.get(String(d.agenda_id)) : undefined
+        const agIdx = d.agenda_id  != null ? agendaIdxById.get(String(d.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '도출' })
       })
 
@@ -215,7 +215,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       const hjLabelMap = { approved: '승인', rejected: '반려', edited: '수정', pending: '검토중' }
       ;(g.human_judgments || []).forEach((hj, hi) => {
         const agId = String(hj.agenda_id || `ag-${hj.target_id}`)
-        const refIdx = agendaIdxByTodoId.get(agId) ?? agendaToMinutesIdx.get(agId) ?? mgIdx
+        const refIdx = agendaIdxById.get(agId) ?? agendaToMinutesIdx.get(agId) ?? mgIdx
         const hjIdx = nodes.length
         nodes.push({
           id: `human_judgment-${g.id || gi}-${hj.id || hi}`,

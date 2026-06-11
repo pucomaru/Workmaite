@@ -12,7 +12,7 @@ const {
   detailTab, showExtractFlow, nodeDetailTab,
   detailDday, detailEndDateFormatted, detailDeptStatus,
   groupHistoryMap, goToList, formatDate, formatDateOnly,
-  detailTodos, groupedTodos, doneTodosWithReport, completeTodo, deleteTodo,
+  detailAgendas, groupedAgendas, doneAgendasWithReport, completeAgenda, deleteAgenda,
   extractPhase, extractLoading, extractResult,
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
@@ -36,9 +36,9 @@ const {
 const doneExpanded = ref(false)
 const doneDeptFilter = ref('')
 watch(() => detailMeeting?.value?.id, () => { doneExpanded.value = false; doneDeptFilter.value = '' })
-const doneDepts = computed(() => [...new Set((doneTodosWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
+const doneDepts = computed(() => [...new Set((doneAgendasWithReport || { value: [] }).value?.map(t => t.dept).filter(Boolean) || [])])
 const doneFiltered = computed(() => {
-  const items = doneTodosWithReport?.value || []
+  const items = doneAgendasWithReport?.value || []
   return doneDeptFilter.value ? items.filter(t => t.dept === doneDeptFilter.value) : items
 })
 const doneDisplayItems = computed(() => doneExpanded.value ? doneFiltered.value : doneFiltered.value.slice(0, 5))
@@ -133,8 +133,8 @@ const sbTopImprovements = computed(() => {
           <!-- 탭 -->
           <div class="detail-tabs">
             <button class="detail-tab" :class="{ active: detailTab==='basic' }" @click="detailTab='basic'">기본</button>
-            <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">과제</button>
-            <button class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'; if(!showExtractFlow) showExtractFlow=true">과제추출</button>
+            <button class="detail-tab" :class="{ active: detailTab==='task' }" @click="detailTab='task'">아젠다</button>
+            <button class="detail-tab detail-tab-extract" :class="{ active: detailTab==='extract' }" @click="detailTab='extract'; if(!showExtractFlow) showExtractFlow=true">아젠다 추출</button>
             <button class="detail-tab" :class="{ active: detailTab==='rel' }" @click="detailTab='rel'">관계</button>
           </div>
 
@@ -182,7 +182,7 @@ const sbTopImprovements = computed(() => {
                     <div class="dsi-dot" :class="{ 'dsi-dot-done': ds.submitted, 'dsi-dot-pending': !ds.submitted, 'dsi-dot-urgent': !ds.submitted && ds.minDays !== null && ds.minDays <= 3 }"></div>
                     <span class="dsi-name">{{ ds.dept }}</span>
                     <template v-if="ds.noTask">
-                      <span class="dsi-status" style="color:#94a3b8">과제 없음</span>
+                      <span class="dsi-status" style="color:#94a3b8">아젠다 없음</span>
                     </template>
                     <template v-else-if="ds.submitted">
                       <span class="dsi-status dsi-status-done">제출 완료</span>
@@ -209,7 +209,7 @@ const sbTopImprovements = computed(() => {
                 <button class="log-chip" :class="{ active: logTypeFilter === '' }" @click="logTypeFilter = ''">전체</button>
                 <button class="log-chip" :class="{ active: logTypeFilter === 'minutes' }" @click="logTypeFilter = 'minutes'">회의록</button>
                 <button class="log-chip" :class="{ active: logTypeFilter === 'report' }" @click="logTypeFilter = 'report'">보고서</button>
-                <button class="log-chip" :class="{ active: logTypeFilter === 'agenda' }" @click="logTypeFilter = 'agenda'">과제</button>
+                <button class="log-chip" :class="{ active: logTypeFilter === 'agenda' }" @click="logTypeFilter = 'agenda'">아젠다</button>
               </div>
               <div class="detail-log-list">
                 <template v-if="logFilteredItems.length">
@@ -232,45 +232,45 @@ const sbTopImprovements = computed(() => {
             <!-- ── 과제 탭 ── -->
             <template v-if="detailTab==='task'">
 
-                <!-- AI 과제 추출 실행 버튼 -->
+                <!-- AI 아젠다 추출 실행 버튼 -->
                 <button class="ctx-run-btn" @click="showExtractFlow=true; detailTab='extract'">
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                  AI 과제 추출 실행
+                  AI 아젠다 추출 실행
                 </button>
 
-                <!-- 진행중 과제 목록 -->
+                <!-- 진행중 아젠다 목록 -->
                 <div class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">진행중 과제</span>
-                    <span class="detail-section-label" style="font-weight:400">{{ detailTodos.filter(t => t.status !== 'done').length }}건</span>
+                    <span class="detail-section-label">진행중 아젠다</span>
+                    <span class="detail-section-label" style="font-weight:400">{{ detailAgendas.filter(t => t.status !== 'done').length }}건</span>
                   </div>
-                  <div v-if="!detailTodos.length" class="detail-log-empty">등록된 과제가 없습니다.</div>
+                  <div v-if="!detailAgendas.length" class="detail-log-empty">등록된 아젠다가 없습니다.</div>
                   <template v-else>
-                    <div v-for="(todos, dept) in groupedTodos" :key="dept" class="todo-dept-group">
-                      <div class="todo-dept-header">
-                        <span class="todo-dept-name">{{ dept || '미배정' }}</span>
-                        <span class="todo-dept-count">{{ todos.length }}건</span>
+                    <div v-for="(agendas, dept) in groupedAgendas" :key="dept" class="agenda-dept-group">
+                      <div class="agenda-dept-header">
+                        <span class="agenda-dept-name">{{ dept || '미배정' }}</span>
+                        <span class="agenda-dept-count">{{ agendas.length }}건</span>
                       </div>
-                      <div class="detail-todo-list">
-                        <div v-for="todo in todos" :key="todo.id||todo.content" class="detail-todo-item">
-                          <div class="detail-todo-status" :class="{
-                            'ts-done': todo.status==='done',
-                            'ts-progress': todo.status==='in_progress'||todo.status==='ongoing',
-                            'ts-risk': todo.status==='at_risk',
-                            'ts-pending': !todo.status||todo.status==='pending'
+                      <div class="detail-agenda-list">
+                        <div v-for="agenda in agendas" :key="agenda.id||agenda.content" class="detail-agenda-item">
+                          <div class="detail-agenda-status" :class="{
+                            'ts-done': agenda.status==='done',
+                            'ts-progress': agenda.status==='in_progress'||agenda.status==='ongoing',
+                            'ts-risk': agenda.status==='at_risk',
+                            'ts-pending': !agenda.status||agenda.status==='pending'
                           }">
-                            {{ todo.status==='done' ? '완료' : todo.status==='in_progress'||todo.status==='ongoing' ? '진행' : todo.status==='at_risk' ? '위험' : '대기' }}
+                            {{ agenda.status==='done' ? '완료' : agenda.status==='in_progress'||agenda.status==='ongoing' ? '진행' : agenda.status==='at_risk' ? '위험' : '대기' }}
                           </div>
-                          <div class="detail-todo-info">
-                            <div class="detail-todo-title">{{ todo.content || todo.title }}</div>
-                            <div class="detail-todo-meta">
-                              <div v-if="todo.dept||(Array.isArray(todo.department)?todo.department[0]:todo.department)">담당부서 - {{ todo.dept || (Array.isArray(todo.department)?todo.department[0]:todo.department) }}</div>
-                              <div v-if="todo.due_date">마감기한 - {{ formatDateOnly(todo.due_date) }}</div>
+                          <div class="detail-agenda-info">
+                            <div class="detail-agenda-title">{{ agenda.content || agenda.title }}</div>
+                            <div class="detail-agenda-meta">
+                              <div v-if="agenda.dept||(Array.isArray(agenda.department)?agenda.department[0]:agenda.department)">담당부서 - {{ agenda.dept || (Array.isArray(agenda.department)?agenda.department[0]:agenda.department) }}</div>
+                              <div v-if="agenda.due_date">마감기한 - {{ formatDateOnly(agenda.due_date) }}</div>
                             </div>
                           </div>
-                          <div class="detail-todo-actions">
-                            <button class="todo-action-btn todo-done-btn" :class="{'is-done': todo.status==='done'}" @click="completeTodo(todo)" title="완료/취소">✓</button>
-                            <button class="todo-action-btn todo-del-btn" @click="deleteTodo(todo)" title="삭제">✕</button>
+                          <div class="detail-agenda-actions">
+                            <button class="agenda-action-btn agenda-done-btn" :class="{'is-done': agenda.status==='done'}" @click="completeAgenda(agenda)" title="완료/취소">✓</button>
+                            <button class="agenda-action-btn agenda-del-btn" @click="deleteAgenda(agenda)" title="삭제">✕</button>
                           </div>
                         </div>
                       </div>
@@ -278,31 +278,31 @@ const sbTopImprovements = computed(() => {
                   </template>
                 </div>
 
-                <!-- 완료된 과제 -->
-                <div v-if="doneTodosWithReport.length" class="detail-section" style="margin-top:12px">
+                <!-- 완료된 아젠다 -->
+                <div v-if="doneAgendasWithReport.length" class="detail-section" style="margin-top:12px">
                   <div class="detail-section-label-row">
-                    <span class="detail-section-label">완료된 과제</span>
-                    <span class="detail-log-total">{{ doneTodosWithReport.length }}건</span>
+                    <span class="detail-section-label">완료된 아젠다</span>
+                    <span class="detail-log-total">{{ doneAgendasWithReport.length }}건</span>
                   </div>
                   <div v-if="doneExpanded && doneDepts.length > 1" class="detail-log-filters">
                     <button class="log-chip" :class="{ active: doneDeptFilter === '' }" @click="doneDeptFilter = ''">전체</button>
                     <button v-for="dept in doneDepts" :key="dept" class="log-chip" :class="{ active: doneDeptFilter === dept }" @click="doneDeptFilter = dept">{{ dept }}</button>
                   </div>
-                  <div class="done-todo-list">
-                    <div v-for="todo in doneDisplayItems" :key="todo.id" class="done-todo-item">
-                      <div class="done-todo-check">
+                  <div class="done-agenda-list">
+                    <div v-for="agenda in doneDisplayItems" :key="agenda.id" class="done-agenda-item">
+                      <div class="done-agenda-check">
                         <svg width="10" height="10" fill="none" stroke="#10b981" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
                       </div>
-                      <div class="done-todo-body">
-                        <div class="done-todo-title">{{ todo.title || todo.content }}</div>
-                        <div class="done-todo-meta"><span>{{ todo.dept }}</span></div>
-                        <div v-if="todo.reportFileName" class="done-todo-report">
+                      <div class="done-agenda-body">
+                        <div class="done-agenda-title">{{ agenda.title || agenda.content }}</div>
+                        <div class="done-agenda-meta"><span>{{ agenda.dept }}</span></div>
+                        <div v-if="agenda.reportFileName" class="done-agenda-report">
                           <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          <span class="done-todo-filename">{{ todo.reportFileName }}</span>
+                          <span class="done-agenda-filename">{{ agenda.reportFileName }}</span>
                         </div>
-                        <div class="done-todo-dates">
-                          <span v-if="todo.reportDate">제출 {{ formatDate(todo.reportDate) }}</span>
-                          <span v-if="todo.due_date">마감 {{ formatDateOnly(todo.due_date) }}</span>
+                        <div class="done-agenda-dates">
+                          <span v-if="agenda.reportDate">제출 {{ formatDate(agenda.reportDate) }}</span>
+                          <span v-if="agenda.due_date">마감 {{ formatDateOnly(agenda.due_date) }}</span>
                         </div>
                       </div>
                     </div>
@@ -370,7 +370,7 @@ const sbTopImprovements = computed(() => {
 
                   <button class="ctx-run-btn" @click="runExtract">
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z"/></svg>
-                    과제 추출하기
+                    아젠다 추출하기
                   </button>
                   <button class="gm-add-btn" style="margin-top:6px" @click="addExtractItem">
                     <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> 항목 직접 추가
@@ -381,7 +381,7 @@ const sbTopImprovements = computed(() => {
                 <template v-if="extractLoading || extractResult.length">
                     <div v-if="extractLoading" class="detail-extract-loading"><div class="gm-spinner"></div><span>AI가 분석 중입니다...</span></div>
                     <template v-else>
-                      <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 과제를 추천했습니다.</div>
+                      <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 아젠다를 추천했습니다.</div>
                       <AgendaReviewList
                         :items="extractResult"
                         :memberOrgs="detailMemberOrgs"
@@ -610,11 +610,11 @@ const sbTopImprovements = computed(() => {
                         'sb-low':      detailNode.data?.priority==='low' || detailNode.data?.priority==='하',
                         'sb-minimal':  detailNode.data?.priority==='minimal',
                         'sb-pending':  !detailNode.data?.priority
-                      }">{{ { critical:'^^  최상', high:'^   상', medium:'-   중', low:'v   하', minimal:'vv  최하', 상:'^   상', 중:'-   중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
+                      }">{{ { critical:'최상', high:'상', medium:'중', low:'하', minimal:'최하', 상:'상', 중:'중', 하:'v   하' }[detailNode.data?.priority] || detailNode.data?.priority || '-' }}</span>
                     </span>
                   </div>
                   <div class="detail-info-item">
-                    <span class="detail-info-key">발생일</span>
+                    <span class="detail-info-key">등록일</span>
                     <span class="detail-info-val">{{ detailNode.data?.created_at ? formatDate(detailNode.data.created_at) : '-' }}</span>
                   </div>
                   <div class="detail-info-item">
@@ -817,11 +817,11 @@ const sbTopImprovements = computed(() => {
                 <div class="rs-feedback-box">{{ detailNode.data.feedback }}</div>
               </div>
 
-              <!-- 우선 개선 과제 -->
+              <!-- 우선 개선 아젠다 -->
               <div v-if="detailNode.type==='report' && sbTopImprovements.length" class="detail-section">
                 <div class="detail-section-label">
                   <svg width="11" height="11" fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-1px;margin-right:3px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                  우선 개선 과제
+                  우선 개선 아젠다
                 </div>
                 <div class="sb-top-improvements">
                   <div v-for="(imp, i) in sbTopImprovements" :key="i" class="sb-top-item">
@@ -832,9 +832,9 @@ const sbTopImprovements = computed(() => {
                 </div>
               </div>
 
-              <!-- 연관 과제 -->
+              <!-- 연관 아젠다 -->
               <div v-if="detailNode.type==='report'" class="detail-section">
-                <div class="detail-section-label">연관 과제</div>
+                <div class="detail-section-label">연관 아젠다</div>
                 <template v-if="reportRelatedAgendas(detailNode).length">
                   <div class="detail-info-grid">
                     <div v-for="ag in reportRelatedAgendas(detailNode)" :key="ag.data?.id" class="detail-info-item">
@@ -847,7 +847,7 @@ const sbTopImprovements = computed(() => {
                     </div>
                   </div>
                 </template>
-                <div v-else class="detail-log-empty">연관된 과제가 없습니다.</div>
+                <div v-else class="detail-log-empty">연관된 아젠다가 없습니다.</div>
               </div>
             </template>
 
@@ -880,7 +880,7 @@ const sbTopImprovements = computed(() => {
                 <div v-else class="detail-log-empty">회의체 정보 없음</div>
               </div>
               <div class="detail-section">
-                <div class="detail-section-label">할당된 과제</div>
+                <div class="detail-section-label">할당된 아젠다</div>
                 <div v-if="personTasks(detailNode).length" class="detail-info-grid">
                   <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item">
                     <span class="detail-info-key">
@@ -889,7 +889,7 @@ const sbTopImprovements = computed(() => {
                     <span class="detail-info-val detail-info-val--wrap">{{ t.content }}</span>
                   </div>
                 </div>
-                <div v-else class="detail-log-empty">할당된 과제 없음</div>
+                <div v-else class="detail-log-empty">할당된 아젠다 없음</div>
               </div>
             </template>
 
