@@ -2,7 +2,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN rm -f package-lock.json && npm install --loglevel=error 2>&1 && npm install @rollup/rollup-linux-x64-musl
+RUN rm -f package-lock.json && npm install && npm install @rollup/rollup-linux-x64-musl || (cat /root/.npm/_logs/*.log && exit 1)
 COPY . .
 ARG VITE_API_URL
 ARG VITE_AI_URL
