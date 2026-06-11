@@ -6,12 +6,15 @@ import com.workmaite.domain.sessions.dto.AttendeeRequest;
 import com.workmaite.domain.sessions.dto.SessionCreateRequest;
 import com.workmaite.domain.sessions.dto.SessionResponse;
 import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
+import com.workmaite.domain.sessions.dto.SummaryBlockResponse;
 import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.MeetingSession;
 import com.workmaite.domain.sessions.entity.SessionMember;
+import com.workmaite.domain.sessions.entity.SessionSummaryBlock;
 import com.workmaite.domain.sessions.entity.SessionStatus;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
+import com.workmaite.domain.sessions.repository.SessionSummaryBlockRepository;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import com.workmaite.global.sync.NeoSyncService;
@@ -38,6 +41,7 @@ public class SessionService {
 
     private final SessionRepository sessionRepository;
     private final SessionMemberRepository sessionMemberRepository;
+    private final SessionSummaryBlockRepository summaryBlockRepository;
     private final MeetingRepository meetingRepository;
     private final NeoSyncService neoSyncService;
 
@@ -90,7 +94,10 @@ public class SessionService {
 
     public SessionResponse getSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
-        return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId));
+        List<SummaryBlockResponse> blocks = summaryBlockRepository
+                .findBySessionIdOrderByBlockIndexAsc(sessionId)
+                .stream().map(SummaryBlockResponse::from).toList();
+        return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId), blocks);
     }
 
     @Transactional

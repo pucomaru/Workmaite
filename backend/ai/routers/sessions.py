@@ -112,11 +112,68 @@ async def save_minutes(
     return minutes
 
 
+# ─── 회의록 조회 ──────────────────────────────────────────────────────────────
+
+@router.get("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+def get_minutes(
+    session_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
+    return minutes
+
+
+# ─── 회의록 내용 수정 ─────────────────────────────────────────────────────────
+
+class MinutesContentUpdate(BaseModel):
+    content: str
+    content_summary: Optional[str] = None
+
+
+@router.patch("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+async def update_minutes_content(
+    session_id: int,
+    body: MinutesContentUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
+    minutes.content_original = body.content
+    minutes.content_summary = body.content_summary or body.content[:500]
+    minutes.recorder_id = current_user.id
+    minutes.generated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(minutes)
+    return minutes
+
+
+# ─── 회의록 삭제 ──────────────────────────────────────────────────────────────
+
+@router.delete("/sessions/{session_id}/minutes")
+async def delete_minutes(
+    session_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    if not minutes:
+        raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
+    db.delete(minutes)
+    db.commit()
+    return {"ok": True}
+
+
 # ─── 대화기록 문단 정제 ────────────────────────────────────────────────────────
 
 class RefineChunkRequest(BaseModel):
-    text: str                        # 원문 스크립트 텍스트
-    context: Optional[str] = None   # 회의 맥락 (선택)
+    session_id: int
+    text: str
+    context: Optional[str] = None
 
 class RefineChunkResponse(BaseModel):
     title: str
@@ -126,6 +183,7 @@ class RefineChunkResponse(BaseModel):
 @router.post("/sessions/refine-chunk", response_model=RefineChunkResponse)
 async def refine_chunk(
     body: RefineChunkRequest,
+    db: Session = Depends(get_db),
     _: models.User = Depends(get_current_user),
 ):
     context_line = f"회의 맥락: {body.context}\n" if body.context else ""
@@ -151,7 +209,18 @@ async def refine_chunk(
 
     import json
     result = json.loads(resp.choices[0].message.content)
-    return RefineChunkResponse(
-        title=result.get("title", ""),
-        bullets=result.get("bullets", []),
-    )
+    title = result.get("title", "")
+    bullets = result.get("bullets", [])
+
+    block_index = db.query(models.SessionSummaryBlock).filter(
+        models.SessionSummaryBlock.session_id == body.session_id
+    ).count()
+    db.add(models.SessionSummaryBlock(
+        session_id=body.session_id,
+        block_index=block_index,
+        title=title,
+        bullets=bullets,
+    ))
+    db.commit()
+
+    return RefineChunkResponse(title=title, bullets=bullets)

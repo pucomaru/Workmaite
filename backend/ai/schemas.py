@@ -258,5 +258,6 @@ class HitlReviewOut(BaseModel):
 # ── Agent request DTOs (입력 전용, DB 테이블 아님) ─────────────────────────────
 class AgentChatRequest(BaseModel):
     meeting_id: int
+    session_id: Optional[int] = None
     message: str
     chat_history: Optional[List[dict]] = []
