@@ -15,6 +15,7 @@ LangChain의 register_configure_hook + ContextVar 메커니즘을 사용해, 데
     async def generate_minutes_stream(...):   # async generator 도 지원
         ...
 """
+import asyncio
 import functools
 import inspect
 import json
@@ -204,7 +205,6 @@ def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
         log.ended_at = datetime.utcnow()
         if output_data:
             log.output_data = output_data
-        db.flush()
 
         for model_name, u in collector.usage.items():
             pt, ct = u["prompt"], u["completion"]
@@ -213,7 +213,7 @@ def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
                 model_name=model_name,
                 prompt_tokens=pt,
                 completion_tokens=ct,
-                cost=_estimate_cost(model_name, pt, ct),
+                estimated_cost_usd=_estimate_cost(model_name, pt, ct),
             ))
         db.commit()
     except Exception as e:
@@ -280,7 +280,16 @@ def log_agent_run(
                     raise
                 finally:
                     _token_collector_var.reset(token)
-                    _finalize(log_id, collector, error, _safe_output(captured))
+                    # call_soon으로 스케줄링: GeneratorExit/클라이언트 연결 끊김 시에도
+                    # 이벤트 루프가 살아있는 한 _finalize가 반드시 실행된다.
+                    _err = error
+                    _out = _safe_output(captured)
+                    try:
+                        asyncio.get_running_loop().call_soon(
+                            functools.partial(_finalize, log_id, collector, _err, _out)
+                        )
+                    except RuntimeError:
+                        _finalize(log_id, collector, _err, _out)
             return agen_wrapper
 
         @functools.wraps(func)

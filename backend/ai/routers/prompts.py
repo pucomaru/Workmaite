@@ -9,6 +9,7 @@ def make_llm(temperature: float = 0.2, streaming: bool = False) -> ChatOpenAI:
         temperature=temperature,
         api_key=os.environ["OPENAI_API_KEY"],
         streaming=streaming,
+        stream_usage=streaming,  # streaming 시 usage 포함
     )
 
 

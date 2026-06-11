@@ -144,7 +144,7 @@ def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
 
 def _build_chat_graph():
     """LangGraph create_react_agent — TASK_TOOLS를 도구로 사용하는 에이전트 그래프."""
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True)
+    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True, stream_usage=True)
     return create_react_agent(
         model=llm,
         tools=TASK_TOOLS,
@@ -313,8 +313,8 @@ async def confirm_extraction_review(
 
 
 # ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
-@log_agent_run("task_extract")
-async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str) -> dict:
+@log_agent_run("task_extract", user_id="user_id")
+async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str, user_id: int = None) -> dict:
     llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list)),

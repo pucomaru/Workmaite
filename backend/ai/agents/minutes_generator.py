@@ -44,6 +44,7 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
         temperature=temperature,
         api_key=os.environ["OPENAI_API_KEY"],
         streaming=True,
+        stream_usage=True,
     )
 
 
@@ -327,7 +328,7 @@ async def generate_minutes(
     return md_part, json_part
 
 
-@log_agent_run("minutes_stream", meeting_id="meeting_id", session_id="session_id")
+@log_agent_run("minutes_stream", meeting_id="meeting_id", session_id="session_id", user_id="user_id")
 async def generate_minutes_stream(
     transcript: str,
     meeting_context: str = "",
@@ -336,6 +337,7 @@ async def generate_minutes_stream(
     meeting_id: int = None,
     session_id: int = None,
     title: str = "",
+    user_id: int = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
