@@ -227,7 +227,7 @@ const showContextModal = ref(false)
 const contextDraft = ref('')
 const lastRefineIdx = ref(0)
 const refiningConversation = ref(false)
-const REFINE_EVERY = 15
+const REFINE_EVERY = 5
 
 const unprocessedLines = computed(() => transcriptLines.value.slice(lastRefineIdx.value))
 
@@ -254,7 +254,7 @@ async function refineChunk() {
       text,
       context: sessionContext.value || null,
     })
-    conversationBlocks.value.push({ title: data.title, bullets: data.bullets })
+    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text })
     lastRefineIdx.value = processedIdx
     if (activeSession.value) {
       const rec = getOrCreateRecord(activeSession.value.id)
@@ -952,15 +952,16 @@ async function downloadMinutesFile() {
               <i class="bi bi-mic" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <!-- 미처리 원문 — 로딩 중이면 애니메이션 -->
-            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
-              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
-              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
-            </div>
-            <!-- 완성된 블록들 — 아래 -->
+            <!-- 완성된 블록들 — 위 -->
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
               <div class="conv-block-title">{{ block.title }}</div>
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
+              <div v-if="block.text" class="conv-block-original">{{ block.text }}</div>
+            </div>
+            <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
+            <div v-if="unprocessedLines.length" class="conv-raw" :class="{ 'conv-raw-loading': refiningConversation }">
+              <div v-if="refiningConversation" class="conv-raw-loading-bar"></div>
+              <span v-for="(line, idx) in unprocessedLines" :key="idx" class="conv-raw-line">{{ line.text }} </span>
             </div>
           </template>
 
@@ -1372,7 +1373,7 @@ async function downloadMinutesFile() {
 .sp-session-info { flex:1;min-width:0; }
 .sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
-.sp-session-date { font-size:10px;color:var(--text-muted);flex-shrink:0;margin-left:auto; }
+.sp-session-date { font-size:10px;color:var(--text-muted); }
 .sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
@@ -1404,6 +1405,7 @@ async function downloadMinutesFile() {
 .conv-block { padding:20px 0 16px; }
 .conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
+.conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
 .conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden; }
 .conv-raw-loading { border-color:var(--primary);opacity:.7; }
 .conv-raw-loading-bar { position:absolute;top:0;left:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);animation:conv-scan 1.4s ease-in-out infinite; }
