@@ -589,14 +589,13 @@ async def sync_report(
 async def sync_human_judgment(
     review_id: int,
     meeting_id: int | None,
-    judgment: str,              # PG status: 자연어 결정 내용
-    reason: str | None = None,  # PG review_comment
+    judgment: str,
+    reason: str | None = None,
     version: int = 1,
     reviewer_id: int | None = None,
     judged_at: str | None = None,
     target_type: str | None = None,
     target_id: int | None = None,
-    review_prompt: str | None = None,
     ai_rationale: str | None = None,
     created_at: str | None = None,
 ) -> None:
@@ -604,17 +603,16 @@ async def sync_human_judgment(
     hj_id = f"hj-{review_id}"
     cypher = """
     MERGE (hj:HumanJudgment {id: $id})
-    SET hj.pg_id         = $pg_id,
-        hj.judgment      = $judgment,
-        hj.reason        = $reason,
-        hj.version       = $version,
-        hj.target_type   = $target_type,
-        hj.target_id     = $target_id,
-        hj.review_prompt = $review_prompt,
-        hj.ai_rationale  = $ai_rationale,
-        hj.judged_at     = $judged_at,
-        hj.created_at    = $created_at,
-        hj.updated_at    = $updated_at
+    SET hj.pg_id        = $pg_id,
+        hj.judgment     = $judgment,
+        hj.reason       = $reason,
+        hj.version      = $version,
+        hj.target_type  = $target_type,
+        hj.target_id    = $target_id,
+        hj.ai_rationale = $ai_rationale,
+        hj.judged_at    = $judged_at,
+        hj.created_at   = $created_at,
+        hj.updated_at   = $updated_at
     WITH hj
     OPTIONAL MATCH (mg:Meetings {id: $mg_id})
     FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
@@ -637,7 +635,6 @@ async def sync_human_judgment(
         "version": version,
         "target_type": target_type or "",
         "target_id": target_id,
-        "review_prompt": review_prompt or "",
         "ai_rationale": ai_rationale or "",
         "judged_at": judged_at or "",
         "created_at": created_at or "",
@@ -915,12 +912,11 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                     review_id=hr.id,
                     meeting_id=None,
                     judgment=hr.status,
-                    reason=json.dumps(hr.review_comment, ensure_ascii=False) if isinstance(hr.review_comment, (dict, list)) else hr.review_comment,
+                    reason=hr.comment,
                     reviewer_id=hr.reviewer_id,
                     judged_at=hr.reviewed_at.isoformat() if hr.reviewed_at else None,
                     target_type=hr.target_type,
-                    target_id=hr.target_id,
-                    review_prompt=json.dumps(hr.review_prompt, ensure_ascii=False) if isinstance(hr.review_prompt, (dict, list)) else hr.review_prompt,
+                    target_id=hr.agenda_id or hr.report_id,
                     ai_rationale=hr.ai_rationale,
                     created_at=hr.created_at.isoformat() if hr.created_at else None,
                 )

@@ -2424,7 +2424,7 @@ async function saveHumanJudgmentEdit() {
   try {
     const { data } = await apiAI.patch(`/api/agent/hitl-reviews/${hjId}`, {
       status: form.judgment,
-      review_comment: form.reason ? { comment: form.reason } : null,
+      comment: form.reason || null,
     })
     if (detailNode.value) {
       detailNode.value = {

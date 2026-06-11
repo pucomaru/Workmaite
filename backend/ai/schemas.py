@@ -241,14 +241,14 @@ class AgentLogOut(BaseModel):
 # ── HitlReview (hitl_reviews) ─────────────────────────────────────────────────
 class HitlReviewOut(BaseModel):
     id: int
-    agent_log_id: int
+    agent_log_id: Optional[int] = None
     target_type: str
-    target_id: int
-    review_prompt: Optional[str] = None
+    agenda_id: Optional[int] = None
+    report_id: Optional[int] = None
     ai_rationale: Optional[str] = None
     status: Optional[str] = None
     reviewer_id: Optional[int] = None
-    review_comment: Optional[str] = None
+    comment: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 

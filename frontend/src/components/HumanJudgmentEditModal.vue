@@ -4,7 +4,7 @@ const props = defineProps({
   nightMode: Boolean,
   saving: Boolean,
 })
-const emit = defineEmits(['close', 'save'])
+const emit = defineEmits(['close', 'save', 'delete'])
 </script>
 
 <template>
@@ -42,11 +42,14 @@ const emit = defineEmits(['close', 'save'])
           </div>
         </div>
 
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary" :disabled="!modal.form.judgment?.trim() || saving" @click="emit('save')">
-            {{ saving ? '저장 중...' : '저장' }}
-          </button>
+        <div class="app-modal-footer modal-footer-split">
+          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div class="footer-right">
+            <button class="app-btn-cancel" @click="emit('close')">취소</button>
+            <button class="app-btn-primary" :disabled="!modal.form.judgment?.trim() || saving" @click="emit('save')">
+              {{ saving ? '저장 중...' : '저장' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -60,4 +63,6 @@ const emit = defineEmits(['close', 'save'])
 .hj-judgment-textarea { min-height: 70px; }
 .hj-reason-textarea  { min-height: 90px; }
 .hj-optional { font-size: 11px; color: var(--text-muted, #888); font-weight: 400; }
+.modal-footer-split { justify-content: space-between !important; }
+.footer-right { display: flex; gap: 8px; }
 </style>

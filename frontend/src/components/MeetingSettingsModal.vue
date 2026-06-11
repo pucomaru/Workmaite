@@ -7,7 +7,7 @@ const props = defineProps({
   nightMode: Boolean,
   saving: Boolean,
 })
-const emit = defineEmits(['close', 'save'])
+const emit = defineEmits(['close', 'save', 'delete'])
 
 function onMembersUpdate(newList) {
   if (!props.settings) return
@@ -65,14 +65,22 @@ function onMembersUpdate(newList) {
             :nightMode="nightMode"
           />
         </div>
-        <div class="app-modal-footer">
-          <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary" :disabled="!settings.form.title.trim() || saving" @click="emit('save')">
-            {{ saving ? '저장 중...' : '저장' }}
-          </button>
+        <div class="app-modal-footer modal-footer-split">
+          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div class="footer-right">
+            <button class="app-btn-cancel" @click="emit('close')">취소</button>
+            <button class="app-btn-primary" :disabled="!settings.form.title.trim() || saving" @click="emit('save')">
+              {{ saving ? '저장 중...' : '저장' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.modal-footer-split { justify-content: space-between !important; }
+.footer-right { display: flex; gap: 8px; }
+</style>
 

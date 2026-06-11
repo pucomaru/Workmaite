@@ -2272,11 +2272,11 @@ async def delete_agenda_item(
 # ─── HITL 검토 저장 ──────────────────────────────────────────────────────────
 class HitlReviewCreate(BaseModel):
     target_type: str
-    target_id: int
+    agenda_id: Optional[int] = None
+    report_id: Optional[int] = None
     agent_log_id: Optional[int] = None
     status: str = "edited"
-    review_prompt: Optional[dict] = None
-    review_comment: Optional[dict] = None
+    comment: Optional[str] = None
 
 
 @router.post("/hitl-reviews")
@@ -2289,11 +2289,11 @@ async def create_hitl_review(
     review = models.HitlReview(
         agent_log_id=data.agent_log_id,
         target_type=data.target_type,
-        target_id=data.target_id,
+        agenda_id=data.agenda_id,
+        report_id=data.report_id,
         status=data.status,
         reviewer_id=current_user.id,
-        review_prompt=data.review_prompt,
-        review_comment=data.review_comment,
+        comment=data.comment,
         reviewed_at=datetime.utcnow(),
     )
     db.add(review)
@@ -2304,8 +2304,8 @@ async def create_hitl_review(
     try:
         from neo4j_sync import sync_human_judgment as _sync_hj
         meeting_id_for_sync: int | None = None
-        if review.target_type == "agenda" and review.target_id:
-            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+        if review.target_type == "agenda" and review.agenda_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
             if _ag:
                 meeting_id_for_sync = _ag.meeting_id
         background_tasks.add_task(
@@ -2313,10 +2313,9 @@ async def create_hitl_review(
             review_id=review.id,
             meeting_id=meeting_id_for_sync,
             judgment=review.status,
-            reason=str(review.review_comment) if review.review_comment else None,
+            reason=review.comment,
             target_type=review.target_type,
-            target_id=review.target_id,
-            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            target_id=review.agenda_id or review.report_id,
             judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
             created_at=review.created_at.isoformat() if review.created_at else None,
         )
@@ -2328,7 +2327,7 @@ async def create_hitl_review(
 
 class HitlReviewPatch(BaseModel):
     status: Optional[str] = None
-    review_comment: Optional[Any] = None
+    comment: Optional[str] = None
 
 
 @router.patch("/hitl-reviews/{hj_id}")
@@ -2345,8 +2344,8 @@ async def update_hitl_review(
         raise HTTPException(status_code=404, detail="HitlReview not found")
     if data.status is not None:
         review.status = data.status
-    if data.review_comment is not None:
-        review.review_comment = data.review_comment
+    if data.comment is not None:
+        review.comment = data.comment
     review.reviewed_at = datetime.utcnow()
     review.reviewer_id = current_user.id
     db.commit()
@@ -2355,8 +2354,8 @@ async def update_hitl_review(
     try:
         from neo4j_sync import sync_human_judgment as _sync_hj
         meeting_id_for_sync: int | None = None
-        if review.target_type == "agenda" and review.target_id:
-            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+        if review.target_type == "agenda" and review.agenda_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
             if _ag:
                 meeting_id_for_sync = _ag.meeting_id
         background_tasks.add_task(
@@ -2364,10 +2363,9 @@ async def update_hitl_review(
             review_id=review.id,
             meeting_id=meeting_id_for_sync,
             judgment=review.status,
-            reason=str(review.review_comment) if review.review_comment else None,
+            reason=review.comment,
             target_type=review.target_type,
-            target_id=review.target_id,
-            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            target_id=review.agenda_id or review.report_id,
             judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
             created_at=review.created_at.isoformat() if review.created_at else None,
         )
