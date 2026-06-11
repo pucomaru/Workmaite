@@ -92,6 +92,12 @@ public class SessionController {
         return ResponseEntity.ok(ApiResponse.ok(sessionService.pauseSession(sessionId)));
     }
 
+    @PostMapping("/sessions/{sessionId}/resume")
+    public ResponseEntity<ApiResponse<SessionResponse>> resumeSession(
+            @PathVariable Long sessionId) {
+        return ResponseEntity.ok(ApiResponse.ok(sessionService.resumeSession(sessionId)));
+    }
+
     @PostMapping("/sessions/{sessionId}/end")
     public ResponseEntity<ApiResponse<SessionResponse>> endSession(
             @PathVariable Long sessionId) {

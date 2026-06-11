@@ -2,6 +2,8 @@ package com.workmaite.domain.sessions.service;
 
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
+import com.workmaite.domain.minutes.repository.MinutesRepository;
+import com.workmaite.domain.scripts.repository.ScriptRepository;
 import com.workmaite.domain.sessions.dto.AttendeeRequest;
 import com.workmaite.domain.sessions.dto.SessionCreateRequest;
 import com.workmaite.domain.sessions.dto.SessionResponse;
@@ -44,6 +46,8 @@ public class SessionService {
     private final SessionSummaryBlockRepository summaryBlockRepository;
     private final MeetingRepository meetingRepository;
     private final NeoSyncService neoSyncService;
+    private final ScriptRepository scriptRepository;
+    private final MinutesRepository minutesRepository;
 
     // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
     public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
@@ -123,6 +127,10 @@ public class SessionService {
     @Transactional
     public void deleteSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
+        scriptRepository.deleteAllBySessionId(sessionId);
+        summaryBlockRepository.deleteAllBySessionId(sessionId);
+        sessionMemberRepository.deleteBySessionId(sessionId);
+        minutesRepository.deleteBySessionId(sessionId);
         sessionRepository.delete(session);
     }
 
@@ -140,7 +148,7 @@ public class SessionService {
         return SessionResponse.from(session);
     }
 
-    // ONGOING 상태일 때만 일시정지 가능, 그 외 상태면 SESSION_NOT_STARTED 에러
+    // ONGOING 상태일 때만 일시정지 가능
     @Transactional
     public SessionResponse pauseSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
@@ -150,6 +158,20 @@ public class SessionService {
         }
 
         session.pause();
+        neoSyncService.syncSession(sessionId);
+        return SessionResponse.from(session);
+    }
+
+    // ONGOING 상태일 때만 재개 가능
+    @Transactional
+    public SessionResponse resumeSession(Long sessionId) {
+        MeetingSession session = findSessionById(sessionId);
+
+        if (session.getStatus() != SessionStatus.ONGOING) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_STARTED);
+        }
+
+        session.resume();
         neoSyncService.syncSession(sessionId);
         return SessionResponse.from(session);
     }
