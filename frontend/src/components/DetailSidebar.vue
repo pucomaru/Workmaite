@@ -224,16 +224,14 @@ watch(relAddActive, v => {
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="시작일">
-                <span style="font-size:10px;color:#999;white-space:nowrap">{{ detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-' }}</span>
-              </SidebarInfoRow>
+              <SidebarInfoRow label="시작일" :value="detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-'" />
               <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
                     <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
                   </template>
-                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">없음</span>
+                  <span v-else class="dday-label" style="white-space:nowrap">없음</span>
                 </div>
               </SidebarInfoRow>
             </div>
