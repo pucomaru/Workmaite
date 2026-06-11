@@ -32,6 +32,12 @@ export function useAgentMention({
   const AT_TYPE_ICONS = { meeting: '🏢', person: '👤', task: '✅', department: '🏬', session: '📅', document: '📄' }
   const AT_TYPE_LABELS = { meeting: '회의체', person: '구성원', task: '아젠다', department: '부서', session: '회의', document: '문서' }
 
+  function _fmtDate(d) {
+    if (!d) return ''
+    const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/)
+    return m ? `${m[1]}.${m[2]}.${m[3]}` : String(d).slice(0, 10)
+  }
+
   const atMenuItems = computed(() => {
     const q = atQuery.value.toLowerCase()
     const seen = new Set()
@@ -44,8 +50,8 @@ export function useAgentMention({
         const id = `mg-${mg.id}`
         if (!seen.has(id)) {
           seen.add(id)
-          const memberNames = (mg.members || []).map(m => m.name).filter(Boolean).join(', ')
-          const agendaList = (mg.agendas || []).map(a => a.content || a.title).filter(Boolean).slice(0, 3).join(', ')
+          const memberNames = (mg.members || []).map(m => m.name || m.userName).filter(Boolean).join(', ')
+          const agendaList = (mg.tasks || mg.agendas || []).map(a => a.content || a.title).filter(Boolean).slice(0, 3).join(', ')
           items.push({
             id, type: 'meeting', label, icon: '🏢',
             summary: ['[회의체] ' + label, mg.purpose ? '목적: ' + mg.purpose : '', memberNames ? '구성원: ' + memberNames : '', agendaList ? '아젠다: ' + agendaList : ''].filter(Boolean).join('\n'),
@@ -53,22 +59,26 @@ export function useAgentMention({
         }
       }
     }
-    // 구성원
-    for (const m of (membersData?.value || [])) {
-      const label = m.name || ''
-      if (!label) continue
-      if (!q || label.toLowerCase().includes(q)) {
-        const id = `person-${m.id || m.employee_id || m.name}`
-        if (!seen.has(id)) {
-          seen.add(id)
-          items.push({
-            id, type: 'person', label, icon: '👤',
-            summary: ['[구성원] ' + label, m.department ? '부서: ' + m.department : '', m.position ? '직책: ' + m.position : ''].filter(Boolean).join('\n'),
-          })
+    // 회의 (sessions) — 모든 회의체의 minutes 배열에서 수집
+    for (const mg of (meetingGroups?.value || [])) {
+      for (const s of (mg.minutes || [])) {
+        const sessionTitle = s.session_title || s.title || ''
+        if (!sessionTitle) continue
+        const dateStr = _fmtDate(s.date || s.started_at)
+        const label = dateStr ? `${sessionTitle} - ${dateStr}` : sessionTitle
+        if (!q || sessionTitle.toLowerCase().includes(q) || dateStr.includes(q)) {
+          const id = `session-${s.id}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            items.push({
+              id, type: 'session', label, icon: '📅',
+              summary: ['[회의] ' + sessionTitle, mg.title ? '회의체: ' + mg.title : '', dateStr ? '일시: ' + dateStr : ''].filter(Boolean).join('\n'),
+            })
+          }
         }
       }
     }
-    // 과제
+    // 아젠다
     for (const t of (tasksData?.value || [])) {
       const label = (t.content || t.title || '').slice(0, 40)
       if (!label) continue
@@ -76,29 +86,15 @@ export function useAgentMention({
         const id = `task-${t.id}`
         if (!seen.has(id)) {
           seen.add(id)
-          const statusLabel = { pending: '대기', done: '완료', in_progress: '진행중', at_risk: '위험' }[t.status] || t.status || ''
+          const statusLabel = { pending: '대기', done: '완료', ongoing: '진행 중', in_progress: '진행 중', at_risk: '위험', submitted: '제출완료', draft: '초안' }[t.status] || t.status || ''
           items.push({
             id, type: 'task', label, icon: '✅',
-            summary: ['[아젠다] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.deadline ? '마감: ' + t.deadline : ''].filter(Boolean).join('\n'),
+            summary: ['[아젠다] ' + label, statusLabel ? '상태: ' + statusLabel : '', t.due_date || t.deadline ? '마감: ' + (t.due_date || t.deadline) : ''].filter(Boolean).join('\n'),
           })
         }
       }
     }
-    // 현재 선택된 회의체의 세션
-    if (detailMeeting?.value?.sessions?.length) {
-      for (const s of detailMeeting.value.sessions) {
-        const label = s.title || s.name || ''
-        if (!label) continue
-        if (!q || label.toLowerCase().includes(q)) {
-          const id = `session-${s.id}`
-          if (!seen.has(id)) {
-            seen.add(id)
-            items.push({ id, type: 'session', label, icon: '📅', summary: ['[회의] ' + label, s.date ? '일시: ' + s.date : ''].filter(Boolean).join('\n') })
-          }
-        }
-      }
-    }
-    return items.slice(0, 8)
+    return items.slice(0, 12)
   })
 
   function onAgentInput(e) {

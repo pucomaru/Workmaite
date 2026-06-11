@@ -1,5 +1,5 @@
 <script setup>
-import { inject, ref } from 'vue'
+import { inject, ref, onMounted } from 'vue'
 import { renderMd } from '../composables/useMarkdown'
 import AgentComposer from './AgentComposer.vue'
 
@@ -9,8 +9,11 @@ const {
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
-  sendAgentMsg, onAgentFileSelected,
+  sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory,
 } = inject('agentSidebar')
+
+// 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드
+onMounted(() => { loadChatHistory() })
 
 const composerRef = ref(null)
 // 공통 컴포저가 마운트되면 내부 textarea를 컴포저블 ref에 연결 (@멘션 커서/포커스용)
@@ -108,8 +111,21 @@ function onResizeEnd() {
               <div class="agent-bubble agent theme-supervisor"
                    :class="{ 'is-streaming': agentLoading && i === currentMessages.length - 2 }"
                    v-html="renderMd(msg.content)"></div>
-              <div v-if="i===0&&agentInfo.suggested?.length" class="agent-suggested">
-                <button v-for="s in agentInfo.suggested" :key="s" class="suggested-btn" :disabled="agentLoading" @click="agentInput=s;sendAgentMsg()">{{ s }}</button>
+              <div v-if="i===0&&(agentInfo.suggested?.length||agentInfo.suggestedAt?.length)" class="agent-suggested">
+                <button
+                  v-for="s in agentInfo.suggested" :key="s"
+                  class="suggested-btn" :disabled="agentLoading"
+                  @click="agentInput=s;sendAgentMsg()"
+                >{{ s }}</button>
+                <template v-if="agentInfo.suggestedAt?.length">
+                  <div class="suggested-section-label">@ 붙여서 범위 지정</div>
+                  <button
+                    v-for="s in agentInfo.suggestedAt" :key="'at-'+s"
+                    class="suggested-btn suggested-btn--at" :disabled="agentLoading"
+                    :title="'클릭하면 회의체·회의 목록에서 선택할 수 있어요'"
+                    @click="triggerAtSuggest()"
+                  >{{ s }}</button>
+                </template>
               </div>
             </template>
 
