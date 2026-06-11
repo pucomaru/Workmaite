@@ -532,14 +532,14 @@ async function loadDraftAgendas(meetingId) {
     if (!data?.length) return
     nextAgendaItems.value = data.map(a => {
       const dept = Array.isArray(a.department) ? (a.department[0] || '') : (a.department || '')
-      const org = cleanStr(a.organization)
+      const company = cleanStr(a.company) || cleanStr(a.organization)
       return {
-        title: a.title || '', org, dept,
+        title: a.title || '', company, dept,
         db_id: a.db_id,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: a.title || '', _editOrg: org, _editDept: dept,
+        _editTitle: a.title || '', _editCompany: company, _editDept: dept,
         _editStartDate: a.start_date || null, _editEndDate: a.due_date || null,
       }
     })
@@ -583,25 +583,25 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
-      const org   = cleanStr(a.organization) || cleanStr(a.company)
+      const company = cleanStr(a.company) || cleanStr(a.organization)
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
-        title, org, dept,
+        title, company, dept,
         db_id: a.db_id || null,
         start_date: a.start_date || null,
         end_date: a.due_date || null,
         _agentLogId: agentLogId,
         _state: null, _reason: '', _showReason: false, _editing: false,
-        _editTitle: title, _editOrg: org, _editDept: dept,
+        _editTitle: title, _editCompany: company, _editDept: dept,
         _editStartDate: a.start_date || null,
         _editEndDate: a.due_date || null,
       }
     })
     if (!nextAgendaItems.value.length) {
-      nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+      nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
     }
   } catch {
-    nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
+    nextAgendaItems.value = [{ title: '다음 회의 아젠다를 입력해주세요', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: false, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null }]
   } finally {
     nextAgendaExtracting.value = false
     if (activeSession.value) {
@@ -616,7 +616,7 @@ async function extractNextAgendas() {
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({ title: '', org: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editOrg: '', _editDept: '', _editStartDate: null, _editEndDate: null })
+  nextAgendaItems.value.push({ title: '', company: '', dept: '', db_id: null, start_date: null, end_date: null, _agentLogId: null, _state: null, _reason: '', _showReason: false, _editing: true, _editTitle: '', _editCompany: '', _editDept: '', _editStartDate: null, _editEndDate: null })
 }
 
 async function removeNextAgendaItem(i) {
@@ -757,7 +757,7 @@ async function loadMentionGraph() {
   } catch { /* 그래프 미연결 시 @멘션은 비활성 */ }
 }
 
-const sessionMemberOrgs = computed(() =>
+const sessionMemberCompanies = computed(() =>
   [...new Set((mentionMembers.value || []).map(mb => mb.company || '').filter(Boolean))]
 )
 const sessionMemberDepts = computed(() =>
@@ -1145,7 +1145,7 @@ async function downloadChatFile(filePath) {
                 <div class="nab-list">
                   <AgendaReviewList
                     :items="nextAgendaItems"
-                    :memberOrgs="sessionMemberOrgs"
+                    :memberCompanies="sessionMemberCompanies"
                     :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
                     @approved="() => {}"

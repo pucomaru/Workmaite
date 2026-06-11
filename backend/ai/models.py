@@ -204,7 +204,7 @@ class HitlReview(Base):
     target_id      = Column(Integer, nullable=False)
     review_prompt  = Column(JSON, nullable=True)
     ai_rationale   = Column(Text, nullable=True)
-    status         = Column(String(20), default="pending")
+    status         = Column(Text, default="검토중")
     reviewer_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
     review_comment = Column(JSON, nullable=True)
     reviewed_at    = Column(DateTime, nullable=True)

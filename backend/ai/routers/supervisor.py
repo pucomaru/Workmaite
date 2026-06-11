@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Optional, Literal
+from typing import Any, List, Optional, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -182,7 +182,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
 
 
 def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
-    """Return unique (organization, department) pairs from meeting members."""
+    """Return unique (company, department) pairs from meeting members."""
     from sqlalchemy.orm import joinedload
     members = (
         db.query(models.MeetingMember)
@@ -195,11 +195,11 @@ def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
     for m in members:
         if not m.user or not m.user.department:
             continue
-        org = m.user.company or ""
+        company = m.user.company or ""
         dept = m.user.department
-        if (org, dept) not in seen:
-            seen.add((org, dept))
-            result.append({"organization": org, "department": dept})
+        if (company, dept) not in seen:
+            seen.add((company, dept))
+            result.append({"company": company, "department": dept})
     return result
 
 
@@ -653,11 +653,11 @@ async def supervisor_chat(
                             if t and t not in hl_candidates:
                                 hl_candidates.append(t)
                     else:
-                        org_rows = await run_cypher(
+                        company_rows = await run_cypher(
                             "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
                         )
-                        if org_rows:
-                            yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
+                        if company_rows:
+                            yield f"data: [PLANNING] 조직: {company_rows[0].get('name', '?')} 확인\n\n"
                 except Exception:
                     pass
 
@@ -743,7 +743,7 @@ async def supervisor_chat(
                 _org_dept_pairs = _get_member_org_depts(db, data.meeting_id)
                 _org_dept_list = (
                     "\n".join(
-                        f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+                        f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
                         for p in _org_dept_pairs
                     ) if _org_dept_pairs else "정보 없음"
                 )
@@ -1529,7 +1529,7 @@ async def archive_extract_agendas(
 
     org_dept_list = (
         "\n".join(
-            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
             for p in org_dept_pairs
         ) if org_dept_pairs else "정보 없음"
     )
@@ -1564,7 +1564,7 @@ async def archive_extract_agendas(
                     due_date=due_val,
                     ai_evidence=json.dumps({
                         "reasoning": ag.get("reasoning") or "",
-                        "organization": ag.get("organization"),
+                        "company": ag.get("company") or ag.get("organization"),
                         "start_date": ag.get("start_date"),
                     }, ensure_ascii=False),
                 )
@@ -1629,7 +1629,7 @@ async def archive_extract_agendas(
             "agendas": [
                 {
                     "title": ag.get("title", ""),
-                    "organization": ag.get("organization"),
+                    "company": ag.get("company") or ag.get("organization"),
                     "department": ag.get("department"),
                     "start_date": ag.get("start_date"),
                     "due_date": ag.get("due_date"),
@@ -1666,7 +1666,7 @@ async def archive_chat_extract(
     org_dept_pairs = _get_member_org_depts(db, meeting_id) if meeting_id else []
     org_dept_list = (
         "\n".join(
-            f"- {p['organization']} / {p['department']}" if p["organization"] else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
             for p in org_dept_pairs
         ) if org_dept_pairs else "정보 없음"
     )
@@ -1693,7 +1693,7 @@ async def archive_chat_extract(
                 "agendas": [
                     {
                         "title": ag.get("title", ""),
-                        "organization": ag.get("organization"),
+                        "company": ag.get("company") or ag.get("organization"),
                         "department": ag.get("department"),
                         "priority": ag.get("priority", "normal"),
                         "start_date": ag.get("start_date"),
@@ -1965,7 +1965,7 @@ async def get_draft_agendas(
             "department": a.department,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
             "start_date": _parse_ev(a.ai_evidence).get("start_date"),
-            "organization": _parse_ev(a.ai_evidence).get("organization"),
+            "company": _parse_ev(a.ai_evidence).get("company") or _parse_ev(a.ai_evidence).get("organization"),
         }
         for a in agendas
     ]
@@ -2271,6 +2271,57 @@ async def create_hitl_review(
         logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
 
     return {"id": review.id, "status": review.status}
+
+
+class HitlReviewPatch(BaseModel):
+    status: Optional[str] = None
+    review_comment: Optional[Any] = None
+
+
+@router.patch("/hitl-reviews/{hj_id}")
+async def update_hitl_review(
+    hj_id: int,
+    data: HitlReviewPatch,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from fastapi import HTTPException
+    review = db.query(models.HitlReview).filter(models.HitlReview.id == hj_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="HitlReview not found")
+    if data.status is not None:
+        review.status = data.status
+    if data.review_comment is not None:
+        review.review_comment = data.review_comment
+    review.reviewed_at = datetime.utcnow()
+    review.reviewer_id = current_user.id
+    db.commit()
+    db.refresh(review)
+
+    try:
+        from neo4j_sync import sync_human_judgment as _sync_hj
+        meeting_id_for_sync: int | None = None
+        if review.target_type == "agenda" and review.target_id:
+            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.target_id).first()
+            if _ag:
+                meeting_id_for_sync = _ag.meeting_id
+        background_tasks.add_task(
+            _sync_hj,
+            review_id=review.id,
+            meeting_id=meeting_id_for_sync,
+            judgment=review.status,
+            reason=str(review.review_comment) if review.review_comment else None,
+            target_type=review.target_type,
+            target_id=review.target_id,
+            review_prompt=str(review.review_prompt) if review.review_prompt else None,
+            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
+            created_at=review.created_at.isoformat() if review.created_at else None,
+        )
+    except Exception as _se:
+        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+
+    return {"id": review.id, "status": review.status, "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None}
 
 
 # ─── 보고서 종합 검토 (스트리밍) ──────────────────────────────────────────────

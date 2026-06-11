@@ -416,6 +416,9 @@
 .dei-reason-input::placeholder { color:rgba(148,163,184,.4);font-style:italic; }
 .ai-evidence-box { font-size:11px;line-height:1.6;color:var(--dark-muted,#aaa);background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);border-radius:6px;padding:8px 10px;white-space:pre-wrap;word-break:break-all; }
 .day-mode .ai-evidence-box { color:#475569;background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.2); }
+.hj-judgment-text { font-size:13px;line-height:1.65;color:var(--text-main,#e2e8f0);background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:7px;padding:10px 12px;white-space:pre-wrap;word-break:break-word; }
+.day-mode .hj-judgment-text { color:#1e293b;background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.25); }
+.hj-judgment-empty { font-size:12px;color:var(--dark-muted,#888);font-style:italic; }
 
 /* ── Report Score ──────────────────────────────────────────────────────────── */
 .rs-score-header { display:flex;align-items:center;gap:8px;margin-bottom:8px; }

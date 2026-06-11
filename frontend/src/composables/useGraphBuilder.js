@@ -1,4 +1,4 @@
-export function useGraphBuilder({ meetingGroups, currentPerson, authStore, currentOrg, neo4jDepts, meetingsStore, relatedAgendas }) {
+export function useGraphBuilder({ meetingGroups, currentPerson, authStore, currentCompany, neo4jDepts, meetingsStore, relatedAgendas }) {
   function buildGraphNodes() {
     const nodes = [], edges = []
     const data = meetingGroups.value
@@ -7,8 +7,9 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
     const globalAgendaIdxMap = new Map()
 
     // ── Organization node ──────────────────────────────────────
-    const orgNodeIdx = nodes.length
-    nodes.push({ id: 'org-node', label: currentOrg.value?.name || '조직', type: 'company', data: currentOrg.value })
+    const companyNodeIdx = nodes.length
+    const _companyData = currentCompany?.value
+    nodes.push({ id: 'company-node', label: _companyData?.name || '조직', type: 'company', data: _companyData })
 
     if (!data.length) return { nodes, edges }
 
@@ -24,7 +25,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         ended: g.status === 'ended',
       })
       // meetingGroup -[포함]→ org-node (조직 소속)
-      edges.push({ from: mgIdx, to: orgNodeIdx, rel: '포함' })
+      edges.push({ from: mgIdx, to: companyNodeIdx, rel: '포함' })
 
       // ── Department + Person nodes ────────────────────────────
       const membersByDept = new Map()
@@ -46,7 +47,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           neo4jId: deptIdByName.get(deptName) || null,
         })
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
-        edges.push({ from: deptIdx, to: orgNodeIdx, rel: '소속' })
+        edges.push({ from: deptIdx, to: companyNodeIdx, rel: '소속' })
 
         ;(membersByDept.get(deptName) || []).forEach(mb => {
           const pIdx = nodes.length
@@ -212,14 +213,15 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const mIdx = minutesFileIdxBySessionNeoId.get(String(sa.session_id))
         if (mIdx != null) agendaToMinutesIdx.set(String(sa.agenda_id), mIdx)
       })
-      const hjLabelMap = { approved: '승인', rejected: '반려', edited: '수정', pending: '검토중' }
       ;(g.human_judgments || []).forEach((hj, hi) => {
         const agId = String(hj.agenda_id || `ag-${hj.target_id}`)
         const refIdx = agendaIdxById.get(agId) ?? agendaToMinutesIdx.get(agId) ?? mgIdx
         const hjIdx = nodes.length
+        const rawLabel = hj.judgment || '의사결정'
+        const label = rawLabel.length > 15 ? rawLabel.slice(0, 14) + '…' : rawLabel
         nodes.push({
           id: `human_judgment-${g.id || gi}-${hj.id || hi}`,
-          label: hjLabelMap[hj.judgment] || '의사결정', type: 'human_judgment',
+          label, type: 'human_judgment',
           groupIdx: gi, data: hj, meetingGroupId: mgNodeId, neo4jId: hj.id || null,
         })
         edges.push({ from: hjIdx, to: refIdx, rel: '판단' })

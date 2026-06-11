@@ -17,13 +17,13 @@ const {
   selectedFiles, uploadedCtxFiles, selectedSimilarDocs, onCtxFilesAdded, removeCtxFile,
   runExtract, setExtractState, addExtractItem, finishExtract, approveItem, rejectItem,
   detailMemberDepts,
-  detailMemberOrgs,
+  detailMemberCompanies,
   goToProcessStep,
   PRIORITY_LABEL, STATUS_LABEL,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentOrg, personMeetingGroups, personTasks, reportRelatedAgendas,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentCompany, personMeetingGroups, personTasks, reportRelatedAgendas,
   meetingGroups,
   viewMode,
   nodeReviewing, startNodeReview,
@@ -384,7 +384,7 @@ const sbTopImprovements = computed(() => {
                       <div class="detail-extract-meta">AI가 {{ extractResult.length }}개 아젠다를 추천했습니다.</div>
                       <AgendaReviewList
                         :items="extractResult"
-                        :memberOrgs="detailMemberOrgs"
+                        :memberCompanies="detailMemberCompanies"
                         :memberDepts="detailMemberDepts"
                         :removeOnApprove="true"
                         @approved="approveItem"
@@ -857,7 +857,7 @@ const sbTopImprovements = computed(() => {
                 <div class="detail-info-grid">
                   <div class="detail-info-item">
                     <span class="detail-info-key">회사</span>
-                    <span class="detail-info-val">{{ detailNode.data?.company || currentOrg?.name || '-' }}</span>
+                    <span class="detail-info-val">{{ detailNode.data?.company || currentCompany?.name || '-' }}</span>
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">부서</span>
@@ -896,19 +896,11 @@ const sbTopImprovements = computed(() => {
             <!-- 의사결정 (human_judgment) -->
             <template v-else-if="detailNode.type==='human_judgment'">
               <div class="detail-section">
-                <div class="detail-info-grid">
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">결정유형</span>
-                    <span class="detail-info-val">
-                      <span class="status-badge" :class="{
-                        'sb-done':     detailNode.data?.judgment==='approved',
-                        'sb-progress': detailNode.data?.judgment==='edited',
-                        'sb-pending':  detailNode.data?.judgment==='pending' || !detailNode.data?.judgment,
-                      }" :style="detailNode.data?.judgment==='rejected' ? 'background:rgba(239,68,68,.18);color:#f87171' : ''">
-                        {{ { approved:'승인', rejected:'반려', edited:'수정', pending:'검토중' }[detailNode.data?.judgment] || detailNode.data?.judgment || '-' }}
-                      </span>
-                    </span>
-                  </div>
+                <div v-if="detailNode.data?.judgment" class="hj-judgment-text">
+                  {{ detailNode.data.judgment }}
+                </div>
+                <div v-else class="hj-judgment-empty">결정 내용 없음</div>
+                <div class="detail-info-grid" style="margin-top:10px">
                   <div class="detail-info-item">
                     <span class="detail-info-key">결정일시</span>
                     <span class="detail-info-val">{{ detailNode.data?.judged_at ? formatDate(detailNode.data.judged_at) : '-' }}</span>

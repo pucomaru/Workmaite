@@ -589,7 +589,7 @@ async def sync_report(
 async def sync_human_judgment(
     review_id: int,
     meeting_id: int | None,
-    judgment: str,              # PG status: approved | rejected | pending
+    judgment: str,              # PG status: 자연어 결정 내용
     reason: str | None = None,  # PG review_comment
     version: int = 1,
     reviewer_id: int | None = None,
