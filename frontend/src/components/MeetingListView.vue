@@ -8,7 +8,7 @@ const {
   loading, meetingGroups, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, filteredGroupHistoryMap,
-  formatDate, downloadDummy, deleteReport, resumePendingReport,
+  formatDate, downloadDummy, deleteReport, deleteMinutes, downloadScript, resumePendingReport,
 } = inject('archiveList')
 
 // ── 이전 버전 토글 ─────────────────────────────────────────────
@@ -106,9 +106,10 @@ function versionKey(groupId, itemIdx) {
                       :class="{ 'lv-desc-clickable': item.olderVersions?.length }"
                       @click.stop="item.olderVersions?.length && toggleVersions(versionKey(g.id, i))"
                     >{{ item.fileName }}</span>
-                    <span v-if="item.isReference" class="lv-status-badge lv-badge-reference">참고자료</span>
-                    <span v-else-if="item.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">반려</span>
-                    <span v-else-if="item.approved" class="lv-status-badge lv-badge-approved" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">승인</span>
+                    <span v-if="item.type === 'minutes'" class="lv-status-badge lv-badge-minutes">회의록</span>
+                    <span v-else-if="item.isReference" class="lv-status-badge lv-badge-reference">참고자료</span>
+                    <span v-else-if="item.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">보고서 반려</span>
+                    <span v-else-if="item.approved" class="lv-status-badge lv-badge-approved" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId, true)" title="검토 결과 보기">보고서 승인</span>
                     <span v-else-if="item.pending && item.reportId" class="lv-status-badge lv-badge-pending" style="cursor:pointer" @click.stop="resumePendingReport(item.reportId)" title="클릭하여 검토 재개">진행중</span>
                   </div>
                 </td>
@@ -120,8 +121,14 @@ function versionKey(groupId, itemIdx) {
                     <button v-if="item.hasFile" class="lv-dl-btn" @click.stop="downloadDummy(item)" title="다운로드">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     </button>
+                    <button v-if="item.type === 'minutes' && item.sessionId" class="lv-dl-btn lv-del-btn" @click.stop="deleteMinutes(item.sessionId)" title="삭제">
+                      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                    </button>
                     <button v-if="item.reportId" class="lv-dl-btn lv-del-btn" @click.stop="deleteReport(item.reportId)" title="삭제">
                       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                    </button>
+                    <button v-if="item.type === 'minutes' && item.sessionId" class="lv-dl-btn" @click.stop="downloadScript(item.sessionId)" title="STT 스크립트">
+                      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                     </button>
                   </div>
                 </td>
@@ -130,12 +137,12 @@ function versionKey(groupId, itemIdx) {
               <template v-if="item.olderVersions?.length && expandedVersionKeys.has(versionKey(g.id, i))">
                 <tr v-for="(ver, vi) in item.olderVersions" :key="`ver-${vi}`"
                   class="lv-sub-row lv-ver-row" :class="{ 'lv-hist-rejected': ver.rejected }">
-                  <td colspan="2" class="lv-sub-td-name" style="padding-left:36px">
+                  <td colspan="2" class="lv-sub-td-name" style="padding-left:80px">
                     <div class="lv-hist-desc-inner">
                       <span class="lv-hist-type-dot ht-report"></span>
                       {{ ver.fileName }}
-                      <span v-if="ver.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(ver.reportId, true)" title="검토 결과 보기">반려</span>
-                      <span v-else-if="ver.approved" class="lv-status-badge lv-badge-approved" style="cursor:pointer" @click.stop="resumePendingReport(ver.reportId, true)" title="검토 결과 보기">승인</span>
+                      <span v-if="ver.rejected" class="lv-status-badge lv-badge-rejected" style="cursor:pointer" @click.stop="resumePendingReport(ver.reportId, true)" title="검토 결과 보기">보고서 반려</span>
+                      <span v-else-if="ver.approved" class="lv-status-badge lv-badge-approved" style="cursor:pointer" @click.stop="resumePendingReport(ver.reportId, true)" title="검토 결과 보기">보고서 승인</span>
                     </div>
                   </td>
                   <td class="lv-sub-td">{{ ver.score != null ? ver.score + '점' : '-' }}</td>
