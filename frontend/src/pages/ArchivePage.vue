@@ -883,6 +883,11 @@ async function finishExtract() {
 
 const PRIORITY_LABEL = { urgent_important: '긴급·중요', important: '중요', urgent: '긴급', normal: '보통', low: '낮음' }
 const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승인대기', done: '완료' }
+const NODE_TYPE_COLORS = {
+  Meetings: '#3b82f6', agenda: '#f59e0b', session: '#f97316',
+  minutes: '#60a5fa', report: '#34d399', dept: '#8b5cf6',
+  person: '#f472b6', company: '#0d9488', human_judgment: '#22d3ee',
+}
 
 function goToProcessStep(step) {
   if (step === 'context' && extractPhase.value === 'result') {
@@ -2597,7 +2602,7 @@ provide('archiveSidebar', {
   detailMemberDepts,
   detailMemberCompanies,
   goToProcessStep,
-  PRIORITY_LABEL, STATUS_LABEL,
+  PRIORITY_LABEL, STATUS_LABEL, NODE_TYPE_COLORS,
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,

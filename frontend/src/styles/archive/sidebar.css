@@ -9,7 +9,7 @@
 .detail-header-icon { width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:#888;flex-shrink:0; }
 .detail-header-left { flex:1;min-width:0;overflow:hidden; }
 .detail-name-badge-row { display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden; }
-.detail-name-badge-row .detail-meeting-name { flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.detail-name-badge-row .detail-meeting-name { flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .detail-name-badge-row .detail-role-badge { flex-shrink:0;margin-top:0; }
 .detail-header-actions { display:flex;align-items:center;gap:4px;flex-shrink:0; }
 .detail-meeting-name { font-size:13px;font-weight:700;color:#e8e8e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
@@ -287,9 +287,6 @@
 .detail-log-item { display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:6px; }
 .detail-log-item:hover { background:rgba(255,255,255,.03); }
 .detail-log-dot { width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:4px; }
-.ht-minutes { background:#6b8cba; }
-.ht-report { background:#7aab8a; }
-.ht-approved { background:#b0b87a; }
 .detail-log-content { flex:1;min-width:0; }
 .detail-log-desc { font-size:11.5px;color:#bbb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .detail-log-meta { font-size:10px;color:#454545;margin-top:2px; }
