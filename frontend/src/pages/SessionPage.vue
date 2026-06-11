@@ -683,18 +683,25 @@ async function saveMinutesToDB() {
   if (!activeSession.value || !generatedMinutes.value?.content_summary) return
   savingMinutes.value = true
   try {
+    const sessionId = activeSession.value.id
+    const meetingId = activeSession.value.meeting_id || activeSession.value.meetingId
     const html = editor.value?.getHTML() || generatedMinutes.value.content_summary
     const fd = new FormData()
     fd.append('content', html)
-    const { data } = await apiAI.post(`/api/upload/minutes/${activeSession.value.id}`, fd, {
+    await apiAI.post(`/api/upload/minutes/${sessionId}`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     minutesSavedAt.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    // 회의록 저장 완료 → 세션 archived 처리
-    await api.post(`/api/v1/sessions/${activeSession.value.id}/archive`)
+    await api.post(`/api/v1/sessions/${sessionId}/archive`)
     if (activeSession.value) activeSession.value.status = 'archived'
+    // 사이드바 세션 목록 업데이트
+    if (meetingId && sessionsCache.value[meetingId]) {
+      const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)
+      if (s) s.status = 'archived'
+    }
   } catch (e) {
-    alert('저장에 실패했습니다.')
+    const msg = e?.response?.data?.detail || e?.message || '알 수 없는 오류'
+    alert(`저장에 실패했습니다: ${msg}`)
   } finally {
     savingMinutes.value = false
   }

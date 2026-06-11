@@ -310,7 +310,7 @@ async def generate_minutes_stream(
     llm = _make_llm(temperature=0.2)
     collected_parts: List[str] = []
     async for chunk in llm.astream([
-        SystemMessage(content=generate_minutes_system(rich_context, agenda_text)),
+        SystemMessage(content=generate_minutes_system(meeting_context, agenda_text)),
         HumanMessage(content=generate_minutes_human(transcript, now)),
     ]):
         if chunk.content:
