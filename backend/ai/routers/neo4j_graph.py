@@ -19,12 +19,22 @@ NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
 ALLOWED_LABELS = {"Meetings", "User", "Department", "Agenda", "Report", "Minutes", "Session", "Company"}
 ALLOWED_REL_TYPES = {
-    "소속", "참여", "간사", "구성원", "포함",
-    "관할", "담당", "첨부", "제출",
-    "개최", "도출", "산출", "근거", "원인",
-    "추천", "참조", "후속", "다룸멌", "판단",
+    # User 관계
+    "소속", "소속회사", "구성원", "개설", "참석", "작성",
+    # Meetings/Session 관계
+    "소속", "기록",
+    # Agenda 관계
+    "관할", "담당", "담당부서", "발제세션",
+    # Report 관계
+    "첨부",
+    # HumanJudgment 관계
+    "판단대상", "판단자",
+    # 회의체 간 관계
+    "상위", "관련", "후속회의",
+    # Chunk 관계
+    "청크", "BELONGS_TO",
     # 프론트 자유 관계 타입
-    "연결", "협업", "공유", "지원", "검토", "상위", "관련", "후속회의", "출처", "생성", "세션출처",
+    "연결", "협업", "공유", "지원", "검토", "출처", "포함",
 }
 
 
@@ -105,10 +115,10 @@ async def get_archive(
                 {"email": user_email, "name": user_name},
             ),
             _run_cypher(
-                "MATCH (o:Company) RETURN o.id AS id, o.name AS name LIMIT 1"
+                "MATCH (o:Company) RETURN o.name AS name LIMIT 1"
             ),
             _run_cypher(
-                "MATCH (d:Department) RETURN d.id AS id, d.name AS name, d.code AS code ORDER BY d.name"
+                "MATCH (d:Department) RETURN d.name AS name ORDER BY d.name"
             ),
         )
     except Exception as e:
@@ -120,9 +130,8 @@ async def get_archive(
             person_id = person_rows[0]["pid"]
             allowed_rows = await _run_cypher(
                 """
-                MATCH (p:User)-[:`간사`|`구성원`]->(mg)
+                MATCH (p:User)-[:`구성원`|`개설`]->(mg:Meetings)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
-                  AND (mg:Meetings OR mg:Meeting_session)
                 RETURN mg.id AS mg_id
                 """,
                 {"pid": person_id},
@@ -158,22 +167,21 @@ async def get_archive(
         mg_rows, agenda_rows, session_rows, report_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mg) WHERE (mg:Meetings OR mg:Meeting_session)
-                  AND mg.id IN $ids
-                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`|`참여`]->(mg)
-                OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
+                MATCH (mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (p:User)-[rel:`개설`|`구성원`]->(mg)
+                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,
                     coalesce(mg.title, '') AS title,
-                    coalesce(mg.meeting_type, mg.type) AS meeting_type,
+                    coalesce(mg.type) AS meeting_type,
                     coalesce(mg.status, 'active') AS status,
-                    coalesce(mg.description, mg.purpose, '') AS purpose,
+                    coalesce(mg.description, '') AS purpose,
                     coalesce(mg.guidelines, '') AS guidelines,
                     mg.start_date AS start_date,
                     mg.end_date AS end_date,
                     coalesce(p.id, toString(p.pg_id)) AS person_id,
                     p.name AS person_name, p.email AS email,
-                    p.position AS position, type(rel) AS role, rel.role AS rel_role,
+                    p.position AS position, rel.role AS rel_role,
                     coalesce(d.name, p.department, '') AS department
                 ORDER BY mg_id
                 """,
@@ -181,11 +189,9 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session)
-                  AND mg.id IN $ids
+                MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings) WHERE mg.id IN $ids
                 OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
-                OPTIONAL MATCH (p)-[:`소속`|`소속부서`]->(d:Department)
+                OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(ag.id, toString(ag.pg_id)) AS id,
@@ -201,31 +207,23 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (s:Session)-[:`개최`|`소속`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session)
-                  AND mg.id IN $ids
-                OPTIONAL MATCH (s)-[:`산출`]->(doc) WHERE doc:Report OR doc:Minutes
-                OPTIONAL MATCH (mn:Minutes)-[:`생성`]->(s)
+                MATCH (s:Session)-[:`소속`]->(mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
                 OPTIONAL MATCH (u:User)-[:참석]->(s)
-                WITH mg, s, doc, mn,
+                WITH mg, s, mn,
                      collect(CASE WHEN u IS NOT NULL THEN {userId: u.pg_id, userName: u.name, department: u.department} END) AS participants
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
                     coalesce(s.id, toString(s.pg_id)) AS id,
                     s.title AS session_title,
-                    s.session_number AS session_number,
-                    toString(coalesce(s.date, s.scheduled_at)) AS date,
+                    toString(coalesce(s.scheduled_at)) AS date,
                     toString(s.started_at) AS started_at,
-                    s.session_type AS session_type,
+                    s.type AS session_type,
                     s.description AS description,
                     s.location AS location,
                     s.status AS session_status,
                     toString(s.ended_at) AS ended_at,
-                    doc.file_name AS file_name, doc.id AS doc_id,
-                    doc.title AS doc_title, doc.doc_type AS doc_type,
-                    doc.author AS doc_author,
-                    toString(doc.created_at) AS doc_created_at,
                     mn.content_summary AS content_summary,
                     mn.file_name AS minutes_file_name,
                     mn.status AS minutes_status,
@@ -237,19 +235,14 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (doc:Report)-[:`첨부`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session)
-                  AND mg.id IN $ids
-                OPTIONAL MATCH (dept:Department)-[:`제출`]->(doc)
-                OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
+                MATCH (doc:Report)-[:`체부`]->(mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (doc)-[:`체부`]->(ag:Agenda)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
-                    doc.id AS id, doc.title AS title,
-                    doc.file_name AS file_name, doc.doc_type AS doc_type,
-                    doc.author AS author, doc.file_url AS file_url,
-                    coalesce(toString(doc.created_at), toString(doc.uploaded_at)) AS submitted_at,
-                    coalesce(dept.name, '') AS department,
+                    doc.id AS id, doc.file_name AS file_name,
+                    doc.submitter_department AS department,
+                    coalesce(toString(doc.created_at)) AS submitted_at,
                     coalesce(ag.id, toString(ag.pg_id)) AS related_todo_id
                 """,
                 {"ids": mg_ids_list},
@@ -287,7 +280,7 @@ async def get_archive(
                     "userName": row.get("person_name", "?"),
                     "email": row.get("email", ""),
                     "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "간사" or row.get("rel_role") == "admin" else "member",
+                    "role": "admin" if row.get("rel_role") == "admin" else "member",
                     "department": row.get("department") or "",
                 })
 
@@ -396,8 +389,8 @@ async def get_archive(
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`생성`]->(s:Session)<-[:`발제세션`|`다룸`|`도출`]-(ag:Agenda)-[:`관할`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
+                MATCH (mn:Minutes)-[:`기록`]->(s:Session)<-[:`발제세션`]-(ag:Agenda)-[:`관할`]->(mg:Meetings)
+                WHERE mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -406,8 +399,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`발제세션`|`다룸`]->(s:Session)-[:`소속`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
+                MATCH (ag:Agenda)-[:`발제세션`]->(s:Session)-[:`소속`]->(mg:Meetings)
+                WHERE mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -416,8 +409,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`도출`]->(s:Session)-[:`소속`]->(mg)
-                WHERE (mg:Meetings OR mg:Meeting_session) AND mg.id IN $ids
+                MATCH (ag:Agenda)-[:`소속`]->(s:Session)-[:`소속`]->(mg:Meetings)
+                WHERE mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id
@@ -540,7 +533,7 @@ async def get_archive(
             """
             MATCH (hj:HumanJudgment)
             WHERE hj.target_type = 'agenda'
-            MATCH (ag:Agenda)-[:`관할`]->(mg)
+            MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings)
             WHERE mg.id IN $ids AND ag.pg_id = hj.target_id
             RETURN
                 mg.id AS meetingId,
@@ -603,7 +596,7 @@ async def get_archive(
                         "meetingId": sid, "userId": f"user-{u.id}",
                         "userName": u.name or "", "email": u.email or "",
                         "position": u.position or "",
-                        "role": "admin" if str(mb.role) == "admin" else "presenter",
+                        "role": "admin" if str(mb.role) == "admin" else "member",
                         "department": u.department or "",
                     }
                     for mb, u in members_db
@@ -876,7 +869,7 @@ async def create_session_node(data: dict):
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (s:Session {id: $s_id}), (mg:Meetings {id: $mg_id}) MERGE (s)-[:`개최`]->(mg)",
+                "MATCH (s:Session {id: $s_id}), (mg:Meetings {id: $mg_id}) MERGE (s)-[:`소속`]->(mg)",
                 {"s_id": s_id, "mg_id": mg_id},
             )
     except HTTPException:

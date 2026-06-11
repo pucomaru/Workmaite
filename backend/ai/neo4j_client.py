@@ -1,4 +1,5 @@
 """Neo4j HTTP REST 클라이언트 — 모든 에이전트/라우터가 공유합니다."""
+import asyncio
 import os, base64, re
 import httpx
 from fastapi import HTTPException
@@ -50,8 +51,7 @@ async def run_cypher(statement: str, parameters: dict | None = None) -> list[dic
 
 async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
     """회의체 ID로 Neo4j에서 관련 그래프 컨텍스트를 수집합니다.
-    neo4j_sync.py가 생성하는 Meeting_session {pg_id} 스키마를 우선 사용하고,
-    기존 Meetings {id} 스키마를 폴백으로 지원합니다.
+    Meetings {id: 'mg-N'} 스키마만 사용합니다.
     """
     if not meeting_id:
         return {}
@@ -61,73 +61,39 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
     except (ValueError, TypeError):
         pg_id = None
 
-    # pg_id 문자열 ID ("mg-001" 형식) 변환 시도
     if pg_id is None:
         s = str(meeting_id)
         if s.startswith("mg-") and s[3:].isdigit():
             pg_id = int(s[3:])
 
+    mg_neo_id = f"mg-{pg_id}" if pg_id is not None else str(meeting_id)
+
     try:
-        # ── 1차: Meeting_session {pg_id} 스키마 (neo4j_sync.py 동기화 데이터) ──
-        if pg_id is not None:
-            mg_rows = await run_cypher(
-                """MATCH (m:Meeting_session {pg_id: $pg_id})
-                   RETURN m.pg_id AS neo_id, m.title AS title,
-                          coalesce(m.description, m.purpose, '') AS purpose, m.status AS status LIMIT 1""",
-                {"pg_id": pg_id},
-            )
-            if mg_rows:
-                agenda_rows = await run_cypher(
-                    """MATCH (ag:Agenda)-[:`관할`]->(m:Meeting_session {pg_id: $pg_id})
-                       OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
-                       RETURN ag.content AS title, ag.status AS status,
-                              p.name AS assignee LIMIT 20""",
-                    {"pg_id": pg_id},
-                )
-                session_rows = await run_cypher(
-                    """MATCH (s:Session)-[:`소속`]->(m:Meeting_session {pg_id: $pg_id})
-                       RETURN s.title AS title, s.pg_id AS num,
-                              s.scheduled_at AS ended_at
-                       ORDER BY s.pg_id DESC LIMIT 5""",
-                    {"pg_id": pg_id},
-                )
-                return {
-                    "meeting": mg_rows[0],
-                    "agendas": agenda_rows,
-                    "recent_sessions": session_rows,
-                    "decisions": [],
-                }
-
-        # ── 2차 폴백: Meetings {id} 스키마 (시드 데이터 / 프론트 생성) ──
-        mid_str = str(meeting_id)
-        if pg_id is not None:
-            mid_str_alt = f"mg-{pg_id:03d}"
-        else:
-            mid_str_alt = mid_str
-
         mg_rows = await run_cypher(
-            """MATCH (mg:Meetings) WHERE mg.id = $id1 OR mg.id = $id2
+            """MATCH (mg:Meetings {id: $id})
                RETURN mg.id AS neo_id, mg.title AS title,
-                      mg.purpose AS purpose, mg.status AS status LIMIT 1""",
-            {"id1": mid_str, "id2": mid_str_alt},
+                      coalesce(mg.description, '') AS purpose,
+                      mg.status AS status LIMIT 1""",
+            {"id": mg_neo_id},
         )
         if not mg_rows:
             return {}
-        neo_id = mg_rows[0].get("neo_id", mid_str)
 
-        agenda_rows = await run_cypher(
-            """MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings {id: $id})
-               OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
-               RETURN ag.title AS title, ag.status AS status,
-                      p.name AS assignee LIMIT 20""",
-            {"id": neo_id},
-        )
-        session_rows = await run_cypher(
-            """MATCH (s:Session)-[:`개최`]->(mg:Meetings {id: $id})
-               RETURN s.title AS title, s.session_number AS num,
-                      toString(s.ended_at) AS ended_at
-               ORDER BY s.session_number DESC LIMIT 5""",
-            {"id": neo_id},
+        agenda_rows, session_rows = await asyncio.gather(
+            run_cypher(
+                """MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings {id: $id})
+                   OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
+                   RETURN ag.title AS title, ag.status AS status,
+                          p.name AS assignee LIMIT 20""",
+                {"id": mg_neo_id},
+            ),
+            run_cypher(
+                """MATCH (s:Session)-[:`소속`]->(mg:Meetings {id: $id})
+                   RETURN s.title AS title, s.pg_id AS num,
+                          s.scheduled_at AS ended_at
+                   ORDER BY s.pg_id DESC LIMIT 5""",
+                {"id": mg_neo_id},
+            ),
         )
         return {
             "meeting": mg_rows[0],

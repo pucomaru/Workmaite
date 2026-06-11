@@ -204,10 +204,9 @@ async def embed_and_store(
     """파일에서 텍스트 추출 → 청킹 → 임베딩 → Neo4j 저장.
 
     context_type에 따라 노드 레이블이 결정됩니다:
-      report            → ReportChunk
-      minutes           → MinutesChunk
-      agenda / archive  → AgendaChunk
-      knowledge / 기타  → KnowledgeChunk
+      report / agenda / archive  → ReportChunk
+      minutes                    → MinutesChunk
+      기타 / document / knowledge  → ReportChunk
     """
     from neo4j_client import run_cypher
 
@@ -224,14 +223,12 @@ async def embed_and_store(
     base_id = (source_id or filename).replace(" ", "_")
     mg_id   = f"mg-{meeting_id}" if meeting_id else None
 
-    if context_type == "report":
+    if context_type == "report" or context_type in ("agenda", "archive"):
         node_label = "ReportChunk"
     elif context_type == "minutes":
         node_label = "MinutesChunk"
-    elif context_type in ("agenda", "archive"):
-        node_label = "AgendaChunk"
     else:
-        node_label = "KnowledgeChunk"
+        node_label = "ReportChunk"
 
     stored = 0
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
@@ -261,6 +258,28 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
     MERGE (c)-[:BELONGS_TO]->(mg)
 )"""
             params["mg_id"] = mg_id
+
+        # 부모 노드(Report/Minutes)와 청크 연결
+        if context_type == "report" and source_id:
+            cypher += """
+WITH c
+OPTIONAL MATCH (r:Report {id: $parent_id})
+FOREACH (_ IN CASE WHEN r IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:청크]->(r)
+)"""
+            params["parent_id"] = source_id  # e.g. "report-123"
+        elif context_type == "minutes" and source_id:
+            try:
+                parent_pg_id = int(source_id.split("-")[-1])
+                cypher += """
+WITH c
+OPTIONAL MATCH (mn:Minutes {pg_id: $parent_pg_id})
+FOREACH (_ IN CASE WHEN mn IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:청크]->(mn)
+)"""
+                params["parent_pg_id"] = parent_pg_id
+            except (ValueError, IndexError):
+                pass
 
         try:
             await run_cypher(cypher, params)

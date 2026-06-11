@@ -5,14 +5,17 @@ routers/sync.py — Neo4j 동기화 관련 API
   POST /api/sync/retry              재시도 작업 수동 트리거
   POST /api/sync/user/{id}          특정 User 동기화 (Spring Boot → FastAPI)
   DELETE /api/sync/user/{id}        User 삭제 동기화
+  POST /api/sync/department/{name}  특정 Department 동기화
+  POST /api/sync/company/{name}     특정 Company 동기화
   POST /api/sync/meeting/{id}       특정 Meeting 수동 동기화
   POST /api/sync/session/{id}       특정 Session 수동 동기화
   POST /api/sync/agenda/{id}        특정 Agenda 수동 동기화
   POST /api/sync/minutes/{id}       특정 Minutes 수동 동기화
+  POST /api/sync/report/{id}        특정 Report 수동 동긲화
   DELETE /api/sync/meeting/{id}     Meeting 삭제 동기화
   POST /api/sync/all                전체 PostgreSQL→Neo4j 동기화
-  POST /api/sync/member             특정 User를 Meeting에 참여 관계로 추가 (Spring Boot 내부 호출)
-  DELETE /api/sync/member/delete    특정 User를 Meeting에서 참여 관계 삭제 (Spring Boot 내부 호출)
+  POST /api/sync/member             특정 User를 Meeting에 구성원 관계로 추가 (Spring Boot 내부 호출)
+  DELETE /api/sync/member/delete    특정 User를 Meeting에서 구성원 관계 삭제 (Spring Boot 내부 호출)
 """
 
 import os
@@ -35,6 +38,8 @@ def verify_internal(x_internal_secret: Optional[str] = Header(None)):
 
 from neo4j_sync import (
     sync_user,
+    sync_department,
+    sync_company,
     sync_meeting,
     sync_meeting_member,
     delete_meeting_member,
@@ -109,6 +114,32 @@ async def delete_user_sync(
     return {"success": True, "user_id": user_id}
 
 
+# ─── Department / Company 수동 동기화 ───────────────────────────────────
+
+@router.post("/department")
+async def sync_department_manual(
+    name: str,
+    _: None = Depends(verify_internal),
+):
+    """Department 노드를 Neo4j에 수동으로 동기화합니다."""
+    if not name:
+        raise HTTPException(status_code=400, detail="name 필수")
+    await sync_department(name)
+    return {"success": True, "name": name}
+
+
+@router.post("/company")
+async def sync_company_manual(
+    name: str,
+    _: None = Depends(verify_internal),
+):
+    """Company 노드를 Neo4j에 수동으로 동기화합니다."""
+    if not name:
+        raise HTTPException(status_code=400, detail="name 필수")
+    await sync_company(name)
+    return {"success": True, "name": name}
+
+
 # ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
 
 @router.delete("/meeting/{meeting_id}/delete")
@@ -137,8 +168,13 @@ async def sync_meeting_manual(
         meeting_id=meeting.id,
         title=meeting.title,
         description=meeting.description,
-        status=str(meeting.status or "ACTIVE"),
+        guidelines=meeting.guidelines,
+        status=str(meeting.status or "active"),
         meeting_type=str(meeting.type or ""),
+        start_date=meeting.start_date.isoformat() if meeting.start_date else None,
+        end_date=meeting.end_date.isoformat() if meeting.end_date else None,
+        created_by=meeting.created_by,
+        created_at=meeting.created_at.isoformat() if meeting.created_at else None,
     )
     return {"success": True, "meeting_id": meeting_id, "title": meeting.title}
 
@@ -164,7 +200,12 @@ async def sync_session_manual(
         meeting_id=session.meeting_id,
         title=session.title or "",
         status=str(session.status or "scheduled"),
-        scheduled_at=session.scheduled_at.isoformat() + 'Z' if session.scheduled_at else None,
+        scheduled_at=session.scheduled_at.isoformat() if session.scheduled_at else None,
+        started_at=session.started_at.isoformat() if session.started_at else None,
+        ended_at=session.ended_at.isoformat() if session.ended_at else None,
+        location=session.location,
+        session_type=session.type,
+        description=session.description,
         attendees=attendees,
     )
     return {"success": True, "session_id": session_id, "title": session.title}
@@ -209,6 +250,14 @@ async def sync_agenda_manual(
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         raise HTTPException(status_code=404, detail="Agenda를 찾을 수 없습니다.")
+    import json as _json
+    dept_str = ""
+    if agenda.department:
+        dept_str = (
+            _json.dumps(agenda.department, ensure_ascii=False)
+            if isinstance(agenda.department, (dict, list))
+            else str(agenda.department)
+        )
     await sync_agenda(
         agenda_id=agenda.id,
         meeting_id=agenda.meeting_id,
@@ -216,10 +265,11 @@ async def sync_agenda_manual(
         status=str(agenda.status or "draft"),
         assignee_id=agenda.assignee_id,
         priority=agenda.priority or "medium",
-        due_date=agenda.due_date.isoformat() + 'Z' if agenda.due_date else None,
+        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
         session_id=agenda.session_id,
+        department=dept_str,
         ai_evidence=agenda.ai_evidence,
-        created_at=agenda.created_at.isoformat() + 'Z' if agenda.created_at else None,
+        created_at=agenda.created_at.isoformat() if agenda.created_at else None,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
 
@@ -240,6 +290,12 @@ async def sync_minutes_manual(
         minutes_id=m.id,
         session_id=m.session_id,
         content_summary=m.content_summary,
+        content_original=m.content_original,
+        file_name=m.file_name,
+        file_path=m.file_path,
+        recorder_id=m.recorder_id,
+        status=m.status,
+        generated_at=m.generated_at.isoformat() if m.generated_at else None,
     )
     return {"success": True, "minutes_id": minutes_id}
 
@@ -252,7 +308,7 @@ async def sync_member_manual(
     userId: int,
     _: None = Depends(verify_internal),
 ):
-    """Spring Boot에서 회의 멤버 추가 시 Neo4j에 (User)-[:참여]->(Meetings) 관계를 동기화합니다."""
+    """Spring Boot에서 회의 멤버 추가 시 Neo4j에 (User)-[:구성원]->(Meetings) 관계를 동기화합니다."""
     await sync_meeting_member(
         meeting_id=meetingId,
         user_id=userId,
@@ -267,7 +323,7 @@ async def delete_member_manual(
     userId: int,
     _: None = Depends(verify_internal),
 ):
-    """Spring Boot에서 회의 멤버 삭제 시 Neo4j의 (User)-[:참여]->(Meetings) 관계를 제거합니다."""
+    """Spring Boot에서 회의 멤버 삭제 시 Neo4j의 (User)-[:구성원]->(Meetings) 관계를 제거합니다."""
     await delete_meeting_member(
         meeting_id=meetingId,
         user_id=userId,

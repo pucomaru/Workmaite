@@ -7,11 +7,15 @@ neo4j_sync.py — Neo4j 동기화 서비스
 
 Neo4j 노드 유형:
   User          ← PG users
+  Company       ← PG users.company (파생)
+  Department    ← PG users.department / agenda.department (파생)
   Meetings      ← PG meetings
   Session       ← PG meeting_sessions
   Agenda        ← PG agenda
   Minutes       ← PG minutes
+  MinutesChunk  ← 회의록 파일 청킹 (file_embedder)
   Report        ← PG reports (+ report_scores)
+  ReportChunk   ← 보고서 파일 청킹 (file_embedder)
   HumanJudgment ← PG hitl_reviews
 """
 
@@ -39,11 +43,10 @@ _VECTOR_INDEXES: list[tuple[str, str, str]] = [
     ("Agenda",        "agendaEmbedding",        "embedding"),
     ("Session",       "sessionEmbedding",       "embedding"),
     ("Minutes",       "minutesEmbedding",       "embedding"),
-    ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
-    ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
     ("MinutesChunk",  "minutesChunkEmbedding",  "embedding"),
-    ("AgendaChunk",   "agendaChunkEmbedding",   "embedding"),
-    ("KnowledgeChunk","knowledgeChunkEmbedding","embedding"),
+    ("Report",        "reportEmbedding",        "embedding"),
+    ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
+    ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
 ]
 
 
@@ -79,6 +82,50 @@ def _log_failure(operation: str, entity_type: str, entity_id: str,
     logger.warning(f"[Neo4jSync] 동기화 실패: {operation}/{entity_type}/{entity_id} — {error}")
 
 
+def _parse_dept_names(department: str | None) -> list[str]:
+    """department 문자열(또는 JSON string)에서 부서명 목록을 추출합니다."""
+    if not department or not department.strip():
+        return []
+    try:
+        parsed = json.loads(department)
+        if isinstance(parsed, list):
+            return [str(x).strip() for x in parsed if x and str(x).strip()]
+        if isinstance(parsed, dict):
+            val = parsed.get("dept") or parsed.get("department") or parsed.get("name") or ""
+            return [str(val).strip()] if val else []
+        return [str(parsed).strip()] if str(parsed).strip() else []
+    except (json.JSONDecodeError, ValueError):
+        return [department.strip()] if department.strip() else []
+
+
+# ─── Department 동기화 ───────────────────────────────────────────────────────
+
+async def sync_department(name: str) -> None:
+    """Department 노드를 upsert합니다."""
+    if not name or not name.strip():
+        return
+    try:
+        await run_cypher(
+            "MERGE (d:Department {name: $name}) SET d.updated_at = $updated_at",
+            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+        )
+    except Exception as e:
+        logger.error(f"[Neo4jSync] sync_department 실패 ({name}): {e}")
+
+
+async def sync_company(name: str) -> None:
+    """Company 노드를 upsert합니다."""
+    if not name or not name.strip():
+        return
+    try:
+        await run_cypher(
+            "MERGE (c:Company {name: $name}) SET c.updated_at = $updated_at",
+            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+        )
+    except Exception as e:
+        logger.error(f"[Neo4jSync] sync_company 실패 ({name}): {e}")
+
+
 # ─── User 동기화 (PG users) ──────────────────────────────────────────────────
 
 async def sync_user(
@@ -101,6 +148,16 @@ async def sync_user(
         u.position   = $position,
         u.created_at = coalesce(u.created_at, $created_at),
         u.updated_at = $updated_at
+    WITH u
+    FOREACH (_ IN CASE WHEN $department <> '' THEN [1] ELSE [] END |
+        MERGE (d:Department {name: $department})
+        MERGE (u)-[:소속]->(d)
+    )
+    WITH u
+    FOREACH (_ IN CASE WHEN $company <> '' THEN [1] ELSE [] END |
+        MERGE (co:Company {name: $company})
+        MERGE (u)-[:소속회사]->(co)
+    )
     """
     try:
         await run_cypher(cypher, {
@@ -122,7 +179,7 @@ async def sync_meeting_member(
     user_id: int,
     role: str,
 ) -> None:
-    """User-Meetings 참여 관계를 upsert합니다."""
+    """User-Meetings 구성원 관계를 upsert합니다."""
     cypher = """
     MATCH (u:User {pg_id: $user_id})
     MATCH (mg:Meetings {id: $mg_id})
@@ -143,9 +200,9 @@ async def delete_meeting_member(
     meeting_id: int,
     user_id: int,
 ) -> None:
-    """User-Meetings 참여 관계를 삭제합니다."""
+    """User-Meetings 구성원 관계를 삭제합니다."""
     cypher = """
-    MATCH (u:User {pg_id: $user_id})-[r:참여]->(mg:Meetings {id: $mg_id})
+    MATCH (u:User {pg_id: $user_id})-[r:구성원]->(mg:Meetings {id: $mg_id})
     DELETE r
     """
     try:
@@ -159,9 +216,9 @@ async def update_meeting_member_role(
     user_id: int,
     role: str,
 ) -> None:
-    """User-Meetings 참여 관계의 role을 업데이트합니다."""
+    """User-Meetings 구성원 관계의 role을 업데이트합니다."""
     cypher = """
-    MATCH (u:User {pg_id: $user_id})-[r:참여]->(mg:Meetings {id: $mg_id})
+    MATCH (u:User {pg_id: $user_id})-[r:구성원]->(mg:Meetings {id: $mg_id})
     SET r.role = $role
     """
     try:
@@ -206,7 +263,7 @@ async def sync_meeting_group(
     WITH mg
     OPTIONAL MATCH (creator:User {pg_id: $created_by})
     FOREACH (_ IN CASE WHEN creator IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (creator)-[:생성]->(mg)
+        MERGE (creator)-[:개설]->(mg)
     )
     """
     params = {
@@ -391,7 +448,18 @@ async def sync_agenda(
     except Exception as e:
         logger.error(f"[Neo4jSync] Agenda {agenda_id} 실패: {e}")
         _log_failure("sync_agenda", "agenda", str(agenda_id), e, params)
-
+    # Department 노드 연결 (별도 쿼리 — CYPHER 흐름과 분리)
+    dept_names_list = _parse_dept_names(department)
+    if dept_names_list:
+        try:
+            await run_cypher("""
+            MATCH (ag:Agenda {id: $ag_id})
+            UNWIND $dept_names AS dept_name
+            MERGE (d:Department {name: dept_name})
+            MERGE (ag)-[:담당부서]->(d)
+            """, {"ag_id": ag_id, "dept_names": dept_names_list})
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] Agenda {agenda_id} Department 연결 실패 (무시): {e}")
 
 # ─── Minutes 동기화 (PG minutes) ─────────────────────────────────────────────
 
@@ -421,7 +489,7 @@ async def sync_minutes(
         mn.updated_at       = $updated_at
     WITH mn
     MATCH (s:Session {id: $s_id})
-    MERGE (mn)-[:생성]->(s)
+    MERGE (mn)-[:기록]->(s)
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
     FOREACH (_ IN CASE WHEN recorder IS NOT NULL THEN [1] ELSE [] END |
@@ -503,6 +571,11 @@ async def sync_report(
         "mg_id": mg_id,
         "updated_at": datetime.utcnow().isoformat(),
     }
+    emb_text = " ".join(filter(None, [file_name, submitter_department]))
+    embedding = await _embed(emb_text)
+    if embedding:
+        cypher += "\n    WITH r SET r.embedding = $embedding"
+        params["embedding"] = embedding
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Report {report_id} 동기화 완료")
@@ -521,14 +594,13 @@ async def sync_human_judgment(
     version: int = 1,
     reviewer_id: int | None = None,
     judged_at: str | None = None,
-    ai_judgment_id: int | None = None,  # 연결할 AIJudgment (PG report_id)
     target_type: str | None = None,
     target_id: int | None = None,
     review_prompt: str | None = None,
     ai_rationale: str | None = None,
     created_at: str | None = None,
 ) -> None:
-    """HumanJudgment 노드를 upsert하고 Meetings / AIJudgment / reviewer와 연결합니다."""
+    """HumanJudgment 노드를 upsert하고 Meetings / reviewer와 연결합니다."""
     hj_id = f"hj-{review_id}"
     cypher = """
     MERGE (hj:HumanJudgment {id: $id})
@@ -553,11 +625,6 @@ async def sync_human_judgment(
     FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
         MERGE (p)-[:판단자]->(hj)
     )
-    WITH hj
-    OPTIONAL MATCH (ai:AIJudgment {id: $ai_id})
-    FOREACH (_ IN CASE WHEN ai IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (hj)-[:검토대상]->(ai)
-    )
     """
     emb_text = " ".join(filter(None, [judgment, reason, ai_rationale]))
     embedding = await _embed(emb_text)
@@ -576,7 +643,6 @@ async def sync_human_judgment(
         "created_at": created_at or "",
         "mg_id": f"mg-{meeting_id}" if meeting_id else "",
         "reviewer_id": reviewer_id,
-        "ai_id": f"ai-{ai_judgment_id}" if ai_judgment_id else "",
         "updated_at": datetime.utcnow().isoformat(),
     }
     if embedding:
@@ -592,9 +658,11 @@ async def sync_human_judgment(
 # ─── 노드 유형별 벡터 유사도 검색 ───────────────────────────────────────────
 
 _NODE_SEARCH_CONFIG: dict[str, tuple[str, list[str]]] = {
+    "Meetings":      ("meetingsEmbedding",       ["id", "pg_id", "title", "description", "status", "type"]),
     "Agenda":        ("agendaEmbedding",         ["id", "pg_id", "title", "content", "status", "category", "priority", "department"]),
     "Session":       ("sessionEmbedding",        ["id", "pg_id", "title", "description", "scheduled_at", "started_at", "ended_at", "type", "location"]),
     "Minutes":       ("minutesEmbedding",        ["pg_id", "file_name", "content_summary", "status", "generated_at"]),
+    "Report":        ("reportEmbedding",         ["id", "pg_id", "file_name", "submitter_department", "human_status", "created_at"]),
     "HumanJudgment": ("humanJudgmentEmbedding",  ["id", "pg_id", "judgment", "reason", "target_type", "judged_at"]),
 }
 
@@ -704,8 +772,8 @@ async def retry_failed_syncs(max_retries: int = 3) -> dict:
 async def sync_all_from_pg(db: DBSession | None = None) -> dict:
     """PostgreSQL 전체 → Neo4j 부트스트랩 동기화.
     앱 시작 시 또는 싱크 불일치 복구 시 호출합니다.
-    처리 순서: User → Meetings → MeetingMember → Session → Agenda
-               → Minutes → Report(AIJudgment)+ReportScore → HitlReview
+    정렬 순서: User → Department → Meetings → MeetingMember → Session → Agenda
+               → Minutes → Report + ReportScore → HumanJudgment
     """
     import models
 
@@ -714,9 +782,9 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
         db = SessionLocal(); close_db = True
 
     stats: dict[str, int] = {
-        "users": 0, "meetings": 0, "meeting_members": 0,
+        "users": 0, "departments": 0, "companies": 0, "meetings": 0, "meeting_members": 0,
         "sessions": 0, "agendas": 0,
-        "minutes": 0, "ai_judgments": 0, "human_judgments": 0,
+        "minutes": 0, "reports": 0, "human_judgments": 0,
     }
     try:
         # 1. Users (Meetings 생성자/참여자 관계 연결을 위해 먼저 동기화)
@@ -732,7 +800,25 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["users"] += 1
 
-        # 2. Meetings
+        # 2. Departments (User.department 기반 파생 노드)
+        dept_names: set[str] = set()
+        for u in db.query(models.User).all():
+            if u.department and u.department.strip():
+                dept_names.add(u.department.strip())
+        for dept_name in dept_names:
+            await sync_department(dept_name)
+            stats["departments"] += 1
+
+        # 3. Companies (User.company 기반 파생 노드)
+        company_names: set[str] = set()
+        for u in db.query(models.User).all():
+            if u.company and u.company.strip():
+                company_names.add(u.company.strip())
+        for company_name in company_names:
+            await sync_company(company_name)
+            stats["companies"] += 1
+
+        # 4. Meetings
         for m in db.query(models.Meeting).all():
             await sync_meeting_group(
                 m.id, m.title, m.description,
@@ -746,7 +832,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["meetings"] += 1
 
-        # 3. MeetingMembers (User-Meetings 참여 관계)
+        # 5. MeetingMembers (User-Meetings 구성원 관계)
         for mm in db.query(models.MeetingMember).all():
             await sync_meeting_member(
                 meeting_id=mm.meeting_id,
@@ -820,7 +906,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                     related_agenda_ids=r.related_agenda_ids or [],
                     created_at=r.created_at.isoformat() if r.created_at else None,
                 )
-                stats["ai_judgments"] += 1
+                stats["reports"] += 1
 
         # 8. HumanJudgment ← PG hitl_reviews
         if hasattr(models, "HitlReview"):
@@ -840,7 +926,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 )
                 stats["human_judgments"] += 1
 
-        # 7. PG에서 삭제된 노드 정리
+        # 9. PG에서 삭제된 노드 정리
         cleanup_stats = await cleanup_deleted_from_pg(db)
         stats["removed"] = cleanup_stats
 
@@ -863,8 +949,8 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
     import models
 
     removed: dict[str, int] = {
-        "users": 0, "meetings": 0, "sessions": 0, "agendas": 0,
-        "minutes": 0, "ai_judgments": 0, "human_judgments": 0,
+        "users": 0, "departments": 0, "companies": 0, "meetings": 0, "sessions": 0, "agendas": 0,
+        "minutes": 0, "reports": 0, "human_judgments": 0,
     }
 
     async def _detach_missing(label: str, pg_ids: list[int], stat_key: str) -> None:
@@ -903,7 +989,51 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
 
     if hasattr(models, "Report"):
         pg_report_ids = [row[0] for row in db.query(models.Report.id).all()]
-        await _detach_missing("Report", pg_report_ids, "ai_judgments")
+        await _detach_missing("Report", pg_report_ids, "reports")
+
+    # Department: PG에 별도 테이블 없으므로 User.department 기반으로 정리
+    pg_dept_names = [
+        row[0] for row in db.query(models.User.department).all()
+        if row[0] and row[0].strip()
+    ]
+    if pg_dept_names:
+        try:
+            rows = await run_cypher(
+                "MATCH (d:Department) WHERE NOT d.name IN $names RETURN count(d) AS cnt",
+                {"names": pg_dept_names},
+            )
+            cnt = rows[0]["cnt"] if rows else 0
+            if cnt:
+                await run_cypher(
+                    "MATCH (d:Department) WHERE NOT d.name IN $names DETACH DELETE d",
+                    {"names": pg_dept_names},
+                )
+                removed["departments"] += cnt
+                logger.info(f"[Neo4jSync] cleanup Department: {cnt}개 삭제")
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] cleanup Department 실패 (무시): {e}")
+
+    # Company: User.company 기반으로 정리
+    pg_company_names = [
+        row[0] for row in db.query(models.User.company).all()
+        if row[0] and row[0].strip()
+    ]
+    if pg_company_names:
+        try:
+            rows = await run_cypher(
+                "MATCH (co:Company) WHERE NOT co.name IN $names RETURN count(co) AS cnt",
+                {"names": pg_company_names},
+            )
+            cnt = rows[0]["cnt"] if rows else 0
+            if cnt:
+                await run_cypher(
+                    "MATCH (co:Company) WHERE NOT co.name IN $names DETACH DELETE co",
+                    {"names": pg_company_names},
+                )
+                removed["companies"] += cnt
+                logger.info(f"[Neo4jSync] cleanup Company: {cnt}개 삭제")
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] cleanup Company 실패 (무시): {e}")
 
     if hasattr(models, "HitlReview"):
         pg_review_ids = [row[0] for row in db.query(models.HitlReview.id).all()]
