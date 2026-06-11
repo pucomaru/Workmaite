@@ -259,5 +259,6 @@ class HitlReviewOut(BaseModel):
 class AgentChatRequest(BaseModel):
     meeting_id: int
     session_id: Optional[int] = None
+    thread_id: Optional[str] = None
     message: str
     chat_history: Optional[List[dict]] = []

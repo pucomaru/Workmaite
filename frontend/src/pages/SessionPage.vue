@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
@@ -740,10 +740,7 @@ async function endMeeting() {
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
 
 // ─── Agent (워크메이트 AI / Supervisor) ─────────────────────────────────────
-const wmMessages = ref([{
-  role: 'agent',
-  content: '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"',
-}])
+const wmMessages = ref([{ role: 'agent', content: '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"' }])
 const wmInput = ref('')
 const wmLoading = ref(false)
 const messagesEl = ref(null)
@@ -789,6 +786,41 @@ const {
   agentInput: wmInput,
   agentTextareaEl: wmTextareaEl,
   autoResize: wmAutoResize,
+})
+
+// ─── 회의 AI 채팅 히스토리 (session_{session_id} 스레드) ──────
+const _WM_GREETING = '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"'
+
+function _wmThreadId() {
+  return activeSession.value?.id ? `session_${activeSession.value.id}` : null
+}
+
+async function wmLoadHistory() {
+  const threadId = _wmThreadId()
+  if (!threadId) { wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]; return }
+  try {
+    const res = await api.get('/api/v1/chat/messages', { params: { threadId } })
+    const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+    wmMessages.value = messages.length
+      ? messages.map(m => ({ role: m.role === 'assistant' ? 'agent' : m.role, content: m.content }))
+      : [{ role: 'agent', content: _WM_GREETING }]
+  } catch {
+    wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+  }
+}
+
+async function wmClearHistory() {
+  const threadId = _wmThreadId()
+  if (threadId) {
+    try { await api.delete('/api/v1/chat/messages', { params: { threadId } }) } catch {}
+  }
+  wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+}
+
+// 세션 진입/변경 시 해당 세션 채팅 히스토리 로드
+watch(activeSession, (s) => {
+  if (s) wmLoadHistory()
+  else wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
 })
 
 // ─── 사고 과정 helper ─────────────────────────────────────────
@@ -855,7 +887,7 @@ async function sendAra() {
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
     await streamPost('/api/agent/supervisor/chat',
-      { meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history },
+      { thread_id: _wmThreadId(), meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history },
       (chunk) => { agentMsg.content += chunk; if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight },
       () => { thinkingMsg.done = true; thinkingMsg.open = false; wmLoading.value = false },
       (step) => { thinkingMsg.steps.push(step); nextTick(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }) }
@@ -1281,7 +1313,7 @@ async function downloadChatFile(filePath) {
           </div>
         </div>
         <div class="supervisor-header-actions">
-          <button class="agent-new-chat-btn" @click="wmMessages=[{role:'agent',content:'안녕하세요! 워크메이트 AI입니다 😊\n무엇이든 질문하세요.'}]">새 채팅</button>
+          <button class="agent-new-chat-btn" @click="wmClearHistory">새 채팅</button>
         </div>
       </div>
       <div ref="messagesEl" class="agent-messages">
