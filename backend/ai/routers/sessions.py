@@ -15,7 +15,7 @@ _openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["sessions"])
+router = APIRouter(prefix="/api/ai", tags=["sessions"])
 
 
 def _md_to_pdf(md_text: str) -> bytes:

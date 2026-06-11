@@ -32,7 +32,7 @@ const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sidebarCollapsed = ref(false)
-const sidebarW = ref(220)
+const sidebarW = ref(330)
 let sidebarResizing = false, srStartX = 0, srStartW = 0
 function onSidebarResizeStart(e) {
   if (sidebarCollapsed.value) return
@@ -43,7 +43,7 @@ function onSidebarResizeStart(e) {
 }
 function onSidebarResizeMove(e) {
   if (!sidebarResizing) return
-  sidebarW.value = Math.max(180, Math.min(420, srStartW + (e.clientX - srStartX)))
+  sidebarW.value = Math.max(330, Math.min(450, srStartW + (e.clientX - srStartX)))
 }
 function onSidebarResizeEnd() {
   sidebarResizing = false
@@ -169,7 +169,7 @@ async function enterSession(s) {
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
     try {
-      const { data } = await apiAI.get(`/api/v1/sessions/${s.id}/minutes`)
+      const { data } = await apiAI.get(`/api/ai/sessions/${s.id}/minutes`)
       const minutesContent = data?.content_original || data?.content_summary
       if (minutesContent) {
         const html = renderMd(minutesContent)
@@ -290,7 +290,7 @@ async function refineChunk() {
   const processedIdx = lastRefineIdx.value + newLines.length
   const text = newLines.map(l => l.text).join('\n')
   try {
-    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
@@ -711,7 +711,7 @@ async function deleteMinutes() {
     rec.generatedMinutes = null
     rec.showMinutesTab = false
     try {
-      await apiAI.delete(`/api/v1/sessions/${activeSession.value.id}/minutes`)
+      await apiAI.delete(`/api/ai/sessions/${activeSession.value.id}/minutes`)
     } catch { /* 404(없는 경우) 무시 */ }
   }
 }
@@ -984,7 +984,10 @@ async function downloadChatFile(filePath) {
               :class="{ active: activeSession?.id === s.id }"
               @click="enterSession(s)">
               <div class="sp-session-info">
-                <div class="sp-session-name">{{ s.title }}</div>
+                <div class="sp-session-name">
+                  <span class="sp-session-title-text">{{ s.title }}</span>
+                  <span class="sp-session-status">{{ STATUS_LABEL[s.status] }}</span>
+                </div>
                 <div class="sp-session-meta">
                   <span v-if="s.location" class="sp-session-location"><i class="bi bi-geo-alt"></i> {{ s.location }}</span>
                   <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
@@ -1460,11 +1463,12 @@ async function downloadChatFile(filePath) {
 .sp-session-item:hover { background:rgba(59,130,246,.1); }
 .sp-session-item.active { background:rgba(59,130,246,.1); }
 .sp-session-info { flex:1;min-width:0; }
-.sp-session-name { font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-session-meta { display:flex;align-items:center;gap:6px;margin-top:4px;overflow:hidden; }
+.sp-session-name { font-size:11px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:5px;overflow:hidden; }
+.sp-session-title-text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0; }
+.sp-session-status { font-size:9px;font-weight:600;flex-shrink:0;color:var(--text-muted);background:var(--surface-2);border-radius:10px;padding:1px 6px;white-space:nowrap; }
+.sp-session-meta { display:flex;flex-direction:column;gap:2px;margin-top:3px;overflow:hidden; }
 .sp-session-date { font-size:10px;color:var(--text-muted); }
-.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
+.sp-session-location { font-size:10px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }.sp-status-badge { font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0; }
 .sp-edit-btn { background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px;display:flex;align-items:center;flex-shrink:0;border-radius:4px; }
 .sp-edit-btn:hover { color:var(--primary);background:var(--surface-2); }
 
