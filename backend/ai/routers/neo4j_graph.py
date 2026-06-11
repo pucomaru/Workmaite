@@ -281,7 +281,7 @@ async def get_archive(
                     "userName": row.get("person_name", "?"),
                     "email": row.get("email", ""),
                     "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "개설" or row.get("rel_role") == "admin" else "member",
+                    "role": "admin" if row.get("role") == "간사" or row.get("rel_role") == "admin" else "member",
                     "department": row.get("department") or "",
                     "company": row.get("company") or "",
                 })
