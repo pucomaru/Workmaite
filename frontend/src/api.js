@@ -206,6 +206,7 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
       response = await doFetch(token)
     } catch {
       _clearSession()
+      onDone?.() // 세션 만료로 중단해도 호출자의 로딩 상태는 반드시 해제 (agentLoading 고착 방지)
       return
     }
   }
