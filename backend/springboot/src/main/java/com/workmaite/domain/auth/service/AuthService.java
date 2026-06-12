@@ -4,12 +4,10 @@ import com.workmaite.domain.auth.dto.LoginRequest;
 import com.workmaite.domain.auth.dto.LoginResponse;
 import com.workmaite.domain.auth.dto.RefreshRequest;
 import com.workmaite.domain.auth.dto.SignupRequest;
-import com.workmaite.domain.auth.entity.Invitation;
 import com.workmaite.domain.auth.entity.RefreshToken;
 import com.workmaite.domain.auth.repository.RefreshTokenRepository;
 import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
-import com.workmaite.domain.user.entity.UserRole;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogService;
 import com.workmaite.global.auth.JwtTokenProvider;
@@ -42,7 +40,6 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
-    private final InvitationService invitationService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AuditLogService auditLogService;
@@ -53,12 +50,6 @@ public class AuthService {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
 
-        // 초대 기반 가입 (P1-7②): 토큰 검증·수락 후 회사/역할 자동 연결
-        Invitation invitation = null;
-        if (request.getInviteToken() != null && !request.getInviteToken().isBlank()) {
-            invitation = invitationService.accept(request.getInviteToken(), request.getEmail());
-        }
-
         User user = User.builder()
                 .email(request.getEmail())
                 .name(request.getName())
@@ -66,9 +57,6 @@ public class AuthService {
                 .company(request.getCompany())
                 .department(request.getDepartment())
                 .position(request.getPosition())
-                .role(invitation != null && "COMPANY_ADMIN".equals(invitation.getRole())
-                        ? UserRole.COMPANY_ADMIN : UserRole.USER)
-                .companyId(invitation != null ? invitation.getCompanyId() : null)
                 .build();
 
         User saved = userRepository.save(user);

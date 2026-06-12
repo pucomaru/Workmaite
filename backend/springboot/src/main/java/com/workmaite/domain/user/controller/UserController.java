@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
@@ -67,6 +68,15 @@ public class UserController {
     public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers(Authentication authentication) {
         Long callerId = Long.parseLong(authentication.getName());
         return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId)));
+    }
+
+    // 구성원 일괄 생성 (임시 비밀번호 + 변경 강제) — SYSTEM/COMPANY_ADMIN만
+    @PostMapping("/bulk")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> createMembers(
+            Authentication authentication,
+            @RequestBody List<Map<String, String>> rows) {
+        Long callerId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(userService.createMembers(callerId, rows)));
     }
 
     // 특정 사용자 정보 수정 — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만, 비밀번호 변경 불가 (MT-1)

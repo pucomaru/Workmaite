@@ -84,22 +84,30 @@ function openAddModal() {
   showAddModal.value = true
 }
 
-// 초대 기반 온보딩 (P1-7②, MT-2): 비밀번호는 본인이 가입하며 직접 설정한다
-const inviteResult = ref(null)
-
+// 임시 비밀번호 방식 (P1-7② 개정): 관리자가 임시 비밀번호로 즉시 계정 생성,
+// 해당 계정은 최초 로그인 시 비밀번호 변경이 강제된다(서버 필터로 차단)
 async function submitAdd() {
   addError.value = ''
-  if (!addForm.value.email.trim()) {
-    addError.value = '이메일을 입력해주세요.'
+  if (!addForm.value.name.trim()) { addError.value = '이름을 입력해주세요.'; return }
+  if (!addForm.value.email.trim()) { addError.value = '이메일을 입력해주세요.'; return }
+  if ((addForm.value.password || '').length < 8) {
+    addError.value = '임시 비밀번호(8자 이상)를 입력해주세요.'
     return
   }
   try {
-    const { data } = await api.post('/api/v1/invitations', { email: addForm.value.email })
-    const link = `${window.location.origin}/landing?invite=${data.token}&email=${encodeURIComponent(data.email)}`
-    inviteResult.value = { email: data.email, link, expiresAt: data.expiresAt }
-    try { await navigator.clipboard.writeText(link) } catch { /* 클립보드 실패 무시 */ }
+    const { data } = await api.post('/api/v1/users/bulk', [{
+      name: addForm.value.name,
+      email: addForm.value.email,
+      department: addForm.value.department || '',
+      position: addForm.value.position || '',
+      password: addForm.value.password,
+    }])
+    const r = data?.[0]
+    if (r && !r.ok) { addError.value = r.reason || '등록 실패'; return }
+    await fetchAllMembers()
+    showAddModal.value = false
   } catch (e) {
-    addError.value = e.response?.data?.message || '초대 생성에 실패했습니다. (관리자 권한 필요)'
+    addError.value = e.response?.data?.message || '등록에 실패했습니다. (관리자 권한 필요)'
   }
 }
 
@@ -203,6 +211,7 @@ const CSV_HEADER_MAP = {
   '회사': 'company', '회사명': 'company', 'company': 'company', 'organization': 'company',
   '부서': 'department', '부서명': 'department', 'department': 'department',
   '직책': 'position', 'position': 'position',
+  '임시비밀번호': 'password', '비밀번호': 'password', 'password': 'password',
 }
 
 function generateTempPassword() {
@@ -228,7 +237,6 @@ async function parseAndImportCSV(text) {
   const skippedNoEmail = []
   const skippedDuplicate = []
   const succeeded = []
-  const bulkInviteLinks = []
   const failed = []
 
   for (let i = 1; i < lines.length; i++) {
@@ -248,10 +256,19 @@ async function parseAndImportCSV(text) {
       continue
     }
 
+    if (!obj.password || obj.password.length < 8) {
+      failed.push(`${obj.name} (임시 비밀번호 컬럼 누락/8자 미만)`)
+      continue
+    }
     try {
-      // 초대 기반으로 전환 (P1-7②) — 임시 비밀번호 대행 생성 폐기
-      const { data } = await api.post('/api/v1/invitations', { email: obj.email })
-      bulkInviteLinks.push(`${obj.name} <${data.email}>: ${window.location.origin}/landing?invite=${data.token}&email=${encodeURIComponent(data.email)}`)
+      // 임시 비밀번호 방식 (P1-7② 개정): CSV의 비밀번호로 즉시 생성, 로그인 시 변경 강제
+      const { data } = await api.post('/api/v1/users/bulk', [{
+        name: obj.name, email: obj.email,
+        department: obj.department || '', position: obj.position || '',
+        password: obj.password,
+      }])
+      const r = data?.[0]
+      if (r && !r.ok) { failed.push(`${obj.name} (${r.reason})`); continue }
       existingEmails.add(emailLower)
       succeeded.push(obj.name)
     } catch {
@@ -261,10 +278,7 @@ async function parseAndImportCSV(text) {
 
   await fetchAllMembers()
 
-  if (bulkInviteLinks.length) {
-    try { await navigator.clipboard.writeText(bulkInviteLinks.join('\n')) } catch { /* 무시 */ }
-  }
-  const resultLines = [`${succeeded.length}명 초대 완료 (초대 링크가 클립보드에 복사됨 — 각자 전달)`]
+  const resultLines = [`${succeeded.length}명 등록 완료 (각자 CSV의 임시 비밀번호로 로그인 → 변경 강제)`]
   if (skippedNoEmail.length) resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
   if (skippedDuplicate.length) resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
   if (failed.length) resultLines.push(`등록 실패 (${failed.length}명): ${failed.join(', ')}`)
@@ -460,11 +474,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
               <div class="app-modal-field">
                 <label>비밀번호 <span class="req">*</span></label>
-                <div v-if="inviteResult" class="invite-result">
-                  <p>✉️ <b>{{ inviteResult.email }}</b> 초대 링크가 생성되어 클립보드에 복사되었습니다.</p>
-                  <input class="app-modal-input" readonly :value="inviteResult.link" @focus="$event.target.select()" />
-                  <p class="invite-hint">링크를 전달하면 본인이 비밀번호를 직접 설정해 가입합니다. (7일 유효)</p>
-                </div>
+                <input v-model="addForm.password" type="password" class="app-modal-input"
+                       placeholder="임시 비밀번호 (8자 이상 — 최초 로그인 시 변경 강제)" />
               </div>
             </div>
             <div v-if="addError" style="color:#ef4444;font-size:13px;margin-top:8px">{{ addError }}</div>

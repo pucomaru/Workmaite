@@ -21,10 +21,15 @@ public class CustomUserDetailsService implements UserDetailsService {
         com.workmaite.domain.user.entity.User user = userRepository.findById(Long.parseLong(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        return User.builder()
+        var builder = User.builder()
                 .username(String.valueOf(user.getId()))
                 .password("")
-                .roles(user.getRole() != null ? user.getRole().name() : "USER")
-                .build();
+                .roles(user.getRole() != null ? user.getRole().name() : "USER");
+        if (user.isMustChangePassword()) {
+            // 임시 비밀번호 상태 — MustChangePasswordFilter가 변경 전 API 사용을 차단 (P1-7②)
+            builder.authorities("ROLE_" + (user.getRole() != null ? user.getRole().name() : "USER"),
+                    "MUST_CHANGE_PASSWORD");
+        }
+        return builder.build();
     }
 }

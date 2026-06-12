@@ -10,9 +10,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class SignupRequest {
 
-    // 초대 기반 가입 (P1-7②) — 있으면 초대 검증 후 회사 자동 연결
-    private String inviteToken;
-
     @NotBlank(message = "이메일을 입력해주세요.")
     @Email(message = "올바른 이메일 형식이 아닙니다.")
     private String email;
