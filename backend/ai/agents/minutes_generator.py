@@ -40,11 +40,12 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
         embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
         query_vec = await embeddings.aembed_query(text[:500])
 
-        # 인덱스명은 neo4j_sync._VECTOR_INDEXES의 'minutesEmbedding'과 일치해야 한다.
-        # 구버전 DB에는 레거시 이름(minutes_embedding_index)으로 존재할 수 있어 폴백한다.
+        # 인덱스명·레거시 폴백은 retrieval_registry가 단일 관리 (P3B-6)
+        from retrieval_registry import REGISTRY
+        _entry = REGISTRY["Minutes"]
         rows = []
         last_err = None
-        for idx in ("minutesEmbedding", "minutes_embedding_index"):
+        for idx in [_entry["index"], *_entry.get("legacy", [])]:
             try:
                 rows = await run_cypher(
                     f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
