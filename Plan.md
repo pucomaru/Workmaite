@@ -303,14 +303,14 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
 
-- [ ] P2-1 **Flyway 도입**: 현재 운영 스키마를 `V1__baseline.sql`로 베이스라인, 이후 모든 변경은 마이그레이션으로. SQLAlchemy `models.py`는 읽기 전용 매핑으로 선언(스키마 생성 금지 — 주인은 Flyway).
-- [ ] P2-2 `V2__indexes_constraints.sql` 적용 (§4.1 초안) — FK 인덱스, NOT NULL, status CHECK.
-- [ ] P2-3 `V3__audit_and_sync.sql` (§4.2) — `audit_logs`, `neo4j_sync_failures`(아웃박스) 테이블.
-- [ ] P2-4 **동기화 재설계(아웃박스 패턴)**: Spring은 트랜잭션 안에서 `neo4j_sync_outbox`에 행만 기록 → 커밋 후 폴러(또는 `@TransactionalEventListener(AFTER_COMMIT)` + `@EnableAsync`)가 FastAPI 호출 → 실패 시 행 유지, `retry_failed_syncs`를 **실제 구현**(아웃박스 재처리). 삭제 전파(DATA-4) 포함.
-- [ ] P2-5 Neo4j 유니크 제약 생성 (§4.3 Cypher) + `다룸멌` 오타 수정 + 기존 중복 노드 정리 쿼리.
-- [ ] P2-6 임베딩 재계산 방지: 노드에 `content_hash` 저장, 변경 시에만 임베딩 호출. 시작 시 전체 resync는 옵션 플래그로(기본 off), 변경분만 동기화.
-- [ ] P2-7 datetime을 timezone-aware(UTC)로 통일 (`datetime.now(timezone.utc)` / `Instant`), Neo4j에는 epoch 또는 ISO-8601+TZ.
-- [ ] P2-8 related_agenda_ids JSON → `report_agendas` 조인 테이블 (§4.2) — UX-3/5의 근본 해결.
+- [x] P2-1 **Flyway 도입** (2026-06-12, P1-2와 동시): baseline-on-migrate(V1), models.py 읽기 전용 선언. ※ 마이그레이션 번호가 §4 초안과 달라짐 — 실적용: V2(auth/rbac/audit), V3(role 부트스트랩), V4(인덱스/제약), V5(sync outbox), V6(report_agendas).
+- [x] P2-2 인덱스/제약 — **V4** 적용 (2026-06-12): FK/조회 인덱스 17종 + 멤버십 유니크 2종 + human_status CHECK. 운영 스키마 대조·위반 데이터 0건 확인, EXPLAIN으로 인덱스 사용 검증. **agenda.status CHECK 보류**: Spring enum(ON_HOLD/CONFIRMED/DONE) vs 실데이터(draft/ongoing/done) 불일치 발견 → HC-11에서 정리.
+- [x] P2-3 audit_logs(V2)·neo4j_sync_outbox(V5)·report_agendas(V6) 테이블 (2026-06-12). chat_feedback은 P3C-3에서.
+- [x] P2-4 **아웃박스 동기화** (2026-06-12): NeoSyncService가 트랜잭션 내 outbox 기록 → 커밋 후 SyncOutboxDispatcher kick + 30초 폴러 재시도(최대 10회, 404 skip). 삭제 전파(DATA-4): session/agenda 삭제 라우트 신설 + delete 함수 예외 전파화. E2E 검증.
+- [x] P2-5 Neo4j 유니크 제약 9종 (2026-06-12): ensure_constraints()가 시작 시 중복 정리(차수 보존) 후 생성 — dev Neo4j 적용 확인. (`다룸멌` 오타는 Phase 0에서 기처리)
+- [x] P2-6 임베딩 content_hash 게이팅 (2026-06-12): 6개 sync 함수 적용, 동일 내용 재sync 시 OpenAI 호출 생략(실측 0.18s→0.05s). STARTUP_FULL_RESYNC(기본 false)로 전체 resync 옵션화.
+- [x] P2-7(부분) Neo4j행 타임스탬프 ISO-8601+TZ(UTC) 통일 (2026-06-12). **잔여: PG TIMESTAMPTZ 컬럼 전환+JPA Instant화는 시프트 위험 때문에 별도 패스로 분리** — 현재는 naive-UTC로 일관.
+- [x] P2-8 report_agendas 정규화 (2026-06-12): V6 테이블+백필(11개 보고서→13연결), FastAPI dual-write. **잔여: 프론트 읽기 경로 전환(P7/P8) 후 JSONB DROP.**
 
 ### Phase 3 — AI 하네스 & 에이전트 재설계 (2–3주) 🟠
 목표: LangGraph v1 Supervisor 패턴 + **내구성 있는 실행(durable execution)** + 도구 중심 설계 + 데이터 범위 강제.
@@ -693,7 +693,7 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [x] 페이지네이션 전수 점검 (2026-06-12) — §2.13(PG-1~10), Phase 8(P8-1~7)·§6.11 추가
 - [x] **Phase 0 보안 응급조치 — 코드 측 완료 (2026-06-12)**: P0-2~P0-8 적용 + 퀵윈(BE-5, DATA-2 race, DATA-9, H-3 env화, print 정리). 빌드 검증(Python ast/gradle compileJava/vite build) 통과. **잔여: P0-1 키 회전(사람, SECURITY_ROTATION.md), 클러스터 Secret 생성, WLK WS 인증, /grafana·actuator 정책 결정**
 - [x] **Phase 1 인증/인가 통합 — 코드 측 완료 (2026-06-12)**: P1-1~P1-7① 적용·E2E 검증(자세한 내용은 §3 Phase 1 체크박스). Flyway 도입 + V2(refresh_tokens/users.role/audit_logs)·V3(role 부트스트랩) 마이그레이션이 dev DB에 적용됨. **잔여: P1-7②(초대 온보딩·companies 정규화·V4), k8s 배포 시 ai-secret JWT_SECRET 동일값 확인**
-- [ ] Phase 2 스키마/동기화
+- [x] **Phase 2 스키마/동기화 — 완료 (2026-06-12)**: P2-1~P2-8 적용 (V4~V6 마이그레이션 dev DB 적용, Neo4j 제약 적용). 잔여: P2-7 TIMESTAMPTZ 전면 전환(별도 패스), P2-8 프론트 읽기 전환. Phase 1 코드리뷰(7앵글) 반영 커밋 포함.
 - [ ] Phase 3A 하네스 기반 공사 (체크포인터·structured output·트레이싱·SSE v2)
 - [ ] Phase 3B Supervisor 그래프 + 도구/컨텍스트 엔지니어링
 - [ ] Phase 3C 챗봇 서비스 가드 (rate limit·idempotency·피드백)
