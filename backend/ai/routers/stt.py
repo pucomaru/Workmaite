@@ -5,7 +5,9 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, UploadFile, File, Form, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -241,24 +243,33 @@ async def transcribe(
     segments: list[dict] = []
     full_text = ""
 
-    try:
-        if effective_mode == "whisperapi":
-            segments = await _transcribe_external(data, filename, lang_code)
-            full_text = " ".join(seg["text"] for seg in segments)
-            logger.info(f"[STT] OpenAI diarize API 완료: {len(segments)}개 세그먼트")
+    async def _run(mode: str) -> tuple[list[dict], str]:
+        if mode == "whisperapi":
+            segs = await _transcribe_external(data, filename, lang_code)
+            return segs, " ".join(s["text"] for s in segs)
+        if mode == "gcapi":
+            segs = await _transcribe_cloud(data, lang_code, max_speakers)
+            return segs, " ".join(s["text"] for s in segs)
+        text, _ = await _transcribe_local(data, filename, lang_code)
+        return [], text
 
-        elif effective_mode == "gcapi":
-            segments = await _transcribe_cloud(data, lang_code, max_speakers)
-            full_text = " ".join(seg["text"] for seg in segments)
-            logger.info(f"[STT] Cloud STT 완료: {len(segments)}개 세그먼트 (max_speakers={max_speakers})")
-
-        else:  # localwhisper — 화자분리 없음, 전체 텍스트를 단일 항목으로 반환
-            full_text, _ = await _transcribe_local(data, filename, lang_code)
-            logger.info(f"[STT] WhisperX 완료: {len(full_text)}자")
-            # segments는 비워서 프론트가 onResult(full_text) 단일 콜백을 쓰게 함
-
-    except Exception as e:
-        logger.error(f"[STT] 변환 실패 (mode={effective_mode}): {e}")
+    # provider 폴백 체인 (P4-3): 선택 provider 실패 → localwhisper로 폴백
+    chain = [effective_mode] + (["localwhisper"] if effective_mode != "localwhisper" else [])
+    used_mode = effective_mode
+    last_err: Exception | None = None
+    for mode in chain:
+        try:
+            segments, full_text = await _run(mode)
+            used_mode = mode
+            last_err = None
+            logger.info(f"[STT] {mode} 완료: {len(segments)}seg/{len(full_text)}자")
+            break
+        except Exception as e:
+            last_err = e
+            logger.error(f"[STT] {mode} 실패: {e}")
+    if last_err is not None:
+        raise HTTPException(status_code=502, detail=f"음성 인식에 실패했습니다. 다시 시도해주세요. ({last_err})")
+    effective_mode = used_mode
 
     # 화자 레이블 정규화: "1" → "화자_1" (DB 저장 형식과 일치)
     for seg in segments:
@@ -309,4 +320,13 @@ async def transcribe(
             logger.warning(f"[STT] DB 저장 실패: {dbe}")
             db.rollback()
 
-    return {"text": full_text, "segments": segments, "text_id": text_id}
+    # 원본 오디오 보존 (P4-2): 세션별로 R2에 누적 저장 — 재처리·분쟁 대비
+    if session_id:
+        try:
+            from r2_storage import upload_bytes
+            ts = datetime.utcnow().strftime("%H%M%S_%f")
+            upload_bytes(data, f"sessions/{session_id}/audio/{ts}_{filename}", "audio/webm")
+        except Exception as ae:
+            logger.warning(f"[STT] 원음 R2 보존 실패(무시): {ae}")
+
+    return {"text": full_text, "segments": segments, "text_id": text_id, "provider": effective_mode}
