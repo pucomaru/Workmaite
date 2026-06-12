@@ -297,7 +297,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P1-5 Neo4j 사용자 매칭 `pg_id` 단일 키 통일 (2026-06-12): /archive·supervisor 본인 매칭, meeting-groups 멤버 추가/삭제(user_id 필수화), 간사 연결(호출자 본인) — email/name OR 매칭 전부 제거.
 - [x] P1-6 **감사 로그 도입** (2026-06-12): audit_logs(V2) + Spring @AuditLogged AOP(6개 서비스 CUD·승인·할당) + AuthService LOGIN/SIGNUP/LOGOUT + FastAPI AuditLogMiddleware(변경성 요청). TransactionTemplate(REQUIRES_NEW)로 본 처리와 분리, signup은 afterCommit(FK). 4종 이벤트 DB 기록 검증.
 - [x] P1-7① **멀티테넌시 즉시 조치** (2026-06-12): PATCH /users/{id} 비밀번호 변경 제거+권한 가드(MT-1), GET /users·search 디렉터리 스코프(본인+내 회사+공유 회의체, MT-3) — Spring/FastAPI 양쪽. E2E 검증.
-- [~] P1-7② **초대 온보딩 — 핵심 완료 (2026-06-12, V9)**: companies 정규화+백필, invitations(해시 저장·7일 만료·재사용 차단), 초대 생성 API(ADMIN만)+무인증 검증+signup 수락(회사·역할 자동 연결), OrganizationPage 비밀번호 대행 생성 폐기→초대 링크(단건·CSV 대량), 가입 모달 자동 오픈·프리필. E2E 검증. **잔여: COMPANY_ADMIN 부여 UI, must_change_password 로그인 노출, users.company 문자열 DROP, AI company 스코프.**
+- [~] P1-7② **초대 온보딩 — 핵심 완료 (2026-06-12, V9)**: companies 정규화+백필, invitations(해시 저장·7일 만료·재사용 차단), 초대 생성 API(ADMIN만)+무인증 검증+signup 수락(회사·역할 자동 연결), OrganizationPage 비밀번호 대행 생성 폐기→초대 링크(단건·CSV 대량), 가입 모달 자동 오픈·프리필. E2E 검증. 잔여 중 must_change_password 로그인 노출 완료(2026-06-12). **남은 것: COMPANY_ADMIN 부여 UI, users.company DROP, AI company 스코프.**
 
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
@@ -350,7 +350,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
 - [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
-- [ ] P5-2 Alertmanager 룰: sync outbox 적체, STT 실패율, LLM 에러율, 5xx, pod 재시작.
+- [~] P5-2 **알림 룰 4종 적용 (2026-06-12)**: AI 5xx 비율·검색 0건 급증(G-1)·TTFT p95·pod 재시작 — PrometheusRule 클러스터 생성(오퍼레이터 ruleSelector 수집 여부는 Grafana에서 확인 필요). 잔여: sync outbox 적체(PG 메트릭 export 필요)·STT 실패율.
 - [~] P5-3(부분) 가격표 pricing.yaml 외출 + prefix 매칭 버그 수정 (2026-06-12). 잔여: 월별 비용 리포트 API, STT 분 단위 실측. 원계획: 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
 - [~] P5-4 **PG 백업 — 완료 (2026-06-12)**: postgres-backup CronJob(매일 KST 03시, pg_dump→R2) — 1회성 잡으로 덤프·업로드 실검증(212KB). 잔여: Neo4j 백업, 복구 리허설 문서.
 
@@ -702,7 +702,7 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [ ] Phase 5 관측성/비용
 - [ ] Phase 6 평가 체계
 - [ ] Phase 7 코드 품질/UX
-- [~] Phase 8 페이지네이션 — P8-1 규약 문서·P8-2/3 keyset·P8-4(meetings page/size)·P8-5(/users/all N+1 제거+limit) 완료, PG-8 오진 정정 (2026-06-12). 잔여: users/검색 목록 Pageable, P8-6 loadMore UI, P8-7 시드 측정
+- [~] Phase 8 페이지네이션 — P8-1 규약 문서·P8-2/3 keyset·P8-4(meetings page/size)·P8-5(/users/all N+1 제거+limit) 완료, PG-8 오진 정정 (2026-06-12). P8-6 채팅 loadMore 완료(2026-06-12 — beforeId keyset+스크롤 유지). 잔여: users/검색 목록 Pageable, STT 증분 UI, P8-7 시드 측정
 
 ---
 
