@@ -5,6 +5,7 @@ import com.workmaite.domain.reports.entity.Report;
 import com.workmaite.domain.reports.entity.ReportScore;
 import com.workmaite.domain.reports.repository.ReportRepository;
 import com.workmaite.domain.reports.repository.ReportScoreRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -24,6 +25,7 @@ public class ReportService {
     private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "report")
     public ReportResponse submitReport(Long meetingId, ReportSubmitRequest request) {
         meetingAccessGuard.requireMember(meetingId);
         Report report = Report.builder()
@@ -37,6 +39,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "report")
     public ReportResponse submitReportForSession(Long sessionId, ReportSessionSubmitRequest request) {
         meetingAccessGuard.requireMember(request.getMeetingId());
         Report report = Report.builder()
@@ -50,6 +53,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "RESUBMIT", entityType = "report")
     public ReportResponse resubmitReport(Long reportId, ReportResubmitRequest request) {
         Report original = findByIdOrThrow(reportId);
 
@@ -78,6 +82,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "REVIEW", entityType = "report")
     public ReportResponse updateHumanStatus(Long reportId, ReportStatusUpdateRequest request) {
         Report report = findByIdOrThrow(reportId);
         report.updateHumanStatus(request.getStatus());
@@ -92,6 +97,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "report")
     public void deleteReport(Long reportId) {
         meetingAccessGuard.requireMemberByReport(reportId);
         reportRepository.deleteById(reportId);

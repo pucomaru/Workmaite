@@ -9,6 +9,7 @@ import com.workmaite.domain.auth.repository.RefreshTokenRepository;
 import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.global.audit.AuditLogService;
 import com.workmaite.global.auth.JwtTokenProvider;
 import com.workmaite.global.auth.LegacyPbkdf2Verifier;
 import com.workmaite.global.exception.BusinessException;
@@ -41,6 +42,7 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final AuditLogService auditLogService;
 
     public void signup(SignupRequest request) {
         // 이메일 중복 확인
@@ -57,7 +59,9 @@ public class AuthService {
                 .position(request.getPosition())
                 .build();
 
-        userRepository.save(user);
+        User saved = userRepository.save(user);
+        // 같은 트랜잭션에서 생성된 사용자라 FK 충족을 위해 커밋 후 기록
+        auditLogService.recordAfterCommit(saved.getId(), "SIGNUP", "auth", saved.getId(), null, null);
     }
 
     public LoginResponse login(LoginRequest request) {
@@ -77,6 +81,7 @@ public class AuthService {
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
         String refreshToken = issueRefreshToken(user.getId());
+        auditLogService.recordAs(user.getId(), "LOGIN", "auth", user.getId(), null, null);
         return LoginResponse.of(accessToken, refreshToken, UserResponse.from(user));
     }
 
@@ -122,6 +127,7 @@ public class AuthService {
         } else if (authenticatedUserId != null) {
             refreshTokenRepository.deleteByUserId(authenticatedUserId);
         }
+        auditLogService.recordAs(authenticatedUserId, "LOGOUT", "auth", authenticatedUserId, null, null);
     }
 
     private String issueRefreshToken(Long userId) {

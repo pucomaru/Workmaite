@@ -5,6 +5,7 @@ import com.workmaite.domain.scripts.dto.ScriptResponse;
 import com.workmaite.domain.scripts.dto.ScriptUpdateRequest;
 import com.workmaite.domain.scripts.entity.SttSegment;
 import com.workmaite.domain.scripts.repository.ScriptRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -73,6 +74,7 @@ public class ScriptService {
 
     // 세션의 모든 STT 세그먼트 삭제
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "script")
     public void deleteScripts(Long sessionId) {
         meetingAccessGuard.requireMemberBySession(sessionId);
         scriptRepository.deleteAllBySessionId(sessionId);

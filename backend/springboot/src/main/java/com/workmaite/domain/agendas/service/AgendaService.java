@@ -3,6 +3,7 @@ package com.workmaite.domain.agendas.service;
 import com.workmaite.domain.agendas.dto.*;
 import com.workmaite.domain.agendas.entity.Agenda;
 import com.workmaite.domain.agendas.repository.AgendaRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -30,6 +31,7 @@ public class AgendaService {
     }
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "agenda")
     public AgendaResponse createAgenda(Long meetingId, AgendaCreateRequest request) {
         meetingAccessGuard.requireMember(meetingId);
         Agenda agenda = Agenda.create(
@@ -53,6 +55,7 @@ public class AgendaService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "agenda")
     public AgendaResponse updateAgenda(Long agendaId, AgendaUpdateRequest request) {
         Agenda agenda = findAgendaById(agendaId);
         agenda.update(request.getTitle(), request.getStatus(), request.getDepartment(), request.getDueDate(), request.getPriority());
@@ -61,11 +64,13 @@ public class AgendaService {
     }
 
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "agenda")
     public void deleteAgenda(Long agendaId) {
         agendaRepository.delete(findAgendaById(agendaId));
     }
 
     @Transactional
+    @AuditLogged(action = "ASSIGN", entityType = "agenda")
     public AgendaResponse assignAgenda(Long agendaId, AgendaAssignmentRequest request) {
         Agenda agenda = findAgendaById(agendaId);
         agenda.assign(request.getAssigneeId());

@@ -4,6 +4,7 @@ import com.workmaite.domain.minutes.dto.*;
 import com.workmaite.domain.minutes.entity.Minutes;
 import com.workmaite.domain.minutes.entity.MinutesStatus;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -20,6 +21,7 @@ public class MinutesService {
     private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "minutes")
     public MinutesResponse generateMinutes(Long sessionId, MinutesGenerateRequest request) {
         meetingAccessGuard.requireMemberBySession(sessionId);
         if (minutesRepository.existsBySessionId(sessionId)) {
@@ -45,6 +47,7 @@ public class MinutesService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "minutes")
     public MinutesResponse updateMinutes(Long sessionId, MinutesUpdateRequest request) {
         Minutes minutes = findBySessionIdOrThrow(sessionId);
 
@@ -57,6 +60,7 @@ public class MinutesService {
     }
 
     @Transactional
+    @AuditLogged(action = "CONFIRM", entityType = "minutes")
     public MinutesResponse confirmMinutes(Long sessionId, MinutesConfirmRequest request) {
         Minutes minutes = findBySessionIdOrThrow(sessionId);
 

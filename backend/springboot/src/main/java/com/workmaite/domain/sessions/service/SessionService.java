@@ -17,6 +17,7 @@ import com.workmaite.domain.sessions.entity.SessionStatus;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import com.workmaite.domain.sessions.repository.SessionSummaryBlockRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -77,6 +78,7 @@ public class SessionService {
     }
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "session")
     public SessionResponse createSession(Long meetingId, SessionCreateRequest request) {
         meetingAccessGuard.requireMember(meetingId);
         MeetingSession session = MeetingSession.create(
@@ -110,6 +112,7 @@ public class SessionService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "session")
     public SessionResponse updateSession(Long sessionId, SessionUpdateRequest request) {
         MeetingSession session = findSessionById(sessionId);
 
@@ -131,6 +134,7 @@ public class SessionService {
     }
 
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "session")
     public void deleteSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
         scriptRepository.deleteAllBySessionId(sessionId);
@@ -142,6 +146,7 @@ public class SessionService {
 
     // SCHEDULED 상태일 때만 시작 가능, 그 외 상태면 SESSION_ALREADY_STARTED 에러
     @Transactional
+    @AuditLogged(action = "START", entityType = "session")
     public SessionResponse startSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
 
@@ -184,6 +189,7 @@ public class SessionService {
 
     // ONGOING 상태일 때만 종료 가능, 그 외 상태면 SESSION_ALREADY_ENDED 에러
     @Transactional
+    @AuditLogged(action = "END", entityType = "session")
     public SessionResponse endSession(Long sessionId) {
         MeetingSession session = findSessionById(sessionId);
 

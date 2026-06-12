@@ -6,6 +6,7 @@ import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
@@ -38,6 +39,7 @@ public class MeetingService {
     private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "meeting")
     public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
         Meeting meeting = Meeting.create(
                 request.getTitle(), request.getDescription(), request.getGuidelines(),
@@ -117,6 +119,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "meeting")
     public MeetingResponse updateMeeting(Long meetingId, Long requesterId, MeetingUpdateRequest request) {
         checkSecretaryPermission(meetingId, requesterId);
         Meeting meeting = findMeetingOrThrow(meetingId);
@@ -130,6 +133,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "ADD", entityType = "member")
     public MeetingMemberResponse addMember(Long meetingId, Long requesterId, MeetingMemberAddRequest request) {
         checkSecretaryPermission(meetingId, requesterId);
         findMeetingOrThrow(meetingId);
@@ -145,6 +149,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "REMOVE", entityType = "member")
     public void removeMember(Long meetingId, Long requesterId, Long memberId) {
         checkSecretaryPermission(meetingId, requesterId);
         MeetingMember member = meetingMemberRepository.findById(memberId)
@@ -155,6 +160,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "member")
     public MeetingMemberResponse updateMemberRole(Long meetingId, Long requesterId,
                                                    Long memberId, MeetingMemberUpdateRequest request) {
         checkSecretaryPermission(meetingId, requesterId);

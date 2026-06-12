@@ -113,6 +113,10 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
+# 감사 로그 — 변경성 요청을 audit_logs에 기록 (P1-6)
+from audit_middleware import AuditLogMiddleware  # noqa: E402
+app.add_middleware(AuditLogMiddleware)
+
 # 라우터 — 인증(가입/로그인/토큰 발급)은 Spring 단일 주체, FastAPI는 검증만 (P1-1)
 app.include_router(supervisor.router)
 app.include_router(chat_history.router)
