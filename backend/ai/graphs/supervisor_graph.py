@@ -13,9 +13,39 @@ import os
 import uuid
 from typing import AsyncGenerator
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
+
+# 긴 스레드 컴팩션 임계값 (H-4) — 이보다 길면 오래된 턴을 요약으로 압축
+_COMPACT_AFTER = 30
+_KEEP_RECENT = 10
+
+
+async def _compact_history(history_msgs: list) -> list:
+    """30턴 초과 시 오래된 메시지를 1개의 요약 메시지로 압축한다 (H-4).
+
+    최근 _KEEP_RECENT개는 원본 유지, 그 앞은 LLM 요약으로 대체해 토큰·지연을 억제한다.
+    요약 실패 시 원본을 그대로 반환(가용성 우선).
+    """
+    if len(history_msgs) <= _COMPACT_AFTER:
+        return history_msgs
+    old_msgs, recent = history_msgs[:-_KEEP_RECENT], history_msgs[-_KEEP_RECENT:]
+    convo = "\n".join(
+        f"{'사용자' if isinstance(m, HumanMessage) else 'AI'}: {str(m.content)[:200]}"
+        for m in old_msgs
+    )
+    try:
+        from llm_factory import llm_factory
+        resp = await llm_factory("routing").ainvoke([
+            SystemMessage(content="다음 대화를 3~5문장 한국어로 요약하세요. 결정사항·맥락 위주."),
+            HumanMessage(content=convo[:6000]),
+        ])
+        summary = resp.content
+    except Exception as e:
+        logger.warning(f"[Compaction] 요약 실패, 원본 유지: {e}")
+        return history_msgs
+    return [AIMessage(content=f"[이전 대화 요약]\n{summary}")] + recent
 
 _SYSTEM = """\
 당신은 회의체 운영 AI 워크메이트입니다. 사용자의 회의체 현황·아젠다·보고서·회의록 질문에
@@ -24,7 +54,8 @@ _SYSTEM = """\
 규칙:
 - 추측하지 말고 도구로 확인한 데이터만 근거로 답하세요. 조회 결과가 비면 그대로 알려주세요.
 - meeting_id를 모르면 list_my_meetings로 먼저 확인하세요.
-- 답변에는 어떤 회의체 데이터를 근거로 했는지 표시하세요 (예: "[skala 5기] 기준").
+- 답변 끝에 근거를 반드시 인용하세요: 어떤 회의체·아젠다·보고서·회의록을 조회했는지
+  (예: "근거: [skala 5기] 아젠다 3건, 보고서 제출현황"). 도구를 호출하지 않았으면 인용하지 마세요.
 - 접근 거부 응답을 받으면 다른 회의체를 시도하지 말고 권한이 없음을 안내하세요.
 """
 
@@ -65,7 +96,8 @@ async def direct_agent_stream(
         "allowed_meeting_ids": list(allowed_meeting_ids),
         "is_admin": is_admin,
     }}
-    inputs = {"messages": list(history_msgs) + [HumanMessage(content=hint + message)]}
+    compacted = await _compact_history(list(history_msgs))
+    inputs = {"messages": compacted + [HumanMessage(content=hint + message)]}
     async for event in _get_agent().astream_events(inputs, config, version="v2"):
         kind = event["event"]
         if kind == "on_tool_start":

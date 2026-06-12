@@ -67,8 +67,9 @@ def save_message(
 ):
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
-    if body.role not in ("user", "agent"):
-        raise HTTPException(status_code=400, detail="role은 'user' 또는 'agent'여야 합니다")
+    # assistant/agent 메시지는 서버가 스트림 종료 시 직접 저장한다 (H-5) — 클라이언트는 user만.
+    if body.role != "user":
+        raise HTTPException(status_code=403, detail="사용자 메시지만 저장할 수 있습니다.")
 
     msg = models.ChatMessage(
         thread_id=f"{context_type}-{context_id}",
