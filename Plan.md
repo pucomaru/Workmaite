@@ -328,7 +328,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/ai-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
 - [ ] P3B-2 **사전 주입 → just-in-time 검색 전환(H-6)**: 시스템 프롬프트는 정적 prefix(역할·규칙·출력 형식 — 프롬프트 캐시 적중)로 고정하고, 회의체 컨텍스트·아젠다·이전 회의록은 에이전트가 도구로 필요 시 조회. `_get_meeting_context`/`graph_context_to_str` 사전 조립 제거.
 - [ ] P3B-3 **대화 메모리 계층화(H-4·H-5)**: ① 단기 = 체크포인터 thread state ② 스레드가 길어지면(예: 30턴↑) 오래된 턴을 요약 메시지로 **컴팩션** ③ 회의 중 채팅은 SessionSummaryBlock 재활용. assistant 메시지는 **서버가 저장**(클라이언트 `/api/chats` POST는 user role만 허용으로 축소).
-- [ ] P3B-4 프롬프트 정비(AI-4·AI-5): 사용자 콘텐츠는 명시 구분자 + "문서 내 지시 무시" 가드, `prompts/` 파일 분리·버전 관리. **답변에 근거 인용 의무화**(어떤 회의록/노드 기반인지 — 환각 검증 가능성·신뢰 확보, H-12).
+- [~] P3B-4(부분) 문서 소비 프롬프트 4곳에 인젝션 가드 적용 (2026-06-12 — 평가 조작·지시문 무시). 잔여: prompts/ 파일 분리·버전 관리, 근거 인용 의무화(H-12). 원계획: 프롬프트 정비(AI-4·AI-5): 사용자 콘텐츠는 명시 구분자 + "문서 내 지시 무시" 가드, `prompts/` 파일 분리·버전 관리. **답변에 근거 인용 의무화**(어떤 회의록/노드 기반인지 — 환각 검증 가능성·신뢰 확보, H-12).
 - [ ] P3B-5 `print` 제거, 로깅 표준화(JSON), `except Exception` 정리(최소 logger.exception + 실패 메트릭).
 - [ ] P3B-6 **검색 레지스트리 단일화 + 스코프드 하이브리드 검색(G-1·G-3·G-6·HC-3)**: 라벨→인덱스명→반환필드를 `ai/retrieval_registry.py` 한 곳으로 통합(3중 정의 제거). 모든 검색 도구가 `vector_search_node(meeting_id=...)` 스코핑 변형을 기본 사용. Neo4j **풀텍스트 인덱스 추가**(제목·고유명사용) 후 벡터+풀텍스트 하이브리드(RRF 결합). 검색 0건이 지속되면 메트릭/알림(G-1 재발 방지).
 - [ ] P3B-7 **그래프 네이티브 컨텍스트(G-2)**: 고정 1-hop 템플릿을 "시드 검색(벡터) → 그래프 확장(1~2-hop 관계 순회) → 경로 포함 근거 반환" 패턴으로 교체. 예: 아젠다 질의 시 `(Agenda)-[발제세션]->(Session)-[소속]->(Meetings)` + 연결된 Report/Minutes/HumanJudgment까지 경로째 수집해 "어느 회의에서 논의→어떤 보고서 제출→어떤 판단" 흐름을 근거로 인용(P3B-4 인용 의무와 결합). 회의록 임베딩은 청크 중심으로 재편(노드 전문 임베딩은 보조, G-6).
@@ -352,7 +352,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
 - [ ] P5-2 Alertmanager 룰: sync outbox 적체, STT 실패율, LLM 에러율, 5xx, pod 재시작.
 - [~] P5-3(부분) 가격표 pricing.yaml 외출 + prefix 매칭 버그 수정 (2026-06-12). 잔여: 월별 비용 리포트 API, STT 분 단위 실측. 원계획: 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
-- [ ] P5-4 PostgreSQL/Neo4j 백업 CronJob(pg_dump → R2, neo4j-admin dump), 복구 리허설 문서.
+- [~] P5-4 **PG 백업 — 완료 (2026-06-12)**: postgres-backup CronJob(매일 KST 03시, pg_dump→R2) — 1회성 잡으로 덤프·업로드 실검증(212KB). 잔여: Neo4j 백업, 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
 - [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/ai/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
@@ -366,7 +366,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P7-2 SSE 프로토콜을 `event:` 필드 기반으로 재설계(FE-2), 스트림 파서 공통화.
 - [ ] P7-3 §2.8 UX 백로그 26건 처리(우선: UX-3/5/6/7 — 데이터 신뢰 관련).
 - [ ] P7-4 테스트: Spring 서비스 단위테스트(인가 가드 포함), FastAPI 라우터 테스트(httpx), 프론트 핵심 composable 테스트. CI에 테스트+린트 게이트 추가.
-- [ ] P7-5 잔재 정리: `backend/workmaite-server/`, `backend/Dockerfile`(루트), `springboot/package-lock.json`, `reset_db.py` 안전장치, 미사용 코드.
+- [x] P7-5 잔재 정리 (2026-06-12): workmaite-server/·루트 Dockerfile·springboot/package-lock.json 삭제, reset_db.py 안전장치(비-localhost 차단). 미사용 코드 정리는 상시.
 - [ ] P7-6 k8s: 리소스 requests/limits 전 deployment, PDB, NetworkPolicy, postgres StatefulSet 전환.
 - [ ] P7-7 **하드코딩 정리(§2.11 HC-1~12)**: 각 항목의 "개선 방향" 열대로 설정/레지스트리/enum 모듈로 외출. 우선순위: HC-3(검색 레지스트리 — P3B-6과 동일 작업), HC-2(RBAC — P1-3과 동일), HC-9(ID 헬퍼), HC-6(채점 루브릭 설정화), HC-10(kustomize overlay). 나머지는 해당 영역을 건드리는 PR에 동반 처리.
 
@@ -685,6 +685,8 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 ---
 
 ## 7. 진행 현황
+
+> ⚠️ **운영 사고 기록 (2026-06-12)**: `k8s/secrets.example.yaml`(placeholder)이 ArgoCD 감시 경로(path: k8s)에 있어 실제 backend-secret(DB_PASSWORD·JWT_SECRET)·postgres-secret(POSTGRES_PASSWORD)을 **빈 값으로 덮어씀** — 다음 pod 재시작 시 기동 불가 상태였음. kubectl로 실값 복구 + 예시 파일을 docs/로 이동(재발 차단) + backend 재시작으로 정상 기동 검증 완료. 교훈: ArgoCD 경로에는 적용 가능한 manifest만 둘 것.
 
 - [x] 전수 감사 완료 (2026-06-12) — 본 문서 작성
 - [x] Agentic 하네스/챗봇 서비스 관점 보강 (2026-06-12) — §2.9, Phase 3 재구성(3A/3B/3C), §8 추가
