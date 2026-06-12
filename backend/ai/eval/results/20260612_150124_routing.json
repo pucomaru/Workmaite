@@ -1,0 +1,175 @@
+{
+  "ran_at": "2026-06-12T06:00:54.229648+00:00",
+  "model": "gpt-4o-mini",
+  "routing": {
+    "metric": "routing_accuracy",
+    "accuracy": 1.0,
+    "n": 18,
+    "rows": [
+      {
+        "id": "r01",
+        "message": "이 회의록에서 다음 과제를 추출해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r02",
+        "message": "다음 회의 때 각 팀이 할 일 정리해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r03",
+        "message": "업로드한 파일 분석해서 아젠다 뽑아줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r04",
+        "message": "오늘 회의 내용으로 회의록 작성해줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r05",
+        "message": "방금 논의한 내용 요약해서 회의록 초안 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r06",
+        "message": "이 보고서 검토하고 피드백 줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r07",
+        "message": "첨부한 기획안 평가해줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r08",
+        "message": "지난 분기 회의에서 예산 관련 논의 내용 찾아줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r09",
+        "message": "이 결정사항 지식베이스에 저장해줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r10",
+        "message": "우리 회의체 현황 브리핑해줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r11",
+        "message": "과제 진행 상황 어때?",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r12",
+        "message": "내가 속한 회의체 목록 알려줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r13",
+        "message": "안녕하세요!",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r14",
+        "message": "너 몇살이야?",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r15",
+        "message": "파이썬으로 퀵소트 코드 짜줘",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r16",
+        "message": "보고서 제출 현황 보여줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r17",
+        "message": "방금 그 내용 회의록 초안으로 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r18",
+        "message": "거기서 우리 팀이 할 일만 뽑아줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      }
+    ]
+  }
+}

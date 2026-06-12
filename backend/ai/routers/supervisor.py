@@ -98,13 +98,6 @@ class _RoutingDecision(BaseModel):
         # — eval r15에서 코딩 요청이 task_extractor로 오분류되는 것으로 실측 확인)
         "off_topic",
     ] = Field(description="위임할 에이전트 이름")
-    steps: List[str] = Field(
-        default_factory=list,
-        description=(
-            "이 요청을 처리하기 위해 수행할 주요 작업을 한국어로 2~4단계 나열. "
-            "각 항목은 짧은 한 문장(20자 이내), 번호·기호 없이."
-        )
-    )
 
 
 _ROUTING_SYSTEM = """\
@@ -126,8 +119,7 @@ _ROUTING_SYSTEM = """\
   "너 몇살이야", "오늘 날씨 어때", "파이썬 코드 짜줘", "주식 어때", "점심 뭐 먹지", "농담 해줘"
   단, 인사말("안녕하세요", "고마워" 등)과 워크메이트 사용법 질문은 off_topic이 아니라 supervisor_direct.
 
-thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
-steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
+thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
 
 
 async def classify_intent(message: str, history: List[dict] | None = None) -> tuple[str, str, List[str]]:
@@ -149,7 +141,7 @@ async def classify_intent(message: str, history: List[dict] | None = None) -> tu
             SystemMessage(content=_ROUTING_SYSTEM),
             HumanMessage(content=human),
         ])
-        return decision.agent, decision.thinking, decision.steps or []
+        return decision.agent, decision.thinking, []
     except Exception as e:
         logger.warning(f"[Supervisor] 라우팅 LLM 실패, supervisor_direct 사용: {e}")
         return "supervisor_direct", "기본 처리 경로로 응답합니다.", []
@@ -508,8 +500,8 @@ async def supervisor_chat(
         hl_candidates: list[str] = []
         try:
             yield sse_event("run", {"run_id": _thread_id})  # 중단/이어보기용 식별자 (P3A-6)
-            for _s in (_route_steps or [_route_thinking]):
-                yield sse_event("planning", _s)
+            if _route_thinking:
+                yield sse_event("planning", _route_thinking)  # 라우팅 근거 1줄 (steps 연극 제거, H-13)
 
             # ── off_topic 조기 종료: Neo4j·DB 조회 없이 안내 메시지 반환 ──────────
             if _route == 'off_topic':
