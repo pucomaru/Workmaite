@@ -16,7 +16,6 @@ Neo4j 노드 유형:
   MinutesChunk  ← 회의록 파일 청킹 (file_embedder)
   Report        ← PG reports (+ report_scores)
   ReportChunk   ← 보고서 파일 청킹 (file_embedder)
-  HumanJudgment ← PG hitl_reviews
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import SessionLocal
 from neo4j_client import run_cypher
-from neo4j_ids import to_agenda_id, to_hj_id, to_mg_id, to_report_id, to_session_id
+from neo4j_ids import to_agenda_id, to_mg_id, to_report_id, to_session_id
 
 EMBED_DIM = 1536
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
@@ -54,7 +53,6 @@ _UNIQUE_CONSTRAINTS: list[tuple[str, str, str]] = [
     ("Agenda",        "agenda_id",    "id"),
     ("Minutes",       "minutes_id",   "id"),
     ("Report",        "report_id",    "id"),
-    ("HumanJudgment", "hj_id",        "id"),
     ("Department",    "dept_name",    "name"),
     ("Company",       "company_name", "name"),
 ]
@@ -206,11 +204,6 @@ async def sync_user(
         u.created_at = coalesce(u.created_at, $created_at),
         u.updated_at = $updated_at
     WITH u
-    FOREACH (_ IN CASE WHEN $department <> '' THEN [1] ELSE [] END |
-        MERGE (d:Department {name: $department})
-        MERGE (u)-[:소속]->(d)
-    )
-    WITH u
     FOREACH (_ IN CASE WHEN $company <> '' THEN [1] ELSE [] END |
         MERGE (co:Company {name: $company})
         MERGE (u)-[:소속회사]->(co)
@@ -229,6 +222,22 @@ async def sync_user(
         })
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_user 실패 (user_id={user_id}): {e}")
+
+    # 인원→부서 연결 (소속): 변경 반영 위해 기존 소속 엣지를 정리하고 현재 부서로 재연결한다.
+    # department가 JSON("[\"전략기획팀\"]")이든 평문이든 _parse_dept_names로 일관 처리.
+    dept_names = _parse_dept_names(department)
+    try:
+        await run_cypher("""
+            MATCH (u:User {pg_id: $pg_id})
+            OPTIONAL MATCH (u)-[old:`소속`]->(:Department)
+            DELETE old
+            WITH u
+            UNWIND $dept_names AS dname
+            MERGE (d:Department {name: dname})
+            MERGE (u)-[:`소속`]->(d)
+        """, {"pg_id": user_id, "dept_names": dept_names})
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] User {user_id} 부서(소속) 연결 실패 (무시): {e}")
 
 
 async def sync_meeting_member(
@@ -446,8 +455,16 @@ async def sync_agenda(
     department: str | None = None,  # PG JSON → 문자열로 변환해서 전달
     ai_evidence: str | None = None,
     created_at: str | None = None,
+    hitl_status: str | None = None,
+    hitl_comment: str | None = None,
+    hitl_rationale: str | None = None,
+    hitl_reviewed_at: str | None = None,
 ) -> None:
-    """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다."""
+    """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다.
+
+    HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    """
     ag_id = to_agenda_id(agenda_id)
     mg_id = to_mg_id(meeting_id)
     s_id  = to_session_id(session_id) if session_id else None
@@ -462,6 +479,10 @@ async def sync_agenda(
         ag.department   = $department,
         ag.ai_evidence  = $ai_evidence,
         ag.created_at   = $created_at,
+        ag.hitl_status      = $hitl_status,
+        ag.hitl_comment     = $hitl_comment,
+        ag.hitl_rationale   = $hitl_rationale,
+        ag.hitl_reviewed_at = $hitl_reviewed_at,
         ag.updated_at   = $updated_at
     WITH ag
     MATCH (mg:Meetings {id: $mg_id})
@@ -485,7 +506,7 @@ async def sync_agenda(
     """
     if isinstance(ai_evidence, (dict, list)):
         ai_evidence = json.dumps(ai_evidence, ensure_ascii=False)
-    emb_text = " ".join(filter(None, [title, ai_evidence]))
+    emb_text = " ".join(filter(None, [title, ai_evidence, hitl_status, hitl_comment, hitl_rationale]))
     embedding, content_hash = await _embed_if_changed("Agenda", "id", ag_id, emb_text)
     if embedding:
         cypher += "\n    WITH ag SET ag.embedding = $embedding, ag.content_hash = $content_hash"
@@ -499,6 +520,10 @@ async def sync_agenda(
         "department": department or "",
         "ai_evidence": ai_evidence or "",
         "created_at": created_at or "",
+        "hitl_status": hitl_status or "",
+        "hitl_comment": hitl_comment or "",
+        "hitl_rationale": hitl_rationale or "",
+        "hitl_reviewed_at": hitl_reviewed_at or "",
         "mg_id": mg_id, "s_id": s_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -598,8 +623,16 @@ async def sync_report(
     human_status: str = "pending",
     related_agenda_ids: list | None = None,
     created_at: str | None = None,
+    hitl_status: str | None = None,
+    hitl_comment: str | None = None,
+    hitl_rationale: str | None = None,
+    hitl_reviewed_at: str | None = None,
 ) -> None:
-    """Report 노드를 upsert하고 Meetings에 [:첨부] 관계로 연결합니다."""
+    """Report 노드를 upsert하고 Meetings에 [:첨부] 관계로 연결합니다.
+
+    HITL 검토 결과(status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    """
     report_neo_id = to_report_id(report_id)
     mg_id = to_mg_id(meeting_id)
     cypher = """
@@ -611,6 +644,10 @@ async def sync_report(
         r.submitter_department = $submitter_department,
         r.human_status         = $human_status,
         r.created_at           = $created_at,
+        r.hitl_status          = $hitl_status,
+        r.hitl_comment         = $hitl_comment,
+        r.hitl_rationale       = $hitl_rationale,
+        r.hitl_reviewed_at     = $hitl_reviewed_at,
         r.updated_at           = $updated_at
     WITH r
     MATCH (mg:Meetings {id: $mg_id})
@@ -632,10 +669,14 @@ async def sync_report(
         "submitter_department": submitter_department or "",
         "human_status": human_status,
         "created_at": created_at or "",
+        "hitl_status": hitl_status or "",
+        "hitl_comment": hitl_comment or "",
+        "hitl_rationale": hitl_rationale or "",
+        "hitl_reviewed_at": hitl_reviewed_at or "",
         "mg_id": mg_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    emb_text = " ".join(filter(None, [file_name, submitter_department]))
+    emb_text = " ".join(filter(None, [file_name, submitter_department, hitl_status, hitl_comment, hitl_rationale]))
     embedding, content_hash = await _embed_if_changed("Report", "id", report_neo_id, emb_text)
     if embedding:
         cypher += "\n    WITH r SET r.embedding = $embedding, r.content_hash = $content_hash"
@@ -649,84 +690,99 @@ async def sync_report(
         _log_failure("sync_report", "report", str(report_id), e, params)
 
 
-# ─── HumanJudgment 동기화 (PG hitl_reviews) ──────────────────────────────────
+# ─── HITL 검토 → 대상 노드(Agenda/Report) 속성 동기화 ────────────────────────
+# 별도 HumanJudgment 노드 대신, 검토 결과를 검토 대상 노드의 속성·임베딩으로 흡수한다.
 
-async def sync_human_judgment(
-    review_id: int,
-    meeting_id: int | None,
-    judgment: str,
-    reason: str | None = None,
-    version: int = 1,
-    reviewer_id: int | None = None,
-    judged_at: str | None = None,
-    target_type: str | None = None,
-    target_id: int | None = None,
-    ai_rationale: str | None = None,
-    created_at: str | None = None,
-) -> None:
-    """HumanJudgment 노드를 upsert하고 Meetings / reviewer와 연결합니다."""
-    hj_id = to_hj_id(review_id)
-    cypher = """
-    MERGE (hj:HumanJudgment {id: $id})
-    SET hj.pg_id        = $pg_id,
-        hj.judgment     = $judgment,
-        hj.reason       = $reason,
-        hj.version      = $version,
-        hj.target_type  = $target_type,
-        hj.target_id    = $target_id,
-        hj.ai_rationale = $ai_rationale,
-        hj.judged_at    = $judged_at,
-        hj.created_at   = $created_at,
-        hj.updated_at   = $updated_at
-    WITH hj
-    OPTIONAL MATCH (mg:Meetings {id: $mg_id})
-    FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (hj)-[:판단대상]->(mg)
-    )
-    WITH hj
-    OPTIONAL MATCH (p:User {pg_id: $reviewer_id})
-    FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (p)-[:판단자]->(hj)
-    )
-    """
-    emb_text = " ".join(filter(None, [judgment, reason, ai_rationale]))
-    embedding, content_hash = await _embed_if_changed("HumanJudgment", "id", hj_id, emb_text)
-    if embedding:
-        cypher += "\n    WITH hj SET hj.embedding = $embedding, hj.content_hash = $content_hash"
-    params = {
-        "id": hj_id, "pg_id": review_id,
-        "judgment": judgment,
-        "reason": reason or "",
-        "version": version,
-        "target_type": target_type or "",
-        "target_id": target_id,
-        "ai_rationale": ai_rationale or "",
-        "judged_at": judged_at or "",
-        "created_at": created_at or "",
-        "mg_id": to_mg_id(meeting_id) if meeting_id else "",
-        "reviewer_id": reviewer_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+def _hitl_props(review) -> dict:
+    """HitlReview → sync_agenda/sync_report에 넘길 hitl_* kwargs."""
+    return {
+        "hitl_status": review.status,
+        "hitl_comment": review.comment,
+        "hitl_rationale": review.ai_rationale,
+        "hitl_reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None,
     }
-    if embedding:
-        params["embedding"] = embedding
-        params["content_hash"] = content_hash
+
+
+def _latest_hitl_map(db: DBSession) -> tuple[dict, dict]:
+    """target별 최신 HITL 리뷰의 hitl_* kwargs 맵 (agenda_id→props, report_id→props)."""
+    by_agenda: dict = {}
+    by_report: dict = {}
+    if not hasattr(models, "HitlReview"):
+        return by_agenda, by_report
+    for r in db.query(models.HitlReview).order_by(models.HitlReview.id.asc()).all():
+        props = _hitl_props(r)
+        if r.target_type == "agenda" and r.agenda_id:
+            by_agenda[r.agenda_id] = props   # 높은 id가 나중에 덮어써 최신 유지
+        elif r.target_type == "report" and r.report_id:
+            by_report[r.report_id] = props
+    return by_agenda, by_report
+
+
+async def sync_hitl_target(review_id: int) -> None:
+    """HITL 검토 결과를 대상 Agenda/Report 노드 속성·임베딩에 반영한다 (PG→Neo4j).
+
+    검토 대상 노드를 PG에서 다시 로드해 status·comment·ai_rationale와 함께 재동기화하므로,
+    임베딩이 검토 내용을 포함해 재계산되어 벡터 검색에 노출된다.
+    """
+    db = SessionLocal()
     try:
-        await run_cypher(cypher, params)
-        logger.debug(f"[Neo4jSync] HumanJudgment {review_id} 동기화 완료")
+        r = db.query(models.HitlReview).filter(models.HitlReview.id == review_id).first()
+        if not r:
+            return
+        hitl = _hitl_props(r)
+        if r.target_type == "agenda" and r.agenda_id:
+            ag = db.query(models.Agenda).filter(models.Agenda.id == r.agenda_id).first()
+            if not ag:
+                return
+            dept_str = ""
+            if ag.department:
+                dept_str = (
+                    json.dumps(ag.department, ensure_ascii=False)
+                    if isinstance(ag.department, (dict, list))
+                    else str(ag.department)
+                )
+            await sync_agenda(
+                ag.id, ag.meeting_id,
+                title=ag.title,
+                status=str(ag.status or "draft"),
+                assignee_id=ag.assignee_id,
+                priority=ag.priority or "medium",
+                due_date=ag.due_date.isoformat() if ag.due_date else None,
+                session_id=ag.session_id,
+                department=dept_str,
+                ai_evidence=ag.ai_evidence,
+                created_at=ag.created_at.isoformat() if ag.created_at else None,
+                **hitl,
+            )
+        elif r.target_type == "report" and r.report_id and hasattr(models, "Report"):
+            rep = db.query(models.Report).filter(models.Report.id == r.report_id).first()
+            if not rep:
+                return
+            await sync_report(
+                report_id=rep.id,
+                meeting_id=rep.meeting_id,
+                file_name=rep.file_name,
+                file_path=rep.file_path,
+                submitter_department=rep.submitter_department,
+                human_status=rep.human_status or "pending",
+                related_agenda_ids=rep.related_agenda_ids or [],
+                created_at=rep.created_at.isoformat() if rep.created_at else None,
+                **hitl,
+            )
     except Exception as e:
-        logger.error(f"[Neo4jSync] HumanJudgment {review_id} 실패: {e}")
-        _log_failure("sync_human_judgment", "human_judgment", str(review_id), e, params)
+        logger.warning(f"[Neo4jSync] HITL→대상노드 동기화 실패 (review={review_id}): {e}")
+    finally:
+        db.close()
 
 
 # ─── 노드 유형별 벡터 유사도 검색 ───────────────────────────────────────────
 
 _NODE_SEARCH_CONFIG: dict[str, tuple[str, list[str]]] = {
     "Meetings":      ("meetingsEmbedding",       ["id", "pg_id", "title", "description", "status", "type"]),
-    "Agenda":        ("agendaEmbedding",         ["id", "pg_id", "title", "content", "status", "category", "priority", "department"]),
+    "Agenda":        ("agendaEmbedding",         ["id", "pg_id", "title", "content", "status", "category", "priority", "department", "hitl_status", "hitl_comment", "hitl_rationale"]),
     "Session":       ("sessionEmbedding",        ["id", "pg_id", "title", "description", "scheduled_at", "started_at", "ended_at", "type", "location"]),
     "Minutes":       ("minutesEmbedding",        ["pg_id", "file_name", "content_summary", "status", "generated_at"]),
-    "Report":        ("reportEmbedding",         ["id", "pg_id", "file_name", "submitter_department", "human_status", "created_at"]),
-    "HumanJudgment": ("humanJudgmentEmbedding",  ["id", "pg_id", "judgment", "reason", "target_type", "judged_at"]),
+    "Report":        ("reportEmbedding",         ["id", "pg_id", "file_name", "submitter_department", "human_status", "created_at", "hitl_status", "hitl_comment", "hitl_rationale"]),
 }
 
 
@@ -829,7 +885,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
     """PostgreSQL 전체 → Neo4j 부트스트랩 동기화.
     앱 시작 시 또는 싱크 불일치 복구 시 호출합니다.
     정렬 순서: User → Department → Meetings → MeetingMember → Session → Agenda
-               → Minutes → Report + ReportScore → HumanJudgment
+               → Minutes → Report + ReportScore
     """
     import models
 
@@ -840,7 +896,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
     stats: dict[str, int] = {
         "users": 0, "departments": 0, "companies": 0, "meetings": 0, "meeting_members": 0,
         "sessions": 0, "agendas": 0,
-        "minutes": 0, "reports": 0, "human_judgments": 0,
+        "minutes": 0, "reports": 0,
     }
     try:
         # 1. Users (Meetings 생성자/참여자 관계 연결을 위해 먼저 동기화)
@@ -912,6 +968,9 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             )
             stats["sessions"] += 1
 
+        # HITL 검토 결과를 대상 노드에 흡수하기 위한 최신 리뷰 맵 (Agenda/Report)
+        hitl_agenda_map, hitl_report_map = _latest_hitl_map(db)
+
         # 5. Agenda (draft 제외 — draft는 사용자 확인 전이므로 그래프에 노출 안 함)
         for ag in db.query(models.Agenda).filter(models.Agenda.status != "draft").all():
             dept_str = ""
@@ -932,6 +991,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 department=dept_str,
                 ai_evidence=ag.ai_evidence,
                 created_at=ag.created_at.isoformat() if ag.created_at else None,
+                **hitl_agenda_map.get(ag.id, {}),
             )
             stats["agendas"] += 1
 
@@ -961,27 +1021,11 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                     human_status=r.human_status or "pending",
                     related_agenda_ids=r.related_agenda_ids or [],
                     created_at=r.created_at.isoformat() if r.created_at else None,
+                    **hitl_report_map.get(r.id, {}),
                 )
                 stats["reports"] += 1
 
-        # 8. HumanJudgment ← PG hitl_reviews
-        if hasattr(models, "HitlReview"):
-            for hr in db.query(models.HitlReview).all():
-                await sync_human_judgment(
-                    review_id=hr.id,
-                    meeting_id=None,
-                    judgment=hr.status,
-                    reason=hr.comment,
-                    reviewer_id=hr.reviewer_id,
-                    judged_at=hr.reviewed_at.isoformat() if hr.reviewed_at else None,
-                    target_type=hr.target_type,
-                    target_id=hr.agenda_id or hr.report_id,
-                    ai_rationale=hr.ai_rationale,
-                    created_at=hr.created_at.isoformat() if hr.created_at else None,
-                )
-                stats["human_judgments"] += 1
-
-        # 9. PG에서 삭제된 노드 정리
+        # 8. PG에서 삭제된 노드 정리
         cleanup_stats = await cleanup_deleted_from_pg(db)
         stats["removed"] = cleanup_stats
 
@@ -1005,7 +1049,7 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
 
     removed: dict[str, int] = {
         "users": 0, "departments": 0, "companies": 0, "meetings": 0, "sessions": 0, "agendas": 0,
-        "minutes": 0, "reports": 0, "human_judgments": 0,
+        "minutes": 0, "reports": 0,
     }
 
     async def _detach_missing(label: str, pg_ids: list[int], stat_key: str) -> None:
@@ -1089,10 +1133,6 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
                 logger.info(f"[Neo4jSync] cleanup Company: {cnt}개 삭제")
         except Exception as e:
             logger.warning(f"[Neo4jSync] cleanup Company 실패 (무시): {e}")
-
-    if hasattr(models, "HitlReview"):
-        pg_review_ids = [row[0] for row in db.query(models.HitlReview.id).all()]
-        await _detach_missing("HumanJudgment", pg_review_ids, "human_judgments")
 
     logger.info(f"[Neo4jSync] cleanup_deleted_from_pg 완료: {removed}")
     return removed

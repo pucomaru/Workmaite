@@ -28,8 +28,6 @@ ALLOWED_REL_TYPES = {
     "관할", "담당", "담당부서", "발제세션",
     # Report 관계
     "첨부",
-    # HumanJudgment 관계
-    "판단대상", "판단자",
     # 회의체 간 관계
     "상위", "관련", "후속회의",
     # Chunk 관계
@@ -274,7 +272,7 @@ async def get_archive(
                 "start_date": row.get("start_date"),
                 "end_date": row.get("end_date"),
                 "members": [], "tasks": [], "minutes": [], "reports": [],
-                "minutes_agendas": [], "session_agendas": [], "derivations": [], "human_judgments": [],
+                "minutes_agendas": [], "session_agendas": [], "derivations": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
@@ -531,49 +529,6 @@ async def get_archive(
                     pg_id = sess_neo_id
                 if pg_id and pg_id in pg_session_map:
                     sess.update(pg_session_map[pg_id])
-
-    # ── HumanJudgment (의사결정) 노드 조회 ────────────────────────
-    try:
-        hj_rows = await _run_cypher(
-            """
-            MATCH (hj:HumanJudgment)
-            WHERE hj.target_type = 'agenda'
-            MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings)
-            WHERE mg.id IN $ids AND ag.pg_id = hj.target_id
-            RETURN
-                mg.id AS meetingId,
-                hj.id AS id,
-                hj.pg_id AS pg_id,
-                hj.judgment AS judgment,
-                hj.reason AS reason,
-                hj.target_id AS target_id,
-                coalesce(ag.id, toString(ag.pg_id)) AS agenda_id,
-                toString(hj.judged_at) AS judged_at,
-                hj.version AS version
-            """,
-            {"ids": mg_ids_list},
-        )
-        seen_hj: set[str] = set()
-        for row in hj_rows:
-            mg_id = row.get("meetingId")
-            hj_id = row.get("id")
-            if not mg_id or mg_id not in meetings_map or not hj_id:
-                continue
-            if hj_id in seen_hj:
-                continue
-            seen_hj.add(hj_id)
-            meetings_map[mg_id]["human_judgments"].append({
-                "id":        hj_id,
-                "pg_id":     row.get("pg_id"),
-                "judgment":  row.get("judgment"),
-                "reason":    row.get("reason") or "",
-                "target_id": row.get("target_id"),
-                "agenda_id": row.get("agenda_id"),
-                "judged_at": row.get("judged_at"),
-                "version":   row.get("version"),
-            })
-    except Exception:
-        pass  # HumanJudgment 없어도 그래프 정상 반환
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()

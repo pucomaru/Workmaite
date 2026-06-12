@@ -46,6 +46,7 @@ async function fetchAllMembers() {
       department: u.department,
       company: u.company,
       position: u.position,
+      role: u.role,
       meetings: u.meetings ?? [],
     }))
   } catch {
@@ -152,13 +153,15 @@ function toggleExpand(key) {
 
 // ── CSV 내보내기 ──────────────────────────────────────────
 function exportCSV() {
-  const headers = ['이름', '이메일', '회사', '부서', '직책']
+  // 임시비밀번호 컬럼은 보안상 값을 비워 내보낸다 (가져오기 시 채워 일괄 등록용 템플릿 겸용)
+  const headers = ['이름', '이메일', '회사', '부서', '직책', '임시비밀번호']
   const rows = filteredMembers.value.map(m => [
     m.name || '',
     m.email || '',
     m.company || '',
     m.department || '',
     m.position || '',
+    '',
   ])
   const csvContent = [headers, ...rows]
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -234,9 +237,15 @@ async function parseAndImportCSV(text) {
   const fieldKeys = headerLine.map(h => CSV_HEADER_MAP[h.toLowerCase()] || CSV_HEADER_MAP[h] || null)
 
   if (!fieldKeys.includes('name')) {
-    alert('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책')
+    alert('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책,임시비밀번호')
     return
   }
+
+  // 일괄 임시 비밀번호: CSV에 개별 비밀번호가 없거나 비어있는 행에 공통 적용 (각자 최초 로그인 시 변경 강제)
+  const bulkPassword = (window.prompt(
+    '가져올 구성원에 적용할 임시 비밀번호를 입력하세요 (8자 이상).\n' +
+    'CSV에 개별 비밀번호 컬럼이 있으면 그 값이 우선합니다. (비우면 CSV 값만 사용)'
+  ) || '').trim()
 
   const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))
   const skippedNoEmail = []
@@ -261,16 +270,17 @@ async function parseAndImportCSV(text) {
       continue
     }
 
-    if (!obj.password || obj.password.length < 8) {
-      failed.push(`${obj.name} (임시 비밀번호 컬럼 누락/8자 미만)`)
+    const rowPassword = obj.password || bulkPassword
+    if (!rowPassword || rowPassword.length < 8) {
+      failed.push(`${obj.name} (임시 비밀번호 없음/8자 미만)`)
       continue
     }
     try {
-      // 임시 비밀번호 방식 (P1-7② 개정): CSV의 비밀번호로 즉시 생성, 로그인 시 변경 강제
+      // 임시 비밀번호 방식 (P1-7② 개정): 행별 비밀번호 또는 일괄 비밀번호로 즉시 생성, 로그인 시 변경 강제
       const { data } = await api.post('/api/v1/users/bulk', [{
         name: obj.name, email: obj.email,
         department: obj.department || '', position: obj.position || '',
-        password: obj.password,
+        password: rowPassword,
       }])
       const r = data?.[0]
       if (r && !r.ok) { failed.push(`${obj.name} (${r.reason})`); continue }
@@ -283,7 +293,8 @@ async function parseAndImportCSV(text) {
 
   await fetchAllMembers()
 
-  const resultLines = [`${succeeded.length}명 등록 완료 (각자 CSV의 임시 비밀번호로 로그인 → 변경 강제)`]
+  const pwNote = bulkPassword ? '임시 비밀번호로 로그인 → 최초 로그인 시 변경 강제' : '각자 CSV의 임시 비밀번호로 로그인 → 변경 강제'
+  const resultLines = [`${succeeded.length}명 등록 완료 (${pwNote})`]
   if (skippedNoEmail.length) resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
   if (skippedDuplicate.length) resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
   if (failed.length) resultLines.push(`등록 실패 (${failed.length}명): ${failed.join(', ')}`)
@@ -342,10 +353,6 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
       </div>
-
-      <span class="org-scope-badge" title="본인이 속한 회의체의 구성원만 조회됩니다.">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-      </span>
 
       <div class="plus-wrap">
         <input ref="csvImportInput" type="file" accept=".csv" style="display:none" @change="handleCSVFile" />
@@ -532,9 +539,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
               <label>역할 (관리자 전용)</label>
               <select v-model="editModal.role" class="app-modal-input">
-                <option value="USER">USER</option>
-                <option value="COMPANY_ADMIN">COMPANY_ADMIN (자사 구성원 관리)</option>
-                <option value="SYSTEM_ADMIN">SYSTEM_ADMIN</option>
+                <option value="USER">일반 사용자</option>
+                <option value="COMPANY_ADMIN">회사 관리자 (자사 구성원 관리)</option>
+                <option value="SYSTEM_ADMIN">시스템 관리자 (전체 관리)</option>
               </select>
             </div>
             <div class="app-modal-field-row">

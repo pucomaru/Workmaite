@@ -346,7 +346,7 @@ async def _normalize_rel_directions() -> dict:
     Neo4j는 엣지 방향을 in-place 변경할 수 없으므로 DELETE → MERGE 패턴을 사용합니다.
     """
     # 원칙: 포함/소속은 작은 단위 → 큰 단위 방향 (child → parent)
-    # 라이프사이클(agenda→session→minutes→human_judgment)은 흐름 방향 유지
+    # 라이프사이클(agenda→session→minutes)은 흐름 방향 유지
     steps = [
         # (설명, 카운트 쿼리, 수정 쿼리)
 
@@ -368,10 +368,6 @@ async def _normalize_rel_directions() -> dict:
          "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r"),
 
         # ── 라이프사이클 방향 정규화 ───────────────────────────────────
-        ("회의록→의사결정 방향 정규화 (판단)",
-         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) RETURN count(r) AS cnt",
-         "MATCH (hj:HumanJudgment)-[r:`판단`]->(n) MERGE (n)-[:`판단`]->(hj) DELETE r"),
-
         ("'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
          "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
          "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),

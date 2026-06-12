@@ -102,11 +102,6 @@ function parseAiEvidence(val) {
   try { const p = JSON.parse(val); return p?.reasoning || '' } catch { return val }
 }
 
-function parseReason(val) {
-  if (!val) return ''
-  try { const p = JSON.parse(val); return p?.comment || p?.agenda || '' } catch { return val }
-}
-
 // ── 관계 추가 검색 상태 (로컬) ─────────────────────────────────────
 const fromSearch   = ref('')
 const toSearch     = ref('')
@@ -119,7 +114,6 @@ const NODE_TYPE_KO = {
   Meetings: '회의체',
   session: '회의', agenda: '아젠다', minutes: '회의록',
   report: '보고자료', dept: '부서', person: '구성원', company: '회사',
-  human_judgment: '의사결정',
 }
 
 const filteredFromNodes = computed(() => {
@@ -661,15 +655,13 @@ watch(relAddActive, v => {
               <svg v-else-if="detailNode.type==='minutes'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <!-- 보고자료 -->
               <svg v-else-if="detailNode.type==='report'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-              <!-- 의사결정 -->
-              <svg v-else-if="detailNode.type==='human_judgment'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="M2 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
               <!-- 사람 -->
               <svg v-else width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div class="detail-header-left">
               <div class="detail-meeting-name">{{ detailNode.type === 'agenda' ? (detailNode.data?.content || detailNode.data?.title || detailNode.label) : detailNode.label }}</div>
               <div class="detail-meta-row">
-                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사', human_judgment:'의사결정' }[detailNode.type] || detailNode.type }}</span>
+                <span class="detail-meta">{{ { dept:'부서', agenda:'아젠다', session: detailNode.subType==='안건'?'안건':'회의', minutes:'회의록', report:'보고자료', person:'구성원', company:'회사' }[detailNode.type] || detailNode.type }}</span>
               </div>
             </div>
             <div class="detail-header-actions">
@@ -1035,30 +1027,6 @@ watch(relAddActive, v => {
                   </div>
                 </div>
                 <div v-else class="detail-log-empty">회의체 정보 없음</div>
-              </div>
-            </template>
-
-            <!-- 의사결정 (human_judgment) -->
-            <template v-else-if="detailNode.type==='human_judgment'">
-              <div class="detail-section">
-                <div v-if="detailNode.data?.judgment" class="hj-judgment-text">
-                  {{ detailNode.data.judgment }}
-                </div>
-                <div v-else class="hj-judgment-empty">결정 내용 없음</div>
-                <div class="detail-info-grid" style="margin-top:10px">
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">결정일시</span>
-                    <span class="detail-info-val">{{ detailNode.data?.judged_at ? formatDate(detailNode.data.judged_at) : '-' }}</span>
-                  </div>
-                  <div class="detail-info-item">
-                    <span class="detail-info-key">버전</span>
-                    <span class="detail-info-val">v{{ detailNode.data?.version || 1 }}</span>
-                  </div>
-                </div>
-              </div>
-              <div v-if="parseReason(detailNode.data?.reason)" class="detail-section">
-                <div class="detail-section-label">결정 사유</div>
-                <div class="ai-evidence-box">{{ parseReason(detailNode.data.reason) }}</div>
               </div>
             </template>
 

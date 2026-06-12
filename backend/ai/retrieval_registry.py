@@ -45,8 +45,6 @@ REGISTRY: dict[str, dict] = {
     "ReportChunk":   {"index": "reportChunkEmbedding",   "legacy": [], "scope": None,
                       "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
                       "fields": "node.text AS content, node.title AS title"},
-    "HumanJudgment": {"index": "humanJudgmentEmbedding", "legacy": [], "scope": None,
-                      "fields": "node.judgment AS title, node.reason AS content"},
     # 업로드 지식 문서는 ReportChunk 라벨로 저장됨 (별칭)
     "KnowledgeChunk": {"alias": "ReportChunk"},
 }

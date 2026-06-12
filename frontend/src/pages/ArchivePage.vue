@@ -12,7 +12,6 @@ import CreateSessionModal from '../components/CreateSessionModal.vue'
 import UploadModal from '../components/UploadModal.vue'
 import SettingsModal from '../components/SettingsModal.vue'
 import AgendaEditModal from '../components/AgendaEditModal.vue'
-import HumanJudgmentEditModal from '../components/HumanJudgmentEditModal.vue'
 import ReportEditModal from '../components/ReportEditModal.vue'
 import MinutesEditModal from '../components/MinutesEditModal.vue'
 import SessionEditModal from '../components/SessionEditModal.vue'
@@ -153,7 +152,6 @@ function _applyQueryHL(step) {
     if (newSet.size === 0) {
       if (step.includes('회의체') || step.includes('라우팅')) gNodes.forEach((n,i)=>{ if(n.type==='Meetings') newSet.add(i) })
       else if (step.includes('아젠다')) gNodes.forEach((n,i)=>{ if(n.type==='agenda') newSet.add(i) })
-      else if (step.includes('의사결정')) gNodes.forEach((n,i)=>{ if(n.type==='human_judgment') newSet.add(i) })
       else if (step.includes('구성원') || step.includes('소속')) gNodes.forEach((n,i)=>{ if(n.type==='person') newSet.add(i) })
       else if (step.includes('세션') || step.includes('회의록')) gNodes.forEach((n,i)=>{ if(n.type==='session') newSet.add(i) })
     }
@@ -889,7 +887,7 @@ const STATUS_LABEL = { pending: '대기', in_progress: '진행', submitted: '승
 const NODE_TYPE_COLORS = {
   Meetings: '#3b82f6', agenda: '#f59e0b', session: '#f97316',
   minutes: '#60a5fa', report: '#34d399', dept: '#8b5cf6',
-  person: '#f472b6', company: '#0d9488', human_judgment: '#22d3ee',
+  person: '#f472b6', company: '#0d9488',
 }
 
 function goToProcessStep(step) {
@@ -1154,7 +1152,6 @@ const REL_COLORS = {
   '생성':   '#c4b5fd',  // minutes → session
   '상위':   '#f9a8d4',  // meeting hierarchy
   '관련':   '#fcd34d',  // meeting → meeting
-  '판단':   '#22d3ee',  // human_judgment → minutes (의사결정)
 }
 // ── 소스 타입 × 대상 타입 → Neo4j 관계 자동 추론 ──────────────
 // 정방향 키 (from→to)로 관계와 Neo4j 방향 정의
@@ -1173,15 +1170,12 @@ const REL_MATRIX = {
   'agenda→Meetings':        '관할',
   'person→Meetings':        '구성원',
   'person→agenda':          '담당',
-  // ── 라이프사이클: 아젠다→회의→회의록→의사결정→아젠다(후속) ───
+  // ── 라이프사이클: 아젠다→회의→회의록 ───
   'agenda→session':         '다룸',
   'session→Meetings':       '개최',
   'session→minutes':        '산출',
   'session→report':         '산출',
   'session→session':        '후속',
-  'minutes→human_judgment': '판단',
-  'human_judgment→agenda':  '후속',
-  'human_judgment→session': '근거',
   // ── 회의록 연결 ───────────────────────────────────────────────
   'minutes→agenda':         '도출',
   'minutes→minutes':        '참조',
@@ -1747,7 +1741,7 @@ const meetingGroups = computed(() => {
         id: `mg-${m.id}`, title: m.title,
         meeting_type: m.meeting_type || null, status: m.status || 'active',
         minutes: [], reports: [], members: [], tasks: [],
-        agendas: [], sessions: [], human_judgments: [],
+        agendas: [], sessions: [],
       }))
 
     return [...neo4jResult, ...pgOnly]
@@ -2446,55 +2440,6 @@ async function saveAgendaEdit() {
   }
 }
 
-// ─── 의사결정(HumanJudgment) 편집 모달 ───────────────────────────────────────
-const humanJudgmentEditModal = ref(null)  // { hjId, form: { judgment, reason } }
-const savingHjEdit = ref(false)
-
-function openHumanJudgmentEditModal() {
-  if (!detailNode.value || detailNode.value.type !== 'human_judgment') return
-  const d = detailNode.value.data || {}
-  humanJudgmentEditModal.value = {
-    hjId: d.pg_id,
-    form: {
-      judgment: d.judgment || 'pending',
-      reason:   d.reason || '',
-    },
-  }
-}
-
-function closeHumanJudgmentEdit() { humanJudgmentEditModal.value = null }
-
-async function saveHumanJudgmentEdit() {
-  if (!humanJudgmentEditModal.value) return
-  const { hjId, form } = humanJudgmentEditModal.value
-  if (!hjId) return
-  savingHjEdit.value = true
-  try {
-    const { data } = await apiAI.patch(`/api/agent/hitl-reviews/${hjId}`, {
-      status: form.judgment,
-      comment: form.reason || null,
-    })
-    if (detailNode.value) {
-      detailNode.value = {
-        ...detailNode.value,
-        label: form.judgment.length > 15 ? form.judgment.slice(0, 14) + '…' : form.judgment,
-        data: {
-          ...detailNode.value.data,
-          judgment:  form.judgment,
-          reason:    form.reason,
-          judged_at: data.reviewed_at || detailNode.value.data?.judged_at,
-        },
-      }
-    }
-    humanJudgmentEditModal.value = null
-    setTimeout(refreshArchive, 600)
-  } catch (e) {
-    console.error('[saveHumanJudgmentEdit]', e)
-  } finally {
-    savingHjEdit.value = false
-  }
-}
-
 // ─── 보고자료 편집 모달 ───────────────────────────────────────────────────────
 const reportEditModal = ref(null)
 const savingReportEdit = ref(false)
@@ -2642,10 +2587,6 @@ async function openNodeGroupSetting() {
     openSessionEditModal()
     return
   }
-  if (detailNode.value.type === 'human_judgment') {
-    openHumanJudgmentEditModal()
-    return
-  }
   const mgId = detailNode.value.meetingGroupId || detailNode.value.neo4jId
   if (!mgId) return
   const mg = neo4jMeetings.value.find(m => m.id === mgId)
@@ -2680,7 +2621,6 @@ provide('archiveSidebar', {
   agendaEditModal, closeAgendaEdit, savingAgendaEdit, saveAgendaEdit,
   reportEditModal, closeReportEdit, savingReportEdit, saveReportEdit,
   minutesEditModal, closeMinutesEdit, savingMinutesEdit, saveMinutesEdit,
-  humanJudgmentEditModal, closeHumanJudgmentEdit, savingHjEdit, saveHumanJudgmentEdit,
 })
 </script>
 
@@ -2887,13 +2827,6 @@ provide('archiveSidebar', {
     :session="sessionEditData"
     @close="showSessionEdit=false"
     @saved="onSessionEditSaved"
-  />
-  <HumanJudgmentEditModal
-    :modal="humanJudgmentEditModal"
-    :night-mode="nightMode"
-    :saving="savingHjEdit"
-    @close="closeHumanJudgmentEdit"
-    @save="saveHumanJudgmentEdit"
   />
 </template>
 
