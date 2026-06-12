@@ -30,6 +30,16 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
+      # 3.5 Python 컴파일·import 스모크 게이트 (P6-3/P7-4) — 빌드 전 import 깨짐 차단
+      - name: Python smoke check
+        run: |
+          python3 -m pip install -q ruff || true
+          python3 -m compileall -q backend/ai \
+            && echo "compileall OK"
+          # 미정의 이름·재정의·구문 오류만 빌드 차단 (런타임 NameError 방지). 미사용 import는 경고 수준이라 제외
+          python3 -m ruff check backend/ai --select F821,F811,F822,F823,F706,F707 --quiet || \
+            (echo "::error::ruff: 미정의 이름/재정의 — 런타임 NameError 위험" && exit 1)
+
       # 4. 이미지 빌드 & Harbor에 push
       - name: Build and push
         uses: docker/build-push-action@v5

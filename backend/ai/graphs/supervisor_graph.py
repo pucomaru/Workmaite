@@ -9,7 +9,6 @@
 유일한 직접응답 경로 (P3B-2 — 사전조립 경로 제거 완료)
 """
 import logging
-import os
 import uuid
 from typing import AsyncGenerator
 

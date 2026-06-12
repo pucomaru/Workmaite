@@ -1,11 +1,7 @@
-import json
-import os
-import uuid
 from datetime import datetime
-from collections import defaultdict
-from typing import Any, List, Optional, Literal
+from typing import List, Optional, Literal
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from sqlalchemy.orm import Session, joinedload
@@ -14,11 +10,10 @@ import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
 from access_guard import require_meeting_member
-from sse import sse_done, sse_error, sse_event, sse_token
+from sse import sse_done, sse_event, sse_token
 from metrics import instrument_stream
 from agents import (
     task_extractor as task_agent,
-    knowledge_manager as knowledge_agent,
     minutes_generator as minutes_agent,
     report_reviewer as report_agent,
 )

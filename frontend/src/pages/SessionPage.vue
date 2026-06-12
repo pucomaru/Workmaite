@@ -811,6 +811,11 @@ async function deleteMinutes() {
 }
 
 async function endMeeting() {
+  // UX-26: 녹음을 시작한 적 없으면(대기 상태+0초) 잘못 누른 것 — 안내 후 중단
+  if (recordingState.value === 'idle' && recordingSecs.value === 0) {
+    alert('아직 녹음을 시작하지 않았습니다. 먼저 녹음을 시작해주세요.')
+    return
+  }
   if (!confirm('기록을 종료하시겠습니까?')) return
   const sessionId = activeSession.value?.id
   const meetingId = activeSession.value?.meeting_id

@@ -5,8 +5,7 @@
 """
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean,
-    ForeignKey, JSON, Float, UniqueConstraint,
+    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from database import Base

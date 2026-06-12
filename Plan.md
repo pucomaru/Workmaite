@@ -357,7 +357,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
 - [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/ai/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
 - [~] P6-2 eval 하네스 — **스모크판 구축 (2026-06-12)**: `eval/run_eval.py`(라우팅 정확도 + 추출 P/R/F1·부서 정확도, JSON 기록). **베이스라인: 라우팅 93.75%(15/16), 추출 F1=1.00.** 발견: off_topic이 라우팅 Literal에 없어 반환 불가(죽은 지시) — 코딩 요청이 task_extractor로 오분류, P3A-5에서 처리. 잔여: 제목 임베딩 매칭(현 difflib), 회의록 LLM-judge.
-- [ ] P6-3 CI에 스모크 eval(소형 5건) 추가 — 프롬프트 변경 PR에서 자동 실행.
+- [~] P6-3 (2026-06-12): CI에 compileall+ruff(미정의이름) 스모크 게이트 추가 — 죽은 함수 1개(NameError) 적발·제거. 잔여: LLM eval 5건(OpenAI 키 CI 시크릿 필요).
 - [ ] P6-4 **트레이스 기반 평가 환류**: P3A-3 트레이싱 + P3C-3 피드백(👍/👎, HITL 반려 사유)에서 실패 사례를 주기적으로 골든 데이터셋에 추가 — eval이 운영 데이터로 계속 자라는 구조(eval-driven development). 라우팅 정확도(classify→handoff 결정)도 평가 항목에 포함.
 - [~] P6-5 **스모크 구축 (2026-06-12)**: eval/retrieval_eval.py self-retrieval recall@5 — 15/15 베이스라인. 잔여: 질의→정답 노드 골든셋 20건, recall@k·MRR 정식 측정. 원계획: **retrieval 평가(G-8)**: "질의 → 반드시 찾아야 할 노드" 쌍 20건으로 recall@k·MRR 측정(`eval/retrieval_eval.py`). 검색 0건 비율 메트릭 상시 수집 — G-1 같은 전면 검색 장애를 즉시 탐지. 부서 추천(P3B-8)의 정확도(테스트 데이터 대비 추출 아젠다·부서 유사도)도 여기서 측정.
 
@@ -367,7 +367,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P7-3 §2.8 UX 백로그 26건 처리(우선: UX-3/5/6/7 — 데이터 신뢰 관련).
 - [ ] P7-4 테스트: Spring 서비스 단위테스트(인가 가드 포함), FastAPI 라우터 테스트(httpx), 프론트 핵심 composable 테스트. CI에 테스트+린트 게이트 추가.
 - [x] P7-5 잔재 정리 (2026-06-12): workmaite-server/·springboot/package-lock.json 삭제, reset_db.py 안전장치. **정정: backend/Dockerfile은 잔재가 아니라 backend CI의 실사용 빌드 파일 — 오삭제로 CI 1회 실패 후 복구** (BE-4 항목에서 제외). 미사용 코드 정리는 상시.
-- [ ] P7-6 k8s: 리소스 requests/limits 전 deployment, PDB, NetworkPolicy, postgres StatefulSet 전환.
+- [~] P7-6 (2026-06-12): backend/ai resources requests/limits + PDB(minAvailable 1) 적용. 잔여: 나머지 deployment·NetworkPolicy·postgres StatefulSet.
 - [ ] P7-7 **하드코딩 정리(§2.11 HC-1~12)**: 각 항목의 "개선 방향" 열대로 설정/레지스트리/enum 모듈로 외출. 우선순위: HC-3(검색 레지스트리 — P3B-6과 동일 작업), HC-2(RBAC — P1-3과 동일), HC-9(ID 헬퍼), HC-6(채점 루브릭 설정화), HC-10(kustomize overlay). 나머지는 해당 영역을 건드리는 PR에 동반 처리.
 
 ### Phase 8 — 페이지네이션 도입 (§2.13 PG, 3–5일, 독립 진행 가능) 🟡

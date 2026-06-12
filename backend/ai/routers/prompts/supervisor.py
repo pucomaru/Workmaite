@@ -1,9 +1,5 @@
-import os
-from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 SUPERVISOR_DIRECT_SYSTEM = """\
 당신은 회의체 운영 AI 워크메이트입니다.

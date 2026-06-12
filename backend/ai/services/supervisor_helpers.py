@@ -3,12 +3,8 @@
 DB 컨텍스트 빌더·활동 로그·파일 텍스트 추출·플랜 스트리밍 등
 여러 라우터가 공유하는 비-HTTP 로직. (routers/는 HTTP 변환만 담당)
 """
-import json
 import logging
-import os
-import re
 import uuid
-from collections import defaultdict
 from datetime import datetime
 from typing import List
 

@@ -5,7 +5,6 @@ from typing_extensions import TypedDict
 logger = logging.getLogger(__name__)
 
 from llm_factory import StructuredOutputError, llm_factory
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END

@@ -1,9 +1,5 @@
-import os
-from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 ANALYZE_FILE_SYSTEM = """\
 당신은 조직 내 보고서를 전문적으로 검토하는 AI 평가관입니다.

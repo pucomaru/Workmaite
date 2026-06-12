@@ -13,10 +13,8 @@ from database import get_db
 router = APIRouter(prefix="/api/usage", tags=["usage"])
 
 # ── context_type → section 매핑 ──────────────────────────────────────────────
-_TASK_CONTEXTS    = {"task_extract"}
-_REPORT_CONTEXTS  = {"archive_analyze", "archive_analyze_stream", "report_review"}
-_MEETING_CONTEXTS = {"minutes_generate", "minutes_stream", "supervisor",
-                     "agenda_extraction", "agenda_commit"}
+# context_type 분류는 context_types 모듈로 통합 (HC-8)
+from context_types import section_of as _section_of
 
 _SECTION_LABELS = {
     "task_extraction": "아젠다 추출 Agent",
@@ -33,13 +31,6 @@ _STT_PROVIDERS: dict[str, dict] = {
     "localwhisper": {"label": "Local Whisper",  "cost_per_min": 0.000},
 }
 _STT_FALLBACK = {"label": "STT", "cost_per_min": 0.010}
-
-
-def _section_of(ctx: str) -> str:
-    if ctx in _TASK_CONTEXTS:    return "task_extraction"
-    if ctx in _REPORT_CONTEXTS:  return "report_analysis"
-    if ctx in _MEETING_CONTEXTS: return "meeting"
-    return "other"
 
 
 @router.get("/tokens")

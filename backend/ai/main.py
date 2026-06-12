@@ -2,10 +2,9 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from sqlalchemy.orm import Session
 
 # Workmaite/.env 를 override=True로 로드 (기존 환경변수 덮어쓰기)
 _base = os.path.dirname(__file__)
@@ -16,9 +15,7 @@ _tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool
 os.environ["LANGCHAIN_TRACING_V2"] = "true" if _tracing_on else "false"
 os.environ["LANGSMITH_TRACING"] = "true" if _tracing_on else "false"
 
-from database import get_db
 from websocket_manager import manager
-from auth import get_current_user
 
 from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
 from routers import archive as archive_router

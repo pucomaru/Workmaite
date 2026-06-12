@@ -1,8 +1,6 @@
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
-import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
