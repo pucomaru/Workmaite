@@ -8,6 +8,7 @@ Spring의 MeetingAccessGuard와 동일한 규칙:
 import logging
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -45,6 +46,35 @@ def require_meeting_member_by_session(db: Session, user: models.User, session_id
     if not row:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     require_meeting_member(db, user, row.meeting_id)
+
+
+def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
+    """디렉터리 가시성 (MT-3): 본인 + 내 회사 + 공유 회의체 인원. None이면 전체(SYSTEM_ADMIN)."""
+    if is_system_admin(user):
+        return None
+    ids = {user.id}
+    my_meetings = [
+        r.meeting_id
+        for r in db.query(models.MeetingMember.meeting_id)
+        .filter(models.MeetingMember.user_id == user.id)
+        .all()
+    ]
+    if my_meetings:
+        ids |= {
+            r.user_id
+            for r in db.query(models.MeetingMember.user_id)
+            .filter(models.MeetingMember.meeting_id.in_(my_meetings))
+            .all()
+        }
+    company = (user.company or "").strip()
+    if company:
+        ids |= {
+            r.id
+            for r in db.query(models.User.id)
+            .filter(func.lower(func.trim(models.User.company)) == company.lower())
+            .all()
+        }
+    return ids
 
 
 def require_meeting_member_by_report(db: Session, user: models.User, report_id: int) -> None:

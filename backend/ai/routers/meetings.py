@@ -6,7 +6,7 @@ import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
-from access_guard import require_meeting_member
+from access_guard import require_meeting_member, visible_user_ids
 from neo4j_sync import (
     sync_meeting,
     sync_user,
@@ -356,9 +356,11 @@ def search_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).filter(
-        models.User.name.contains(q)
-    ).limit(20).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    query = db.query(models.User).filter(models.User.name.contains(q))
+    if visible is not None:
+        query = query.filter(models.User.id.in_(visible))
+    users = query.limit(20).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company, "position": u.position} for u in users]
 
 
@@ -367,7 +369,11 @@ def all_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).order_by(models.User.name).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    users_query = db.query(models.User).order_by(models.User.name)
+    if visible is not None:
+        users_query = users_query.filter(models.User.id.in_(visible))
+    users = users_query.all()
     result = []
     for u in users:
         member_rows = db.query(models.MeetingMember).filter(models.MeetingMember.user_id == u.id).all()
@@ -398,9 +404,17 @@ def update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    same_company_admin = (
+        current_user.role == "COMPANY_ADMIN"
+        and (current_user.company or "").strip()
+        and (current_user.company or "").strip().lower() == (user.company or "").strip().lower()
+    )
+    if user.id != current_user.id and current_user.role != "SYSTEM_ADMIN" and not same_company_admin:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
@@ -535,9 +549,17 @@ async def ai_update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    same_company_admin = (
+        current_user.role == "COMPANY_ADMIN"
+        and (current_user.company or "").strip()
+        and (current_user.company or "").strip().lower() == (user.company or "").strip().lower()
+    )
+    if user.id != current_user.id and current_user.role != "SYSTEM_ADMIN" and not same_company_admin:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
