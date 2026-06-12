@@ -20,6 +20,7 @@ Neo4j 노드 유형:
 """
 
 from __future__ import annotations
+import hashlib
 import json
 import logging
 import os
@@ -116,6 +117,27 @@ async def _embed(text: str) -> list[float] | None:
     except Exception as e:
         logger.warning(f"[Neo4jSync] 임베딩 실패 (무시): {e}")
         return None
+
+
+async def _embed_if_changed(label: str, key_prop: str, key_value, text: str):
+    """content_hash 비교 후 변경 시에만 임베딩을 계산합니다 (P2-6 — OpenAI 호출 절감).
+
+    반환: (embedding | None, content_hash | None) — 임베딩이 None이면 SET 생략(기존 값 유지).
+    """
+    text = (text or "").strip()
+    if not text:
+        return None, None
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    try:
+        rows = await run_cypher(
+            f"MATCH (n:{label} {{{key_prop}: $k}}) RETURN n.content_hash AS h",
+            {"k": key_value},
+        )
+        if rows and rows[0].get("h") == content_hash:
+            return None, content_hash  # 내용 동일 — 임베딩 재계산 생략
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] content_hash 조회 실패 (임베딩 진행): {e}")
+    return await _embed(text), content_hash
 
 
 def _log_failure(operation: str, entity_type: str, entity_id: str,
@@ -323,10 +345,11 @@ async def sync_meeting_group(
         "created_at": created_at or "",
         "updated_at": datetime.utcnow().isoformat(),
     }
-    embedding = await _embed(guidelines or "")
+    embedding, content_hash = await _embed_if_changed("Meetings", "id", mg_id, guidelines or "")
     if embedding:
-        cypher += "\n    WITH mg SET mg.embedding = $embedding"
+        cypher += "\n    WITH mg SET mg.embedding = $embedding, mg.content_hash = $content_hash"
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Meetings {meeting_id} 동기화 완료")
@@ -373,9 +396,9 @@ async def sync_session(
     MERGE (s)-[:소속]->(mg)
     """
     emb_text = " ".join(filter(None, [title, description, location]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Session", "id", s_id, emb_text)
     if embedding:
-        cypher += "\n    WITH s SET s.embedding = $embedding"
+        cypher += "\n    WITH s SET s.embedding = $embedding, s.content_hash = $content_hash"
     params = {
         "id": s_id, "pg_id": session_id,
         "title": title, "status": status,
@@ -390,6 +413,7 @@ async def sync_session(
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Session {session_id} 동기화 완료")
@@ -468,9 +492,9 @@ async def sync_agenda(
     if isinstance(ai_evidence, (dict, list)):
         ai_evidence = json.dumps(ai_evidence, ensure_ascii=False)
     emb_text = " ".join(filter(None, [title, ai_evidence]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Agenda", "id", ag_id, emb_text)
     if embedding:
-        cypher += "\n    WITH ag SET ag.embedding = $embedding"
+        cypher += "\n    WITH ag SET ag.embedding = $embedding, ag.content_hash = $content_hash"
     params = {
         "id": ag_id, "pg_id": agenda_id,
         "title": title,
@@ -486,6 +510,7 @@ async def sync_agenda(
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Agenda {agenda_id} 동기화 완료")
@@ -541,9 +566,9 @@ async def sync_minutes(
     )
     """
     emb_text = " ".join(filter(None, [content_summary, file_name]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Minutes", "pg_id", minutes_id, emb_text)
     if embedding:
-        cypher += "\n    WITH mn SET mn.embedding = $embedding"
+        cypher += "\n    WITH mn SET mn.embedding = $embedding, mn.content_hash = $content_hash"
     params = {
         "pg_id": minutes_id, "session_id": session_id, "s_id": s_id,
         "content_summary": content_summary or "",
@@ -557,6 +582,7 @@ async def sync_minutes(
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Minutes {minutes_id} 동기화 완료")
@@ -616,10 +642,11 @@ async def sync_report(
         "updated_at": datetime.utcnow().isoformat(),
     }
     emb_text = " ".join(filter(None, [file_name, submitter_department]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Report", "id", report_neo_id, emb_text)
     if embedding:
-        cypher += "\n    WITH r SET r.embedding = $embedding"
+        cypher += "\n    WITH r SET r.embedding = $embedding, r.content_hash = $content_hash"
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Report {report_id} 동기화 완료")
@@ -669,9 +696,9 @@ async def sync_human_judgment(
     )
     """
     emb_text = " ".join(filter(None, [judgment, reason, ai_rationale]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("HumanJudgment", "id", hj_id, emb_text)
     if embedding:
-        cypher += "\n    WITH hj SET hj.embedding = $embedding"
+        cypher += "\n    WITH hj SET hj.embedding = $embedding, hj.content_hash = $content_hash"
     params = {
         "id": hj_id, "pg_id": review_id,
         "judgment": judgment,
@@ -688,6 +715,7 @@ async def sync_human_judgment(
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] HumanJudgment {review_id} 동기화 완료")

@@ -54,8 +54,15 @@ async def _cleanup_stale_neo4j_nodes() -> None:
 
 
 async def _startup_sync_task() -> None:
-    """서버 시작 시 PostgreSQL → Neo4j 전체 동기화 (백그라운드, 1회)."""
+    """서버 시작 시 정리 작업 + (옵션) PostgreSQL → Neo4j 전체 동기화.
+
+    증분 동기화는 아웃박스(P2-4)가 보장하므로 전체 resync는 복구용 옵션이다 (P2-6).
+    STARTUP_FULL_RESYNC=true 일 때만 수행 (content_hash 덕에 임베딩 재계산은 없음).
+    """
     await _cleanup_stale_neo4j_nodes()
+    if os.environ.get("STARTUP_FULL_RESYNC", "false").lower() != "true":
+        logger.info("[StartupSync] 전체 resync 생략 (STARTUP_FULL_RESYNC=false)")
+        return
     try:
         result = await sync_all_from_pg()
         logger.info(f"[StartupSync] 완료: {result}")
