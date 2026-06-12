@@ -603,7 +603,7 @@ async def get_archive(
                         "position": u.position or "",
                         "role": "admin" if str(mb.role) == "admin" else "member",
                         "department": u.department or "",
-                        "company": u.company or "",
+                        "company": u.company_name or "",
                     }
                     for mb, u in members_db
                 ],

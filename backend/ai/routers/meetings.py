@@ -24,6 +24,19 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
+def _get_or_create_company_id(db: Session, name) -> int | None:
+    """회사명으로 companies upsert 후 id 반환 (P1-7② — users.company 문자열 폐기)."""
+    if not name or not str(name).strip():
+        return None
+    name = str(name).strip()
+    c = db.query(models.Company).filter(models.Company.name == name).first()
+    if not c:
+        c = models.Company(name=name)
+        db.add(c)
+        db.flush()
+    return c.id
+
+
 def _is_strategic(user: models.User) -> bool:
     """관리자 판별 — RBAC role 기반 (P1-3).
 
@@ -230,7 +243,7 @@ async def add_member(
         async def _sync_member():
             await sync_user(
                 user_id=added_user.id, name=added_user.name, email=added_user.email,
-                company=added_user.company, department=added_user.department,
+                company=added_user.company_name, department=added_user.department,
                 position=added_user.position,
             )
             await sync_meeting_member(meeting_id=meeting_id, user_id=added_user.id, role=data.role)
@@ -363,7 +376,7 @@ def search_users(
     if visible is not None:
         query = query.filter(models.User.id.in_(visible))
     users = query.limit(20).all()
-    return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company, "position": u.position} for u in users]
+    return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company_name, "position": u.position} for u in users]
 
 
 @router.get("/users/all")
@@ -407,7 +420,8 @@ def all_users(
             "name": u.name,
             "email": u.email,
             "department": u.department,
-            "company": u.company,
+            "company": u.company_name,
+            "company_id": u.company_id,
             "position": u.position,
             "role": u.role,  # 역할 변경 UI용 (P1-7②)
             "meetings": meetings,
@@ -430,14 +444,14 @@ def update_user(
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
-        user.company = data["company"] if data["company"] else None
+        user.company_id = _get_or_create_company_id(db, data["company"])
     if "department" in data:
         user.department = data["department"] if data["department"] else None
     if "position" in data:
         user.position = data["position"] if data["position"] else None
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "name": user.name, "company": user.company, "department": user.department, "position": user.position}
+    return {"id": user.id, "name": user.name, "company": user.company_name, "department": user.department, "position": user.position}
 
 
 @router.get("/meetings/{meeting_id}/my-role")
@@ -519,7 +533,8 @@ def company_members(
             "name": u.name,
             "email": u.email,
             "department": u.department,
-            "company": u.company,
+            "company": u.company_name,
+            "company_id": u.company_id,
             "position": u.position,
             "meetings": meetings,
         })
@@ -569,7 +584,7 @@ async def ai_update_user(
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
-        user.company = data["company"] if data["company"] else None
+        user.company_id = _get_or_create_company_id(db, data["company"])
     if "department" in data:
         user.department = data["department"] if data["department"] else None
     if "position" in data:
@@ -579,9 +594,9 @@ async def ai_update_user(
     background_tasks.add_task(
         sync_user,
         user_id=user.id, name=user.name, email=user.email,
-        company=user.company, department=user.department, position=user.position,
+        company=user.company_name, department=user.department, position=user.position,
     )
-    return {"id": user.id, "name": user.name, "company": user.company, "department": user.department, "position": user.position}
+    return {"id": user.id, "name": user.name, "company": user.company_name, "department": user.department, "position": user.position}
 
 
 @ai_router.delete("/meetings/{meeting_id}")

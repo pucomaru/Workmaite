@@ -95,7 +95,7 @@ async def sync_user_manual(
         user_id=user.id,
         name=user.name,
         email=user.email,
-        company=user.company,
+        company=user.company_name,
         department=user.department,
         position=user.position,
         created_at=user.created_at.isoformat() + 'Z' if user.created_at else None,
