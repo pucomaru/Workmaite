@@ -204,11 +204,6 @@ async def sync_user(
         u.created_at = coalesce(u.created_at, $created_at),
         u.updated_at = $updated_at
     WITH u
-    FOREACH (_ IN CASE WHEN $department <> '' THEN [1] ELSE [] END |
-        MERGE (d:Department {name: $department})
-        MERGE (u)-[:소속]->(d)
-    )
-    WITH u
     FOREACH (_ IN CASE WHEN $company <> '' THEN [1] ELSE [] END |
         MERGE (co:Company {name: $company})
         MERGE (u)-[:소속회사]->(co)
@@ -227,6 +222,22 @@ async def sync_user(
         })
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_user 실패 (user_id={user_id}): {e}")
+
+    # 인원→부서 연결 (소속): 변경 반영 위해 기존 소속 엣지를 정리하고 현재 부서로 재연결한다.
+    # department가 JSON("[\"전략기획팀\"]")이든 평문이든 _parse_dept_names로 일관 처리.
+    dept_names = _parse_dept_names(department)
+    try:
+        await run_cypher("""
+            MATCH (u:User {pg_id: $pg_id})
+            OPTIONAL MATCH (u)-[old:`소속`]->(:Department)
+            DELETE old
+            WITH u
+            UNWIND $dept_names AS dname
+            MERGE (d:Department {name: dname})
+            MERGE (u)-[:`소속`]->(d)
+        """, {"pg_id": user_id, "dept_names": dept_names})
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] User {user_id} 부서(소속) 연결 실패 (무시): {e}")
 
 
 async def sync_meeting_member(
