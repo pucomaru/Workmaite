@@ -1,11 +1,12 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
 
 import AppTable from '../components/AppTable.vue'
+import AppPagination from '../components/AppPagination.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -288,43 +289,78 @@ const sortedMeetings = computed(() => applySortStr(displayActiveMeetings.value, 
 
 function handleSessionSort({ key, dir }) { sessionSortKey.value = key; sessionSortDir.value = dir }
 function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSortDir.value = dir }
+
+// ── 페이지네이션 ──────────────────────────────────
+const SESSION_PAGE_SIZE = 7
+const MEETING_PAGE_SIZE = 15
+const sessionPage = ref(1)
+const meetingPage = ref(1)
+
+const pagedSessions = computed(() =>
+  sortedSessions.value.slice((sessionPage.value - 1) * SESSION_PAGE_SIZE, sessionPage.value * SESSION_PAGE_SIZE)
+)
+const pagedMeetings = computed(() =>
+  sortedMeetings.value.slice((meetingPage.value - 1) * MEETING_PAGE_SIZE, meetingPage.value * MEETING_PAGE_SIZE)
+)
+
+const sessionFillerCount = computed(() => SESSION_PAGE_SIZE - pagedSessions.value.length)
+const meetingFillerCount = computed(() => MEETING_PAGE_SIZE - pagedMeetings.value.length)
+
+watch(() => sortedSessions.value.length, (len) => {
+  const tp = Math.max(1, Math.ceil(len / SESSION_PAGE_SIZE))
+  if (sessionPage.value > tp) sessionPage.value = tp
+})
+watch(() => sortedMeetings.value.length, (len) => {
+  const tp = Math.max(1, Math.ceil(len / MEETING_PAGE_SIZE))
+  if (meetingPage.value > tp) meetingPage.value = tp
+})
 </script>
 
 <template>
-  <div class="home page-wrap">
+  <div class="home-page page-full-height">
+    <div class="home-body">
+    <div class="home">
 
     <!-- ① 예정된 회의 -->
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-calendar-event me-2"></i>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
+    <div class="sessions-section">
+      <div class="section-title-row">
+        
+        <h6 class="section-title mb-0" style="color:var(--primary)"><svg class="me-2" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-2px"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
+      </div>
+      <AppTable :columns="sessionColumns" :sortKey="sessionSortKey" :sortDir="sessionSortDir" @sort="handleSessionSort">
+        <tr v-for="s in pagedSessions" :key="s.id" style="cursor:pointer">
+          <td><div class="fw-semibold">{{ s.title }}</div></td>
+          <td class="text-muted">{{ s.meeting_title || '-' }}</td>
+          <td class="text-muted">{{ s.location || '-' }}</td>
+          <td>{{ formatDate(s.date) }}</td>
+          <td>
+            <span class="upcoming-dday"
+              :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'">
+              {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
+            </span>
+          </td>
+        </tr>
+        <tr v-for="i in sessionFillerCount" :key="`filler-${i}`" class="filler-row">
+          <td v-for="(c, ci) in sessionColumns" :key="ci">&nbsp;</td>
+        </tr>
+      </AppTable>
+      <AppPagination v-model="sessionPage" :totalItems="sortedSessions.length" :pageSize="SESSION_PAGE_SIZE" />
     </div>
-    <AppTable :columns="sessionColumns" :sortKey="sessionSortKey" :sortDir="sessionSortDir" @sort="handleSessionSort">
-      <tr v-for="s in sortedSessions" :key="s.id" style="cursor:pointer">
-        <td><div class="fw-semibold">{{ s.title }}</div></td>
-        <td class="text-muted">{{ s.meeting_title || '-' }}</td>
-        <td class="text-muted">{{ s.location || '-' }}</td>
-        <td>{{ formatDate(s.date) }}</td>
-        <td>
-          <span class="upcoming-dday"
-            :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'">
-            {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
-          </span>
-        </td>
-      </tr>
-    </AppTable>
 
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
     <div class="main-grid">
 
     <!-- ② 회의체 섹션 -->
     <div class="meetings-section">
-      <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="mb-0 fw-bold" style="color:var(--primary)"><i class="bi bi-people me-2"></i>진행중인 회의체 <span class="section-count">({{ displayActiveMeetings.length }}건)</span></h6>
+      <div class="section-title-row">
+        <h6 class="section-title mb-0" style="color:var(--primary)"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="19" cy="17" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="7" x2="12" y2="10"/><line x1="12" y1="14" x2="17.4" y2="15.6"/><line x1="12" y1="14" x2="6.6" y2="15.6"/></svg>
+       진행중인 회의체 <span class="section-count">({{ displayActiveMeetings.length }}건)</span></h6>
       </div>
 
       <!-- 회의체 테이블 -->
       <AppTable :columns="meetingColumns" :sortKey="meetingSortKey" :sortDir="meetingSortDir" @sort="handleMeetingSort">
-        <tr v-for="m in sortedMeetings" :key="m.id"
-          style="cursor:pointer" @click="router.push('/meeting-groups')">
+        <tr v-for="m in pagedMeetings" :key="m.id"
+          style="cursor:pointer" @click="router.push('/meetings')">
           <td>
             <div class="fw-semibold">{{ m.title }}</div>
           </td>
@@ -337,11 +373,19 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td class="text-muted">{{ m.member_count }}명</td>
         </tr>
+        <tr v-for="i in meetingFillerCount" :key="`filler-${i}`" class="filler-row">
+          <td v-for="(c, ci) in meetingColumns" :key="ci">&nbsp;</td>
+        </tr>
       </AppTable>
+      <AppPagination v-model="meetingPage" :totalItems="sortedMeetings.length" :pageSize="MEETING_PAGE_SIZE" />
     </div>
 
     <!-- ③ 달력 -->
-    <div class="card cal-card">
+    <div class="calendar-section">
+      <div class="section-title-row">
+        <h6 class="section-title mb-0" style="color:var(--primary)"><i class="bi bi-calendar3 me-2"></i>캘린더</h6>
+      </div>
+      <div class="card cal-card">
         <div class="cal-header">
           <div class="d-flex align-items-center gap-1">
             <button class="btn btn-sm px-1" @click="navigate(-1)">‹</button>
@@ -435,18 +479,23 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
           <span><i class="dot-agenda"></i> 아젠다 마감</span>
         </div>
       </div>
+    </div>
     </div><!-- /main-grid -->
 
+    </div><!-- /home -->
+    </div><!-- /home-body -->
 
   </div>
 </template>
 
 <style scoped>
-/* ── 전체 레이아웃 ──────────────────────────────────────────── */
+/* ── 전체 레이아웃 (아카이브·회사·회의체 탭과 동일: 다크 헤더 바 + 스크롤 본문) ── */
+.home-page { display: flex; flex-direction: column; height: 100%; }
+.home-body { flex: 1; overflow-y: auto; min-height: 0; padding: 6px 16px; }
 .home { display: flex; flex-direction: column; gap: 20px; padding-bottom: 40px; }
 
-.section-title-row { display: flex; align-items: center; justify-content: space-between; }
-.section-title { font-size: 15px; font-weight: 700; }
+.section-title-row { display: flex; align-items: center; justify-content: space-between; height: 32px;}
+.section-title { font-size: 16px; font-weight: 700; }
 
 /* ── ① To-do 섹션 ───────────────────────────────────────────── */
 .agenda-section { padding: 14px 16px; }
@@ -483,10 +532,20 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 /* ── ②③ 메인 2열 그리드 ─────────────────────────────────────── */
 .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
 
+/* ── ① 예정된 회의 섹션 ─────────────────────────────────────── */
+.sessions-section { display: flex; flex-direction: column; gap: 12px; }
+
+/* app-table 행 hover — 회사·회의체 탭(.member-row/.mg-row)과 동일한 색상 변화 */
+.sessions-section :deep(tbody tr:not(.filler-row):hover),
+.meetings-section :deep(tbody tr:not(.filler-row):hover) { background: var(--surface); }
+
 /* ── ② 회의체 섹션 ──────────────────────────────────────────── */
 .meetings-section { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── ③ 달력 섹션 ────────────────────────────────────────────── */
+.calendar-section { display: flex; flex-direction: column; gap: 12px; }
 .meeting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.meeting-card { padding: 16px; cursor: pointer; transition: box-shadow .15s; display: flex; flex-direction: column; gap: 4px; }
+.meeting-card { padding: 16px; cursor: pointer;  display: flex; flex-direction: column; gap: 4px; }
 .meeting-card:hover { box-shadow: var(--shadow-md); }
 .meeting-card-ended { opacity: 0.7; background: var(--surface); }
 .meeting-card-ended:hover { opacity: 0.9; }
@@ -510,34 +569,35 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .btn-meeting-end:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ── 달력 ──────────────────────────────────────────────────── */
-.cal-card { display: flex; flex-direction: column; }
-.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; font-size: 11px;}
+.cal-card { display: flex; flex-direction: column; height: 448.5px; }
+.cal-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-bottom: 1px solid var(--border); gap: 8px; flex-wrap: wrap; font-size: 13px; height: 33.5px; flex-shrink: 0; }
+.cal-header .btn.btn-sm { width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; white-space: nowrap; }
 .cal-title { font-size: 13px; font-weight: 600; flex: 1; text-align: center; white-space: nowrap; }
 .cal-nav { display: flex; align-items: center; gap: 4px; }
-.nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 16px; color: var(--text-muted); cursor: pointer;  line-height: 1; }
+.nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 13px; color: var(--text-muted); cursor: pointer;  line-height: 1; }
 .nav-btn:hover { background: var(--bg); color: var(--text); }
-.today-btn { padding: 4px 10px; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-muted); cursor: pointer;  }
+.today-btn { padding: 4px 10px; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 13px; font-weight: 500; color: var(--text-muted); cursor: pointer;  }
 .today-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 .view-switch { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.view-btn { padding: 4px 8px; font-size: 12px; font-weight: 500; background: none; border: none; color: var(--text-muted); cursor: pointer;  }
-.view-btn:hover { background: var(--bg); color: var(--text); }
-.view-btn.active { background: var(--primary); color: #fff; }
-.cal-body { padding: 12px; }
+.view-btn { padding: 0px; font-size: 13px; font-weight: 500; background: none; border: none; color: var(--text-muted); cursor: pointer; width: 18px; height: 18px; }
+.view-btn:hover { background: var(--bg); color: var(--text); width: 18px; height: 18px;}
+.view-btn.active { background: var(--primary); color: #fff; width: 18px; height: 18px;}
+.cal-body { padding: 12px; flex: 1; min-height: 0; overflow-y: auto; }
 .cal-weekrow { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 4px; }
-.wd-cell { text-align: center; font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
+.wd-cell { text-align: center; font-size: 13px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
 .month-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
 .month-cell { min-height: 52px; border-radius: 6px; padding: 4px 3px 3px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
 .month-cell:not(.empty):hover { background: var(--surface-2); }
 .month-cell.empty { cursor: default; }
 .month-cell.today .day-num { background: var(--primary); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
-.day-num { font-size: 12px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+.day-num { font-size: 13px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
 .month-evts { display: flex; flex-direction: column; gap: 1px; min-width: 0; width: 100%; }
 .week-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; min-height: 160px; }
 .week-col { border-radius: 6px; border: 1px solid var(--border); display: flex; flex-direction: column; cursor: pointer; overflow: hidden; min-width: 0; }
 .week-col:hover { background: var(--surface); }
 .week-col.today { border-color: var(--primary); }
 .week-col-header { padding: 6px 6px 4px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--surface); flex-shrink: 0; }
-.week-wd { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+.week-wd { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
 .week-daynum { font-size: 13px; font-weight: 600; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
 .week-daynum.today { background: var(--primary); color: #fff; }
 .week-evts { flex: 1; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
@@ -552,15 +612,15 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .year-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
 .mini-month { border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer;}
 .mini-month:hover { box-shadow: var(--shadow-md); }
-.mini-month-title { font-size: 12px; font-weight: 700; color: var(--primary); margin-bottom: 4px; text-align: center; }
+.mini-month-title { font-size: 13px; font-weight: 700; color: var(--primary); margin-bottom: 4px; text-align: center; }
 .mini-weekrow { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 2px; }
-.mini-weekrow span { font-size: 8px; font-weight: 600; color: var(--text-muted); text-align: center; }
+.mini-weekrow span { font-size: 13px; font-weight: 600; color: var(--text-muted); text-align: center; }
 .mini-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; }
-.mini-cell { font-size: 9px; text-align: center; border-radius: 3px; padding: 1px 0; cursor: pointer; line-height: 1.6; }
+.mini-cell { font-size: 13px; text-align: center; border-radius: 3px; padding: 1px 0; cursor: pointer; line-height: 1.6; }
 .mini-cell:not(:empty):hover { background: var(--border); }
 .mini-cell.today { background: var(--primary); color: #fff; border-radius: 50%; }
 .mini-cell.has-evt { font-weight: 700; color: var(--accent); }
-.evt-pill { font-size: 10px; font-weight: 500; border-radius: 3px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.evt-pill { font-size: 13px; font-weight: 500; border-radius: 3px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .evt-pill.evt-session { background: #dbeafe; color: #1d4ed8; }
 
 /* 우선순위 배지 */
@@ -578,8 +638,8 @@ function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSo
 .role-admin  { background: rgba(59,130,246,.15); color: #3b82f6; }
 .role-member { background: rgba(100,116,139,.12); color: var(--text-muted); }
 .evt-pill.evt-agenda   { background: #fef3c7; color: #92400e; }
-.evt-more { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
-.cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.evt-more { font-size: 13px; color: var(--text-muted); padding-left: 2px; }
+.cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
 .cal-legend span { display: flex; align-items: center; gap: 5px; }
 .dot-session, .dot-agenda { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 .dot-session { background: var(--accent); }

@@ -5,7 +5,7 @@ const {
   viewMode, selectedMeetingType, meetingTypeOptions,
   selectedHistoryType, HISTORY_TYPE_OPTIONS,
   search, filteredGroups, sortedGroups,
-  loading, meetingGroups, nightMode,
+  loading, meetings, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, filteredGroupHistoryMap,
   formatDate, downloadDummy, deleteReport, deleteMinutes, downloadScript, resumePendingReport,
@@ -42,7 +42,7 @@ function versionKey(groupId, itemIdx) {
         </div>
       </div>
       <div v-if="loading" class="lv-empty">불러오는 중...</div>
-      <div v-else-if="!meetingGroups.length" class="lv-empty">소속된 회의체가 없습니다.</div>
+      <div v-else-if="!meetings.length" class="lv-empty">소속된 회의체가 없습니다.</div>
       <AppTable v-else :columns="lvColumns" :dark="nightMode" :sortKey="lvSortKey" :sortDir="lvSortDir" @sort="handleLvSort">
         <tr v-if="!filteredGroups.length">
           <td colspan="5" class="lv-hist-empty" style="padding:20px;text-align:center;color:var(--dark-muted)">{{ search ? '검색 결과가 없습니다.' : '데이터가 없습니다.' }}</td>

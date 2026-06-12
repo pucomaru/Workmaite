@@ -236,11 +236,11 @@ async function saveProfileSettings() {
         아카이브
       </router-link>
       <router-link to="/company" class="center-nav-item" :class="{ active: route.path === '/company' }">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg>
         회사
       </router-link>
-      <router-link to="/meeting-groups" class="center-nav-item" :class="{ active: route.path === '/meeting-groups' }">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+      <router-link to="/meetings" class="center-nav-item" :class="{ active: route.path === '/meetings' }">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="19" cy="17" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="7" x2="12" y2="10"/><line x1="12" y1="14" x2="17.4" y2="15.6"/><line x1="12" y1="14" x2="6.6" y2="15.6"/></svg>
         회의체
       </router-link>
       <router-link to="/session-record" class="center-nav-item" :class="{ active: route.path === '/session-record' }">
@@ -270,10 +270,10 @@ async function saveProfileSettings() {
               <div v-if="auth.user.department" style="color:var(--text-muted);font-size:11px;margin-top:2px">{{ auth.user.department }}</div>
             </div>
           </div>
-          <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex" @click="openProfileSettings">
-            개인설정
+          <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;display:flex;gap:6px" @click="openProfileSettings">
+            <i class="bi bi-gear"></i>개인설정
           </button>
-          <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;display:flex;gap:6px" @click="openUsageModal">
+          <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;display:flex;gap:6px" @click="openUsageModal">
             <i class="bi bi-bar-chart-line"></i>사용량
           </button>
           <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" @click="logout">로그아웃</button>

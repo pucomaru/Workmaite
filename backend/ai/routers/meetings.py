@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
 import models, schemas
 from database import get_db
 from auth import get_current_user
@@ -17,6 +18,7 @@ from neo4j_sync import (
     delete_meeting_member,
     update_meeting_member_role,
     delete_meeting as neo4j_delete_meeting,
+    delete_user as neo4j_delete_user,
 )
 import logging
 
@@ -602,6 +604,44 @@ async def ai_remove_member(
     db.delete(target)
     db.commit()
     background_tasks.add_task(delete_meeting_member, meeting_id, removed_user_id)
+    return {"ok": True}
+
+
+@ai_router.delete("/users/{user_id}")
+async def ai_delete_user(
+    user_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """사용자 계정 삭제 — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만 (MT-6).
+
+    회의체 멤버 제거와 별개로, 참여 회의체가 없는 계정도 제거할 수 있어야 한다.
+    """
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="본인 계정은 삭제할 수 없습니다.")
+    is_company_admin = (
+        current_user.role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+        and current_user.company_id == user.company_id
+    )
+    if not is_system_admin(current_user) and not is_company_admin:
+        raise HTTPException(status_code=403, detail="계정을 삭제할 권한이 없습니다. (관리자만 가능)")
+
+    db.query(models.MeetingMember).filter(models.MeetingMember.user_id == user_id).delete()
+    db.delete(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="해당 사용자가 작성한 회의록·보고서 등 데이터가 남아 있어 삭제할 수 없습니다.",
+        )
+    background_tasks.add_task(neo4j_delete_user, user_id)
     return {"ok": True}
 
 

@@ -43,13 +43,14 @@ const membersData = ref([])
 const tasksData = ref([])
 const neo4jMeetings = ref([])   // Neo4j에서 직접 가져온 회의체 그래프 데이터
 const neo4jDepts   = ref([])    // Neo4j Department 노드 id/name 매핑
-const currentCompany = ref(null)    // 현재 조직 (Organization 노드)
+const currentCompany = ref(null)    // 현재 조직 (Company 노드)
 const currentPerson = ref(null) // 현재 로그인 유저의 Neo4j Person 노드
 const loading = ref(true)
 const neo4jError = ref('')
 const neo4jRetrying = ref(false)
 const search = ref('')
 const filterYear = ref('')
+const showEndedMeetings = ref(false)
 const expandedMeeting = ref(null)
 
 // ─── View mode ────────────────────────────────────────────────
@@ -379,13 +380,13 @@ function _onFloatDragEnd() {
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
-      ctx.connectNodeId = target.meetingGroupId || ''
+      ctx.connectNodeId = target.meetingId || ''
       ctx.relatedAgendaId = target.neo4jId || target.data?.id || ''
       ctx.agendaContent = target.data?.content || target.label || ''
-      ctx.meetingId     = target.meetingGroupId || ''
+      ctx.meetingId     = target.meetingId || ''
     } else if (target?.type === 'dept') {
       ctx.connectNodeId = target.id
-      ctx.meetingId     = target.meetingGroupId || ''
+      ctx.meetingId     = target.meetingId || ''
     } else if (target?.type === 'Meetings') {
       ctx.meetingId = target.id
     }
@@ -511,11 +512,11 @@ const detailMemberDepts = computed(() => {
 
 // 현재 회의체 참여 조직 목록
 const detailMemberCompanies = computed(() => {
-  const orgs = new Set((detailMeeting.value?.members || [])
+  const companies = new Set((detailMeeting.value?.members || [])
     .map(mb => mb.company || '')
     .filter(Boolean))
-  if (orgs.size === 0 && currentCompany.value?.name) orgs.add(currentCompany.value.name)
-  return [...orgs]
+  if (companies.size === 0 && currentCompany.value?.name) companies.add(currentCompany.value.name)
+  return [...companies]
 })
 
 // 팀별 그룹핑 (현재 회의체 관련 부서만)
@@ -533,7 +534,7 @@ const groupedAgendas = computed(() => {
 
 const doneAgendasWithReport = computed(() => {
   const done = detailAgendas.value.filter(t => t.status === 'done')
-  const reports = detailMeeting.value ? (meetingGroups.value.find(g => String(g.id) === String(detailMeeting.value.id))?.reports || []) : []
+  const reports = detailMeeting.value ? (meetings.value.find(g => String(g.id) === String(detailMeeting.value.id))?.reports || []) : []
   return done.map(agenda => {
     const agendaIdStr = String(agenda.id)
     const report = reports.find(r =>
@@ -568,7 +569,7 @@ async function completeAgenda(agenda) {
   const dept = agenda.assignee_dept || agenda.dept ||
     (Array.isArray(agenda.department) ? agenda.department[0] : agenda.department) || ''
   const deptNode = dept
-    ? gNodesRef.value.find(n => n.type === 'dept' && n.label === dept && n.meetingGroupId === mgId)
+    ? gNodesRef.value.find(n => n.type === 'dept' && n.label === dept && n.meetingId === mgId)
     : null
   openUploadModal({
     meetingId: mgId,
@@ -671,12 +672,12 @@ async function _restoreDrafts(meetingId) {
     if (drafts && drafts.length) {
       extractResult.value = drafts.map(ag => ({
         ...ag,
-        company: ag.company || ag.organization || '',
+        company: ag.company || '',
         dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         end_date: ag.due_date || '',
         _state: null, _editing: false,
         _editTitle: ag.title,
-        _editCompany: ag.company || ag.organization || '',
+        _editCompany: ag.company || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         _editStartDate: ag.start_date || '',
         _editEndDate: ag.due_date || '',
@@ -737,7 +738,7 @@ async function runExtract() {
 
   // 사고 과정 애니메이션과 API 호출을 병렬 실행
   const planningSteps = [
-    `Neo4j MATCH (mg:MeetingGroup {title:"${mgTitle}"}) 조회`,
+    `Neo4j MATCH (m:Meeting {title:"${mgTitle}"}) 조회`,
     `MATCH (mg)-[:ATTACHED_TO|PRODUCED]-(doc:Document) 문서 수집`,
     `선택된 회의록 및 첨부 파일 텍스트 분석 중...`,
     `Context Graph: 유사 Decision 노드 참조`,
@@ -760,13 +761,13 @@ async function runExtract() {
       const agentLogId = data.agent_log_id || null
       extractResult.value = data.agendas.map(ag => ({
         ...ag,
-        company: ag.company || ag.organization || '',
+        company: ag.company || '',
         dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
         end_date: ag.due_date || '',
         _state: null,
         _editing: false,
         _editTitle: ag.title,
-        _editCompany: ag.company || ag.organization || '',
+        _editCompany: ag.company || '',
         _editStartDate: ag.start_date || '',
         _editEndDate: ag.due_date || '',
         _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''),
@@ -804,7 +805,7 @@ async function openExtractModal() {
       meeting_id: toNumericId(detailMeeting.value.id),
       graph_context: buildGraphContextStr ? buildGraphContextStr() : ''
     })
-    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, company: ag.company || ag.organization || '', dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editCompany: ag.company || ag.organization || '', _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
+    extractResult.value = (data.agendas || []).map(ag => ({ ...ag, company: ag.company || '', dept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), end_date: ag.due_date || '', _state: null, _editing: false, _editTitle: ag.title, _editCompany: ag.company || '', _editStartDate: ag.start_date || '', _editEndDate: ag.due_date || '', _editDept: Array.isArray(ag.department) ? (ag.department[0] || '') : (ag.department || ''), _showReason: false, _feedbackAction: '', _reason: '' }))
   } catch {
     extractResult.value = [
       { title: 'API 성능 최적화 PoC 결과 검토', bullets: ['현재까지 진행 현황 공유', '병목 구간 원인 분석', '3주 내 개선 목표 수립'], _state: null, _editing: false },
@@ -1110,7 +1111,7 @@ watch(() => uploadForm.value.meetingId, (id) => {
   // dept 노드가 없으면 PostgreSQL에서 멤버 fetch (새 회의체 대응)
   const numericId = toNumericId(id)
   const hasDeptNodes = gNodesRef.value.some(
-    n => n.type === 'dept' && n.meetingGroupId === id
+    n => n.type === 'dept' && n.meetingId === id
   )
   if (!hasDeptNodes && numericId) {
     meetingsStore.fetchMembers(numericId)
@@ -1132,18 +1133,18 @@ watch(() => uploadForm.value.connectNodeId, (nodeId) => {
 // ─── Ontology edge relation constants ─────────────────────────
 // ── Neo4j 관계명 색상 매핑 ─────────────────────────────────────
 const REL_COLORS = {
-  '포함':   '#a89fd4',  // org → meetingGroup
-  '참여':   '#8b7fc0',  // dept/subGroup → meetingGroup
+  '포함':   '#a89fd4',  // company → meeting
+  '참여':   '#8b7fc0',  // dept/subGroup → meeting
   '소속':   '#a78bfa',  // person → dept
-  '간사':   '#fbbf24',  // person → meetingGroup (간사)
-  '구성원': '#60a5fa',  // person → meetingGroup (구성원)
+  '간사':   '#fbbf24',  // person → meeting (간사)
+  '구성원': '#60a5fa',  // person → meeting (구성원)
   '담당':   '#34d399',  // person → agenda
-  '관할':   '#6abba5',  // agenda → meetingGroup
-  '개최':   '#c9a870',  // session → meetingGroup
+  '관할':   '#6abba5',  // agenda → meeting
+  '개최':   '#c9a870',  // session → meeting
   '도출':   '#f472b6',  // session → agenda (캐리포워드 · 미니츠→안건)
   '다룸': '#6ee7b7',  // session → agenda (직접 담당 안건)
   '산출':   '#a8a5a2',  // session → document
-  '첨부':   '#fb923c',  // document → meetingGroup
+  '첨부':   '#fb923c',  // document → meeting
   '근거':   '#38bdf8',  // decision → session
   '원인':   '#86efac',  // decision → agenda
   '참조':   '#7a8090',  // generic reference
@@ -1294,7 +1295,7 @@ function _toNumericId(id) {
 }
 function _normalizeNeo4jId(raw) {
   if (!raw) return raw
-  const prefixes = ['mg-', 'session-', 'agenda-', 'doc-', 'dept-', 'p-', 'org-']
+  const prefixes = ['mg-', 'session-', 'agenda-', 'doc-', 'dept-', 'p-', 'company-']
   for (const p of prefixes) {
     if (raw.startsWith(p + p)) return raw.slice(p.length)
   }
@@ -1351,7 +1352,7 @@ async function doAddRel() {
 }
 
 const connectableNodes = computed(() => {
-  const groups = meetingGroups.value
+  const groups = meetings.value
   // '나' 노드: currentPerson.value.id = Neo4j User ID (e.g. 'p-123')
   // buildGraphNodes에서 생성되는 person 노드 ID 포맷: `person-${mb.userId}` 와 일치
   const result = []
@@ -1378,7 +1379,7 @@ const deptConnectableNodes = computed(() => {
   const seen = new Set()
   if (uploadForm.value.meetingId) {
     const fromGraph = nodes
-      .filter(n => n.type === 'dept' && n.meetingGroupId === uploadForm.value.meetingId)
+      .filter(n => n.type === 'dept' && n.meetingId === uploadForm.value.meetingId)
       .filter(n => { if (seen.has(n.label)) return false; seen.add(n.label); return true })
       .map(n => ({ id: n.id, label: n.label, typeLabel: '부서', type: 'dept' }))
     if (fromGraph.length > 0) return fromGraph
@@ -1401,7 +1402,7 @@ const 업로드회의체과제 = computed(() => {
   const nodes = gNodesRef.value
   if (!uploadForm.value.meetingId) return []
   const mapAgendas = nodes.filter(
-    n => n.type === 'agenda' && n.meetingGroupId === uploadForm.value.meetingId
+    n => n.type === 'agenda' && n.meetingId === uploadForm.value.meetingId
   )
   if (mapAgendas.length > 0) {
     return mapAgendas.map(n => ({
@@ -1416,10 +1417,10 @@ const 업로드회의체과제 = computed(() => {
 })
 
 // person 노드 → 참여 회의체 목록
-function personMeetingGroups(node) {
+function personMeetings(node) {
   if (!node) return []
   const name = node.label
-  return meetingGroups.value
+  return meetings.value
     .filter(mg => (mg.members || []).some(mb => mb.userName === name || mb.name === name))
     .map(mg => {
       const mb = (mg.members || []).find(mb => mb.userName === name || mb.name === name)
@@ -1431,7 +1432,7 @@ function personMeetingGroups(node) {
 function personTasks(node) {
   if (!node) return []
   const name = node.label
-  return meetingGroups.value.flatMap(mg =>
+  return meetings.value.flatMap(mg =>
     (mg.tasks || []).filter(t => t.assignee_name === name)
   )
 }
@@ -1651,7 +1652,7 @@ function doAddFile() {
     reportId: reportId.value || null,
     extractedAgendas: [],
     groupIdx: mgNode?.groupIdx,
-    meetingGroupId: uploadForm.value.meetingId,
+    meetingId: uploadForm.value.meetingId,
     x: Math.cos(phi)*(baseR+90), y: (anchorNode?.y||0)+42, z: Math.sin(phi)*(baseR+90)
   }
   gNodes.push(newNode)
@@ -1725,7 +1726,7 @@ function _isValidMeeting(mgId) {
   return meetingsStore.meetings.some(m => m.id === numId)
 }
 
-const meetingGroups = computed(() => {
+const meetings = computed(() => {
   // Neo4j 데이터가 있으면 우선 사용 — PostgreSQL에서 삭제된 항목 제외
   if (neo4jMeetings.value.length > 0) {
     const neo4jResult = neo4jMeetings.value.filter(mg => _isValidMeeting(mg.id))
@@ -1782,7 +1783,7 @@ const meetingGroups = computed(() => {
 
 // ─── Agent Chat ───────────────────────────────────────────────
 const agentChat = useAgentChat({
-  meetingGroups,
+  meetings,
   membersData,
   tasksData,
   detailMeeting,
@@ -1817,7 +1818,7 @@ async function analyzeRelationships() {
 
 // ─── Stats computed ──────────────────────────────────────────
 const statsData = computed(() => {
-  const groups = meetingGroups.value
+  const groups = meetings.value
   // 1. 회의체별 문서 수 (bar chart)
   const docPerMeeting = groups.map(g => ({ label: g.title, value: g.minutes.length + g.reports.length }))
     .sort((a,b) => b.value - a.value).slice(0, 8)
@@ -1860,13 +1861,13 @@ const selectedHistoryType = ref('')
 const selectedMeetingType = ref('')
 
 const meetingTypeOptions = computed(() => {
-  const types = [...new Set(meetingGroups.value.map(g => g.meeting_type).filter(Boolean))]
+  const types = [...new Set(meetings.value.map(g => g.meeting_type).filter(Boolean))]
   return [{ label: '회의체 유형 전체', value: '' }, ...types.map(t => ({ label: t, value: t }))]
 })
 
 const availableYears = computed(() => {
   const years = new Set()
-  meetingGroups.value.forEach(g => {
+  meetings.value.forEach(g => {
     const addYear = (d) => { if (!d) return; const y = new Date(d).getFullYear(); if (!isNaN(y) && y > 2000) years.add(y) }
     addYear(g.start_date)
     ;(g.minutes || []).forEach(m => { addYear(m.date); addYear(m.started_at); addYear(m.ended_at) })
@@ -1876,10 +1877,12 @@ const availableYears = computed(() => {
   return [...years].sort((a, b) => b - a)
 })
 
-const yearFilteredMeetingGroups = computed(() => {
-  if (!filterYear.value) return meetingGroups.value
+const yearFilteredMeetings = computed(() => {
+  let base = meetings.value
+  if (!showEndedMeetings.value) base = base.filter(g => g.status !== 'ended')
+  if (!filterYear.value) return base
   const yr = Number(filterYear.value)
-  return meetingGroups.value.filter(g => {
+  return base.filter(g => {
     const inYear = (d) => !!d && new Date(d).getFullYear() === yr
     if (inYear(g.start_date) || inYear(g.end_date)) return true
     if ((g.minutes || []).some(m => inYear(m.date) || inYear(m.started_at) || inYear(m.ended_at))) return true
@@ -1890,7 +1893,7 @@ const yearFilteredMeetingGroups = computed(() => {
 })
 
 const filteredGroups = computed(() => {
-  let list = yearFilteredMeetingGroups.value
+  let list = yearFilteredMeetings.value
   if (search.value) {
     const q = search.value.toLowerCase()
     list = list.filter(g =>
@@ -1938,7 +1941,7 @@ const sortedGroups = computed(() => {
 // ─── 사이드바 로그용: 회의록 + 보고서 + 과제, 최신순 ─────────────
 const groupHistoryMap = computed(() => {
   const map = new Map()
-  meetingGroups.value.forEach(g => {
+  meetings.value.forEach(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const managerName = adminMember?.userName || adminMember?.name || '간사'
     const items = []
@@ -1987,7 +1990,7 @@ function _toReportFileItem(r, managerName) {
 }
 const fileListMap = computed(() => {
   const map = new Map()
-  meetingGroups.value.forEach(g => {
+  meetings.value.forEach(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const managerName = adminMember?.userName || adminMember?.name || '간사'
     const hostDept = adminMember?.department || adminMember?.dept || managerName
@@ -2038,7 +2041,7 @@ const filteredFileListMap = computed(() => {
 })
 
 const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
-  meetingGroups: yearFilteredMeetingGroups,
+  meetings: yearFilteredMeetings,
   currentPerson,
   authStore,
   currentCompany,
@@ -2046,7 +2049,7 @@ const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetingsStore,
 })
 
-watch(filterYear, async () => {
+watch([filterYear, showEndedMeetings], async () => {
   await nextTick()
   const g = buildGraphNodes()
   if (g.nodes.length > 0) {
@@ -2088,7 +2091,7 @@ onMounted(async () => {
     if (neo4jResult.status === 'fulfilled') {
       const data = neo4jResult.value?.data
       currentPerson.value = data?.current_person || null
-      currentCompany.value    = data?.company || data?.org || null
+      currentCompany.value    = data?.company || data?.company || null
       neo4jMeetings.value = data?.meetings     || []
       neo4jDepts.value    = data?.departments  || []
       minutes.value       = data?.minutes      || []
@@ -2130,7 +2133,7 @@ async function refreshArchive() {
     const res = await apiAI.get('/api/neo4j/archive')
     neo4jError.value = ''
     currentPerson.value = res?.data?.current_person || null
-    currentCompany.value    = res?.data?.org || null
+    currentCompany.value    = res?.data?.company || null
     neo4jMeetings.value = res?.data?.meetings || []
     neo4jDepts.value    = res?.data?.departments || []
     minutes.value       = res?.data?.minutes  || []
@@ -2304,7 +2307,7 @@ provide('archiveList', {
   viewMode, selectedMeetingType, meetingTypeOptions,
   selectedHistoryType, HISTORY_TYPE_OPTIONS,
   search, filteredGroups, sortedGroups,
-  loading, meetingGroups, nightMode,
+  loading, meetings, nightMode,
   lvColumns, lvSortKey, lvSortDir, handleLvSort,
   expandedMeeting, meetingsStore, filteredGroupHistoryMap: filteredFileListMap,
   formatDate, downloadDummy: downloadFile, deleteReport, deleteMinutes, downloadScript, resumePendingReport,
@@ -2587,7 +2590,7 @@ async function openNodeGroupSetting() {
     openSessionEditModal()
     return
   }
-  const mgId = detailNode.value.meetingGroupId || detailNode.value.neo4jId
+  const mgId = detailNode.value.meetingId || detailNode.value.neo4jId
   if (!mgId) return
   const mg = neo4jMeetings.value.find(m => m.id === mgId)
   if (!mg) return
@@ -2614,8 +2617,8 @@ provide('archiveSidebar', {
   currentNodeEdges, relEditIdx, relEditRel, ALL_REL_TYPES, REL_COLORS,
   saveRelEdit, cancelRelEdit, startRelEdit, doDeleteEdge,
   relAddActive, openAddRel, allGraphNodeList, relAddForm, doAddRel,
-  detailNode, downloadDummy, downloadFile, deleteReport, currentCompany, personMeetingGroups, personTasks, reportRelatedAgendas,
-  meetingGroups,
+  detailNode, downloadDummy, downloadFile, deleteReport, currentCompany, personMeetings, personTasks, reportRelatedAgendas,
+  meetings,
   viewMode,
   nodeReviewing, startNodeReview,
   agendaEditModal, closeAgendaEdit, savingAgendaEdit, saveAgendaEdit,
@@ -2645,6 +2648,10 @@ provide('archiveSidebar', {
           <option value="">전체 연도</option>
           <option v-for="y in availableYears" :key="y" :value="y">{{ y }}년</option>
         </select>
+        <label class="ended-filter-check">
+          <input type="checkbox" v-model="showEndedMeetings"/>
+          종료된 회의체
+        </label>
       </div>
 
       <div class="app-tabs">
@@ -2790,7 +2797,7 @@ provide('archiveSidebar', {
     <CreateMeetingModal />
     <CreateSessionModal
       :show="showSessionModal"
-      :meetings="meetingGroups"
+      :meetings="meetings"
       :lockedUserId="authStore.user?.id"
       :initialMeetingId="sessionCreateInitialId"
       @close="showSessionModal=false"

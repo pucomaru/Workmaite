@@ -33,7 +33,7 @@ const filteredEnded = computed(() =>
 
 function goMeeting(m) {
   if (renaming.value === m.id) return
-  router.push('/meeting-groups')
+  router.push('/meetings')
 }
 
 function openCtx(e, m) {
@@ -88,8 +88,8 @@ async function deleteMeeting(id) {
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
         회사
       </router-link>
-      <router-link to="/meeting-groups" class="nav-item" :class="{ active: route.path === '/meeting-groups' }">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+      <router-link to="/meetings" class="nav-item" :class="{ active: route.path === '/meetings' }">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="19" cy="17" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="7" x2="12" y2="10"/><line x1="12" y1="14" x2="17.4" y2="15.6"/><line x1="12" y1="14" x2="6.6" y2="15.6"/></svg>
         회의체
       </router-link>
       <router-link to="/session-record" class="nav-item" :class="{ active: route.path === '/session-record' }">
@@ -254,7 +254,7 @@ async function deleteMeeting(id) {
   width: 100%; padding: 8px 12px;
   background: none; border: none; cursor: pointer;
   font-size: 13px; color: var(--dark-border); border-radius: 6px;
-  text-align: left; transition: background .1s;
+  text-align: left; 
 }
 .ctx-item:hover { background: var(--surface-2); }
 .ctx-item.danger { color: #dc2626; }

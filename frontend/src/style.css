@@ -302,7 +302,7 @@ html.night-mode .summary-content :deep(code) { background: var(--bg) !important;
 html.night-mode .summary-content :deep(th) { background: var(--bg) !important; color: var(--text-muted) !important; }
 
 /* ═══════════════════════════════════════════
-   공유 컴포넌트: 다크 헤더 바 (ArchivePage, OrganizationPage, MeetingGroupsPage)
+   공유 컴포넌트: 다크 헤더 바 (ArchivePage, CompanyPage, MeetingsPage)
    ═══════════════════════════════════════════ */
 .archive-header { display:flex;align-items:center;gap:12px;padding:6px 16px;background:var(--dark-bg);border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;flex-wrap:wrap; }
 .archive-title { font-size:16px;font-weight:700;color:var(--dark-text);margin:0; }
@@ -313,8 +313,11 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 .search-input::placeholder { color:var(--dark-border); }
 .search-input:focus { border-color:rgba(96,165,250,.5); }
 .search-clear { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-dim);display:flex;align-items:center; }
-.year-filter-wrap { flex-shrink:0; }
-.year-filter-select { height:32px;padding:0 24px 0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;appearance:none;color:var(--dark-text);font-size:12px;cursor:pointer;outline:none;transition:border-color .15s; }
+.year-filter-wrap { flex-shrink:0;display:flex;align-items:center;gap:10px; }
+.ended-filter-check { display:flex;align-items:center;gap:5px;font-size:13px;color:var(--dark-text);cursor:pointer;white-space:nowrap;user-select:none; }
+.ended-filter-check input { accent-color:var(--accent);cursor:pointer; }
+.day-mode .ended-filter-check { color:var(--dark-card); }
+.year-filter-select { height:34px;padding:0 24px 0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;appearance:none;color:var(--dark-text);font-size:12px;cursor:pointer;outline:none; }
 .year-filter-select:focus,.year-filter-select:hover { border-color:rgba(96,165,250,.5); }
 .year-filter-select option { background:#1e2a3a;color:#e2e8f0; }
 .day-mode .year-filter-select { background-color:rgba(255,255,255,.6);border-color:var(--border);color:var(--dark-card); }
@@ -322,7 +325,7 @@ html.night-mode .summary-content :deep(th) { background: var(--bg) !important; c
 .day-mode .year-filter-select option { background:#fff;color:var(--dark-card); }
 .plus-wrap { position:relative;flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:8px; }
 .create-btn { display:flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:8px;background:var(--accent);border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap; }
-.create-btn.sm { height:26px;padding:0 10px;font-size:11px;gap:4px;border-radius:6px; }
+.create-btn.sm { height:34px;padding:0 10px;font-size:13px;gap:4px;border-radius:6px; }
 .create-btn:hover { opacity:.85; }
 .create-btn.secondary { background:transparent;border:1px solid rgba(255,255,255,.18);color:#cbd5e1; }
 .create-btn.secondary:hover { background:rgba(255,255,255,.07);opacity:1; }
@@ -375,16 +378,16 @@ html.night-mode .app-select option { background:#1e293b !important;color:#f1f5f9
 
 /* App Tabs */
 .app-tabs { display:flex;background:none;border:none;padding:0;gap:0;flex-shrink:0; }
-.app-tab { display:flex;align-items:center;gap:5px;padding:8px 14px;border:none;background:none;color:#94a3b8;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap; }
+.app-tab { display:flex;align-items:center;gap:5px;padding:0px 14px;border:none;background:none;color:#94a3b8;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap; }
 .app-tab:hover { color:#475569; }
 .app-tab.active { color:#2563eb;font-weight:700; }
-.app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:1px 6px; }
-.app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); }
+/* .app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
+.app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); } */
 html.night-mode .app-tab { color:#475569 !important; }
 html.night-mode .app-tab:hover { color:#94a3b8 !important; }
 html.night-mode .app-tab.active { color:#93c5fd !important; }
-html.night-mode .app-tab-badge { background:rgba(255,255,255,.1) !important; }
-html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2) !important; }
+/* html.night-mode .app-tab-badge { background:rgba(255,255,255,.1) !important; }
+html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2) !important; } */
 
 /* App Modal */
 .app-modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
@@ -418,7 +421,7 @@ select.app-modal-input { appearance:none;-webkit-appearance:none;background:#f8f
 .app-btn-danger:disabled { opacity:.4;cursor:not-allowed; }
 .app-modal-footer-right { display:flex;gap:8px;align-items:center; }
 
-/* App Modal: dark class variant (MeetingGroupsPage, ArchivePage) */
+/* App Modal: dark class variant (MeetingsPage, ArchivePage) */
 .app-modal.dark { background:#1e293b;border-color:rgba(255,255,255,.1);box-shadow:0 24px 64px rgba(0,0,0,.4); }
 .app-modal.dark .app-modal-header { border-bottom-color:rgba(255,255,255,.08); }
 .app-modal.dark .app-modal-title { color:#f1f5f9; }

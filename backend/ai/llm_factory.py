@@ -6,10 +6,15 @@ ChatOpenAI 생성이 에이전트마다 중복(4곳의 _make_llm + 직접 생성
 """
 import logging
 import os
+from contextvars import ContextVar
 
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
+
+# 요청 단위 모델 오버라이드 — 사용자가 컴포저에서 모델을 선택하면 엔드포인트가 설정한다.
+# asyncio task별 컨텍스트라 동시 요청 간 간섭이 없다.
+model_override_var: ContextVar[str | None] = ContextVar("model_override", default=None)
 
 # 작업 프로파일 → 기본값. 모델은 OPENAI_MODEL_{PROFILE} env가 있으면 그것을, 없으면 OPENAI_MODEL.
 _PROFILES: dict[str, dict] = {
@@ -30,7 +35,11 @@ def llm_factory(
     max_tokens: int | None = None,
 ) -> ChatOpenAI:
     cfg = _PROFILES.get(profile, _PROFILES["chat"])
-    model = os.environ.get(f"OPENAI_MODEL_{profile.upper()}") or os.environ["OPENAI_MODEL"]
+    model = (
+        model_override_var.get()
+        or os.environ.get(f"OPENAI_MODEL_{profile.upper()}")
+        or os.environ["OPENAI_MODEL"]
+    )
     use_streaming = cfg["streaming"] if streaming is None else streaming
     kwargs: dict = {
         "model": model,

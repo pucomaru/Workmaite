@@ -23,7 +23,7 @@ onMounted(async () => {
   }
 })
 
-async function terminateMeetingGroup() {
+async function terminateMeeting() {
   if (!confirm('회의체를 완전히 종료하시겠습니까?\n이후 회의를 진행할 수 없습니다.')) return
   await meetingsStore.terminateMeeting(Number(meetingId.value))
 }
@@ -38,14 +38,14 @@ const deleting = ref(false)</script>
         <button
           v-if="role === 'admin' && !isEnded"
           class="btn-nav-end"
-          @click="terminateMeetingGroup"
+          @click="terminateMeeting"
           title="회의체 종료"
         >종료</button>
         <button
           v-if="role === 'admin' && isEnded"
           class="btn btn-ghost btn-sm delete-btn"
           :disabled="deleting"
-          @click="deleteMeetingGroup"
+          @click="deleteMeeting"
           title="회의체 영구 삭제"
         >{{ deleting ? '삭제 중...' : '삭제' }}</button>
         <button
@@ -106,7 +106,6 @@ const deleting = ref(false)</script>
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background .15s, color .15s;
   line-height: 1.5;
   white-space: nowrap;
 }

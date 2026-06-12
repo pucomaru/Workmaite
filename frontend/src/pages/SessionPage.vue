@@ -15,6 +15,7 @@ import { useAgentMention } from '../composables/useAgentMention'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
+import { selectedModel } from '../stores/llmModel'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 
@@ -580,7 +581,7 @@ async function loadDraftAgendas(meetingId) {
     if (!data?.length) return
     nextAgendaItems.value = data.map(a => {
       const dept = Array.isArray(a.department) ? (a.department[0] || '') : (a.department || '')
-      const company = cleanStr(a.company) || cleanStr(a.organization)
+      const company = cleanStr(a.company)
       return {
         title: a.title || '', company, dept,
         db_id: a.db_id,
@@ -631,7 +632,7 @@ async function extractNextAgendas() {
       .replace(/\s*확인\s*$/, '').replace(/\s*예정\s*$/, '').replace(/\s*완료\s*$/, '').trim()
     nextAgendaItems.value = items.map(a => {
       const title = toNounTitle(a.title || a.content || '')
-      const company = cleanStr(a.company) || cleanStr(a.organization)
+      const company = cleanStr(a.company)
       const dept  = a.department || a.dept || a.assignee_dept || ''
       return {
         title, company, dept,
@@ -803,14 +804,14 @@ const messagesEl = ref(null)
 // ─── @ 멘션 (아카이브 그래프 전체 노드 검색, 공통 컴포저블) ─────
 const wmTextareaEl = ref(null)
 const wmComposerRef = ref(null)
-const mentionMeetingGroups = ref([])
+const mentionMeetings = ref([])
 const mentionMembers = ref([])
 const mentionTasks = ref([])
 
 async function loadMentionGraph() {
   try {
     const { data } = await apiAI.get('/api/neo4j/archive')
-    mentionMeetingGroups.value = data?.meetings || []
+    mentionMeetings.value = data?.meetings || []
     mentionMembers.value = (data?.meetings || []).flatMap(m => m.members || [])
     mentionTasks.value = (data?.meetings || []).flatMap(m => m.tasks || [])
   } catch { /* 그래프 미연결 시 @멘션은 비활성 */ }
@@ -835,7 +836,7 @@ const {
   removeMentionCtx: removeWmCtx, handleMentionKeydown: handleWmMentionKeydown,
   consumeMentionContext: consumeWmMention,
 } = useAgentMention({
-  meetingGroups: mentionMeetingGroups,
+  meetings: mentionMeetings,
   membersData: mentionMembers,
   tasksData: mentionTasks,
   agentInput: wmInput,
@@ -974,7 +975,7 @@ async function sendAra() {
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
     await streamPost('/api/agent/supervisor/chat',
-      { thread_id: _wmThreadId(), meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history },
+      { thread_id: _wmThreadId(), meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history, model: selectedModel.value || undefined },
       (chunk) => { agentMsg.content += chunk; if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight },
       () => { thinkingMsg.done = true; thinkingMsg.open = false; wmLoading.value = false },
       (step) => { thinkingMsg.steps.push(step); nextTick(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }) }
@@ -1053,14 +1054,17 @@ function onWmComposerReady({ textareaEl }) { wmTextareaEl.value = textareaEl }
 const chatFileUploading = ref(false)
 
 async function sendChatFile(file) {
-  if (!file || chatFileUploading.value || !activeSession.value) return
+  if (!file || chatFileUploading.value) return
   chatFileUploading.value = true
+  // 세션이 없어도 첨부 허용 — 회의체/사용자 스레드로 폴백
+  const sess = activeSession.value
+  const meetingId = sess?.meeting_id || selectedMeeting.value?.id || null
   const fd = new FormData()
   fd.append('file', file)
-  fd.append('thread_id', `session-${activeSession.value.id}`)
-  fd.append('context_type', 'session')
-  fd.append('session_id', String(activeSession.value.id))
-  if (activeSession.value.meeting_id) fd.append('meeting_id', String(activeSession.value.meeting_id))
+  fd.append('thread_id', sess ? `session-${sess.id}` : meetingId ? `meeting-${meetingId}` : `user-${authStore.user?.id ?? 'anon'}`)
+  fd.append('context_type', sess ? 'session' : 'chat')
+  if (sess) fd.append('session_id', String(sess.id))
+  if (meetingId) fd.append('meeting_id', String(meetingId))
   try {
     const { data } = await apiAI.post('/api/upload/chat', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     wmMessages.value.push({ role: 'user', content: `[파일 첨부] ${data.file_name}`, filePath: data.file_path, fileName: data.file_name })
@@ -1480,7 +1484,7 @@ async function downloadChatFile(filePath) {
         :at-type-labels="AT_TYPE_LABELS"
         :loading="wmLoading"
         :can-send="!!wmInput.trim()"
-        :attach-disabled="chatFileUploading || !activeSession"
+        :attach-disabled="chatFileUploading"
         :multiple-files="false"
         @input="onWmInput"
         @keydown="onWmKeydown"
@@ -1548,8 +1552,8 @@ async function downloadChatFile(filePath) {
 .sp-toggle-handle:hover { background:var(--surface-2);color:var(--primary); }
 .sp-resize-handle { position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:20;background:transparent; }
 .sp-resize-handle:hover { background:rgba(59,130,246,.25); }
-.sp-sidebar-header { padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
-.sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; }
+.sp-sidebar-header { padding:6px 16px;border-bottom:1px solid var(--border);flex-shrink:0; }
+.sp-header-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:0; font-size:16px; height:32px;}
 /* ── Session create modal ── */
 .sp-mi:focus { border-color:var(--primary); }
 .sp-ms-wrap { display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:5px 8px; }
@@ -1734,7 +1738,7 @@ async function downloadChatFile(filePath) {
 .cpop-label { flex:1; }
 .cpop-range { flex:1;accent-color:var(--primary); }
 .cpop-val { font-size:11px;font-weight:600;min-width:28px;text-align:right; }
-.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim);transition:background .1s; }
+.cpop-opt { display:block;width:100%;text-align:left;padding:7px 10px;border-radius:6px;border:none;background:none;font-size:13px;cursor:pointer;color:var(--text-dim); }
 .cpop-opt:hover { background:var(--surface-2); }
 .cpop-opt.selected { background:rgba(59,130,246,.1);color:var(--accent);font-weight:600; }
 .ctrl-rec-btn { width:34px;height:34px;border-radius:50%;border:none;background:var(--primary);color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 8px rgba(59,130,246,.3);line-height:1; }

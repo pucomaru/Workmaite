@@ -872,6 +872,10 @@ async def delete_agenda(agenda_id: int) -> None:
     await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
                      {"id": to_agenda_id(agenda_id)})
 
+async def delete_user(user_id: int) -> None:
+    await run_cypher("MATCH (u:User {pg_id: $pg_id}) DETACH DELETE u",
+                     {"pg_id": user_id})
+
 
 # ─── 실패 재시도 ──────────────────────────────────────────────────────────────
 

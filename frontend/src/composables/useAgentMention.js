@@ -6,7 +6,7 @@ import { ref, computed, nextTick } from 'vue'
  * 아카이브 AI 사이드바와 회의 AI 사이드바가 동일하게 재사용한다.
  *
  * @param {object}   opts
- * @param {Ref<Array>} opts.meetingGroups  회의체 목록 (members/agendas/purpose 포함)
+ * @param {Ref<Array>} opts.meetings  회의체 목록 (members/agendas/purpose 포함)
  * @param {Ref<Array>} opts.membersData    전체 구성원
  * @param {Ref<Array>} opts.tasksData      전체 과제
  * @param {Ref<object>} [opts.detailMeeting] 현재 선택된 회의체(세션 검색용, 선택)
@@ -15,7 +15,7 @@ import { ref, computed, nextTick } from 'vue'
  * @param {Function} [opts.autoResize]     입력 시 호출할 높이 재조정 함수
  */
 export function useAgentMention({
-  meetingGroups,
+  meetings,
   membersData,
   tasksData,
   detailMeeting,
@@ -43,7 +43,7 @@ export function useAgentMention({
     const seen = new Set()
     const items = []
     // 회의체
-    for (const mg of (meetingGroups?.value || [])) {
+    for (const mg of (meetings?.value || [])) {
       const label = mg.title || mg.name || ''
       if (!label) continue
       if (!q || label.toLowerCase().includes(q)) {
@@ -60,7 +60,7 @@ export function useAgentMention({
       }
     }
     // 회의 (sessions) — 모든 회의체의 minutes 배열에서 수집
-    for (const mg of (meetingGroups?.value || [])) {
+    for (const mg of (meetings?.value || [])) {
       for (const s of (mg.minutes || [])) {
         const sessionTitle = s.session_title || s.title || ''
         if (!sessionTitle) continue

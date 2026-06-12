@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import List, Optional, Literal
 
@@ -24,6 +25,8 @@ import logging
 from .prompts import make_llm
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from neo4j_ids import to_mg_id
+from llm_factory import model_override_var
+from pricing import PRICING
 
 logger = logging.getLogger(__name__)
 
@@ -407,6 +410,13 @@ async def minutes_generate_minutes(
     return StreamingResponse(instrument_stream(stream(), "minutes_generate"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 
+# ─── 모델 목록 ────────────────────────────────────────────────────────────────
+@router.get("/models")
+async def list_models(current_user: models.User = Depends(get_current_user)):
+    """컴포저에서 선택 가능한 LLM 모델 목록 — pricing.yaml에 단가가 등록된 모델만 노출."""
+    return {"models": sorted(PRICING.keys()), "default": os.environ.get("OPENAI_MODEL", "")}
+
+
 # ─── Supervisor Chat ──────────────────────────────────────────────────────────
 @router.post("/supervisor/chat")
 async def supervisor_chat(
@@ -416,6 +426,11 @@ async def supervisor_chat(
     db: Session = Depends(get_db),
 ):
     msg = data.message or ""
+
+    # 사용자 선택 모델 — pricing.yaml에 등록된 모델만 허용 (임의 모델명 차단)
+    _model_override = data.model if data.model in PRICING else None
+    if _model_override:
+        model_override_var.set(_model_override)
 
     # 서비스 가드 (P3C-1): 일일 토큰 예산(PG 집계 — 비용 상한)
     from service_guards import check_daily_token_budget
@@ -466,12 +481,14 @@ async def supervisor_chat(
     async def stream():
         _collector = TokenUsageCollector()
         _tok_ctx_token = _token_collector_var.set(_collector)
+        # 제너레이터는 엔드포인트와 다른 컨텍스트에서 iterate될 수 있어 여기서 다시 설정
+        _model_ctx_token = model_override_var.set(_model_override) if _model_override else None
         _log_id = _create_log(
             context_type="supervisor",
             meeting_id=data.meeting_id or None,
             session_id=None,
             user_id=current_user.id,
-            input_data={"message": msg[:300] if msg else None, "route": _route},
+            input_data={"message": msg[:300] if msg else None, "route": _route, "model": _model_override},
         )
         _stream_error = None
         # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
@@ -802,6 +819,8 @@ async def supervisor_chat(
         finally:
             # GeneratorExit·예외·정상 종료 모두에서 assistant 메시지 저장
             _token_collector_var.reset(_tok_ctx_token)
+            if _model_ctx_token is not None:
+                model_override_var.reset(_model_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
             _assistant_text = "".join(_assistant_chunks)
             if _assistant_text:
