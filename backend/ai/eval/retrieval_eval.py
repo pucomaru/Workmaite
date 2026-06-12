@@ -23,7 +23,7 @@ LABELS = ["Minutes", "Agenda", "Report"]
 
 async def main() -> None:
     from neo4j_client import run_cypher
-    from retrieval_registry import REGISTRY, hybrid_search
+    from retrieval_registry import hybrid_search
 
     out = {"ran_at": datetime.now().isoformat(), "k": K, "labels": {}}
     for label in LABELS:

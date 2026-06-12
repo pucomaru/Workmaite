@@ -1,9 +1,5 @@
-import os
-from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 MINUTES_SYSTEM = """\
 당신은 회의록 작성 전문 AI MinutesAgent입니다.

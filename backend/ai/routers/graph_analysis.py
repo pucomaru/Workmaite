@@ -1,37 +1,20 @@
 """그래프 분석·관계 정규화 라우터 (P3A-4 — routers/supervisor.py에서 분리)."""
-import json
 import logging
-import os
-import uuid
-from datetime import datetime
-from typing import Any, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-import models, schemas
-from access_guard import require_meeting_member
+import models
 from sse import sse_done, sse_error, sse_event, sse_token
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from agents import (
     knowledge_manager as knowledge_agent,
-    minutes_generator as minutes_agent,
-    report_reviewer as report_agent,
-    task_extractor as task_agent,
 )
 from auth import get_current_user
-from database import SessionLocal, get_db
+from database import get_db
 from neo4j_client import run_cypher
-from routers.prompts import make_llm
 from services.supervisor_helpers import (
-    _extract_text_from_file,
-    _format_schedule_table,
-    _get_meeting_context,
-    _get_member_org_depts,
-    _get_previous_minutes,
     _log_activity,
     _stream_plan,
 )

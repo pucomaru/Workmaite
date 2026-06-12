@@ -9,15 +9,12 @@ Ingress: /api/upload → FastAPI (workmaite-ai:8000)
 """
 import logging
 import uuid
-from datetime import datetime
-from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-import json
 import models
 from auth import get_current_user
 from access_guard import (
@@ -26,7 +23,6 @@ from access_guard import (
     require_meeting_member_by_session,
 )
 from database import get_db
-from fastapi.responses import StreamingResponse
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
 
 logger = logging.getLogger(__name__)
@@ -92,7 +88,7 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
 
 def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
     """HTML 문자열을 WeasyPrint로 PDF bytes로 변환합니다."""
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML
     logger.info(f"[PDF변환] 시작 — title={title!r}, HTML 길이={len(html_content)}자")
     full_html = (
         f'<!DOCTYPE html><html><head>'
@@ -115,9 +111,7 @@ async def get_rejected_reports(
     db: Session = Depends(get_db),
 ):
     """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다."""
-    from sqlalchemy.orm import aliased
     # 재제출된 항목(자식 버전이 있는 항목) 제외
-    from sqlalchemy import exists
     resubmitted_ids = db.query(models.Report.parent_id).filter(
         models.Report.parent_id.isnot(None)
     ).subquery()
@@ -281,7 +275,6 @@ async def save_report_score(
 ):
     """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
     require_meeting_member_by_report(db, current_user, report_id)
-    import json as _json
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
@@ -322,7 +315,6 @@ async def submit_report_review(
 ):
     """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
     require_meeting_member_by_report(db, current_user, report_id)
-    import json as _json
     from datetime import datetime as _dt
     from sqlalchemy import desc as _desc
 
@@ -437,7 +429,7 @@ async def delete_report(
     db.flush()
 
     # 삭제 후 approved 보고서가 없는 아젠다를 ongoing으로 되돌리기
-    from sqlalchemy import cast as _cast, text as _text
+    from sqlalchemy import cast as _cast
     from sqlalchemy.dialects.postgresql import JSONB as _JSONB
     for ag_id in agenda_ids_to_check:
         still_approved = db.query(models.Report).filter(

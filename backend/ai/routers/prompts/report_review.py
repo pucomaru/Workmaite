@@ -1,9 +1,5 @@
-import os
-from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 REPORT_REVIEW_SYSTEM = """\
 당신은 대기업 발제자료 검토 전문 AI ReportAgent입니다.

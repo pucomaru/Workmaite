@@ -1,9 +1,6 @@
-import os
 from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 def extract_agendas_system(
     org_dept_list: str,

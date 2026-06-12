@@ -1,9 +1,5 @@
-import os
-from typing import List
 
-from langchain_openai import ChatOpenAI
 
-from llm_factory import llm_factory
 
 KNOWLEDGE_SYSTEM = """\
 당신은 조직 지식 관리 전문 AI KnowledgeAgent입니다.
