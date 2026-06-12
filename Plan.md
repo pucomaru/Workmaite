@@ -297,7 +297,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P1-5 Neo4j 사용자 매칭 `pg_id` 단일 키 통일 (2026-06-12): /archive·supervisor 본인 매칭, meeting-groups 멤버 추가/삭제(user_id 필수화), 간사 연결(호출자 본인) — email/name OR 매칭 전부 제거.
 - [x] P1-6 **감사 로그 도입** (2026-06-12): audit_logs(V2) + Spring @AuditLogged AOP(6개 서비스 CUD·승인·할당) + AuthService LOGIN/SIGNUP/LOGOUT + FastAPI AuditLogMiddleware(변경성 요청). TransactionTemplate(REQUIRES_NEW)로 본 처리와 분리, signup은 afterCommit(FK). 4종 이벤트 DB 기록 검증.
 - [x] P1-7① **멀티테넌시 즉시 조치** (2026-06-12): PATCH /users/{id} 비밀번호 변경 제거+권한 가드(MT-1), GET /users·search 디렉터리 스코프(본인+내 회사+공유 회의체, MT-3) — Spring/FastAPI 양쪽. E2E 검증.
-- [ ] P1-7② **마이그레이션 동반(§4.3 V4)**: companies 정규화, COMPANY_ADMIN 부여 UI, 초대 기반 온보딩(invitations, `must_change_password`), 회사 탭 UI 초대 흐름 교체(MT-2/UX-25). ③ AI 조직 쿼리 company 스코프(P3B-1과 통합).
+- [~] P1-7② **초대 온보딩 — 핵심 완료 (2026-06-12, V9)**: companies 정규화+백필, invitations(해시 저장·7일 만료·재사용 차단), 초대 생성 API(ADMIN만)+무인증 검증+signup 수락(회사·역할 자동 연결), OrganizationPage 비밀번호 대행 생성 폐기→초대 링크(단건·CSV 대량), 가입 모달 자동 오픈·프리필. E2E 검증. **잔여: COMPANY_ADMIN 부여 UI, must_change_password 로그인 노출, users.company 문자열 DROP, AI company 스코프.**
 
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
