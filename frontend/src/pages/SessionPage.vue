@@ -786,8 +786,10 @@ async function endMeeting() {
       const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)
       if (s) s.status = 'ended'
     }
+    activeSession.value = { ...activeSession.value, status: 'ended' }
   }
-  activeSession.value = null
+  showMinutesTab.value = true
+  activeTab.value = 'minutes'
 }
 
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
