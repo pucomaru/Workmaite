@@ -54,10 +54,24 @@ public class MeetingService {
         return MeetingResponse.from(saved);
     }
 
-    public List<MeetingResponse> getMeetings(Long userId, String keyword) {
+    private static final int MAX_PAGE_SIZE = 100;
+
+    /** 회의체 목록/검색 (P8-4). size 미지정 시 기존 전체 반환(호환 모드). */
+    public List<MeetingResponse> getMeetings(Long userId, String keyword, Integer page, Integer size) {
+        boolean paged = size != null;
+        var pageable = paged
+                ? org.springframework.data.domain.PageRequest.of(
+                        page == null ? 0 : Math.max(page, 0),
+                        Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                        org.springframework.data.domain.Sort.by("createdAt").descending())
+                : null;
         List<Meeting> all = (keyword != null && !keyword.isBlank())
-                ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword)
-                : meetingRepository.findByUserId(userId);
+                ? (paged
+                    ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword, pageable)
+                    : meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword))
+                : (paged
+                    ? meetingRepository.findByUserId(userId, pageable)
+                    : meetingRepository.findByUserId(userId));
 
         // Build role map for this user
         List<Long> meetingIds = all.stream().map(Meeting::getId).toList();

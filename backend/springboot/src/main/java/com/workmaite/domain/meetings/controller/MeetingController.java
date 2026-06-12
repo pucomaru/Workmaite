@@ -49,9 +49,11 @@ public class MeetingController {
     @GetMapping("/meetings")
     public ResponseEntity<ApiResponse<List<MeetingResponse>>> getMeetings(
             Authentication authentication,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
         Long userId = Long.parseLong(authentication.getName());
-        return ResponseEntity.ok(ApiResponse.ok(meetingService.getMeetings(userId, keyword)));
+        return ResponseEntity.ok(ApiResponse.ok(meetingService.getMeetings(userId, keyword, page, size)));
     }
 
     // 회의체 생성 - 생성자를 간사로 자동 등록
