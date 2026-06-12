@@ -17,7 +17,6 @@ const props = defineProps({
   getHubFill:     { type: Function, required: true },
   computeUrgency: { type: Function, required: true },
   relColors:      { type: Object,   default: () => ({}) },
-  groupAgendaRatio: { type: Object,   default: () => new Map() },  // Map<id, ratio>
   selfNodeId:     { type: String,   default: null },
 })
 const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
@@ -382,15 +381,6 @@ function drawNode(obj, sn) {
   } else if (obj.hovered) {
     gfx.circle(0, 0, r)
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
-  }
-
-  // Agenda progress arc (Meetings, 진행 중인 회의체만)
-  const ratio = (type === 'Meetings' && !node.ended)
-    ? (props.groupAgendaRatio?.get(node.data?.id ?? node.id) ?? null)
-    : null
-  if (ratio != null && ratio > 0) {
-    gfx.arc(0, 0, r + 4, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2)
-    gfx.stroke({ color: 0x86efac, width: 2.5, alpha: 0.85 })
   }
 
   // Icon drawing (inline via Graphics)
