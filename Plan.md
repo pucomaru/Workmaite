@@ -297,7 +297,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P1-5 Neo4j 사용자 매칭 `pg_id` 단일 키 통일 (2026-06-12): /archive·supervisor 본인 매칭, meeting-groups 멤버 추가/삭제(user_id 필수화), 간사 연결(호출자 본인) — email/name OR 매칭 전부 제거.
 - [x] P1-6 **감사 로그 도입** (2026-06-12): audit_logs(V2) + Spring @AuditLogged AOP(6개 서비스 CUD·승인·할당) + AuthService LOGIN/SIGNUP/LOGOUT + FastAPI AuditLogMiddleware(변경성 요청). TransactionTemplate(REQUIRES_NEW)로 본 처리와 분리, signup은 afterCommit(FK). 4종 이벤트 DB 기록 검증.
 - [x] P1-7① **멀티테넌시 즉시 조치** (2026-06-12): PATCH /users/{id} 비밀번호 변경 제거+권한 가드(MT-1), GET /users·search 디렉터리 스코프(본인+내 회사+공유 회의체, MT-3) — Spring/FastAPI 양쪽. E2E 검증.
-- [~] P1-7② **초대 온보딩 — 핵심 완료 (2026-06-12, V9)**: companies 정규화+백필, invitations(해시 저장·7일 만료·재사용 차단), 초대 생성 API(ADMIN만)+무인증 검증+signup 수락(회사·역할 자동 연결), OrganizationPage 비밀번호 대행 생성 폐기→초대 링크(단건·CSV 대량), 가입 모달 자동 오픈·프리필. E2E 검증. 잔여 중 must_change_password 로그인 노출 완료(2026-06-12). **남은 것: COMPANY_ADMIN 부여 UI, users.company DROP, AI company 스코프.**
+- [~] P1-7② **(개정: 임시 비밀번호 방식, 2026-06-12 사용자 결정)**: 초대 링크 제거 → POST /users/bulk(ADMIN만, 임시 비밀번호 필수, must_change_password) + MustChangePasswordFilter(변경 전 전 API 403 — 강제). CSV는 임시비밀번호 컬럼 필수. 기존 MT-1/2 핵심(생성자 입력 영구 비밀번호·변경 강제 부재)은 해소 유지: 변경 강제가 노출 창을 최초 로그인까지로 제한. companies 정규화(V9)는 유지. E2E 검증. **잔여: COMPANY_ADMIN 부여 UI, users.company DROP·invitations 테이블 DROP, AI company 스코프.**
 
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
