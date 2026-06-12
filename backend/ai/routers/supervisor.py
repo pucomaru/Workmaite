@@ -494,6 +494,59 @@ async def minutes_generate_minutes(
             for mm in mm_rows if mm.user
         ]
 
+    # 이전 세션 회의록 (최근 2개 — 흐름 파악용)
+    prev_minutes_list = []
+    if data.meeting_id and data.session_id:
+        prev_sessions = (
+            db.query(models.MeetingSession)
+            .filter(
+                models.MeetingSession.meeting_id == data.meeting_id,
+                models.MeetingSession.id < data.session_id,
+            )
+            .order_by(models.MeetingSession.id.desc())
+            .limit(2)
+            .all()
+        )
+        for ps in prev_sessions:
+            m = db.query(models.Minutes).filter(models.Minutes.session_id == ps.id).first()
+            if m and m.content_summary:
+                prev_minutes_list.append(f"[{ps.title or '이전 세션'}]\n{m.content_summary[:600]}")
+
+    # 마감 지난 미배정 안건
+    from datetime import datetime as _dt
+    overdue_agendas = [
+        {"title": a.title, "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else ""}
+        for a in agendas
+        if a.session_id is None
+        and a.due_date is not None
+        and a.due_date < _dt.utcnow()
+        and a.status not in ("done", "completed", "closed")
+    ]
+
+    # SessionSummaryBlock (refine-chunk 결과 — 이미 구조화된 논의 흐름)
+    summary_blocks = []
+    if data.session_id:
+        blocks = (
+            db.query(models.SessionSummaryBlock)
+            .filter(models.SessionSummaryBlock.session_id == data.session_id)
+            .order_by(models.SessionSummaryBlock.block_index)
+            .all()
+        )
+        for b in blocks:
+            bullets = "\n".join([f"  • {bl}" for bl in (b.bullets or [])]) if b.bullets else ""
+            summary_blocks.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+
+    # 관련 보고서 내용 (Neo4j 벡터 검색)
+    report_chunks = []
+    if agendas:
+        try:
+            from agents.knowledge_manager import search_knowledge
+            query = " ".join([a.title for a in agendas[:5]])
+            chunks = await search_knowledge(query, k=5)
+            report_chunks = [c.get("content", "") for c in chunks if c.get("content")]
+        except Exception:
+            pass
+
     async def stream():
         _collector = TokenUsageCollector()
         _tok_ctx_token = _token_collector_var.set(_collector)
@@ -505,6 +558,25 @@ async def minutes_generate_minutes(
             input_data={"session_id": data.session_id},
         )
         _stream_error = None
+        collected_parts = []
+        async for chunk in minutes_agent.generate_minutes_stream(
+            transcript=transcript,
+            meeting_context=meeting_context,
+            agenda_text=agenda_text,
+            now=now,
+            meeting_id=data.meeting_id,
+            session_id=data.session_id,
+            title=minutes_title,
+            session_info=session_info,
+            participants=participants,
+            prev_minutes=prev_minutes_list,
+            summary_blocks=summary_blocks,
+            report_chunks=report_chunks,
+            overdue_agendas=overdue_agendas,
+        ):
+            collected_parts.append(chunk)
+            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+
         try:
             collected_parts = []
             async for chunk in minutes_agent.generate_minutes_stream(

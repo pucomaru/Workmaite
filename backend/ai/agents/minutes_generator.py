@@ -318,18 +318,34 @@ async def generate_minutes_stream(
     meeting_id: int = None,
     session_id: int = None,
     title: str = "",
+    session_info: dict = None,
+    participants: list = None,
+    prev_minutes: list = None,
+    summary_blocks: list = None,
+    report_chunks: list = None,
+    overdue_agendas: list = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
         now = _dt.now().strftime("%Y년 %m월 %d일")
 
     llm = _make_llm(temperature=0.2)
-    collected_parts: List[str] = []
     async for chunk in llm.astream([
-        SystemMessage(content=generate_minutes_system(meeting_context, agenda_text)),
-        HumanMessage(content=generate_minutes_human(transcript, now)),
+        SystemMessage(content=generate_minutes_system(
+            meeting_context=meeting_context,
+            agenda_text=agenda_text,
+            session_info=session_info,
+            participants=participants,
+            prev_minutes=prev_minutes,
+            report_chunks=report_chunks,
+            overdue_agendas=overdue_agendas,
+        )),
+        HumanMessage(content=generate_minutes_human(
+            transcript=transcript,
+            now=now,
+            summary_blocks=summary_blocks,
+        )),
     ]):
         if chunk.content:
-            collected_parts.append(chunk.content)
             yield chunk.content
 
