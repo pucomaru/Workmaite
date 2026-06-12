@@ -1,11 +1,11 @@
 # Stage 1: Gradle로 jar 빌드
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
-COPY springboot/gradlew .
-COPY springboot/gradle gradle
-COPY springboot/build.gradle.kts .
-COPY springboot/settings.gradle.kts .
-COPY springboot/src src
+COPY gradlew .
+COPY gradle gradle
+COPY build.gradle.kts .
+COPY settings.gradle.kts .
+COPY src src
 RUN chmod +x gradlew
 RUN ./gradlew bootJar -x test
 

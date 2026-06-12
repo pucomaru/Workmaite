@@ -34,7 +34,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./backend   # backend 폴더의 Dockerfile 사용
+          context: ./backend/springboot   # springboot 폴더의 Dockerfile 사용 (빌드 컨텍스트 최소화)
           push: true
           tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:${{ env.IMAGE_TAG }}
 
