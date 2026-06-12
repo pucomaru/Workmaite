@@ -31,6 +31,7 @@ from .prompts import (
     SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
 )
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
+from neo4j_ids import to_mg_id
 
 logger = logging.getLogger(__name__)
 
@@ -527,7 +528,7 @@ async def supervisor_chat(
                 yield sse_done()
                 return
             if data.meeting_id:
-                mid_neo4j = f"mg-{int(data.meeting_id)}"
+                mid_neo4j = to_mg_id(int(data.meeting_id))
 
                 if not is_admin:
                     has_access = (

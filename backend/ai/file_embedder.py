@@ -13,6 +13,7 @@ from pathlib import Path
 from openai import AsyncOpenAI
 
 from r2_storage import is_r2_url, url_to_key, download_bytes as r2_download_bytes
+from neo4j_ids import to_mg_id
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ async def embed_and_store(
 
     embeddings = await embed_chunks(chunks)
     base_id = (source_id or filename).replace(" ", "_")
-    mg_id   = f"mg-{meeting_id}" if meeting_id else None
+    mg_id   = to_mg_id(meeting_id) if meeting_id else None
 
     if context_type == "report" or context_type in ("agenda", "archive"):
         node_label = "ReportChunk"

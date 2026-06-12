@@ -3,6 +3,7 @@ import asyncio
 import os, base64, re
 import httpx
 from fastapi import HTTPException
+from neo4j_ids import to_mg_id
 
 NEO4J_URL      = os.environ["NEO4J_URL"]
 NEO4J_USER     = os.environ["NEO4J_USER"]
@@ -66,7 +67,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
         if s.startswith("mg-") and s[3:].isdigit():
             pg_id = int(s[3:])
 
-    mg_neo_id = f"mg-{pg_id}" if pg_id is not None else str(meeting_id)
+    mg_neo_id = to_mg_id(pg_id) if pg_id is not None else str(meeting_id)
 
     try:
         mg_rows = await run_cypher(
