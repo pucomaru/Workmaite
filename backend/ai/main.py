@@ -136,6 +136,8 @@ def _ws_user_id(websocket: WebSocket) -> int | None:
         return None
     try:
         payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") == "refresh":
+            return None  # refresh token으로 WS 인증 불가 (SEC-7)
         sub = payload.get("sub")
         return int(sub) if sub is not None else None
     except (_JWTError, ValueError):

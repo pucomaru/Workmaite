@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,10 +50,15 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(authService.refresh(request)));
     }
 
-    // 로그아웃 - 현재는 클라이언트에서 토큰 삭제로 처리 (Redis 도입 후 블랙리스트 적용 예정)
+    // 로그아웃 - 제출된 refresh token 폐기 (없으면 인증 사용자의 전체 폐기)
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout() {
-        authService.logout();
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestBody(required = false) RefreshRequest request,
+            Authentication authentication) {
+        Long userId = authentication != null && authentication.getName() != null
+                ? Long.parseLong(authentication.getName())
+                : null;
+        authService.logout(request != null ? request.getRefreshToken() : null, userId);
         return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }

@@ -32,6 +32,10 @@ def get_current_user(
         if sub is None:
             logger.warning("[Auth] JWT에 sub 없음")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        if payload.get("type") == "refresh":
+            # refresh token을 API 인증에 사용하는 것 차단 (SEC-7)
+            logger.warning("[Auth] refresh token으로 API 접근 시도")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except JWTError as e:
         if _ExpiredSignatureError and isinstance(e, _ExpiredSignatureError):
             logger.warning("[Auth] JWT 만료됨")

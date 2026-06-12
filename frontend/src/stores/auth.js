@@ -40,6 +40,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // 서버 측 refresh token 폐기 (실패해도 로컬 세션은 정리)
+    const refreshToken = sessionStorage.getItem('refreshToken')
+    if (refreshToken) {
+      api.post('/api/v1/auth/logout', { refreshToken }).catch(() => {})
+    }
     token.value = ''
     user.value = null
     sessionStorage.removeItem('token')

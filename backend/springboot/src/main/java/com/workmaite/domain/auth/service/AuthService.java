@@ -4,6 +4,8 @@ import com.workmaite.domain.auth.dto.LoginRequest;
 import com.workmaite.domain.auth.dto.LoginResponse;
 import com.workmaite.domain.auth.dto.RefreshRequest;
 import com.workmaite.domain.auth.dto.SignupRequest;
+import com.workmaite.domain.auth.entity.RefreshToken;
+import com.workmaite.domain.auth.repository.RefreshTokenRepository;
 import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
@@ -15,6 +17,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.HexFormat;
 
 /**
  * 인증 비즈니스 로직
@@ -29,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -66,24 +76,75 @@ public class AuthService {
         }
 
         String accessToken = jwtTokenProvider.createAccessToken(user.getId());
-        String refreshToken = jwtTokenProvider.createRefreshToken(user.getId());
+        String refreshToken = issueRefreshToken(user.getId());
         return LoginResponse.of(accessToken, refreshToken, UserResponse.from(user));
     }
 
-    // Refresh Token 검증 후 새 Access Token 발급
-    @Transactional(readOnly = true)
+    /**
+     * Refresh Token 회전: 검증 → DB 대조 → 기존 토큰 폐기 후 새 쌍 발급.
+     * 서명은 유효한데 DB에 없는 토큰은 이미 회전된 토큰의 재사용(탈취 신호)이므로
+     * 해당 사용자의 모든 refresh token을 폐기한다.
+     */
+    // noRollbackFor: 재사용 탐지 시 전체 폐기가 예외와 함께 롤백되지 않도록 보장
+    @Transactional(noRollbackFor = BusinessException.class)
     public LoginResponse refresh(RefreshRequest request) {
-        jwtTokenProvider.validateToken(request.getRefreshToken());
+        jwtTokenProvider.validateRefreshToken(request.getRefreshToken());
         Long userId = jwtTokenProvider.getUserId(request.getRefreshToken());
         if (!userRepository.existsById(userId)) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
+
+        String hash = sha256Hex(request.getRefreshToken());
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
+        if (stored == null) {
+            // 서명은 유효한데 DB에 없음 = 이미 회전된 토큰의 재사용(탈취 신호) → 전체 폐기
+            refreshTokenRepository.deleteByUserId(userId);
+            throw new BusinessException(ErrorCode.INVALID_TOKEN);
+        }
+        if (stored.isExpired()) {
+            refreshTokenRepository.delete(stored);
+            throw new BusinessException(ErrorCode.EXPIRED_TOKEN);
+        }
+
+        refreshTokenRepository.delete(stored);
         String newAccessToken = jwtTokenProvider.createAccessToken(userId);
-        String newRefreshToken = jwtTokenProvider.createRefreshToken(userId);
+        String newRefreshToken = issueRefreshToken(userId);
         return LoginResponse.of(newAccessToken, newRefreshToken);
     }
 
-    // Redis 도입 후 Access Token 블랙리스트 처리 예정
-    public void logout() {
+    /**
+     * 로그아웃: 제출된 refresh token을 폐기한다.
+     * 토큰이 없으면(만료 등) 인증된 사용자의 전체 refresh token을 폐기한다.
+     */
+    public void logout(String refreshToken, Long authenticatedUserId) {
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            refreshTokenRepository.deleteByTokenHash(sha256Hex(refreshToken));
+        } else if (authenticatedUserId != null) {
+            refreshTokenRepository.deleteByUserId(authenticatedUserId);
+        }
+    }
+
+    private String issueRefreshToken(Long userId) {
+        // 만료된 잔여 토큰 정리 (기기별 다중 로그인은 유지)
+        refreshTokenRepository.deleteByUserIdAndExpiresAtBefore(userId, LocalDateTime.now());
+        String refreshToken = jwtTokenProvider.createRefreshToken(userId);
+        refreshTokenRepository.save(RefreshToken.builder()
+                .userId(userId)
+                .tokenHash(sha256Hex(refreshToken))
+                .expiresAt(LocalDateTime.ofInstant(
+                        jwtTokenProvider.getExpiration(refreshToken).toInstant(),
+                        ZoneId.systemDefault()))
+                .build());
+        return refreshToken;
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 미지원 JVM", e);
+        }
     }
 }

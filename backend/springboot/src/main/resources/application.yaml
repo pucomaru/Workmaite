@@ -21,6 +21,12 @@ spring:
       connection-timeout: 20000
       maximum-pool-size: 10
 
+  # 스키마의 단일 소스는 Flyway 마이그레이션 (기존 운영 스키마는 V1 baseline 처리)
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+
   jpa:
     hibernate:
       ddl-auto: none
