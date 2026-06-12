@@ -317,13 +317,13 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 설계 원칙은 §8 참조. 작업은 3A(하네스 기반) → 3B(도구/컨텍스트) → 3C(서비스 가드) 순.
 
 **3A. 하네스 기반 공사 — 신뢰 가능한 실행부터**
-- [ ] P3A-1 **체크포인터 도입(H-1 — 최우선)**: `AsyncPostgresSaver`로 전 그래프 compile. HITL `interrupt()`가 DB에 영속화되어 재시작·스케일아웃에도 승인 대기 상태 유지. thread_id는 서버가 발급하는 `run_id`로 통일(요청마다 uuid4 생성하는 H-5 제거). **착수 전 현재 interrupt 흐름이 실제로 동작하는지 재현 테스트부터** (UX-1의 원인 검증).
-- [ ] P3A-2 **structured output 전면화(H-2)**: review/extraction/분석의 regex JSON 파싱 전부 `with_structured_output(pydantic)` + 파싱 실패 시 1회 재시도, 그래도 실패면 **명시적 실패 응답**(가짜 score=50 fabrication 제거). 실패율 메트릭 기록.
-- [ ] P3A-3 **트레이싱 복원(H-3)**: main.py의 강제 off 제거, LangSmith(키 회전 후) 또는 OTel GenAI export. trace_id를 agent_logs에 저장해 "느린 요청 → 트레이스" 점프 가능하게.
+- [x] P3A-1 **체크포인터 도입** (2026-06-12): 재현 결과 **HITL이 애초에 동작 불가였음** — 체크포인터 없는 compile에서 get_state가 'No checkpointer set' 실패(UX-1 원인 확정). `graph_runtime.py`(AsyncPostgresSaver+psycopg pool, lifespan 관리) + HITL 그래프 lazy-compile + aget_state. run_id 서버 발급(start 라우트 thread_id optional). **서버 재시작 후 pending resume까지 E2E 검증.** (체크포인터는 HITL 그래프에 적용 — 채팅 그래프 메모리는 P3B-3에서)
+- [x] P3A-2 **structured output** (2026-06-12): 검토 경로(HITL propose·직접 검토)를 pydantic 스키마(12요소 ElementScore 포함)로 전환 — **가짜 score=50 fabrication 제거**, 실패는 명시적 에러(502/status:error). 추출 경로는 분석텍스트+JSON 프롬프트 설계 유지(P6 eval 전 프롬프트 변경 금지) + 파싱 실패 1회 재시도 후 명시적 실패. 공통 헬퍼 `ainvoke_structured`. 잔여: archive 분석(_parse_archive_result)의 루브릭 스키마는 HC-6과 함께. 실패율 메트릭은 P5-1에서.
+- [x] P3A-3 **trace_id 연결** (2026-06-12): V7 + log_agent_run이 collect_runs()로 루트 run id 기록(트레이싱 off여도 동작). LangSmith env 제어화는 Phase 0에서 기완료 — 키 회전(P0-1) 후 LANGSMITH_TRACING=true로 활성화하면 trace_id로 점프 가능.
 - [ ] P3A-4 `supervisor.py` 해체: `routers/`(HTTP/SSE 변환만) / `graphs/`(LangGraph 정의) / `tools/` / `services/`(DB 접근) 레이어 분리. 파일당 500줄 이하.
 - [ ] P3A-5 **Supervisor 그래프 전환**: `langgraph-supervisor`(또는 StateGraph + handoff tool) — supervisor가 도구 호출로 sub-agent 위임, 결과 보고 후 재라우팅. `classify_intent` 제거(대화 이력이 state에 있으므로 AI-9 자동 해결). 단, **단순한 요청까지 다단 그래프를 태우지 말 것** — 현황 조회류는 도구 1–2개의 single-loop로 충분(에이전트는 필요한 만큼만 복잡하게).
 - [ ] P3A-6 **스트리밍 프로토콜 v2(FE-2·H-10·H-13 통합)**: SSE `event:` 필드 기반 타입 이벤트(`planning|token|tool_call|result|usage|error`) + 응답에 `run_id`. 클라이언트 abort 시 `asyncio.CancelledError`를 LLM 호출까지 전파(취소된 만큼만 과금), 프론트에 중단 버튼. 체크포인터 덕에 끊긴 run 상태 조회/이어보기 가능. **진행 표시는 `astream_events`의 실제 도구/노드 이벤트에서 파생** — `_stream_plan`·`classify_intent.steps` 같은 보여주기 전용 narration LLM 호출 제거(플래닝 연극 해소 + 대화당 LLM 1회 절감).
-- [ ] P3A-7 LLM 클라이언트 공통화(H-11): `_make_llm` 4중복 → `llm_factory(task_profile)` — retry, timeout, max_tokens, 작업별 모델 테이블(라우팅·요약=mini / 회의록·검토=상위 모델), env 전환·폴백 체인. `run_cypher` 공유 httpx 풀.
+- [x] P3A-7 LLM 클라이언트 공통화 (2026-06-12): `llm_factory(profile)` — _make_llm 4중복+직접 생성 12곳 통합, timeout(60s)/retry(2) 일관, OPENAI_MODEL_{PROFILE} env로 프로파일별 모델 분리 가능. 잔여: 폴백 체인, run_cypher 공유 풀.
 
 **3B. 도구 & 컨텍스트 엔지니어링**
 - [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/ai-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
@@ -694,7 +694,7 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [x] **Phase 0 보안 응급조치 — 코드 측 완료 (2026-06-12)**: P0-2~P0-8 적용 + 퀵윈(BE-5, DATA-2 race, DATA-9, H-3 env화, print 정리). 빌드 검증(Python ast/gradle compileJava/vite build) 통과. **잔여: P0-1 키 회전(사람, SECURITY_ROTATION.md), 클러스터 Secret 생성, WLK WS 인증, /grafana·actuator 정책 결정**
 - [x] **Phase 1 인증/인가 통합 — 코드 측 완료 (2026-06-12)**: P1-1~P1-7① 적용·E2E 검증(자세한 내용은 §3 Phase 1 체크박스). Flyway 도입 + V2(refresh_tokens/users.role/audit_logs)·V3(role 부트스트랩) 마이그레이션이 dev DB에 적용됨. **잔여: P1-7②(초대 온보딩·companies 정규화·V4), k8s 배포 시 ai-secret JWT_SECRET 동일값 확인**
 - [x] **Phase 2 스키마/동기화 — 완료 (2026-06-12)**: P2-1~P2-8 적용 (V4~V6 마이그레이션 dev DB 적용, Neo4j 제약 적용). 잔여: P2-7 TIMESTAMPTZ 전면 전환(별도 패스), P2-8 프론트 읽기 전환. Phase 1 코드리뷰(7앵글) 반영 커밋 포함.
-- [ ] Phase 3A 하네스 기반 공사 (체크포인터·structured output·트레이싱·SSE v2)
+- [~] **Phase 3A 하네스 기반 공사 — 4/7 완료 (2026-06-12)**: P3A-1(체크포인터+HITL 복구·UX-1 수정)·P3A-2(structured output)·P3A-3(trace_id)·P3A-7(llm_factory) 완료, V7까지 dev DB 적용. **잔여: P3A-4(supervisor.py 해체), P3A-5(Supervisor 그래프 전환), P3A-6(SSE v2)** — 각각 대형 리팩터링이라 별도 세션 권장, 순서는 4→5→6.
 - [ ] Phase 3B Supervisor 그래프 + 도구/컨텍스트 엔지니어링
 - [ ] Phase 3C 챗봇 서비스 가드 (rate limit·idempotency·피드백)
 - [ ] Phase 4 STT 품질
