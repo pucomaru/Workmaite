@@ -472,7 +472,10 @@ async def commit_draft_agendas(
     meeting_id: int = data.get("meeting_id", 0)
     if meeting_id:
         require_meeting_member(db, current_user, meeting_id)
-    approved: list = data.get("approved", [])   # [{db_id, assignee_name, dept, due_date}]
+    approved: list = data.get("approved", [])
+    from service_guards import idempotency_guard
+    _ids = sorted(str(a.get("db_id")) for a in approved if isinstance(a, dict))
+    idempotency_guard(f"agenda-commit:{meeting_id}:{','.join(_ids)}:{sorted(data.get('rejected_ids', []))}")  # P3C-2   # [{db_id, assignee_name, dept, due_date}]
     rejected_ids: list = data.get("rejected_ids", [])  # [int]
 
     # 반려된 draft 삭제

@@ -54,6 +54,14 @@ def reset():
 
 
 if __name__ == "__main__":
+    import os
+    # 안전장치 (P7-5): 공유/원격 DB를 향해 실수로 실행하는 것 방지
+    _host = os.environ.get("DB_HOST", "localhost")
+    if _host not in ("localhost", "127.0.0.1") and os.environ.get("RESET_DB_FORCE") != "yes":
+        raise SystemExit(
+            f"[중단] DB_HOST={_host} — localhost가 아닙니다. "
+            "정말 원격/공유 DB를 초기화하려면 RESET_DB_FORCE=yes를 설정하세요."
+        )
     print("=== Workmaite DB 초기화 ===\n")
     confirm = input("모든 테이블과 데이터가 삭제됩니다. 계속하시겠습니까? (yes 입력): ")
     if confirm.strip().lower() != "yes":

@@ -15,6 +15,7 @@ from database import get_db, SessionLocal
 from auth import get_current_user
 from access_guard import require_meeting_member
 from sse import sse_done, sse_error, sse_event, sse_token
+from metrics import instrument_stream
 from agents import (
     task_extractor as task_agent,
     knowledge_manager as knowledge_agent,
@@ -233,7 +234,7 @@ async def minutes_sessions_chat(
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "minutes_chat"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 @router.post("/minutes/generate-minutes")
 async def minutes_generate_minutes(
@@ -418,7 +419,7 @@ async def minutes_generate_minutes(
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "minutes_generate"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 
 # ─── Supervisor Chat ──────────────────────────────────────────────────────────
@@ -430,6 +431,10 @@ async def supervisor_chat(
     db: Session = Depends(get_db),
 ):
     msg = data.message or ""
+
+    # 서비스 가드 (P3C-1): 일일 토큰 예산(PG 집계 — 비용 상한)
+    from service_guards import check_daily_token_budget
+    check_daily_token_budget(db, current_user.id)
 
     # ── LLM 라우팅 결정 — 최근 대화 맥락 포함 (AI-9) ────────────────────────────
     _route, _route_thinking, _route_steps = await classify_intent(msg, data.chat_history or [])
@@ -1017,7 +1022,7 @@ async def supervisor_chat(
             logger.warning(f"[supervisor_chat] 사용자 메시지 저장 실패: {_e}")
             db.rollback()
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "supervisor_chat"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 
 # ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────

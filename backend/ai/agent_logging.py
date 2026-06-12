@@ -36,27 +36,8 @@ from database import SessionLocal
 logger = logging.getLogger("agent_logging")
 
 # ── 모델별 1M 토큰당 단가 (USD): (prompt, completion) ─────────────────────────
-_PRICING: dict[str, tuple[float, float]] = {
-    "gpt-4o":        (2.50, 10.00),
-    "gpt-4o-mini":   (0.15, 0.60),
-    "gpt-4.1":       (2.00, 8.00),
-    "gpt-4.1-mini":  (0.40, 1.60),
-    "gpt-4.1-nano":  (0.10, 0.40),
-    "gpt-4-turbo":   (10.00, 30.00),
-    "gpt-4":         (30.00, 60.00),
-    "gpt-3.5-turbo": (0.50, 1.50),
-    "o1":            (15.00, 60.00),
-    "o1-mini":       (1.10, 4.40),
-    "o3-mini":       (1.10, 4.40),
-}
-_DEFAULT_PRICE = (0.15, 0.60)  # 알 수 없는 모델 → gpt-4o-mini 기준
-
-
-def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    key = (model or "").lower()
-    price = next((p for name, p in _PRICING.items() if key == name or key.startswith(name)), None)
-    in_rate, out_rate = price or _DEFAULT_PRICE
-    return round(prompt_tokens / 1_000_000 * in_rate + completion_tokens / 1_000_000 * out_rate, 6)
+# 단가표는 pricing.yaml로 외출 (P5-3/HC-7)
+from pricing import estimate_cost as _estimate_cost
 
 
 class TokenUsageCollector(BaseCallbackHandler):
