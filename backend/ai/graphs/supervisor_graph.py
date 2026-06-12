@@ -6,7 +6,7 @@
 - 스코프는 tools/meeting_tools.py가 RunnableConfig 기준으로 강제 (P3B-1)
 - 단순 요청은 single-loop(도구 1-2회)로 끝난다 — 다단 그래프 강요 없음
 
-기본 활성화 (P3A-5 3단계 — dev 검증 후 기본 전환). 롤백: SUPERVISOR_TOOLS_MODE=legacy
+유일한 직접응답 경로 (P3B-2 — 사전조립 경로 제거 완료)
 """
 import logging
 import os
@@ -43,11 +43,6 @@ def _get_agent():
             prompt=_SYSTEM,
         )
     return _agent
-
-
-def react_mode_enabled() -> bool:
-    """도구 기반 에이전트가 기본. legacy로 설정 시 사전조립 경로로 롤백 (제거 예정)."""
-    return os.environ.get("SUPERVISOR_TOOLS_MODE", "react").lower() != "legacy"
 
 
 async def direct_agent_stream(

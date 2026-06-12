@@ -26,10 +26,7 @@ from neo4j_client import get_meeting_graph_context, graph_context_to_str, run_cy
 from pydantic import BaseModel, Field
 import logging
 
-from .prompts import (
-    make_llm,
-    SUPERVISOR_DIRECT_SYSTEM, supervisor_direct_human,
-)
+from .prompts import make_llm
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from neo4j_ids import to_mg_id
 
@@ -748,194 +745,25 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ('supervisor_direct', 'knowledge_manager'):
-                # P3A-5 2단계: 도구 기반 JIT 에이전트 — SUPERVISOR_TOOLS_MODE=react로 활성화
-                # (사전 조립 컨텍스트 경로와 eval 비교 후 기본 전환 예정, H-6/H-13)
-                from graphs.supervisor_graph import direct_agent_stream, react_mode_enabled
-                if react_mode_enabled():
-                    async for _kind, _text in direct_agent_stream(
-                        msg,
-                        _to_base_messages(_chat_history_from_db),
-                        user_id=current_user.id,
-                        allowed_meeting_ids=list(pg_meeting_ids),
-                        is_admin=is_admin,
-                        meeting_id=data.meeting_id or None,
-                    ):
-                        if _kind == "planning":
-                            yield sse_event("planning", _text)
-                        else:
-                            yield sse_token(_text)
-                    yield sse_done()
-                    return
-
-                yield sse_event("planning", "Knowledge Base에서 관련 자료 검색 중...")
-
-                _kb_results: list[dict] = []
-                _node_type_map = [("Minutes", "회의록", 5)]
-                if _route == "knowledge_manager":
-                    _node_type_map += [("Agenda", "안건", 3)]
-                try:
-                    for node_type, type_label, k in _node_type_map:
-                        for r in await knowledge_agent.search_knowledge(msg, node_type=node_type, k=k):
-                            if r.get("title") or r.get("content"):
-                                _kb_results.append({
-                                    "type": type_label,
-                                    "title": r.get("title") or r.get("content", "")[:40],
-                                    "content": r.get("content", "")[:300],
-                                })
-                except Exception:
-                    pass
-
-                if _kb_results:
-                    yield sse_event("planning", f"관련 자료 {len(_kb_results)}건 확인")
-
-                _ctx_parts: list[str] = [_user_scope_header]
-                if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
-                    _ctx_parts.append(f"[회의체 현황]\n{neo4j_ctx_str}")
-
-                # Neo4j에 멤버 데이터가 없을 경우 PostgreSQL로 보완
-                if data.meeting_id and not neo4j_ctx.get("members"):
-                    _pg_ctx = _get_meeting_context(db, data.meeting_id)
-                    if _pg_ctx:
-                        _ctx_parts.append(f"[회의체 기본 정보]\n{_pg_ctx}")
-
-                # 최근 AgentLog 활동 추가 (있을 경우)
-                if data.meeting_id:
-                    try:
-                        _recent_logs = (
-                            db.query(models.AgentLog)
-                            .filter(models.AgentLog.meeting_id == data.meeting_id)
-                            .order_by(models.AgentLog.ended_at.desc())
-                            .limit(5)
-                            .all()
-                        )
-                        if _recent_logs:
-                            _log_lines = []
-                            for _log in _recent_logs:
-                                _detail = (_log.output_data or {}).get("action", "") or (_log.output_data or {}).get("detail", "")
-                                _log_lines.append(f"  - {_log.context_type}: {_detail[:60]}" if _detail else f"  - {_log.context_type}")
-                            _ctx_parts.append("[최근 활동 로그]\n" + "\n".join(_log_lines))
-                    except Exception:
-                        pass
-
-                # ── 과제 진행 상황 — 회의체별 집계 (PostgreSQL) ──────────────
-                try:
-                    _agenda_meeting_ids = (
-                        [data.meeting_id] if data.meeting_id
-                        else [mid for mid in pg_meeting_ids][:10]
-                    )
-                    if _agenda_meeting_ids:
-                        _agendas = (
-                            db.query(models.Agenda)
-                            .filter(
-                                models.Agenda.meeting_id.in_(_agenda_meeting_ids),
-                            )
-                            .order_by(models.Agenda.meeting_id, models.Agenda.due_date)
-                            .all()
-                        )
-                        if _agendas:
-                            from collections import Counter as _Counter, defaultdict as _dd_a
-                            # 회의체별 status 카운트
-                            _by_mg_agenda: dict = _dd_a(list)
-                            for _a in _agendas:
-                                _by_mg_agenda[_a.meeting_id].append(_a)
-
-                            # 회의체 title 캐시
-                            _mg_title_cache: dict[int, str] = {}
-                            for _mid in _agenda_meeting_ids:
-                                _m = db.query(models.Meeting).filter(models.Meeting.id == _mid).first()
-                                if _m:
-                                    _mg_title_cache[_mid] = _m.title
-
-                            _a_lines = [f"[아젠다 현황] 총 {len(_agendas)}건 (회의체별 집계)"]
-                            for _mid, _alist in _by_mg_agenda.items():
-                                _mg_name = _mg_title_cache.get(_mid, f"회의체 {_mid}")
-                                _cnt = _Counter(a.status for a in _alist)
-                                _a_lines.append(f"\n  [{_mg_name}]")
-                                for _s, _label in [
-                                    ("ongoing", "진행 중"),
-                                    ("done", "완료"),
-                                    ("pending", "대기"),
-                                    ("submitted", "제출완료"),
-                                    ("draft", "초안"),
-                                ]:
-                                    if _cnt.get(_s):
-                                        _a_lines.append(f"    - {_label}: {_cnt[_s]}건")
-                            _ctx_parts.append("\n".join(_a_lines))
-                except Exception:
-                    pass
-
-                # ── 보고서 제출 현황 (PostgreSQL) ─────────────────────────────
-                try:
-                    _report_meeting_ids = (
-                        [data.meeting_id] if data.meeting_id
-                        else [mid for mid in pg_meeting_ids][:10]
-                    )
-                    if _report_meeting_ids:
-                        _reports = (
-                            db.query(models.Report)
-                            .filter(models.Report.meeting_id.in_(_report_meeting_ids))
-                            .order_by(models.Report.created_at.desc())
-                            .limit(30)
-                            .all()
-                        )
-                        if _reports:
-                            _mg_titles: dict[int, str] = {}
-                            for _mid in _report_meeting_ids:
-                                _m = db.query(models.Meeting).filter(models.Meeting.id == _mid).first()
-                                if _m:
-                                    _mg_titles[_mid] = _m.title
-                            _r_status_label = {
-                                "pending": "검토중", "approved": "승인",
-                                "rejected": "반려", "draft": "초안",
-                            }
-                            from collections import defaultdict as _dd
-                            _by_mg: dict = _dd(list)
-                            for _r in _reports:
-                                _by_mg[_r.meeting_id].append(_r)
-                            _r_lines = [f"[보고서 제출 현황] 총 {len(_reports)}건"]
-                            for _mid, _rlist in _by_mg.items():
-                                _mg_name = _mg_titles.get(_mid, f"회의체 {_mid}")
-                                _r_lines.append(f"\n  [{_mg_name}] {len(_rlist)}건")
-                                for _r in _rlist[:5]:
-                                    _rs = _r_status_label.get(_r.human_status or "", _r.human_status or "")
-                                    _rdate = _r.created_at.strftime("%Y.%m.%d") if _r.created_at else ""
-                                    _dept = _r.submitter_department or "미상"
-                                    _r_lines.append(
-                                        f"    - {_r.file_name or '(파일없음)'} "
-                                        f"[{_dept}] [{_rs}] ({_rdate})"
-                                    )
-                            _ctx_parts.append("\n".join(_r_lines))
-                except Exception:
-                    pass
-
-                if _kb_results:
-                    _ctx_parts.append(
-                        "[Knowledge Base 관련 자료]\n" + "\n".join(
-                            f"- [{r['type']}] {r['title']}: {r['content'][:200]}" for r in _kb_results
-                        )
-                    )
-
-                _sup_llm = make_llm(temperature=0.2, streaming=True)
-                _history_msgs = _to_base_messages(_chat_history_from_db)
-                async for chunk in _sup_llm.astream(
-                    [SystemMessage(content=SUPERVISOR_DIRECT_SYSTEM)]
-                    + _history_msgs
-                    + [HumanMessage(content=supervisor_direct_human(msg, "\n\n".join(_ctx_parts)))]
+                # 도구 기반 JIT 에이전트 (P3A-5/P3B-2) — 사전조립 컨텍스트 경로는 제거됨.
+                # 스코프는 tools가 RunnableConfig 기준으로 강제, 진행표시는 실제 도구 이벤트에서 파생.
+                from graphs.supervisor_graph import direct_agent_stream
+                async for _kind, _text in direct_agent_stream(
+                    msg,
+                    _to_base_messages(_chat_history_from_db),
+                    user_id=current_user.id,
+                    allowed_meeting_ids=list(pg_meeting_ids),
+                    is_admin=is_admin,
+                    meeting_id=data.meeting_id or None,
                 ):
-                    if chunk.content:
-                        _assistant_chunks.append(chunk.content)
-                        yield sse_token(chunk.content)
-
-                if hl_candidates and _assistant_chunks:
-                    _sup_full = "".join(_assistant_chunks)
-                    matched = [c for c in hl_candidates if c and c in _sup_full]
-                    if matched:
-                        yield sse_event("highlight", matched)
-
+                    if _kind == "planning":
+                        yield sse_event("planning", _text)
+                    else:
+                        _assistant_chunks.append(_text)  # finally에서 DB 저장 (P3B-3)
+                        yield sse_token(_text)
                 yield sse_done()
                 return
 
-            # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
             if _route == 'task_extractor':
                 _org_dept_pairs = _get_member_org_depts(db, data.meeting_id)
                 _org_dept_list = (
