@@ -366,7 +366,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P7-2 SSE 프로토콜을 `event:` 필드 기반으로 재설계(FE-2), 스트림 파서 공통화.
 - [ ] P7-3 §2.8 UX 백로그 26건 처리(우선: UX-3/5/6/7 — 데이터 신뢰 관련).
 - [ ] P7-4 테스트: Spring 서비스 단위테스트(인가 가드 포함), FastAPI 라우터 테스트(httpx), 프론트 핵심 composable 테스트. CI에 테스트+린트 게이트 추가.
-- [x] P7-5 잔재 정리 (2026-06-12): workmaite-server/·루트 Dockerfile·springboot/package-lock.json 삭제, reset_db.py 안전장치(비-localhost 차단). 미사용 코드 정리는 상시.
+- [x] P7-5 잔재 정리 (2026-06-12): workmaite-server/·springboot/package-lock.json 삭제, reset_db.py 안전장치. **정정: backend/Dockerfile은 잔재가 아니라 backend CI의 실사용 빌드 파일 — 오삭제로 CI 1회 실패 후 복구** (BE-4 항목에서 제외). 미사용 코드 정리는 상시.
 - [ ] P7-6 k8s: 리소스 requests/limits 전 deployment, PDB, NetworkPolicy, postgres StatefulSet 전환.
 - [ ] P7-7 **하드코딩 정리(§2.11 HC-1~12)**: 각 항목의 "개선 방향" 열대로 설정/레지스트리/enum 모듈로 외출. 우선순위: HC-3(검색 레지스트리 — P3B-6과 동일 작업), HC-2(RBAC — P1-3과 동일), HC-9(ID 헬퍼), HC-6(채점 루브릭 설정화), HC-10(kustomize overlay). 나머지는 해당 영역을 건드리는 PR에 동반 처리.
 
