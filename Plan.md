@@ -99,7 +99,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 | ID | 심각도 | 위치 | 문제 |
 |----|------|------|------|
 | BE-1 | 🟠 | 부재 | **감사 로그(audit log) 부재**: agent_logs는 AI 활동만. 회의체/보고서/아젠다/구성원 CRUD에 "누가-언제-무엇을" 기록 없음(회사 시스템 요건 미충족). HITL 승인/반려 이력은 hitl_reviews에 일부만. |
-| BE-2 | 🟡 | repositories | 목록 API 페이지네이션 없음(`findAllByMeetingId` 등 — 데이터 증가 시 성능 절벽). N+1: `supervisor.py:_get_meeting_context` 멤버별 개별 user 조회. |
+| BE-2 | 🟡 | repositories | 목록 API 페이지네이션 없음(`findAllByMeetingId` 등 — 데이터 증가 시 성능 절벽). N+1: `supervisor.py:_get_meeting_context` 멤버별 개별 user 조회. → **§2.13(PG-1~10)으로 전수 상세화, Phase 8로 작업화.** |
 | BE-3 | 🟠 | `src/test` | **테스트 사실상 0개**(Spring 1개 컨텍스트 로드 테스트, AI/프론트 0). CI도 테스트 미실행. |
 | BE-4 | ⚪ | `backend/workmaite-server/`, `backend/springboot/package-lock.json`, `backend/Dockerfile` | 빌드 잔재/혼동 파일. `reset_db.py` 위험 스크립트 방치. |
 | BE-5 | 🟡 | `application.yaml:37` | `show-sql: true` 프로파일 구분 없이 활성(prod 로그 오염 + 데이터 노출). |
@@ -244,6 +244,24 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 5. **AI 스코프에 company 차원 추가**: 조직/구성원 도구는 호출자의 company + 공유 회의체 멤버로 제한(P3B-1과 통합, UX-24 자물쇠 의미 실현).
 6. 구성원 관련 모든 변경(생성·수정·비활성화·초대)을 audit_logs에 기록(P1-6).
 
+### 2.13 페이지네이션 부재 인벤토리 (PG) — 목록 API 전수 점검 (2026-06-12)
+
+> Spring 전체에 `Pageable`/`PageRequest` 사용처 **0건**, FastAPI 목록 라우트에 limit/offset 파라미터 **0건**, 프론트에 무한 스크롤/페이지 UI **0건**. 모든 목록이 "전체 조회 → 전체 직렬화 → 전체 렌더". BE-2에서 한 줄로 지적한 것을 전수 조사로 상세화.
+> 다행히 §4.1 인덱스 초안이 keyset 컬럼(`chat_messages(thread_id, created_at)`, `stt_segments(session_id, start_sec)`)을 이미 커버 — 인덱스 선행 작업은 P2와 겹침.
+
+| ID | 심각도 | 위치 | 문제 |
+|----|------|------|------|
+| PG-1 | 🟠 | `ChatMessageRepository.findByThreadIdOrderByCreatedAtAsc`, `ChatMessageController GET /chat/messages`, FastAPI `chat_history.py:50` | **채팅 이력 전체 로드**: 스레드당 메시지가 무한 누적되는데 매 진입 시 전부 내려줌. 사용량에 정비례로 느려지는 첫 번째 절벽. (supervisor의 replay는 최근 20개로 이미 제한 — 서버 측은 OK, API/프론트만 문제.) |
+| PG-2 | 🟠 | `ScriptRepository.findBySessionIdOrderByStartSecAsc`, `ScriptController GET /sessions/{id}/scripts` | **STT 세그먼트 전체 로드**: 1–2시간 회의면 세그먼트 수천 행 — 진행 중 화면 재진입/아카이브 조회마다 전체 전송. |
+| PG-3 | 🟡 | `MeetingController GET /meetings`(+keyword), `GET /me/meetings`, `MeetingRepository.findByTitleContaining...` | 회의체 목록·검색 무제한. 검색은 `ILIKE %kw%` full scan + 전체 반환. |
+| PG-4 | 🟡 | `SessionRepository.findByMeetingId`, `ReportRepository.findAllByMeetingId`, `AgendaRepository.findByMeetingIdOrderByCreatedAt` | 회의체 하위 목록(세션/보고서/아젠다) 전체 반환 — 운영 1년 누적 시 회의체당 수백 건. |
+| PG-5 | 🟡 | `UserController GET /users`(전체 사용자), `GET /users/search` | 사용자 디렉터리 무제한 — MT-3(전사 디렉터리 공개)과 같은 API. 스코프 축소(P1-7)와 페이지네이션을 한 작업으로. |
+| PG-6 | 🟡 | FastAPI `meetings.py:43`(전체 회의), `meetings.py:364-370`(전체 사용자 + **사용자별 멤버십 개별 쿼리 N+1**), `upload.py:105` | 관리/조회용 목록 라우트들이 `.all()` — N+1까지 겹쳐 사용자 수에 제곱 비례 비용. |
+| PG-7 | 🟡 | `neo4j_graph.py GET /archive` | 사용자 소속 그래프 **전체**를 한 응답으로(LIMIT 없는 Cypher 다수: Department 전체, 소속 회의체 전체와 하위 노드). 응답 크기가 데이터 증가에 정비례. |
+| PG-8 | 🟡 | `PastMeetingsPage.vue:15,36` | 프론트 N+1 HTTP: 전체 회의 조회 후 **회의마다** `GET /meetings/{id}/sessions` 개별 호출 — 회의 50개면 요청 51회. |
+| PG-9 | ⚪ | `AgentPanel.vue:130`, SessionPage 스크립트 영역 | 메시지/세그먼트 배열 전체를 `v-for` 렌더 — 증분 로드·가상 스크롤 없음(PG-1·2 해결의 프론트 짝). |
+| PG-10 | ⚪ | `ApiResponse.java`, FastAPI 응답 모델 | **페이지 응답 계약 자체가 부재**: envelope에 page/size/total/next_cursor 메타 필드 없음 — 개별 API를 고치기 전에 계약부터 정의해야 함. |
+
 ---
 
 ## 3. 단계별 개선 계획
@@ -273,13 +291,14 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 1 — 인증/인가 통합 (1주) 🔴
 목표: "누가 무엇을 볼 수 있는가"의 단일 모델 확립. AI 데이터 범위 정의의 토대.
 
-- [ ] P1-1 인증 발급 주체를 **Spring으로 일원화**: FastAPI `routers/auth.py`(signup/login) 제거, FastAPI는 검증만. pbkdf2/BCrypt 혼재 해소(기존 pbkdf2 사용자 마이그레이션 또는 재설정).
-- [ ] P1-2 JWT에 `type`(access/refresh) 클레임 추가, refresh는 **PostgreSQL `refresh_tokens` 테이블**에 저장+회전+로그아웃 시 폐기. (~~Redis 저장~~ — 2026-06-12 Redis 미사용 확정·의존성 제거됨. 토큰 검증은 어차피 DB 사용자 조회와 함께 일어나므로 PG로 충분; 추후 성능 필요 시 캐시 도입 재검토)
-- [ ] P1-3 **RBAC 도입**: users에 `role`(SYSTEM_ADMIN 등) 컬럼 추가, position 문자열 판별(`supervisor.py:575`) 제거. 회의체 수준 권한은 meeting_members.role 사용.
-- [ ] P1-4 **멤버십 가드 공통화**: Spring에 `@PreAuthorize` 또는 AOP `MeetingAccessGuard`(meetingId/reportId/sessionId → 멤버십 검증) 도입, 전 컨트롤러 적용. FastAPI에 동일한 `require_meeting_member(meeting_id)` dependency 작성 후 meetings/sessions/upload/supervisor 전 라우트 적용.
-- [ ] P1-5 Neo4j 사용자 매칭을 email/name → `pg_id` 단일 키로 통일 (SEC-12).
-- [ ] P1-6 **감사 로그 도입**(BE-1): `audit_logs` 테이블 (§4 마이그레이션) + Spring AOP(@AuditLogged) / FastAPI 미들웨어로 CRUD·승인·로그인 기록.
-- [ ] P1-7 **멀티테넌시 구성원 관리 재설계**(§2.12 MT-1~6): ① **즉시(마이그레이션 불필요)**: `PATCH /users/{id}`의 비밀번호 변경 제거+권한 가드(MT-1 계정 탈취 차단), `GET /users`·search에 company+공유 회의체 스코프 강제(MT-3), FastAPI user patch 2종 동일 처리. ② **마이그레이션 동반(§4.3 V4)**: companies 정규화, `COMPANY_ADMIN` 역할, 초대 기반 온보딩(invitations 테이블, `must_change_password`), 회사 탭 UI를 초대 흐름으로 교체(비밀번호 입력 필드 삭제 — UX-25 해소). ③ AI 조직 쿼리에 company 스코프(P3B-1과 통합).
+- [x] P1-1 인증 발급 주체를 **Spring으로 일원화** (2026-06-12): FastAPI `routers/auth.py` 제거, FastAPI는 검증만. pbkdf2 혼재는 Spring 로그인에 레거시 검증+성공 시 BCrypt 재해시(점진 마이그레이션, `LegacyPbkdf2Verifier`)로 해소.
+- [x] P1-2 JWT `type` 클레임 + **`refresh_tokens` 테이블 회전/폐기** (2026-06-12): Flyway 도입(V2), 회전된 토큰 재사용 탐지 시 전체 폐기(noRollbackFor로 커밋 보장), jti 추가(같은 초 발급 토큰 byte-identical 버그 — E2E로 발견·수정), logout 실제 폐기 + 프론트 연동. FastAPI/WS도 type=refresh 거부.
+- [x] P1-3 **RBAC 도입** (2026-06-12): users.role(V2) + V3 부트스트랩(기존 전략기획팀→SYSTEM_ADMIN 1회 부여). supervisor.py position 판별 2곳, meetings.py `_is_strategic` 부서 판별, 프론트 isStrategicTeam 모두 role 기준으로 교체.
+- [x] P1-4 **멤버십 가드 공통화** (2026-06-12): Spring `MeetingAccessGuard`+`CurrentUser` — 각 서비스의 단일 진입점(findXxxById)과 meetingId 경로에 적용. FastAPI `access_guard.py` — meetings/sessions/upload/stt/supervisor 라우트 적용. 비멤버 403 E2E 검증. (supervisor의 나머지 도구 스코프는 P3B-1에서)
+- [x] P1-5 Neo4j 사용자 매칭 `pg_id` 단일 키 통일 (2026-06-12): /archive·supervisor 본인 매칭, meeting-groups 멤버 추가/삭제(user_id 필수화), 간사 연결(호출자 본인) — email/name OR 매칭 전부 제거.
+- [x] P1-6 **감사 로그 도입** (2026-06-12): audit_logs(V2) + Spring @AuditLogged AOP(6개 서비스 CUD·승인·할당) + AuthService LOGIN/SIGNUP/LOGOUT + FastAPI AuditLogMiddleware(변경성 요청). TransactionTemplate(REQUIRES_NEW)로 본 처리와 분리, signup은 afterCommit(FK). 4종 이벤트 DB 기록 검증.
+- [x] P1-7① **멀티테넌시 즉시 조치** (2026-06-12): PATCH /users/{id} 비밀번호 변경 제거+권한 가드(MT-1), GET /users·search 디렉터리 스코프(본인+내 회사+공유 회의체, MT-3) — Spring/FastAPI 양쪽. E2E 검증.
+- [ ] P1-7② **마이그레이션 동반(§4.3 V4)**: companies 정규화, COMPANY_ADMIN 부여 UI, 초대 기반 온보딩(invitations, `must_change_password`), 회사 탭 UI 초대 흐름 교체(MT-2/UX-25). ③ AI 조직 쿼리 company 스코프(P3B-1과 통합).
 
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
@@ -352,7 +371,18 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P7-6 k8s: 리소스 requests/limits 전 deployment, PDB, NetworkPolicy, postgres StatefulSet 전환.
 - [ ] P7-7 **하드코딩 정리(§2.11 HC-1~12)**: 각 항목의 "개선 방향" 열대로 설정/레지스트리/enum 모듈로 외출. 우선순위: HC-3(검색 레지스트리 — P3B-6과 동일 작업), HC-2(RBAC — P1-3과 동일), HC-9(ID 헬퍼), HC-6(채점 루브릭 설정화), HC-10(kustomize overlay). 나머지는 해당 영역을 건드리는 PR에 동반 처리.
 
-**의존 관계**: P0 → P1 → (P2 ∥ P3A) → P3B → P3C, P4는 독립 진행 가능, P5/P6은 P3A(트레이싱·메트릭) 이후 병행, P7은 상시.
+### Phase 8 — 페이지네이션 도입 (§2.13 PG, 3–5일, 독립 진행 가능) 🟡
+목표: 데이터 누적에 정비례로 느려지는 목록 경로 제거. 계약 정의 → 절벽이 빠른 순(채팅·STT)부터 적용 → 프론트 전환 → 기본값 강제 순서로, **배포 중간 단계에서도 기존 프론트가 깨지지 않게** 진행.
+
+- [ ] P8-1 **공통 페이지 계약 정의(PG-10)**: 응답 envelope 표준화 — `items` + `pageInfo { nextCursor }`(keyset) 또는 `{ page, size, totalElements }`(offset). 기본 size 30, 최대 100을 **서버에서 강제**. 시간순 무한 누적 데이터(채팅·STT 세그먼트)는 keyset 커서(`(created_at,id)` / `(start_sec,id)`), 관리·검색 목록은 offset(`Pageable`). Spring은 `ApiResponse`에 pageInfo 추가, FastAPI는 제네릭 `Page[T]` Pydantic 모델. `docs/api-pagination.md`에 규약 기록.
+- [ ] P8-2 **채팅 이력(PG-1)**: `GET /chat/messages?threadId&before=<cursor>&limit=` — 최초 로드는 최신 N개(역순 조회 후 클라이언트 정렬), `before` 커서로 과거 페이지. Spring 리포지토리 keyset 쿼리 + FastAPI `chat_history.py` 동일 계약. AgentPanel은 상단 스크롤 도달 시 loadMore. supervisor의 최근 20개 replay 로직은 무변경 확인.
+- [ ] P8-3 **STT 스크립트(PG-2)**: `GET /sessions/{id}/scripts?after_sec=&limit=` keyset. SessionPage는 증분 로드, 진행 중 세션의 실시간 세그먼트 추가(WS)는 기존 경로 유지 — 페이지 로드와 실시간 append가 겹치지 않게 커서 기준 명확히. 세그먼트 수가 큰 화면은 가상 스크롤 검토(PG-9).
+- [ ] P8-4 **Spring 목록 API(PG-3/4/5)**: `MeetingRepository`/`SessionRepository`/`ReportRepository`/`AgendaRepository`/`UserRepository` 목록 메서드에 `Pageable` 도입, 컨트롤러는 `page,size,sort` 수용 + size 상한 검증. **호환 전략**: 1단계는 파라미터 미지정 시 기존 전체 반환 유지(기존 프론트 보호), 프론트 전환(P8-6) 후 2단계에서 기본 size 강제. `/users`·`/users/search`는 P1-7(MT-3 스코프 축소)과 같은 PR로.
+- [ ] P8-5 **FastAPI/Neo4j(PG-6/7)**: 목록 라우트에 `limit/offset` Query 파라미터(FastAPI `Query(le=100)`), Cypher에 `SKIP/LIMIT`. `meetings.py:364` 사용자별 멤버십 N+1을 단일 join 쿼리로 교체. `/archive`는 회의체 목록을 페이지 단위로, 그래프 시각화 응답은 노드 수 상한 + "더 보기" 확장 쿼리로 분리.
+- [ ] P8-6 **프론트 공통화(PG-8/9)**: `composables/usePagination.js`(offset)·`useInfiniteScroll.js`(cursor) 작성 후 AgentPanel·SessionPage 스크립트·회의체/아카이브 목록에 적용. PastMeetingsPage의 회의별 sessions N+1 HTTP는 서버에 집계 엔드포인트(회의+세션 요약 한 번에) 또는 배치 조회로 교체.
+- [ ] P8-7 **검증/회귀 방지**: 시드 스크립트(채팅 5천 건, 세그먼트 1만 건)로 전후 응답시간·페이로드 크기 측정해 본 문서에 기록. keyset 쿼리 `EXPLAIN`으로 §4.1 인덱스(`idx_chat_messages_thread`, `idx_stt_segments_session`) 사용 확인 — 인덱스 미적용 환경이면 P2-2(V2 마이그레이션)를 선행. 페이지네이션 파라미터 검증(음수/초과 size) 테스트 추가(P7-4와 연계).
+
+**의존 관계**: P0 → P1 → (P2 ∥ P3A) → P3B → P3C, P4는 독립 진행 가능, P5/P6은 P3A(트레이싱·메트릭) 이후 병행, P7은 상시. **P8은 독립 진행 가능하나 P8-7의 인덱스 확인 때문에 P2-2(V2 인덱스)와 같이 가면 효율적**, `/users` 계열(P8-4)은 P1-7과 같은 PR 권장.
 **Phase 3 내부 순서가 중요**: 3A(체크포인터·structured output·트레이싱)가 깔려야 3B(Supervisor 전환)를 안전하게 검증할 수 있다 — 측정 수단 없이 아키텍처를 갈아엎지 말 것.
 
 ---
@@ -642,6 +672,17 @@ Plan.md §2.8 UX 백로그와 §3 P7-1~3을 수행해줘. 우선순위:
 4. 나머지 UX 항목을 작은 PR 단위로 처리하고 Plan.md 체크박스 갱신.
 ```
 
+### 6.11 Phase 8 (페이지네이션)
+```
+Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)을 수행해줘. 순서:
+1. P8-1: 페이지 응답 계약부터 — Spring ApiResponse에 pageInfo, FastAPI Page[T] 모델, docs/api-pagination.md.
+2. P8-2/3: 절벽이 빠른 채팅 이력(keyset before 커서)과 STT 스크립트(after_sec 커서)를 백엔드+프론트(무한 스크롤) 세트로.
+3. P8-4/5: 나머지 Spring 목록에 Pageable(파라미터 미지정 시 기존 동작 유지), FastAPI limit/offset + Cypher SKIP/LIMIT, meetings.py:364 N+1 join 교체, /archive 노드 상한.
+4. P8-6: usePagination/useInfiniteScroll composable 공통화, PastMeetingsPage N+1 HTTP 제거.
+5. P8-7: 시드 데이터로 전후 측정해 Plan.md에 기록, EXPLAIN으로 인덱스 사용 확인.
+주의: 기존 프론트가 깨지지 않게 백엔드는 호환 모드(파라미터 옵션) → 프론트 전환 → 기본 size 강제 순. /users 계열은 MT-3 스코프 작업(P1-7)과 같은 PR로.
+```
+
 ---
 
 ## 7. 진행 현황
@@ -649,8 +690,9 @@ Plan.md §2.8 UX 백로그와 §3 P7-1~3을 수행해줘. 우선순위:
 - [x] 전수 감사 완료 (2026-06-12) — 본 문서 작성
 - [x] Agentic 하네스/챗봇 서비스 관점 보강 (2026-06-12) — §2.9, Phase 3 재구성(3A/3B/3C), §8 추가
 - [x] GraphRAG 실효성·하드코딩 점검 (2026-06-12) — §2.10(G-1~8: 죽은 인덱스명, 그래프 순회 부재 등), §2.11(HC-1~12), H-13 플래닝 연극, P0-8 핫픽스·P3B-6~8·P6-5·P7-7 추가
+- [x] 페이지네이션 전수 점검 (2026-06-12) — §2.13(PG-1~10), Phase 8(P8-1~7)·§6.11 추가
 - [x] **Phase 0 보안 응급조치 — 코드 측 완료 (2026-06-12)**: P0-2~P0-8 적용 + 퀵윈(BE-5, DATA-2 race, DATA-9, H-3 env화, print 정리). 빌드 검증(Python ast/gradle compileJava/vite build) 통과. **잔여: P0-1 키 회전(사람, SECURITY_ROTATION.md), 클러스터 Secret 생성, WLK WS 인증, /grafana·actuator 정책 결정**
-- [ ] Phase 1 인증/인가 통합
+- [x] **Phase 1 인증/인가 통합 — 코드 측 완료 (2026-06-12)**: P1-1~P1-7① 적용·E2E 검증(자세한 내용은 §3 Phase 1 체크박스). Flyway 도입 + V2(refresh_tokens/users.role/audit_logs)·V3(role 부트스트랩) 마이그레이션이 dev DB에 적용됨. **잔여: P1-7②(초대 온보딩·companies 정규화·V4), k8s 배포 시 ai-secret JWT_SECRET 동일값 확인**
 - [ ] Phase 2 스키마/동기화
 - [ ] Phase 3A 하네스 기반 공사 (체크포인터·structured output·트레이싱·SSE v2)
 - [ ] Phase 3B Supervisor 그래프 + 도구/컨텍스트 엔지니어링
@@ -659,6 +701,7 @@ Plan.md §2.8 UX 백로그와 §3 P7-1~3을 수행해줘. 우선순위:
 - [ ] Phase 5 관측성/비용
 - [ ] Phase 6 평가 체계
 - [ ] Phase 7 코드 품질/UX
+- [ ] Phase 8 페이지네이션 (§2.13)
 
 ---
 
