@@ -202,8 +202,6 @@ function handleCanvasClick() {
 let ro = null
 
 onMounted(() => {
-  // 초대 링크(?invite=)로 진입 시 가입 모달 자동 오픈 (P1-7②)
-  if (new URLSearchParams(window.location.search).get('invite')) openRegister()
 
   const canvas = canvasRef.value
   ctx = canvas.getContext('2d')

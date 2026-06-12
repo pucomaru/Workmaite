@@ -117,6 +117,54 @@ public class UserService {
     }
 
     /**
+     * 구성원 일괄 생성 (P1-7② 개정 — 임시 비밀번호 방식).
+     * SYSTEM_ADMIN 또는 COMPANY_ADMIN만. 임시 비밀번호는 행마다 필수이며
+     * must_change_password=true로 생성되어 최초 로그인 시 변경이 강제된다.
+     */
+    @Transactional
+    public List<Map<String, Object>> createMembers(Long callerId, List<Map<String, String>> rows) {
+        User caller = userRepository.findById(callerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (caller.getRole() != UserRole.SYSTEM_ADMIN && caller.getRole() != UserRole.COMPANY_ADMIN) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED);
+        }
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        for (Map<String, String> row : rows) {
+            String email = row.getOrDefault("email", "").trim();
+            String name = row.getOrDefault("name", "").trim();
+            String password = row.getOrDefault("password", "");
+            Map<String, Object> r = new java.util.HashMap<>();
+            r.put("email", email);
+            r.put("name", name);
+            if (email.isBlank() || name.isBlank()) {
+                r.put("ok", false); r.put("reason", "이름/이메일 누락");
+            } else if (password.length() < 8) {
+                r.put("ok", false); r.put("reason", "임시 비밀번호(8자 이상) 필수");
+            } else if (userRepository.existsByEmail(email)) {
+                r.put("ok", false); r.put("reason", "이미 가입된 이메일");
+            } else {
+                userRepository.save(User.builder()
+                        .email(email)
+                        .name(name)
+                        .passwordHash(passwordEncoder.encode(password))
+                        .company(caller.getCompany())
+                        .companyId(caller.getCompanyId())
+                        .department(blankToNull(row.get("department")))
+                        .position(blankToNull(row.get("position")))
+                        .mustChangePassword(true) // 최초 로그인 시 변경 강제
+                        .build());
+                r.put("ok", true);
+            }
+            results.add(r);
+        }
+        return results;
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    /**
      * 디렉터리 가시성 (MT-3): 본인 + 내 회사 구성원 + 나와 같은 회의체에 속한 인원만.
      * SYSTEM_ADMIN은 전체.
      */

@@ -1,6 +1,7 @@
 package com.workmaite.global.config;
 
 import com.workmaite.global.auth.JwtAuthenticationFilter;
+import com.workmaite.global.auth.MustChangePasswordFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,6 +28,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MustChangePasswordFilter mustChangePasswordFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -44,7 +46,6 @@ public class SecurityConfig {
             // 요청별 권한 설정
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()      // 로그인/회원가입
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/invitations/*").permitAll() // 초대 검증(가입 전, P1-7②)
                 .requestMatchers("/actuator/**").permitAll()        // actuator (prometheus, health 등)
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Swagger
                 .requestMatchers("/", "/error").permitAll()          // 루트/에러
@@ -53,7 +54,9 @@ public class SecurityConfig {
 
             // JWT 필터를 Security 필터 앞에 추가
             .addFilterBefore(jwtAuthenticationFilter,
-                UsernamePasswordAuthenticationFilter.class);
+                UsernamePasswordAuthenticationFilter.class)
+            // 임시 비밀번호 상태의 API 사용 차단 — JWT 인증 뒤에 평가 (P1-7②)
+            .addFilterAfter(mustChangePasswordFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
