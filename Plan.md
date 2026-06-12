@@ -335,8 +335,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P3B-8 **과제 추출의 그래프 활용(G-4)**: 추출 시 ① 유사 과거 아젠다 top-k(중복 제안 방지·이월 과제 연결) ② `Department-[담당부서]->Agenda` 이력 기반 부서 추천(현 PG 멤버 부서 목록 단독 사용 대체) ③ 추출 결과를 세션 노드에 연결(UX-11의 "회의에서 나온 아젠다는 회의에 연결" 구조 반영). 부서 추천 정확도는 P6 eval로 측정.
 
 **3C. 서비스 가드 (챗봇 운영 안전망)**
-- [ ] P3C-1 **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
-- [ ] P3C-2 **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
+- [~] P3C-1 **비용 상한 — 완료 (2026-06-12)**: 일일 토큰 예산을 PG 집계(token_usage_logs)로 판정. 분당 rate limit은 **사용자 결정으로 제외**. 동시 1개 세마포어는 잔여. 원계획: **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
+- [~] P3C-2 **idempotency — 백엔드 완료 (2026-06-12)**: HITL confirm 2종+아젠다 commit 중복 차단(409, 실패 시 키 해제 — E2E 검증). 잔여: 프론트 버튼 더블클릭 가드. 원계획: **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
 - [ ] P3C-3 **피드백 루프(H-9)**: 응답별 👍/👎+사유 수집(`chat_feedback` 테이블, §4.2) → P6 eval 데이터셋으로 환류. HITL 반려 사유도 동일 파이프라인.
 - [ ] P3C-4 출력 가드레일(H-12): 쓰기 도구는 HITL interrupt 필수 유지, 근거 없는 단정 답변 방지 지침, (선택) 입력 모더레이션.
 
@@ -349,9 +349,9 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
-- [ ] P5-1 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
+- [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
 - [ ] P5-2 Alertmanager 룰: sync outbox 적체, STT 실패율, LLM 에러율, 5xx, pod 재시작.
-- [ ] P5-3 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
+- [~] P5-3(부분) 가격표 pricing.yaml 외출 + prefix 매칭 버그 수정 (2026-06-12). 잔여: 월별 비용 리포트 API, STT 분 단위 실측. 원계획: 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
 - [ ] P5-4 PostgreSQL/Neo4j 백업 CronJob(pg_dump → R2, neo4j-admin dump), 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
