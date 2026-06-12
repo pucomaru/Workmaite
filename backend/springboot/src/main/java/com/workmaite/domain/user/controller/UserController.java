@@ -70,6 +70,17 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId)));
     }
 
+    // 역할 변경 (COMPANY_ADMIN 부여/회수) — SYSTEM_ADMIN만
+    @PatchMapping("/{userId}/role")
+    public ResponseEntity<ApiResponse<UserResponse>> updateRole(
+            Authentication authentication,
+            @PathVariable Long userId,
+            @RequestBody Map<String, String> body) {
+        Long callerId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(
+                userService.updateRole(callerId, userId, body.getOrDefault("role", ""))));
+    }
+
     // 구성원 일괄 생성 (임시 비밀번호 + 변경 강제) — SYSTEM/COMPANY_ADMIN만
     @PostMapping("/bulk")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> createMembers(

@@ -116,6 +116,26 @@ public class UserService {
         return UserResponse.from(user);
     }
 
+    /** 역할 변경 (P1-7② — COMPANY_ADMIN 부여/회수). SYSTEM_ADMIN만 가능. */
+    @Transactional
+    public UserResponse updateRole(Long callerId, Long userId, String role) {
+        User caller = userRepository.findById(callerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (caller.getRole() != UserRole.SYSTEM_ADMIN) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED);
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        UserRole newRole;
+        try {
+            newRole = UserRole.valueOf(role);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+        user.changeRole(newRole);
+        return UserResponse.from(user);
+    }
+
     /**
      * 구성원 일괄 생성 (P1-7② 개정 — 임시 비밀번호 방식).
      * SYSTEM_ADMIN 또는 COMPANY_ADMIN만. 임시 비밀번호는 행마다 필수이며

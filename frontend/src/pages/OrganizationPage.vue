@@ -1,9 +1,11 @@
 <script setup>
+import { useAuthStore } from '../stores/auth'
 import { ref, computed, onMounted } from 'vue'
 import api, { apiAI } from '../api'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 
+const auth = useAuthStore()
 const orgColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
   { label: '회사', width: '110px', sortKey: 'company' },
@@ -122,7 +124,7 @@ async function removeMember(member) {
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
 
-function openEdit(member) { editModal.value = { ...member } }
+function openEdit(member) { editModal.value = { ...member, _origRole: member.role } }
 
 async function saveEdit() {
   const m = editModal.value
@@ -133,8 +135,11 @@ async function saveEdit() {
       department: m.department || null,
       position: m.position || null,
     })
+    if (auth.user?.role === 'SYSTEM_ADMIN' && m.role && m.role !== m._origRole) {
+      await api.patch(`/api/v1/users/${m.id}/role`, { role: m.role }) // COMPANY_ADMIN 부여/회수 (P1-7②)
+    }
     await fetchAllMembers()
-  } catch (e) { alert(e.response?.data?.detail || '변경 실패') }
+  } catch (e) { alert(e.response?.data?.detail || e.response?.data?.message || '변경 실패') }
   editModal.value = null
 }
 
@@ -523,6 +528,14 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <label>이메일</label>
                 <input :value="editModal.email" class="app-modal-input" disabled style="background:var(--surface);color:var(--dark-muted)" />
               </div>
+            </div>
+            <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
+              <label>시스템 역할 (SYSTEM_ADMIN 전용)</label>
+              <select v-model="editModal.role" class="app-modal-input">
+                <option value="USER">USER</option>
+                <option value="COMPANY_ADMIN">COMPANY_ADMIN (자사 구성원 관리)</option>
+                <option value="SYSTEM_ADMIN">SYSTEM_ADMIN</option>
+              </select>
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">
