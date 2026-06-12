@@ -142,6 +142,7 @@ public class SessionService {
         sessionMemberRepository.deleteBySessionId(sessionId);
         minutesRepository.deleteBySessionId(sessionId);
         sessionRepository.delete(session);
+        neoSyncService.deleteSession(sessionId); // 삭제 전파 (DATA-4)
     }
 
     // SCHEDULED 상태일 때만 시작 가능, 그 외 상태면 SESSION_ALREADY_STARTED 에러

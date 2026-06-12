@@ -67,6 +67,7 @@ public class AgendaService {
     @AuditLogged(action = "DELETE", entityType = "agenda")
     public void deleteAgenda(Long agendaId) {
         agendaRepository.delete(findAgendaById(agendaId));
+        neoSyncService.deleteAgenda(agendaId); // 삭제 전파 (DATA-4)
     }
 
     @Transactional

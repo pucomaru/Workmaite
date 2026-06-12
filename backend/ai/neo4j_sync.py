@@ -739,26 +739,19 @@ async def sync_meeting_relation(
 
 # ─── 삭제 동기화 ──────────────────────────────────────────────────────────────
 
+# 삭제 전파는 실패를 호출자에게 알려야 아웃박스가 재시도할 수 있다 (P2-4)
+# — 예외를 삼키지 않고 전파한다. fire-and-forget이 필요한 호출자는 스스로 감싼다.
 async def delete_meeting(meeting_id: int) -> None:
-    try:
-        await run_cypher("MATCH (mg:Meetings {id: $id}) DETACH DELETE mg",
-                         {"id": f"mg-{meeting_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Meetings 삭제 실패: {e}")
+    await run_cypher("MATCH (mg:Meetings {id: $id}) DETACH DELETE mg",
+                     {"id": f"mg-{meeting_id}"})
 
 async def delete_session(session_id: int) -> None:
-    try:
-        await run_cypher("MATCH (s:Session {id: $id}) DETACH DELETE s",
-                         {"id": f"session-{session_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Session 삭제 실패: {e}")
+    await run_cypher("MATCH (s:Session {id: $id}) DETACH DELETE s",
+                     {"id": f"session-{session_id}"})
 
 async def delete_agenda(agenda_id: int) -> None:
-    try:
-        await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
-                         {"id": f"agenda-{agenda_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Agenda 삭제 실패: {e}")
+    await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
+                     {"id": f"agenda-{agenda_id}"})
 
 
 # ─── 실패 재시도 ──────────────────────────────────────────────────────────────
