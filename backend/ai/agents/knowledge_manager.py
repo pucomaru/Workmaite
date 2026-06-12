@@ -266,25 +266,20 @@ async def search_knowledge(
 ) -> List[dict]:
     from neo4j_client import run_cypher
 
-    # 인덱스명은 neo4j_sync._VECTOR_INDEXES와 일치해야 한다 (불일치 시 검색이 조용히 0건이 됨)
-    index_map = {
-        "Minutes":       "minutesEmbedding",
-        "Agenda":        "agendaEmbedding",
-        "HumanJudgment": "humanJudgmentEmbedding",
-        "ReportChunk":   "reportChunkEmbedding",
-        "MinutesChunk":  "minutesChunkEmbedding",
-        "KnowledgeChunk": "reportChunkEmbedding",  # 지식 문서는 ReportChunk 라벨로 저장됨
-    }
-    index_name = index_map.get(node_type, "minutesChunkEmbedding")
-    embedding = await _embed(query)
+    # 인덱스명·레거시 폴백·0건 메트릭은 retrieval_registry가 단일 관리 (P3B-6)
+    from retrieval_registry import index_for, REGISTRY
 
-    # 구버전 DB에는 Minutes 인덱스가 레거시 이름으로 존재할 수 있어 폴백 후보를 둔다
-    candidates = [index_name]
-    if node_type == "Minutes":
-        candidates.append("minutes_embedding_index")
+    try:
+        index_for(node_type)  # 미등록 라벨 조기 발견
+    except KeyError as e:
+        logger.warning(f"[search_knowledge] {e}")
+        return []
+    embedding = await _embed(query)
+    entry_label = REGISTRY[node_type].get("alias", node_type)
+    entry = REGISTRY[entry_label]
 
     last_err: Exception | None = None
-    for idx in candidates:
+    for idx in [entry["index"], *entry.get("legacy", [])]:
         try:
             rows = await run_cypher(
                 f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
@@ -295,11 +290,13 @@ async def search_knowledge(
                 {"k": k, "embedding": embedding},
             )
             if not rows:
+                from retrieval_registry import RETRIEVAL_ZERO_RESULTS
+                RETRIEVAL_ZERO_RESULTS.labels(entry_label).inc()
                 logger.warning(f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}")
             return rows
         except Exception as e:
             last_err = e
-    logger.warning(f"[search_knowledge] 검색 실패 ({node_type}/{candidates}): {last_err}")
+    logger.warning(f"[search_knowledge] 검색 실패 ({node_type}): {last_err}")
     return []
 
 

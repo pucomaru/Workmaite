@@ -40,16 +40,10 @@ logger = logging.getLogger(__name__)
 
 # ─── VectorIndex 대상 노드 목록 ──────────────────────────────────────────────
 
-_VECTOR_INDEXES: list[tuple[str, str, str]] = [
-    ("Meetings",      "meetingsEmbedding",      "embedding"),
-    ("Agenda",        "agendaEmbedding",        "embedding"),
-    ("Session",       "sessionEmbedding",       "embedding"),
-    ("Minutes",       "minutesEmbedding",       "embedding"),
-    ("MinutesChunk",  "minutesChunkEmbedding",  "embedding"),
-    ("Report",        "reportEmbedding",        "embedding"),
-    ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
-    ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
-]
+# 인덱스 정의의 단일 소스는 retrieval_registry (P3B-6) — 여기서는 생성 목록만 파생
+from retrieval_registry import index_names_for_creation
+
+_VECTOR_INDEXES: list[tuple[str, str, str]] = index_names_for_creation()
 
 
 # ─── 유니크 제약 (P2-5) ───────────────────────────────────────────────────────
