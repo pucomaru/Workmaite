@@ -1,5 +1,6 @@
 package com.workmaite.domain.user.entity;
 
+import com.workmaite.domain.company.entity.Company;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -31,9 +32,6 @@ public class User {
     private String passwordHash;
 
     @Column(length = 100)
-    private String company;
-
-    @Column(length = 100)
     private String department;
 
     @Column(length = 100)
@@ -45,9 +43,10 @@ public class User {
     @Builder.Default
     private UserRole role = UserRole.USER;
 
-    // 회사 정규화 FK (P1-7②, MT-4) — company 문자열은 과도기 유지
-    @Column(name = "company_id")
-    private Long companyId;
+    // 회사 정규화 (P1-7②, MT-4) — users.company 문자열을 대체
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "company_id")
+    private Company company;
 
     @Column(name = "must_change_password", nullable = false)
     @Builder.Default
@@ -74,9 +73,8 @@ public class User {
         updatedAt = LocalDateTime.now();
     }
 
-    public void update(String name, String company, String department, String position) {
+    public void update(String name, String department, String position) {
         this.name = name;
-        this.company = company;
         this.department = department;
         this.position = position;
     }
@@ -90,7 +88,12 @@ public class User {
         this.role = role;
     }
 
-    public void assignCompany(Long companyId) {
-        this.companyId = companyId;
+    public void assignCompany(Company company) {
+        this.company = company;
+    }
+
+    /** 호환용 — company_id 직접 접근 (관계 매핑 전환, P1-7②) */
+    public Long getCompanyId() {
+        return company != null ? company.getId() : null;
     }
 }
