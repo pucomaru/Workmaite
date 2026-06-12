@@ -94,6 +94,9 @@ class _RoutingDecision(BaseModel):
         "report_reviewer",
         "knowledge_manager",
         "supervisor_direct",
+        # 프롬프트가 지시하는데 Literal에 없어 반환 불가였던 죽은 라벨 복구 (P3A-5
+        # — eval r15에서 코딩 요청이 task_extractor로 오분류되는 것으로 실측 확인)
+        "off_topic",
     ] = Field(description="위임할 에이전트 이름")
     steps: List[str] = Field(
         default_factory=list,
@@ -121,18 +124,30 @@ _ROUTING_SYSTEM = """\
 
 ★ off_topic 케이스 예시 (반드시 off_topic):
   "너 몇살이야", "오늘 날씨 어때", "파이썬 코드 짜줘", "주식 어때", "점심 뭐 먹지", "농담 해줘"
+  단, 인사말("안녕하세요", "고마워" 등)과 워크메이트 사용법 질문은 off_topic이 아니라 supervisor_direct.
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
 
 
-async def classify_intent(message: str) -> tuple[str, str, List[str]]:
-    """사용자 메시지를 분석해 (에이전트명, 근거, 처리단계) 튜플을 반환합니다."""
+async def classify_intent(message: str, history: List[dict] | None = None) -> tuple[str, str, List[str]]:
+    """사용자 메시지를 분석해 (에이전트명, 근거, 처리단계) 튜플을 반환합니다.
+
+    history(최근 대화)를 주면 멀티턴 맥락을 반영해 라우팅한다 (AI-9 — 예:
+    "방금 그거 회의록으로 만들어줘"처럼 직전 대화를 가리키는 요청).
+    """
     try:
+        human = message[:500]
+        if history:
+            recent = "\n".join(
+                f"{m.get('role', 'user')}: {str(m.get('content', ''))[:120]}"
+                for m in history[-6:]
+            )
+            human = f"[최근 대화]\n{recent}\n\n[현재 요청]\n{message[:500]}"
         routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
         decision = await routing_llm.ainvoke([
             SystemMessage(content=_ROUTING_SYSTEM),
-            HumanMessage(content=message[:500]),
+            HumanMessage(content=human),
         ])
         return decision.agent, decision.thinking, decision.steps or []
     except Exception as e:
@@ -415,8 +430,8 @@ async def supervisor_chat(
 ):
     msg = data.message or ""
 
-    # ── LLM 라우팅 결정 ─────────────────────────────────────────────────────────
-    _route, _route_thinking, _route_steps = await classify_intent(msg)
+    # ── LLM 라우팅 결정 — 최근 대화 맥락 포함 (AI-9) ────────────────────────────
+    _route, _route_thinking, _route_steps = await classify_intent(msg, data.chat_history or [])
 
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
