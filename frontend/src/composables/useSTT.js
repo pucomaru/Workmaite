@@ -1,4 +1,4 @@
-// ── HTTP 청크 방식 상수 (gcapi / whisperapi 모드) ──────────────────
+// ── HTTP 청크 방식 상수 (OpenAI 전사) ──────────────────
 const MAX_CHUNK_MS  = 12000
 const MIN_CHUNK_MS  = 1500
 const SILENCE_MS    = 900
@@ -22,10 +22,9 @@ export function useSTT({ onResult, onError = null, getLang = null, getSessionId 
   let stream = null
   let active = false
   let currentRecorder = null
-  let currentWS = null
   let generation = 0
 
-  // ── HTTP 청크 방식 (gcapi / whisperapi 모드) ───────────────────
+  // ── HTTP 청크 방식 (OpenAI 전사) ───────────────────
   async function runLoop(gen) {
     let audioCtx = null
     let analyser = null
@@ -121,7 +120,6 @@ export function useSTT({ onResult, onError = null, getLang = null, getSessionId 
     active = false
     generation++
     if (currentRecorder?.state === 'recording') currentRecorder.stop()
-    if (currentWS && currentWS.readyState === WebSocket.OPEN) currentWS.close()
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
     currentRecorder = null
   }
