@@ -4,6 +4,7 @@ import com.workmaite.domain.minutes.dto.*;
 import com.workmaite.domain.minutes.entity.Minutes;
 import com.workmaite.domain.minutes.entity.MinutesStatus;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -16,9 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class MinutesService {
 
     private final MinutesRepository minutesRepository;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
     public MinutesResponse generateMinutes(Long sessionId, MinutesGenerateRequest request) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         if (minutesRepository.existsBySessionId(sessionId)) {
             throw new BusinessException(ErrorCode.MINUTES_ALREADY_EXISTS);
         }
@@ -65,7 +68,9 @@ public class MinutesService {
         return MinutesResponse.of(minutes);
     }
 
+    // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
     private Minutes findBySessionIdOrThrow(Long sessionId) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         return minutesRepository.findBySessionId(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MINUTES_NOT_FOUND));
     }

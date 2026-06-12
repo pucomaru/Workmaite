@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
+from access_guard import require_meeting_member
 from agents import (
     task_extractor as task_agent,
     knowledge_manager as knowledge_agent,
@@ -382,6 +383,8 @@ async def minutes_sessions_chat(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if data.meeting_id:
+        require_meeting_member(db, current_user, data.meeting_id)
     sessions = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.meeting_id == data.meeting_id)
@@ -446,6 +449,8 @@ async def minutes_generate_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if data.meeting_id:
+        require_meeting_member(db, current_user, data.meeting_id)
     transcript = data.message or ""
     meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     agendas = db.query(models.Agenda).filter(models.Agenda.meeting_id == data.meeting_id).all() if data.meeting_id else []
@@ -2240,6 +2245,8 @@ async def commit_draft_agendas(
     from datetime import datetime as _dt
 
     meeting_id: int = data.get("meeting_id", 0)
+    if meeting_id:
+        require_meeting_member(db, current_user, meeting_id)
     approved: list = data.get("approved", [])   # [{db_id, assignee_name, dept, due_date}]
     rejected_ids: list = data.get("rejected_ids", [])  # [int]
 
@@ -2335,6 +2342,7 @@ async def get_draft_agendas(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     agendas = (
         db.query(models.Agenda)
         .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
@@ -2366,6 +2374,7 @@ async def get_meeting_agendas(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     agendas = (
         db.query(models.Agenda)
         .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status != "draft")

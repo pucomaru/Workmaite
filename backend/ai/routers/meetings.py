@@ -6,6 +6,7 @@ import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from access_guard import require_meeting_member
 from neo4j_sync import (
     sync_meeting,
     sync_user,
@@ -137,6 +138,7 @@ async def update_meeting(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
@@ -185,6 +187,7 @@ def get_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     return (
         db.query(models.MeetingMember)
         .options(joinedload(models.MeetingMember.user))

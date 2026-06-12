@@ -17,6 +17,7 @@ import com.workmaite.domain.sessions.entity.SessionStatus;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import com.workmaite.domain.sessions.repository.SessionSummaryBlockRepository;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import com.workmaite.global.sync.NeoSyncService;
@@ -48,6 +49,7 @@ public class SessionService {
     private final NeoSyncService neoSyncService;
     private final ScriptRepository scriptRepository;
     private final MinutesRepository minutesRepository;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
     public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
@@ -65,6 +67,7 @@ public class SessionService {
     }
 
     public List<SessionResponse> getSessions(Long meetingId, SessionStatus status) {
+        meetingAccessGuard.requireMember(meetingId);
         List<MeetingSession> sessions = (status != null)
                 ? sessionRepository.findByMeetingIdAndStatus(meetingId, status)
                 : sessionRepository.findByMeetingId(meetingId);
@@ -75,6 +78,7 @@ public class SessionService {
 
     @Transactional
     public SessionResponse createSession(Long meetingId, SessionCreateRequest request) {
+        meetingAccessGuard.requireMember(meetingId);
         MeetingSession session = MeetingSession.create(
                 meetingId,
                 request.getTitle(),
@@ -211,8 +215,11 @@ public class SessionService {
         return SessionResponse.from(session);
     }
 
+    // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
     private MeetingSession findSessionById(Long sessionId) {
-        return sessionRepository.findById(sessionId)
+        MeetingSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+        meetingAccessGuard.requireMember(session.getMeetingId());
+        return session;
     }
 }

@@ -6,6 +6,7 @@ import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import com.workmaite.global.sync.NeoSyncService;
@@ -34,6 +35,7 @@ public class MeetingService {
     private final MeetingMemberRepository meetingMemberRepository;
     private final UserRepository userRepository;
     private final NeoSyncService neoSyncService;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
     public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
@@ -100,6 +102,7 @@ public class MeetingService {
     }
 
     public MeetingDetailResponse getMeeting(Long meetingId) {
+        meetingAccessGuard.requireMember(meetingId);
         Meeting meeting = findMeetingOrThrow(meetingId);
         List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
         Map<Long, User> userMap = buildUserMap(members);
@@ -107,6 +110,7 @@ public class MeetingService {
     }
 
     public List<MeetingMemberResponse> findMembers(Long meetingId) {
+        meetingAccessGuard.requireMember(meetingId);
         List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
         Map<Long, User> userMap = buildUserMap(members);
         return members.stream().map(mm -> MeetingMemberResponse.from(mm, userMap.get(mm.getUserId()))).toList();

@@ -20,6 +20,11 @@ from sqlalchemy.orm import Session
 import json
 import models
 from auth import get_current_user
+from access_guard import (
+    require_meeting_member,
+    require_meeting_member_by_report,
+    require_meeting_member_by_session,
+)
 from database import get_db
 from fastapi.responses import StreamingResponse
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
@@ -129,6 +134,7 @@ async def upload_report(
     db: Session = Depends(get_db),
 ):
     """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다."""
+    require_meeting_member(db, current_user, meeting_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
@@ -204,6 +210,7 @@ async def get_report_score(
     db: Session = Depends(get_db),
 ):
     """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
+    require_meeting_member_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
@@ -248,6 +255,7 @@ async def save_report_score(
     db: Session = Depends(get_db),
 ):
     """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
+    require_meeting_member_by_report(db, current_user, report_id)
     import json as _json
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
@@ -288,6 +296,7 @@ async def submit_report_review(
     db: Session = Depends(get_db),
 ):
     """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
+    require_meeting_member_by_report(db, current_user, report_id)
     import json as _json
     from datetime import datetime as _dt
     from sqlalchemy import desc as _desc
@@ -357,6 +366,7 @@ async def delete_report(
     db: Session = Depends(get_db),
 ):
     """보고서를 R2, report_scores, hitl_reviews, reports 테이블에서 삭제합니다."""
+    require_meeting_member_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
@@ -430,6 +440,7 @@ async def upload_minutes(
     db: Session = Depends(get_db),
 ):
     """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
+    require_meeting_member_by_session(db, current_user, session_id)
     logger.info(f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}")
 
     session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
@@ -549,6 +560,10 @@ async def upload_chat_file(
     db: Session = Depends(get_db),
 ):
     """채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다."""
+    if meeting_id:
+        require_meeting_member(db, current_user, meeting_id)
+    if session_id:
+        require_meeting_member_by_session(db, current_user, session_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
