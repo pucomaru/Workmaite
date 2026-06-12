@@ -1,0 +1,44 @@
+# P5-2: 핵심 알림 룰 (Prometheus Operator PrometheusRule)
+# 주의: 오퍼레이터의 ruleSelector가 이 네임스페이스/라벨을 포함해야 평가된다 —
+# 미수집 시 라벨(release 등)을 클러스터 설정에 맞춰 조정할 것.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: workmaite-alerts
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite
+spec:
+  groups:
+    - name: workmaite.rules
+      rules:
+        - alert: WorkmaiteAi5xxRateHigh
+          expr: |
+            sum(rate(http_requests_total{handler!="none", status=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_requests_total{handler!="none"}[5m])), 0.001) > 0.05
+          for: 5m
+          labels: { severity: warning, app: workmaite }
+          annotations:
+            summary: "AI 서버 5xx 비율 5% 초과 (5분)"
+        - alert: WorkmaiteRetrievalZeroResultsSpike
+          expr: increase(workmaite_retrieval_zero_results_total[15m]) > 10
+          for: 0m
+          labels: { severity: warning, app: workmaite }
+          annotations:
+            summary: "검색 0건 급증 — G-1류 전면 검색 장애 의심 (인덱스명/임베딩 확인)"
+        - alert: WorkmaiteChatTtftSlow
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(workmaite_chat_ttft_seconds_bucket[10m])) by (le)) > 8
+          for: 10m
+          labels: { severity: warning, app: workmaite }
+          annotations:
+            summary: "채팅 TTFT p95 > 8s (10분) — 라우팅/도구 지연 확인"
+        - alert: WorkmaitePodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="skala3-finalproj-class2-team9"}[30m]) > 2
+          for: 0m
+          labels: { severity: critical, app: workmaite }
+          annotations:
+            summary: "{{ $labels.pod }} 30분 내 3회 이상 재시작 (CrashLoop 의심)"

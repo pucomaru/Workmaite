@@ -19,6 +19,7 @@ public class UserResponse {
     private String department;
     private String position;
     private String role;
+    private boolean mustChangePassword; // 최초 로그인 시 비밀번호 변경 안내 (P1-7②)
     private LocalDateTime createdAt;
     private List<Map<String, Object>> meetings;
 
@@ -35,6 +36,7 @@ public class UserResponse {
                 .department(user.getDepartment())
                 .position(user.getPosition())
                 .role(user.getRole() != null ? user.getRole().name() : null)
+                .mustChangePassword(user.isMustChangePassword())
                 .createdAt(user.getCreatedAt())
                 .meetings(meetings)
                 .build();
