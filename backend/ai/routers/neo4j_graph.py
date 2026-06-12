@@ -110,9 +110,10 @@ async def get_archive(
     try:
         person_rows, company_rows, dept_rows = await asyncio.gather(
             _run_cypher(
-                "MATCH (p:User) WHERE p.email = $email OR p.name = $name "
+                # 사용자 매칭은 pg_id 단일 키 (email/name 매칭은 동명이인·개명 시 오인 — SEC-12)
+                "MATCH (p:User {pg_id: $pg_id}) "
                 "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
-                {"email": user_email, "name": user_name},
+                {"pg_id": current_user.id},
             ),
             _run_cypher(
                 "MATCH (o:Company) RETURN o.name AS name LIMIT 1"
@@ -740,8 +741,7 @@ async def create_meeting_group(data: dict, current_user: models.User = Depends(g
     meeting_type = data.get("meeting_type", "")
     description = data.get("description", data.get("purpose", ""))
     org_id = data.get("org_id", "")
-    creator_name = data.get("creator_name", "")
-    creator_email = data.get("creator_email", "")
+    # 간사 연결은 호출자 본인(pg_id) 기준 — email/name 페이로드 매칭 제거 (SEC-12)
     try:
         await _run_cypher(
             """
@@ -756,15 +756,14 @@ async def create_meeting_group(data: dict, current_user: models.User = Depends(g
                 "MATCH (mg:Meetings {id: $mg_id}), (o:Company {id: $org_id}) MERGE (mg)-[:`포함`]->(o)",
                 {"mg_id": mg_id, "org_id": org_id},
             )
-        if creator_email or creator_name:
-            await _run_cypher(
-                """
-                MATCH (mg:Meetings {id: $mg_id})
-                MATCH (p:User) WHERE p.email = $email OR p.name = $name
-                MERGE (p)-[:`간사`]->(mg)
-                """,
-                {"mg_id": mg_id, "email": creator_email, "name": creator_name},
-            )
+        await _run_cypher(
+            """
+            MATCH (mg:Meetings {id: $mg_id})
+            MATCH (p:User {pg_id: $pg_id})
+            MERGE (p)-[:`간사`]->(mg)
+            """,
+            {"mg_id": mg_id, "pg_id": current_user.id},
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -809,18 +808,19 @@ async def delete_meeting_group(mg_id: str, current_user: models.User = Depends(g
 @router.post("/meeting-groups/{mg_id}/members")
 async def add_member_to_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """User → Meetings 멤버 관계 추가"""
-    person_name = data.get("name", "")
-    person_email = data.get("email", "")
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id가 필요합니다.")
     role = data.get("role", "member")  # admin | member
     rel = "간사" if role == "admin" else "구성원"
     try:
         await _run_cypher(
             f"""
             MATCH (mg:Meetings {{id: $mg_id}})
-            MATCH (p:User) WHERE p.email = $email OR p.name = $name
+            MATCH (p:User {{pg_id: $pg_id}})
             MERGE (p)-[:`{rel}`]->(mg)
             """,
-            {"mg_id": mg_id, "email": person_email, "name": person_name},
+            {"mg_id": mg_id, "pg_id": int(user_id)},
         )
     except HTTPException:
         raise
@@ -832,16 +832,16 @@ async def add_member_to_group(mg_id: str, data: dict, current_user: models.User 
 @router.delete("/meeting-groups/{mg_id}/members")
 async def remove_member_from_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
     """User → Meetings 멤버 관계 삭제"""
-    person_name = data.get("name", "")
-    person_email = data.get("email", "")
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id가 필요합니다.")
     try:
         await _run_cypher(
             """
-            MATCH (p:User)-[r:`간사`|`구성원`]->(mg:Meetings {id: $mg_id})
-            WHERE p.email = $email OR p.name = $name
+            MATCH (p:User {pg_id: $pg_id})-[r:`간사`|`구성원`]->(mg:Meetings {id: $mg_id})
             DELETE r
             """,
-            {"mg_id": mg_id, "email": person_email, "name": person_name},
+            {"mg_id": mg_id, "pg_id": int(user_id)},
         )
     except HTTPException:
         raise

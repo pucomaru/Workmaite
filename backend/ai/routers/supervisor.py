@@ -586,9 +586,10 @@ async def supervisor_chat(
     }
     try:
         p_rows = await run_cypher(
-            "MATCH (p:User) WHERE p.email = $email OR p.name = $name "
-            "RETURN p.id AS pid LIMIT 1",
-            {"email": current_user.email or "", "name": current_user.name or ""},
+            # 사용자 매칭은 pg_id 단일 키 (email/name 매칭은 동명이인·개명 시 오인 — SEC-12)
+            "MATCH (p:User {pg_id: $pg_id}) "
+            "RETURN coalesce(p.id, toString(p.pg_id)) AS pid LIMIT 1",
+            {"pg_id": current_user.id},
         )
         if p_rows:
             user_person_id = p_rows[0]["pid"]
