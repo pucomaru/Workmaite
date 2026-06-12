@@ -14,7 +14,7 @@ const emit = defineEmits(['close', 'saved'])
 
 const authStore = useAuthStore()
 
-const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null })
+const form = ref({ title: '', location: '', dateOnly: '', timeOnly: '', meeting_id: null, context: '' })
 const members = ref([])
 const creating = ref(false)
 const showPastDateAlert = ref(false)
@@ -55,6 +55,7 @@ watch(() => props.show, (v) => {
     title: '', location: '', dateOnly: '',
     timeOnly: `${String(safeHours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`,
     meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+    context: '',
   }
   const me = authStore.user
   members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
@@ -73,13 +74,22 @@ const timeOptions = computed(() => {
   return options
 })
 
-const canSubmit = computed(() => {
+const errors = ref({})
+
+function validate() {
   const f = form.value
-  return !creating.value && f.title.trim() && f.location.trim() && f.dateOnly && f.meeting_id && members.value.length > 0
-})
+  const e = {}
+  if (!f.meeting_id) e.meeting_id = '회의체를 선택해주세요'
+  if (!f.title.trim()) e.title = '회의명을 입력해주세요'
+  if (!f.location.trim()) e.location = '장소를 입력해주세요'
+  if (!f.dateOnly) e.dateOnly = '날짜를 선택해주세요'
+  if (!members.value.length) e.members = '참여자를 추가해주세요'
+  errors.value = e
+  return Object.keys(e).length === 0
+}
 
 async function doCreate() {
-  if (!canSubmit.value) return
+  if (!validate()) return
   const f = form.value
   const scheduled = new Date(`${f.dateOnly}T${f.timeOnly || '00:00'}`)
   if (scheduled < new Date()) { showPastDateAlert.value = true; return }
@@ -90,6 +100,7 @@ async function doCreate() {
       location:     f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
       type:         'localwhisper',
+      context:      f.context || null,
       attendees:    members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })
     emit('saved', { meetingId: f.meeting_id })
@@ -115,23 +126,26 @@ async function doCreate() {
         <div class="app-modal-body">
           <div class="app-modal-field">
             <label>회의체 <span class="req">*</span></label>
-            <select v-model="form.meeting_id" class="app-modal-input">
+            <select v-model="form.meeting_id" class="app-modal-input" @change="errors.meeting_id=null">
               <option :value="null" disabled>회의체를 선택하세요</option>
               <option v-for="m in meetings" :key="toNumericId(m.id)" :value="toNumericId(m.id)">{{ m.title }}</option>
             </select>
+            <p v-if="errors.meeting_id" class="field-error">{{ errors.meeting_id }}</p>
           </div>
           <div class="app-modal-field">
             <label>회의명 <span class="req">*</span></label>
-            <input v-model="form.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" />
+            <input v-model="form.title" class="app-modal-input" placeholder="예: 2026 전략 수립 1차" @input="errors.title=null" />
+            <p v-if="errors.title" class="field-error">{{ errors.title }}</p>
           </div>
           <div class="app-modal-field">
             <label>장소 <span class="req">*</span></label>
-            <input v-model="form.location" class="app-modal-input" placeholder="예: SK U Tower 8층" />
+            <input v-model="form.location" class="app-modal-input" placeholder="예: SK U Tower 8층" @input="errors.location=null" />
+            <p v-if="errors.location" class="field-error">{{ errors.location }}</p>
           </div>
           <div class="app-modal-field">
             <label>회의 날짜 <span class="req">*</span></label>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <input type="date" v-model="form.dateOnly" class="app-modal-input" style="flex: 1;" @change="showPastDateAlert=false" />
+              <input type="date" v-model="form.dateOnly" class="app-modal-input" style="flex: 1;" @change="showPastDateAlert=false; errors.dateOnly=null" />
               <div style="position: relative; width: 110px;">
                 <div v-if="showTimePicker" style="position: fixed; inset: 0; z-index: 1001;" @click="showTimePicker = false"></div>
                 <div
@@ -162,7 +176,13 @@ async function doCreate() {
                 </div>
               </div>
             </div>
-            <p v-if="showPastDateAlert" style="color:#ef4444;font-size:12px;margin-top:4px;margin-bottom:0">현재 시간 이후로 설정해주세요.</p>
+            <p v-if="errors.dateOnly" class="field-error">{{ errors.dateOnly }}</p>
+            <p v-else-if="showPastDateAlert" class="field-error">현재 시간 이후로 설정해주세요.</p>
+          </div>
+          <div class="app-modal-field">
+            <label>회의 맥락</label>
+            <textarea v-model="form.context" class="app-modal-input context-modal-textarea" rows="4"
+              placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"></textarea>
           </div>
           <div class="app-modal-field">
             <MemberInvite v-model="members" :lockedUserId="lockedUserId" />
@@ -170,7 +190,7 @@ async function doCreate() {
         </div>
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="emit('close')">취소</button>
-          <button class="app-btn-primary" :disabled="!canSubmit" @click="doCreate">
+          <button class="app-btn-primary" :disabled="creating" @click="doCreate">
             {{ creating ? '생성 중...' : '생성' }}
           </button>
         </div>

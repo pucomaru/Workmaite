@@ -19,10 +19,17 @@ spec:
         - name: harbor-secret
       containers:
         - name: workmaite-backend
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:d1da8ea
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:9d9a648
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          resources:                 # P7-6: 스케줄링 안정성·OOM 방지
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
           envFrom:
             - secretRef:
                 name: r2-secret
@@ -33,16 +40,19 @@ spec:
               value: "jdbc:postgresql://postgres-1-postgresql.postgres.svc.cluster.local:5432/sk-team-9"
             - name: SPRING_DATASOURCE_USERNAME
               value: "team9"
+            # 자격증명은 backend-secret(k8s Secret)에서 주입 — 생성 방법은 k8s/secrets.example.yaml 참조
             - name: SPRING_DATASOURCE_PASSWORD
-              value: "team9postgres1234"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
             - name: AI_URL
               value: "http://workmaite-ai-agent:8000"
-            - name: SPRING_DATA_REDIS_HOST
-              value: "redis-1-master.redis.svc.cluster.local"
-            - name: SPRING_DATA_REDIS_PORT
-              value: "6379"
-            - name: SPRING_DATA_REDIS_PASSWORD
-              value: "Skala25a!23$"
           readinessProbe:
             httpGet:
               path: /actuator/health

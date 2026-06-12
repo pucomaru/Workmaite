@@ -19,10 +19,17 @@ spec:
         - name: harbor-secret
       containers:
         - name: workmaite-ai
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:d1da8ea
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:9d9a648
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          resources:                 # P7-6: 스케줄링 안정성·OOM 방지
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
           envFrom:
             - secretRef:
                 name: ai-secret

@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface SessionSummaryBlockRepository extends JpaRepository<SessionSummaryBlock, Long> {
     List<SessionSummaryBlock> findBySessionIdOrderByBlockIndexAsc(Long sessionId);
+    void deleteAllBySessionId(Long sessionId);
 }

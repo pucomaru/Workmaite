@@ -1,11 +1,14 @@
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
-import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from access_guard import (
+    require_meeting_member,
+    require_user_update_permission,
+    visible_user_ids,
+)
 from neo4j_sync import (
     sync_meeting,
     sync_user,
@@ -21,10 +24,13 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
-STRATEGIC_DEPT = "전략기획팀"
-
 def _is_strategic(user: models.User) -> bool:
-    return (user.department or "").strip() == STRATEGIC_DEPT
+    """관리자 판별 — RBAC role 기반 (P1-3).
+
+    과거 부서 문자열('전략기획팀') 판별은 가입 시 자유 입력이라 권한 상승 벡터였다(SEC-10).
+    기존 전략기획팀 사용자는 V3 마이그레이션에서 SYSTEM_ADMIN을 1회 부여받았다.
+    """
+    return user.role == "SYSTEM_ADMIN"
 
 def _my_role_in(user_id: int, meeting_id: int, db: Session):
     m = db.query(models.MeetingMember).filter(
@@ -134,6 +140,7 @@ async def update_meeting(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
@@ -154,6 +161,7 @@ async def update_meeting(
     if "start_date" in data: meeting.start_date = data["start_date"]
     if "end_date" in data:   meeting.end_date = data["end_date"]
     if "guidelines" in data: meeting.guidelines = data["guidelines"]
+    if "context" in data:   meeting.context = data["context"]
     if "meeting_type" in data: meeting.type = data["meeting_type"]
     db.commit()
     db.refresh(meeting)
@@ -165,6 +173,7 @@ async def update_meeting(
         title=meeting.title,
         description=meeting.description,
         guidelines=meeting.guidelines,
+        context=meeting.context,
         status=str(meeting.status or "active"),
         meeting_type=str(meeting.type or ""),
         start_date=meeting.start_date.isoformat() if meeting.start_date else None,
@@ -180,6 +189,7 @@ def get_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     return (
         db.query(models.MeetingMember)
         .options(joinedload(models.MeetingMember.user))
@@ -348,28 +358,49 @@ def search_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).filter(
-        models.User.name.contains(q)
-    ).limit(20).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    query = db.query(models.User).filter(models.User.name.contains(q))
+    if visible is not None:
+        query = query.filter(models.User.id.in_(visible))
+    users = query.limit(20).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company, "position": u.position} for u in users]
 
 
 @router.get("/users/all")
 def all_users(
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).order_by(models.User.name).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    users_query = db.query(models.User).order_by(models.User.name)
+    if visible is not None:
+        users_query = users_query.filter(models.User.id.in_(visible))
+    users = users_query.offset(offset).limit(limit).all()  # P8-5 페이지네이션
+
+    # 사용자별 개별 쿼리(N+1, PG-6) → 멤버십+회의체 일괄 2쿼리로 교체
+    user_ids = [u.id for u in users]
+    all_members = (
+        db.query(models.MeetingMember)
+        .filter(models.MeetingMember.user_id.in_(user_ids)).all()
+    ) if user_ids else []
+    meeting_ids = {mm.meeting_id for mm in all_members}
+    titles = {
+        m.id: m.title
+        for m in db.query(models.Meeting.id, models.Meeting.title)
+        .filter(models.Meeting.id.in_(meeting_ids)).all()
+    } if meeting_ids else {}
+    members_by_user: dict[int, list] = {}
+    for mm in all_members:
+        members_by_user.setdefault(mm.user_id, []).append(mm)
+
     result = []
     for u in users:
-        member_rows = db.query(models.MeetingMember).filter(models.MeetingMember.user_id == u.id).all()
-        meeting_ids = [mm.meeting_id for mm in member_rows]
-        meetings_map = {
-            m.id: m for m in db.query(models.Meeting).filter(models.Meeting.id.in_(meeting_ids)).all()
-        } if meeting_ids else {}
         meetings = [
-            {"id": mm.meeting_id, "member_id": mm.id, "title": meetings_map.get(mm.meeting_id, None) and meetings_map[mm.meeting_id].title or "", "role": mm.role}
-            for mm in member_rows
+            {"id": mm.meeting_id, "member_id": mm.id,
+             "title": titles.get(mm.meeting_id, ""), "role": mm.role}
+            for mm in members_by_user.get(u.id, [])
         ]
         result.append({
             "id": u.id,
@@ -378,6 +409,7 @@ def all_users(
             "department": u.department,
             "company": u.company,
             "position": u.position,
+            "role": u.role,  # 역할 변경 UI용 (P1-7②)
             "meetings": meetings,
         })
     return result
@@ -390,9 +422,11 @@ def update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
@@ -527,9 +561,11 @@ async def ai_update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:

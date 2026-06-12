@@ -202,6 +202,7 @@ function handleCanvasClick() {
 let ro = null
 
 onMounted(() => {
+
   const canvas = canvasRef.value
   ctx = canvas.getContext('2d')
   resize(canvas)

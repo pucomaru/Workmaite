@@ -1,8 +1,10 @@
-import os, json, re, uuid
+import os, json, logging, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
-from langchain_openai import ChatOpenAI
+logger = logging.getLogger(__name__)
+
+from llm_factory import StructuredOutputError, llm_factory
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
@@ -144,7 +146,7 @@ def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
 
 def _build_chat_graph():
     """LangGraph create_react_agent — TASK_TOOLS를 도구로 사용하는 에이전트 그래프."""
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True, stream_usage=True)
+    llm = llm_factory("chat", temperature=0.1)
     return create_react_agent(
         model=llm,
         tools=TASK_TOOLS,
@@ -158,7 +160,7 @@ _chat_graph = _build_chat_graph()
 
 # ── HITL 추출 그래프 ─────────────────────────────────────────────────────
 async def _extract_propose_node(state: ExtractionState) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract")
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(
             org_dept_list=state.get("org_dept_list") or "정보 없음",
@@ -170,6 +172,21 @@ async def _extract_propose_node(state: ExtractionState) -> dict:
         )),
     ])
     proposed = _parse_json_from_text(response.content)
+    if proposed is None:
+        # 파싱 실패 — 1회 재시도 후에도 실패하면 명시적 에러 (silent-empty 금지, P3A-2)
+        response = await llm.ainvoke([
+            SystemMessage(content=extract_agendas_system(
+                org_dept_list=state.get("org_dept_list") or "정보 없음",
+                knowledge=state.get("knowledge"),
+            )),
+            HumanMessage(content=(
+                f"다음 문서에서 아젠다와 Todo를 추출해 JSON 형식으로만 응답하세요.\n\n"
+                f"[문서]\n{state['content'][:8000]}"
+            )),
+        ])
+        proposed = _parse_json_from_text(response.content)
+        if proposed is None:
+            raise StructuredOutputError("아젠다 추출 결과 JSON 파싱 실패 (재시도 포함)")
     if isinstance(proposed, list):
         proposed = {"agendas": proposed, "todos": []}
     if not isinstance(proposed, dict):
@@ -187,9 +204,20 @@ def _build_extraction_graph():
     builder.add_node("propose", _extract_propose_node)
     builder.add_edge(START, "propose")
     builder.add_edge("propose", END)
-    return builder.compile()
+    # 체크포인터 필수 — interrupt/resume은 영속 상태 위에서만 동작 (P3A-1, H-1)
+    from graph_runtime import get_checkpointer
+    return builder.compile(checkpointer=get_checkpointer())
 
-_extraction_graph = _build_extraction_graph()
+
+_extraction_graph = None
+
+
+def _get_extraction_graph():
+    """체크포인터는 앱 시작 후 준비되므로 첫 사용 시점에 compile한다."""
+    global _extraction_graph
+    if _extraction_graph is None:
+        _extraction_graph = _build_extraction_graph()
+    return _extraction_graph
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -232,20 +260,50 @@ async def chat_stream(
 
 
 @log_agent_run("task_extract")
+async def _similar_agenda_hint(content: str, meeting_id: int | None) -> str:
+    """유사 과거 아젠다 top-k + 부서 담당 이력을 추출 프롬프트에 주입한다 (P3B-8, G-4).
+
+    - 중복 제안 방지·이월 과제 연결: 비슷한 아젠다가 이미 있으면 모델이 인지
+    - 부서 추천 근거: Department-담당부서-Agenda 이력
+    """
+    try:
+        from retrieval_registry import vector_search
+        from neo4j_client import run_cypher
+        mids = [meeting_id] if meeting_id else None
+        similar = await vector_search("Agenda", content[:400], k=5, meeting_ids=mids)
+        dept_rows = await run_cypher(
+            "MATCH (d:Department)-[:담당부서]->(ag:Agenda) "
+            "RETURN d.name AS dept, count(ag) AS c ORDER BY c DESC LIMIT 8"
+        )
+        parts = []
+        if similar:
+            parts.append("[유사 과거 아젠다 — 중복·이월 판단 참고]\n" +
+                         "\n".join(f"- {s.get('title')} ({s.get('status') or '?'})" for s in similar if s.get('title')))
+        if dept_rows:
+            parts.append("[부서별 과거 담당 빈도 — 부서 추천 참고]\n" +
+                         ", ".join(f"{r['dept']}({r['c']})" for r in dept_rows if r.get('dept')))
+        return ("\n\n" + "\n\n".join(parts)) if parts else ""
+    except Exception as e:
+        logger.warning(f"[extract] 그래프 힌트 실패(무시): {e}")
+        return ""
+
+
 async def extract_agendas_and_todos(
     content: str,
     previous_minutes: List[str] = None,
     knowledge: List[dict] = None,
     org_dept_list: str = "",
+    meeting_id: int = None,
 ) -> dict:
     prev_hint = ""
     if previous_minutes:
         prev_hint = "\n\n[이전 회의록 참고]\n" + "\n\n".join(previous_minutes[:2])[:2000]
+    graph_hint = await _similar_agenda_hint(content, meeting_id)  # P3B-8
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract")
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list or "정보 없음", knowledge=knowledge)),
-        HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}\n\n{content[:8000]}"),
+        HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}{graph_hint}\n\n{content[:8000]}"),
     ])
     parsed = _parse_json_from_text(response.content)
     reason = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', response.content).strip()
@@ -264,17 +322,21 @@ async def start_extraction_review(
     knowledge: List[dict] = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    await _extraction_graph.ainvoke(
-        {
-            "messages": [],
-            "content": content,
-            "org_dept_list": org_dept_list or "정보 없음",
-            "knowledge": knowledge or [],
-            "proposed": None,
-        },
-        config,
-    )
-    state = _extraction_graph.get_state(config)
+    graph = _get_extraction_graph()
+    try:
+        await graph.ainvoke(
+            {
+                "messages": [],
+                "content": content,
+                "org_dept_list": org_dept_list or "정보 없음",
+                "knowledge": knowledge or [],
+                "proposed": None,
+            },
+            config,
+        )
+    except StructuredOutputError as e:
+        return {"status": "error", "proposed": None, "message": str(e)}
+    state = await graph.aget_state(config)
     if state.tasks and state.tasks[0].interrupts:
         proposed = state.tasks[0].interrupts[0].value
         return {"status": "pending", "proposed": proposed}
@@ -287,7 +349,7 @@ async def confirm_extraction_review(
     meeting_id: int = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    result = await _extraction_graph.ainvoke(
+    result = await _get_extraction_graph().ainvoke(
         Command(resume={"approved": approved}),
         config,
     )
@@ -315,7 +377,7 @@ async def confirm_extraction_review(
 # ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
 @log_agent_run("task_extract", user_id="user_id")
 async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str, user_id: int = None) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract", temperature=0.15)
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list)),
         HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
@@ -329,7 +391,7 @@ async def chat_update_agendas(
     org_dept_list: str,
     current_agendas_text: str,
 ) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract", temperature=0.15)
     response = await llm.ainvoke([
         SystemMessage(content=chat_extract_system(meeting_context, org_dept_list, current_agendas_text)),
         HumanMessage(content=message),

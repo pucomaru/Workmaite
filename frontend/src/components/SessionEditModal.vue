@@ -7,9 +7,9 @@ const props = defineProps({
   show:    { type: Boolean, default: false },
   session: { type: Object,  default: null },
 })
-const emit = defineEmits(['close', 'saved', 'delete'])
+const emit = defineEmits(['close', 'saved', 'deleted'])
 
-const form = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper' })
+const form = ref({ id: null, meetingId: null, title: '', location: '', dateOnly: '', timeOnly: '', type: 'localwhisper', context: '' })
 const members = ref([])
 const saving = ref(false)
 
@@ -23,6 +23,7 @@ watch(() => props.session, async (s) => {
     dateOnly:  s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
     timeOnly:  s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
     type:      s.type || 'localwhisper',
+    context:   s.context || '',
   }
   // members가 직접 주어진 경우 (archive 등) 바로 사용, 아니면 attendee_ids로 API 조회
   if (s.members?.length) {
@@ -44,6 +45,20 @@ const canSubmit = computed(() => {
   return !saving.value && f.title.trim() && f.location.trim() && f.dateOnly && members.value.length > 0
 })
 
+async function doDelete() {
+  if (!confirm('회의를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  saving.value = true
+  try {
+    await api.delete(`/api/v1/sessions/${form.value.id}`)
+    emit('deleted', { meetingId: form.value.meetingId })
+    emit('close')
+  } catch (e) {
+    alert(e.response?.data?.message || '삭제 실패')
+  } finally {
+    saving.value = false
+  }
+}
+
 async function doSave() {
   if (!canSubmit.value) return
   saving.value = true
@@ -53,6 +68,7 @@ async function doSave() {
       location:     form.value.location || null,
       scheduled_at: form.value.dateOnly ? `${form.value.dateOnly}T${form.value.timeOnly || '00:00'}:00` : null,
       type:         form.value.type,
+      context:      form.value.context || null,
       attendees:    members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })
     emit('saved', { meetingId: form.value.meetingId })
@@ -93,12 +109,17 @@ async function doSave() {
             </div>
           </div>
           <div class="app-modal-field">
+            <label>회의 맥락</label>
+            <textarea v-model="form.context" class="app-modal-input context-modal-textarea" rows="4"
+              placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"></textarea>
+          </div>
+          <div class="app-modal-field">
             <MemberInvite v-model="members" />
           </div>
         </div>
-        <div class="app-modal-footer modal-footer-split">
-          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
-          <div class="footer-right">
+        <div class="app-modal-footer">
+          <button class="app-btn-danger" :disabled="saving" @click="doDelete">삭제</button>
+          <div class="app-modal-footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button class="app-btn-primary" :disabled="!canSubmit" @click="doSave">
               {{ saving ? '수정 중...' : '수정' }}
@@ -111,6 +132,5 @@ async function doSave() {
 </template>
 
 <style scoped>
-.modal-footer-split { justify-content: space-between !important; }
-.footer-right { display: flex; gap: 8px; }
+.app-modal-footer { justify-content: space-between; }
 </style>

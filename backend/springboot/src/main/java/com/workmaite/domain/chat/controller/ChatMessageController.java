@@ -25,13 +25,15 @@ public class ChatMessageController {
     @GetMapping("/chat/messages")
     public ResponseEntity<ApiResponse<List<ChatMessageResponse>>> getChatHistory(
             Authentication authentication,
-            @RequestParam String threadId) {
+            @RequestParam String threadId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
         Long userId = Long.parseLong(authentication.getName());
         if (!isAccessible(threadId, userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResponse.fail("접근 권한이 없습니다."));
         }
-        return ResponseEntity.ok(ApiResponse.ok(chatMessageService.getHistory(threadId)));
+        return ResponseEntity.ok(ApiResponse.ok(chatMessageService.getHistory(threadId, beforeId, limit)));
     }
 
     /**
@@ -52,17 +54,18 @@ public class ChatMessageController {
     }
 
     /**
-     * global_{userId} 스레드는 본인만 접근 가능.
-     * meeting_{meetingId} 스레드는 인증된 사용자에게 허용 (AI 백엔드가 멤버 권한 체크).
+     * global_{userId}, archive_{userId} 스레드는 본인만 접근 가능.
+     * meeting_{meetingId}, session_{sessionId} 스레드는 인증된 사용자에게 허용 (AI 백엔드가 멤버 권한 체크).
      */
     private boolean isAccessible(String threadId, Long userId) {
-        if (threadId.startsWith("global_")) {
+        if (threadId.startsWith("global_") || threadId.startsWith("archive_")) {
+            String prefix = threadId.startsWith("global_") ? "global_" : "archive_";
             try {
-                return Long.parseLong(threadId.substring("global_".length())) == userId;
+                return Long.parseLong(threadId.substring(prefix.length())) == userId;
             } catch (NumberFormatException e) {
                 return false;
             }
         }
-        return threadId.startsWith("meeting_");
+        return threadId.startsWith("meeting_") || threadId.startsWith("session_");
     }
 }

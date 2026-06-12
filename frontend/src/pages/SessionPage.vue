@@ -1,6 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { marked } from 'marked'
+import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -19,7 +18,7 @@ import { useAuthStore } from '../stores/auth'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 
-const renderMd = (t) => marked.parse(t || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 // ─── State ────────────────────────────────────────────────────
 const meetings = ref([])          // [{ id, title, sessions: [] }]
@@ -119,6 +118,7 @@ async function selectMeeting(m) {
 
 async function enterSession(s) {
   activeSession.value = s
+  try { speakerNames.value = JSON.parse(localStorage.getItem(`speakerNames:${s.id}`) || '{}') } catch { speakerNames.value = {} }
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
   const rec = getOrCreateRecord(s.id)
@@ -135,12 +135,33 @@ async function enterSession(s) {
     const { data } = await api.get(`/api/v1/sessions/${s.id}`)
     const full = data.data ?? data
     if (full.summary_blocks?.length) {
-      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets }))
+      conversationBlocks.value = full.summary_blocks.map(b => ({ title: b.title, bullets: b.bullets, recording_start_sec: b.recording_start_sec, recording_end_sec: b.recording_end_sec }))
       lastRefineIdx.value = conversationBlocks.value.length * REFINE_EVERY
       rec.conversationBlocks = conversationBlocks.value
       rec.lastRefineIdx = lastRefineIdx.value
     }
     if (full.context) sessionContext.value = full.context
+    if (full.recording_seconds != null) {
+      let secs = full.recording_seconds
+      if (full.last_resumed_at && full.status === 'ongoing') {
+        // 서버가 elapsed 계산 (timezone 문제 없음)
+        recordingState.value = 'paused'
+        api.post(`/api/v1/sessions/${full.id}/pause`)
+          .then(res => {
+            const data = res.data?.data ?? res.data
+            const saved = data?.recording_seconds ?? secs
+            recordingSecs.value = saved
+            _lastRefineEndSec = saved
+          })
+          .catch(() => {
+            recordingSecs.value = secs
+            _lastRefineEndSec = secs
+          })
+      } else {
+        recordingSecs.value = secs
+        _lastRefineEndSec = secs
+      }
+    }
   } catch (e) {
     console.error('세션 상세 조회 실패', e)
   }
@@ -288,12 +309,17 @@ async function refineChunk() {
   const processedIdx = lastRefineIdx.value + newLines.length
   const text = newLines.map(l => l.text).join('\n')
   try {
-    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
+    const startSec = _lastRefineEndSec
+    const endSec = recordingSecs.value
+    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
+      recording_start_sec: startSec,
+      recording_end_sec: endSec,
     })
-    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text })
+    _lastRefineEndSec = endSec
+    conversationBlocks.value.push({ title: data.title, bullets: data.bullets, text, recording_start_sec: startSec, recording_end_sec: endSec })
     lastRefineIdx.value = processedIdx
     if (activeSession.value) {
       const rec = getOrCreateRecord(activeSession.value.id)
@@ -321,6 +347,19 @@ const speakerMap = computed(() => {
 
 function speakerIdx(raw) { return speakerMap.value.get(raw) ?? 0 }
 function speakerColor(raw) { return raw ? SPEAKER_COLORS[speakerIdx(raw) % SPEAKER_COLORS.length] : '#94a3b8' }
+
+// 화자→실명 매핑 (P4-5) — 세션별 localStorage 보존
+const speakerNames = ref({})
+const distinctSpeakers = computed(() => [...speakerMap.value.keys()])
+function _speakerStoreKey() { return `speakerNames:${activeSession.value?.id ?? 'na'}` }
+function speakerDisplay(raw) { return speakerNames.value[raw] || raw }
+function renameSpeaker(raw) {
+  const name = window.prompt(`"${raw}"의 실제 이름`, speakerNames.value[raw] || '')
+  if (name === null) return
+  if (name.trim()) speakerNames.value = { ...speakerNames.value, [raw]: name.trim() }
+  else { const m = { ...speakerNames.value }; delete m[raw]; speakerNames.value = m }
+  try { localStorage.setItem(_speakerStoreKey(), JSON.stringify(speakerNames.value)) } catch {}
+}
 
 const KST = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' }
 function nowTime() { return new Date().toLocaleTimeString('ko-KR', KST) }
@@ -353,14 +392,17 @@ const stt = useSTT({
 // ─── 녹음 타이머 ──────────────────────────────────────────────
 const recordingSecs = ref(0)
 let _timerInterval = null
+let _lastRefineEndSec = 0
 
 function _startTimer() {
+  if (_timerInterval) clearInterval(_timerInterval)
   _timerInterval = setInterval(() => { recordingSecs.value++ }, 1000)
 }
 function _pauseTimer() { clearInterval(_timerInterval); _timerInterval = null }
-function _resetTimer() { _pauseTimer(); recordingSecs.value = 0 }
+function _resetTimer() { _pauseTimer(); recordingSecs.value = 0; _lastRefineEndSec = 0 }
 function formatTimer(s) {
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  const sec = Math.floor(s)
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
 }
 
 // ─── 발화 편집 ────────────────────────────────────────────────
@@ -390,17 +432,47 @@ function toggleRecording() {
     stt.start()
       .then(() => {
         recordingState.value = 'recording'
-        _resetTimer(); _startTimer()
         if (activeSession.value?.id) {
-          api.post(`/api/v1/sessions/${activeSession.value.id}/start`).catch(() => {})
+          const isOngoing = activeSession.value.status === 'ongoing'
+          const endpoint = isOngoing ? 'resume' : 'start'
+          api.post(`/api/v1/sessions/${activeSession.value.id}/${endpoint}`)
+            .then(res => {
+              const data = res.data?.data ?? res.data
+              if (data?.status) activeSession.value = { ...activeSession.value, status: data.status }
+              recordingSecs.value = data?.recording_seconds ?? recordingSecs.value
+              _startTimer()
+            })
+            .catch(() => { _startTimer() })
+        } else {
+          _startTimer()
         }
       })
       .catch(() => { micError.value = '마이크 권한이 필요합니다. 브라우저 설정을 확인해 주세요.' })
   } else if (recordingState.value === 'recording') {
     recordingState.value = 'paused'; stt.stop(); _pauseTimer()
+    if (activeSession.value?.id) {
+      api.post(`/api/v1/sessions/${activeSession.value.id}/pause`)
+        .then(res => {
+          const data = res.data?.data ?? res.data
+          if (data?.recording_seconds != null) recordingSecs.value = data.recording_seconds
+        })
+        .catch(() => {})
+    }
   } else {
     stt.start()
-      .then(() => { recordingState.value = 'recording'; _startTimer() })
+      .then(() => {
+        if (activeSession.value?.id) {
+          api.post(`/api/v1/sessions/${activeSession.value.id}/resume`)
+            .then(res => {
+              recordingSecs.value = res.data?.data?.recording_seconds ?? recordingSecs.value
+              recordingState.value = 'recording'
+              _startTimer()
+            })
+            .catch(() => { recordingState.value = 'recording'; _startTimer() })
+        } else {
+          recordingState.value = 'recording'; _startTimer()
+        }
+      })
       .catch(() => { micError.value = '마이크 권한이 필요합니다.' })
   }
 }
@@ -416,7 +488,18 @@ async function generateMinutes() {
   generatingMinutes.value = true; showMinutesTab.value = true; activeTab.value = 'minutes'
 
   const sessionTitle = activeSession.value?.title || '회의'
-  const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
+  // 같은 발화자의 연속 발화를 하나로 합치기
+  const consolidated = []
+  for (const line of transcriptLines.value) {
+    const speaker = line.speakerLabel || '발화자'
+    const last = consolidated[consolidated.length - 1]
+    if (last && last.speaker === speaker) {
+      last.text += ' ' + line.text
+    } else {
+      consolidated.push({ speaker, text: line.text })
+    }
+  }
+  const transcriptText = consolidated.map(l => `[${l.speaker}] ${l.text}`).join('\n')
 
   // ── 우측 채팅에 AI 사고 과정 표시 (완료 메시지는 생성 후 추가) ──
   wmMessages.value.push({ role: 'user', content: `"${sessionTitle}" 회의록을 생성해줘` })
@@ -507,7 +590,12 @@ function downloadPDF() {
       th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:#f1f5f9;font-weight:600}
       hr{border:none;border-top:1px solid #e2e8f0;margin:14px 0}
       @media print{body{padding:20px}}
-    </style>
+    
+.speaker-legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border,#eee); }
+.speaker-legend-label { font-size:12px; color:var(--dark-muted,#888); }
+.speaker-chip { font-size:12px; padding:1px 8px; border:1px solid; border-radius:10px; cursor:pointer; }
+.speaker-chip:hover { background:rgba(0,0,0,0.04); }
+</style>
   </head><body>${html}</body></html>`)
   w.document.close()
   setTimeout(() => { w.focus(); w.print() }, 400)
@@ -723,6 +811,11 @@ async function deleteMinutes() {
 }
 
 async function endMeeting() {
+  // UX-26: 녹음을 시작한 적 없으면(대기 상태+0초) 잘못 누른 것 — 안내 후 중단
+  if (recordingState.value === 'idle' && recordingSecs.value === 0) {
+    alert('아직 녹음을 시작하지 않았습니다. 먼저 녹음을 시작해주세요.')
+    return
+  }
   if (!confirm('기록을 종료하시겠습니까?')) return
   const sessionId = activeSession.value?.id
   const meetingId = activeSession.value?.meeting_id
@@ -740,10 +833,7 @@ async function endMeeting() {
 function togglePopover(name) { showPopover.value = showPopover.value === name ? null : name }
 
 // ─── Agent (워크메이트 AI / Supervisor) ─────────────────────────────────────
-const wmMessages = ref([{
-  role: 'agent',
-  content: '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"',
-}])
+const wmMessages = ref([{ role: 'agent', content: '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"' }])
 const wmInput = ref('')
 const wmLoading = ref(false)
 const messagesEl = ref(null)
@@ -789,6 +879,45 @@ const {
   agentInput: wmInput,
   agentTextareaEl: wmTextareaEl,
   autoResize: wmAutoResize,
+})
+
+// ─── 회의 AI 채팅 히스토리 (session_{session_id} 스레드) ──────
+const _WM_GREETING = '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"'
+
+function _wmThreadId() {
+  return activeSession.value?.id ? `session_${activeSession.value.id}` : null
+}
+
+async function wmLoadHistory() {
+  const threadId = _wmThreadId()
+  if (!threadId) { wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]; return }
+  try {
+    const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100 } })  // P8-2: 초기 로드 상한
+    const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+    wmMessages.value = messages.length
+      ? messages.map(m => ({ role: m.role === 'assistant' ? 'agent' : m.role, content: m.content }))
+      : [{ role: 'agent', content: _WM_GREETING }]
+    await nextTick()
+    requestAnimationFrame(() => {
+      if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    })
+  } catch {
+    wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+  }
+}
+
+async function wmClearHistory() {
+  const threadId = _wmThreadId()
+  if (threadId) {
+    try { await api.delete('/api/v1/chat/messages', { params: { threadId } }) } catch {}
+  }
+  wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+}
+
+// 세션 진입/변경 시 해당 세션 채팅 히스토리 로드
+watch(activeSession, (s) => {
+  if (s) wmLoadHistory()
+  else wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
 })
 
 // ─── 사고 과정 helper ─────────────────────────────────────────
@@ -855,7 +984,7 @@ async function sendAra() {
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
     await streamPost('/api/agent/supervisor/chat',
-      { meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history },
+      { thread_id: _wmThreadId(), meeting_id: selectedMeeting.value?.id || 0, message: content, chat_history: history },
       (chunk) => { agentMsg.content += chunk; if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight },
       () => { thinkingMsg.done = true; thinkingMsg.open = false; wmLoading.value = false },
       (step) => { thinkingMsg.steps.push(step); nextTick(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight }) }
@@ -893,6 +1022,17 @@ async function onSessionEditSaved({ meetingId }) {
   }
 }
 
+async function onSessionDeleted({ meetingId }) {
+  if (activeSession.value && activeSession.value.meeting_id === meetingId) {
+    activeSession.value = null
+  }
+  if (meetingId) {
+    delete sessionsCache.value[meetingId]
+    await loadSessions(meetingId)
+  }
+  showEditSession.value = false
+}
+
 // ─── Session create modal (sidebar) ──────────────────────────
 const showCreateSession = ref(false)
 
@@ -905,6 +1045,15 @@ async function onSessionCreated({ meetingId }) {
 onMounted(() => {
   fetchMeetings()
   loadMentionGraph()
+})
+
+onBeforeUnmount(() => {
+  if (recordingState.value === 'recording' && activeSession.value?.id) {
+    _pauseTimer()
+    recordingState.value = 'paused'
+    stt.stop()
+    api.post(`/api/v1/sessions/${activeSession.value.id}/pause`).catch(() => {})
+  }
 })
 
 // 공통 컴포저가 마운트되면 내부 textarea를 @멘션 ref에 연결
@@ -1029,8 +1178,6 @@ async function downloadChatFile(filePath) {
               <div class="sp-panel-title">{{ activeSession.title }}</div>
             </div>
             <span v-if="recordingState !== 'idle'" class="rec-live" :class="{ paused: recordingState === 'paused' }">
-              <i class="bi bi-record-fill"></i>
-              {{ recordingState === 'recording' ? 'REC' : 'PAUSE' }}
               <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
           </div>
@@ -1050,7 +1197,10 @@ async function downloadChatFile(filePath) {
             </div>
             <!-- 완성된 블록들 — 위 -->
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
-              <div class="conv-block-title">{{ block.title }}</div>
+              <div class="conv-block-header">
+                <span class="conv-block-title">{{ block.title }}</span>
+                <span v-if="block.recording_start_sec != null && block.recording_end_sec != null" class="conv-block-time">{{ formatTimer(block.recording_start_sec) }} ~ {{ formatTimer(block.recording_end_sec) }}</span>
+              </div>
               <div v-for="bullet in block.bullets" :key="bullet" class="conv-block-bullet">{{ bullet }}</div>
             </div>
             <!-- 미처리 원문 — 아래, 로딩 중이면 애니메이션 -->
@@ -1063,6 +1213,14 @@ async function downloadChatFile(filePath) {
           </template>
 
           <template v-else-if="activeTab === 'script'">
+            <div v-if="distinctSpeakers.length" class="speaker-legend">
+              <span class="speaker-legend-label">화자 이름:</span>
+              <span v-for="raw in distinctSpeakers" :key="raw" class="speaker-chip"
+                    :style="{ borderColor: speakerColor(raw), color: speakerColor(raw) }"
+                    @click="renameSpeaker(raw)" :title="'클릭해서 이름 지정'">
+                {{ speakerDisplay(raw) }}<i class="bi bi-pencil-fill ms-1" style="font-size:9px"></i>
+              </span>
+            </div>
             <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
@@ -1079,7 +1237,7 @@ async function downloadChatFile(filePath) {
               </div>
               <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
                 <span class="tline-body">
                   <span class="tline-text">{{ line.text }}</span>
                   <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
@@ -1281,7 +1439,7 @@ async function downloadChatFile(filePath) {
           </div>
         </div>
         <div class="supervisor-header-actions">
-          <button class="agent-new-chat-btn" @click="wmMessages=[{role:'agent',content:'안녕하세요! 워크메이트 AI입니다 😊\n무엇이든 질문하세요.'}]">새 채팅</button>
+          <button class="agent-new-chat-btn" @click="wmClearHistory">새 채팅</button>
         </div>
       </div>
       <div ref="messagesEl" class="agent-messages">
@@ -1374,6 +1532,7 @@ async function downloadChatFile(filePath) {
     :session="currentEditSession"
     @close="showEditSession=false"
     @saved="onSessionEditSaved"
+    @deleted="onSessionDeleted"
   />
 
   <CreateSessionModal
@@ -1482,8 +1641,8 @@ async function downloadChatFile(filePath) {
 .sp-panel-title-group { display:flex;flex-direction:column;min-width:0;flex:1; }
 .sp-panel-title { font-size:14px;font-weight:700;color:var(--dark-card);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .sp-panel-location { font-size:11px;color:var(--text-muted);margin-top:1px; }
-.rec-live { font-size:11px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:3px;flex-shrink:0;animation:pulse 1.2s infinite; }
-@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+.rec-live { display:flex;align-items:center;flex-shrink:0; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 
 
 .sp-tab-body { flex:1;overflow-y:auto;padding:35px 60px;display:flex;flex-direction:column;gap:4px;min-height:0; }
@@ -1493,7 +1652,9 @@ async function downloadChatFile(filePath) {
 .minutes-scroll-area::-webkit-scrollbar { width:4px; }
 .minutes-scroll-area::-webkit-scrollbar-thumb { background:var(--border); }
 .conv-block { padding:20px 0 16px; }
-.conv-block-title { font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px; }
+.conv-block-header { display:flex;align-items:baseline;gap:8px;margin-bottom:8px; }
+.conv-block-title { font-size:13px;font-weight:700;color:var(--text); }
+.conv-block-time { font-size:11px;color:var(--text-muted);font-family:'Pretendard',inherit;white-space:nowrap; }
 .conv-block-bullet { font-size:13px;color:var(--text);line-height:2; }
 .conv-block-original { margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.8;white-space:pre-line; }
 .conv-raw { position:relative;padding:16px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px; }
@@ -1520,7 +1681,7 @@ async function downloadChatFile(filePath) {
 /* Transcript lines */
 .tline { display:flex;gap:8px;align-items:baseline;padding:3px 0;position:relative; }
 .tline:hover .tline-edit-btn { opacity:1; }
-.tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:monospace; }
+.tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:'Pretendard',inherit; }
 .tline-speaker {
   font-size:10px;font-weight:700;flex-shrink:0;
   padding:1px 6px;border-radius:99px;border:1px solid;
@@ -1541,8 +1702,8 @@ async function downloadChatFile(filePath) {
 .tline-cancel-btn { font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--text-muted);cursor:pointer; }
 
 /* REC 타이머 */
-.rec-live.paused { background:rgba(100,116,139,.15);color:var(--text-muted); }
-.rec-timer { font-family:monospace;font-size:11px;margin-left:4px;letter-spacing:.05em; }
+.rec-timer { font-family:'Pretendard',inherit;font-size:11px;font-weight:600;color:var(--danger);letter-spacing:.02em; }
+.rec-live.paused .rec-timer { color:var(--text-muted); }
 .mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
@@ -1577,7 +1738,7 @@ async function downloadChatFile(filePath) {
 .tiptap-content :deep(.ProseMirror th),.tiptap-content :deep(.ProseMirror td) { border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top;word-break:break-word; }
 .tiptap-content :deep(.ProseMirror th) { background:var(--surface-2);font-weight:600;font-size:12px; }
 .tiptap-content :deep(.ProseMirror td > p),.tiptap-content :deep(.ProseMirror th > p) { margin:0; }
-.tiptap-content :deep(.ProseMirror hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+.tiptap-content :deep(.ProseMirror hr) { border:none;border-top:2px solid var(--text-muted);margin:16px 0; }
 .tiptap-content :deep(.ProseMirror blockquote) { border-left:3px solid var(--border);padding-left:12px;color:var(--text-muted);margin:6px 0; }
 
 /* Streaming preview uses same styles */
@@ -1591,7 +1752,7 @@ async function downloadChatFile(filePath) {
 .minutes-md :deep(table) { width:100%;border-collapse:collapse;margin:8px 0;font-size:12px; }
 .minutes-md :deep(th),.minutes-md :deep(td) { border:1px solid var(--border);padding:5px 8px;text-align:left; }
 .minutes-md :deep(th) { background:var(--surface);font-weight:600; }
-.minutes-md :deep(hr) { border:none;border-top:1px solid var(--border);margin:12px 0; }
+.minutes-md :deep(hr) { border:none;border-top:2px solid var(--text-muted);margin:16px 0; }
 
 .tt-source-info { display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--dark-muted);padding:0 4px;white-space:nowrap;cursor:default; }
 

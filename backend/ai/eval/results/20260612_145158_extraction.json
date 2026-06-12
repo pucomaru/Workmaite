@@ -1,0 +1,74 @@
+{
+  "ran_at": "2026-06-12T05:51:27.527755+00:00",
+  "model": "gpt-4o-mini",
+  "extraction": {
+    "metric": "extraction",
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "dept_accuracy": 1.0,
+    "rows": [
+      {
+        "id": "e01",
+        "expected": [
+          {
+            "title": "포스터 시안",
+            "department": "홍보팀"
+          },
+          {
+            "title": "행사장 섭외",
+            "department": "운영팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "신규 서비스 홍보 포스터 시안 제작",
+            "department": "홍보팀"
+          },
+          {
+            "title": "행사장 섭외 진행",
+            "department": "운영팀"
+          }
+        ]
+      },
+      {
+        "id": "e02",
+        "expected": [
+          {
+            "title": "로그인 API 리팩터링",
+            "department": "개발팀"
+          },
+          {
+            "title": "회귀 테스트 계획",
+            "department": "QA팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "로그인 API 리팩터링 완료",
+            "department": "개발팀"
+          },
+          {
+            "title": "회귀 테스트 계획서 작성",
+            "department": "QA팀"
+          }
+        ]
+      },
+      {
+        "id": "e03",
+        "expected": [
+          {
+            "title": "3분기 예산안",
+            "department": "재무팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "3분기 예산안 초안 작성",
+            "department": "재무팀"
+          }
+        ]
+      }
+    ]
+  }
+}

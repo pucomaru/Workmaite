@@ -1,5 +1,5 @@
 <template>
-  <div class="cdate-wrap">
+  <div class="cdate-wrap" ref="wrapRef">
     <input
       ref="textRef"
       type="text"
@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 defineOptions({ inheritAttrs: false })
 
@@ -49,6 +49,16 @@ const emit = defineEmits(['update:modelValue'])
 
 const textRef = ref(null)
 const nativeRef = ref(null)
+const wrapRef = ref(null)
+
+function onDocMousedown(e) {
+  if (wrapRef.value && !wrapRef.value.contains(e.target)) {
+    nativeRef.value?.blur()
+  }
+}
+
+onMounted(() => document.addEventListener('mousedown', onDocMousedown))
+onUnmounted(() => document.removeEventListener('mousedown', onDocMousedown))
 const display = ref(formatFromValue(props.modelValue))
 
 watch(() => props.modelValue, (v) => {

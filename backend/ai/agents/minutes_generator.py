@@ -1,7 +1,11 @@
+import logging
 import os, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
+logger = logging.getLogger(__name__)
+
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -10,7 +14,6 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 
 from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
-from agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
 
@@ -26,13 +29,7 @@ class MinutesState(TypedDict):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-        stream_usage=True,
-    )
+    return llm_factory("minutes", temperature=temperature)
 
 
 # ── Neo4j 벡터 검색 (유사 회의록) ────────────────────────────────────────
@@ -42,18 +39,32 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
         embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
         query_vec = await embeddings.aembed_query(text[:500])
 
-        rows = await run_cypher(
-            """CALL db.index.vector.queryNodes('minutes_embedding_index', $k, $embedding)
-               YIELD node, score
-               RETURN node.content AS content, node.title AS title, score
-               ORDER BY score DESC""",
-            {"k": k, "embedding": query_vec},
-        )
+        # 인덱스명·레거시 폴백은 retrieval_registry가 단일 관리 (P3B-6)
+        from retrieval_registry import REGISTRY
+        _entry = REGISTRY["Minutes"]
+        rows = []
+        last_err = None
+        for idx in [_entry["index"], *_entry.get("legacy", [])]:
+            try:
+                rows = await run_cypher(
+                    f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
+                       YIELD node, score
+                       RETURN node.content AS content, node.title AS title, score
+                       ORDER BY score DESC""",
+                    {"k": k, "embedding": query_vec},
+                )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise last_err
         return [
             f"[{r.get('title', '유사 회의록')}]\n{r.get('content', '')}"
             for r in rows if r.get("content")
         ]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[_search_similar_minutes] 유사 회의록 검색 실패: {e}")
         return []
 
 
@@ -182,118 +193,6 @@ async def chat_stream(
                 yield chunk.content
 
 
-async def generate_minutes(
-    raw_transcript: str,
-    session_info: dict = None,
-    meeting_info: dict = None,
-    participants: list = None,
-    agendas: list = None,
-    todos: list = None,
-    meeting_id: int = None,
-    session_id: int = None,
-    title: str = "",
-) -> AsyncGenerator[str, None]:
-    from datetime import datetime as _dt
-    if not now:
-        now = _dt.now().strftime("%Y년 %m월 %d일")
-
-    similar_minutes = await _search_similar_minutes(transcript)
-
-    context_parts = []
-    if meeting_context:
-        context_parts.append(f"[회의체 맥락]\n{meeting_context}")
-
-    tpo_lines = []
-    if session_info:
-        if session_info.get("title"):
-            tpo_lines.append(f"회의 제목: {session_info['title']}")
-        if session_info.get("started_at"):
-            tpo_lines.append(f"시작: {session_info['started_at']}")
-        if session_info.get("ended_at"):
-            tpo_lines.append(f"종료: {session_info['ended_at']}")
-        if session_info.get("location"):
-            tpo_lines.append(f"장소: {session_info['location']}")
-    if tpo_lines:
-        context_parts.append("[회의 기본 정보]\n" + "\n".join(tpo_lines))
-
-    if participants:
-        lines = []
-        for p in participants:
-            role_label = "관리자" if p.get("role") == "admin" else "발제자"
-            lines.append(f"- {p.get('name','?')} ({p.get('dept','')}, {role_label})")
-        context_parts.append("[참석자]\n" + "\n".join(lines))
-
-    if todos:
-        lines = []
-        for t in todos:
-            due = t.get("due_date", "").split("T")[0] if t.get("due_date") else "기한 미정"
-            lines.append(f"- {t.get('content','')} / 담당: {t.get('assignee','미정')} / 기한: {due}")
-        context_parts.append("[등록된 Todo]\n" + "\n".join(lines))
-
-    if similar_minutes:
-        context_parts.append("[유사 회의록 참고]\n" + "\n\n".join(similar_minutes[:2]))
-
-    prompt = f"""{context_block}[회의 녹취/기록]
-{raw_transcript[:5000]}
-
-위 회의 내용을 바탕으로 두 파트로 응답하세요.
-
-## [1]
-# 회의록
-## 1. 회의 목적 및 배경
-## 2. 주요 논의 사항
-## 3. 결정 사항
-## 4. 액션 아이템
-| 담당자 | 내용 | 기한 |
-|--------|------|------|
-## 5. 보류 및 추가 검토 사항
-## 6. 다음 회의 안건
-
-## [2]
-```json
-{{
-  "attendees": ["참석자 목록"],
-  "decisions": ["결정 사항 목록"],
-  "action_items": [{{"assignee": "담당자", "content": "내용", "due_date": "기한"}}],
-  "tbd_items": ["보류 사항 목록"],
-  "next_meeting_note": "다음 회의 안건"
-}}
-```"""
-
-    llm = _make_llm(temperature=0.2)
-    response = await llm.ainvoke([SystemMessage(content=MINUTES_SYSTEM), HumanMessage(content=prompt)])
-    full_text = response.content
-
-    md_part = full_text
-    json_part = {}
-    split_marker = "## [2]"
-    if split_marker in full_text:
-        parts = full_text.split(split_marker, 1)
-        md_part = parts[0].replace("## [1]", "").strip()
-        raw_json_text = parts[1]
-        m = _re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', raw_json_text)
-        if m:
-            try:
-                json_part = _json.loads(m.group(1))
-            except Exception:
-                pass
-
-    if meeting_id and md_part:
-        try:
-            from agents import knowledge_manager as _ka
-            _title = session_info.get("title", "회의록") if session_info else "회의록"
-            await _ka.store_minutes(
-                title=_title,
-                content=md_part,
-                meeting_id=meeting_id,
-                session_id=session_id,
-            )
-        except Exception:
-            pass
-
-    return md_part, json_part
-
-
 async def generate_minutes_stream(
     transcript: str,
     meeting_context: str = "",
@@ -302,18 +201,34 @@ async def generate_minutes_stream(
     meeting_id: int = None,
     session_id: int = None,
     title: str = "",
+    session_info: dict = None,
+    participants: list = None,
+    prev_minutes: list = None,
+    summary_blocks: list = None,
+    report_chunks: list = None,
+    overdue_agendas: list = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
     if not now:
         now = _dt.now().strftime("%Y년 %m월 %d일")
 
     llm = _make_llm(temperature=0.2)
-    collected_parts: List[str] = []
     async for chunk in llm.astream([
-        SystemMessage(content=generate_minutes_system(meeting_context, agenda_text)),
-        HumanMessage(content=generate_minutes_human(transcript, now)),
+        SystemMessage(content=generate_minutes_system(
+            meeting_context=meeting_context,
+            agenda_text=agenda_text,
+            session_info=session_info,
+            participants=participants,
+            prev_minutes=prev_minutes,
+            report_chunks=report_chunks,
+            overdue_agendas=overdue_agendas,
+        )),
+        HumanMessage(content=generate_minutes_human(
+            transcript=transcript,
+            now=now,
+            summary_blocks=summary_blocks,
+        )),
     ]):
         if chunk.content:
-            collected_parts.append(chunk.content)
             yield chunk.content
 

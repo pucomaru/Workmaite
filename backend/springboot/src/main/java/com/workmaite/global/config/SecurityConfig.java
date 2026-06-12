@@ -1,6 +1,7 @@
 package com.workmaite.global.config;
 
 import com.workmaite.global.auth.JwtAuthenticationFilter;
+import com.workmaite.global.auth.MustChangePasswordFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,6 +28,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MustChangePasswordFilter mustChangePasswordFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -44,7 +46,7 @@ public class SecurityConfig {
             // 요청별 권한 설정
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()      // 로그인/회원가입
-                .requestMatchers("/actuator/health").permitAll()    // 헬스체크
+                .requestMatchers("/actuator/**").permitAll()        // actuator (prometheus, health 등)
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Swagger
                 .requestMatchers("/", "/error").permitAll()          // 루트/에러
                 .anyRequest().authenticated()                       // 나머지는 인증 필요
@@ -52,7 +54,9 @@ public class SecurityConfig {
 
             // JWT 필터를 Security 필터 앞에 추가
             .addFilterBefore(jwtAuthenticationFilter,
-                UsernamePasswordAuthenticationFilter.class);
+                UsernamePasswordAuthenticationFilter.class)
+            // 임시 비밀번호 상태의 API 사용 차단 — JWT 인증 뒤에 평가 (P1-7②)
+            .addFilterAfter(mustChangePasswordFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -60,7 +64,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        // 허용 오리진 화이트리스트 (와일드카드 + allowCredentials 조합은 토큰 탈취 공격면이 됨)
+        config.setAllowedOrigins(List.of(
+                "https://workmaite.project.skala-ai.com",
+                "http://localhost:5173",
+                "http://localhost:4173"
+        ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

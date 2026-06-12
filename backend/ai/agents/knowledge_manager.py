@@ -1,16 +1,20 @@
-import os, json, re, uuid
-from datetime import datetime
+import logging
+import os, json, uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
+logger = logging.getLogger(__name__)
+
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
-from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
+from neo4j_ids import to_agenda_id, to_mg_id, to_minutes_id
 
 from routers.prompts import (
     KNOWLEDGE_SYSTEM,
@@ -39,12 +43,7 @@ class KnowledgeEntry(BaseModel):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-    )
+    return llm_factory("knowledge", temperature=temperature)
 
 
 # ── Neo4j 벡터 인덱스 관리 ─────────────────────────────────────────────────
@@ -53,7 +52,10 @@ async def ensure_vector_indexes() -> None:
     from neo4j_client import run_cypher
 
     index_queries = [
-        """CREATE VECTOR INDEX minutes_embedding_index IF NOT EXISTS
+        # 인덱스명은 neo4j_sync._VECTOR_INDEXES와 동일해야 한다.
+        # (같은 라벨·속성에 다른 이름의 인덱스를 만들면 한쪽 생성이 조용히 실패해
+        #  검색이 0건이 되는 사고가 있었음 — Plan.md G-1)
+        """CREATE VECTOR INDEX minutesEmbedding IF NOT EXISTS
            FOR (m:Minutes) ON (m.embedding)
            OPTIONS {indexConfig: {
              `vector.dimensions`: 1536,
@@ -107,9 +109,9 @@ async def store_minutes(
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
-    node_id = f"minutes-{uuid.uuid4().hex[:8]}"
+    node_id = to_minutes_id(uuid.uuid4().hex[:8])
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (m:Minutes {id: $id})
@@ -155,9 +157,9 @@ async def store_task(
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
-    node_id = f"agenda-{uuid.uuid4().hex[:8]}"
+    node_id = to_agenda_id(uuid.uuid4().hex[:8])
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (t:Agenda {id: $id})
@@ -217,7 +219,7 @@ async def store_report(
     await ensure_vector_indexes()
     node_id = f"reportchunk-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (c:ReportChunk {id: $id})
@@ -247,7 +249,7 @@ async def store_report(
                 """MATCH (c:ReportChunk {id: $cid})
                    MATCH (mg:Meetings {id: $mg_id})
                    MERGE (c)-[:BELONGS_TO]->(mg)""",
-                {"cid": node_id, "mg_id": f"mg-{meeting_id}"},
+                {"cid": node_id, "mg_id": to_mg_id(meeting_id)},
             )
         except Exception:
             pass
@@ -263,28 +265,38 @@ async def search_knowledge(
 ) -> List[dict]:
     from neo4j_client import run_cypher
 
-    index_map = {
-        "Minutes":       "minutes_embedding_index",
-        "Agenda":        "agendaEmbedding",
-        "HumanJudgment": "humanJudgmentEmbedding",
-        "ReportChunk":   "reportChunkEmbedding",
-        "MinutesChunk":  "minutesChunkEmbedding",
-    }
-    index_name = index_map.get(node_type, "minutesChunkEmbedding")
-    embedding = await _embed(query)
+    # 인덱스명·레거시 폴백·0건 메트릭은 retrieval_registry가 단일 관리 (P3B-6)
+    from retrieval_registry import index_for, REGISTRY
 
     try:
-        rows = await run_cypher(
-            f"""CALL db.index.vector.queryNodes('{index_name}', $k, $embedding)
-                YIELD node, score
-                RETURN node.title AS title, node.content AS content,
-                       node.meeting_id AS meeting_id, score
-                ORDER BY score DESC""",
-            {"k": k, "embedding": embedding},
-        )
-        return rows
-    except Exception:
+        index_for(node_type)  # 미등록 라벨 조기 발견
+    except KeyError as e:
+        logger.warning(f"[search_knowledge] {e}")
         return []
+    embedding = await _embed(query)
+    entry_label = REGISTRY[node_type].get("alias", node_type)
+    entry = REGISTRY[entry_label]
+
+    last_err: Exception | None = None
+    for idx in [entry["index"], *entry.get("legacy", [])]:
+        try:
+            rows = await run_cypher(
+                f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
+                    YIELD node, score
+                    RETURN node.title AS title, node.content AS content,
+                           node.meeting_id AS meeting_id, score
+                    ORDER BY score DESC""",
+                {"k": k, "embedding": embedding},
+            )
+            if not rows:
+                from retrieval_registry import RETRIEVAL_ZERO_RESULTS
+                RETRIEVAL_ZERO_RESULTS.labels(entry_label).inc()
+                logger.warning(f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}")
+            return rows
+        except Exception as e:
+            last_err = e
+    logger.warning(f"[search_knowledge] 검색 실패 ({node_type}): {last_err}")
+    return []
 
 
 # ── 공개 Tool 함수 (Agent가 직접 호출 가능) ──────────────────────────────────
@@ -373,7 +385,7 @@ async def propose_relationships(
         f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
         for r in nodes
     ])
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = llm_factory("knowledge", temperature=0.1, streaming=False)
     response = await llm.ainvoke([
         SystemMessage(content="""회의체 온톨로지 분석 전문가입니다.
 제공된 Neo4j 노드 목록을 보고 연결해야 할 관계를 제안하세요.
@@ -407,7 +419,7 @@ async def propose_relationships(
     _proposals[proposal_id] = {
         "meeting_id": meeting_id,
         "relationships": relationships,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     return {"proposal_id": proposal_id, "relationships": relationships}
@@ -454,7 +466,7 @@ async def confirm_relationships(
         reason_text = reject_reason or "사유 없음"
         node_id = f"humanjudgment-{uuid.uuid4().hex[:8]}"
         embedding = await _embed(reason_text)
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         try:
             await run_cypher(
                 """MERGE (hj:HumanJudgment {id: $id})
@@ -565,7 +577,7 @@ async def reconcile_graph(analysis: dict) -> dict:
              "session_agenda_links": 0,
              "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
              "pruned_links": 0}
-    ts = datetime.utcnow().isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
 
     # ⓪ 세션 시간순 '후속' 체인
     for chain in struct.get("session_chains", []):
@@ -613,7 +625,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
                 "SET r.score=score, r.kind='minutes_agenda', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
-                "MERGE (s)-[r2:`다룸멌`]->(ag) "
+                "MERGE (ag)-[r2:`다룸`]->(s) "
                 "SET r2.score=score, r2.kind='session_agenda', r2.discovered_by='knowledge_agent', r2.discovered_at=$ts "
                 "RETURN ag.title AS title, score",
                 {"sid": sid, "emb": emb, "mid": mid, "ts": ts},
@@ -671,7 +683,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         floating_rows = await run_cypher(
             "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
             "WHERE NOT (ag)-[:`발제세션`]->(:Session) "
-            "  AND NOT (s)-[:`진행`|`다룸멌`|`도출`]->(ag) "
+            "  AND NOT (s)-[:`진행`|`다룸`|`도출`]->(ag) "
             "  AND NOT coalesce(ag.status,'') IN ['DONE','COMPLETED','CLOSED','RESOLVED'] "
             "WITH s, ag LIMIT 200 "
             "MERGE (s)-[r:`진행`]->(ag) "

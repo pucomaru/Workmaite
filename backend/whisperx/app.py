@@ -28,6 +28,22 @@ diarize_model = _Pipeline.from_pretrained(
     token=HF_TOKEN,
 ).to(torch.device(DEVICE))
 
+# align model은 언어별로 1회만 로드해 캐시한다 (P4-4 — 매 요청 로드 제거)
+_align_cache: dict = {}
+
+
+def _get_align_model(language: str):
+    if language not in _align_cache:
+        _align_cache[language] = whisperx.load_align_model(language_code=language, device=DEVICE)
+    return _align_cache[language]
+
+
+# 한국어 align model 워밍업 (첫 요청 지연 제거)
+try:
+    _get_align_model("ko")
+except Exception as _e:
+    logger.warning(f"[WhisperX] ko align 워밍업 실패(요청 시 재시도): {_e}")
+
 logger.info("[WhisperX] 모델 로드 완료")
 
 
@@ -60,15 +76,13 @@ async def asr(
         rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
         logger.info(f"[WhisperX] webm={os.path.getsize(tmp_path)}B wav={wav_size}B rms={rms:.4f}")
 
-        result = model.transcribe(audio, language=language, batch_size=1)
+        result = model.transcribe(audio, language=language, batch_size=8)
 
         if not result.get("segments"):
             logger.warning(f"[WhisperX] 세그먼트 없음 (rms={rms:.4f})")
             return {"text": "", "segments": []}
 
-        align_model, metadata = whisperx.load_align_model(
-            language_code=language, device=DEVICE
-        )
+        align_model, metadata = _get_align_model(language)  # 캐시 (P4-4)
         result = whisperx.align(
             result["segments"], align_model, metadata, wav_path, DEVICE
         )

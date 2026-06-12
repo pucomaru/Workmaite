@@ -1,7 +1,11 @@
+"""SQLAlchemy 모델 — **읽기 전용 매핑** (P2-1).
+
+스키마의 단일 소스는 Spring의 Flyway 마이그레이션(backend/springboot/src/main/resources/db/migration)이다.
+이 파일로 스키마를 생성/변경하지 말 것 (Base.metadata.create_all 금지).
+"""
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean,
-    ForeignKey, JSON, Float, UniqueConstraint,
+    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -16,8 +20,17 @@ class User(Base):
     company       = Column(String(100), nullable=True)
     department    = Column(String(100), nullable=True)
     position      = Column(String(100), nullable=True)
+    # 시스템 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN
+    role          = Column(String(30), nullable=False, default="USER", server_default="USER")
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
+
+
+class ReportAgenda(Base):
+    """보고서-아젠다 연결 정규화 (P2-8) — reports.related_agenda_ids의 관계형 대체."""
+    __tablename__ = "report_agendas"
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
+    agenda_id = Column(Integer, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Meeting(Base):
@@ -26,6 +39,7 @@ class Meeting(Base):
     title       = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     guidelines  = Column(Text, nullable=True)
+    context     = Column(Text, nullable=True)
     type        = Column(String(20), nullable=True)
     start_date  = Column(DateTime, nullable=True)
     end_date    = Column(DateTime, nullable=True)
@@ -49,16 +63,18 @@ class MeetingMember(Base):
 
 class MeetingSession(Base):
     __tablename__ = "meeting_sessions"
-    id           = Column(Integer, primary_key=True, index=True)
-    meeting_id   = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    title        = Column(String(255), nullable=True)
-    description  = Column(String(255), nullable=True)
-    location     = Column(String(255), nullable=True)
-    type         = Column(String(50), nullable=False)
-    scheduled_at = Column(DateTime, nullable=True)
-    started_at   = Column(DateTime, nullable=True)
-    ended_at     = Column(DateTime, nullable=True)
-    status       = Column(String(20), default="scheduled")
+    id                = Column(Integer, primary_key=True, index=True)
+    meeting_id        = Column(Integer, ForeignKey("meetings.id"), nullable=False)
+    title             = Column(String(255), nullable=True)
+    description       = Column(String(255), nullable=True)
+    location          = Column(String(255), nullable=True)
+    type              = Column(String(50), nullable=False)
+    scheduled_at      = Column(DateTime, nullable=True)
+    started_at        = Column(DateTime, nullable=True)
+    ended_at          = Column(DateTime, nullable=True)
+    status            = Column(String(20), default="scheduled")
+    recording_seconds = Column(Integer, default=0, nullable=False)
+    last_resumed_at   = Column(DateTime, nullable=True)
 
     minutes = relationship("Minutes", back_populates="session", uselist=False)
 
@@ -157,6 +173,20 @@ class ChatMessage(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class ChatFeedback(Base):
+    """응답 피드백 (P3C-3, H-9) — eval 데이터셋 환류용."""
+    __tablename__ = "chat_feedback"
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    thread_id       = Column(String(100), nullable=False)
+    message_id      = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
+    agent_log_id    = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
+    rating          = Column(Integer, nullable=False)  # 1=up / -1=down
+    reason          = Column(Text, nullable=True)
+    content_snippet = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
 class AgentLog(Base):
     __tablename__ = "agent_logs"
     id              = Column(Integer, primary_key=True, index=True)
@@ -171,6 +201,8 @@ class AgentLog(Base):
     reasoning_steps = Column(JSON, nullable=True)
     loop_count      = Column(Integer, default=0)
     error_message   = Column(Text, nullable=True)
+    # LangChain 루트 run id — LangSmith 트레이스 점프용 (P3A-3)
+    trace_id        = Column(String(64), nullable=True)
     ended_at        = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
 
@@ -188,12 +220,14 @@ class TokenUsageLog(Base):
 
 class SessionSummaryBlock(Base):
     __tablename__ = "session_summary_blocks"
-    id            = Column(Integer, primary_key=True, index=True)
-    session_id    = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
-    block_index   = Column(Integer, nullable=False)
-    title         = Column(String(500), nullable=True)
-    bullets       = Column(JSON, nullable=True)
-    created_at    = Column(DateTime, default=datetime.utcnow)
+    id                  = Column(Integer, primary_key=True, index=True)
+    session_id          = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    block_index         = Column(Integer, nullable=False)
+    title               = Column(String(500), nullable=True)
+    bullets             = Column(JSON, nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    recording_start_sec = Column(Float, nullable=True)
+    recording_end_sec   = Column(Float, nullable=True)
 
 
 class HitlReview(Base):

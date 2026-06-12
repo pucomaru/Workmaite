@@ -413,9 +413,10 @@ select.app-modal-input { appearance:none;-webkit-appearance:none;background:#f8f
 .app-btn-primary { padding:8px 20px;border-radius:8px;border:none;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;}
 .app-btn-primary:hover { opacity:.85; }
 .app-btn-primary:disabled { opacity:.4;cursor:not-allowed; }
-.app-btn-danger { padding:8px 16px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:700;cursor:pointer; }
-.app-btn-danger:hover { background:#dc2626; }
+.app-btn-danger { padding:8px 16px;border-radius:8px;border:1px solid #fca5a5;background:#fff;color:#ef4444;font-size:13px;font-weight:600;cursor:pointer; }
+.app-btn-danger:hover { background:#fef2f2; }
 .app-btn-danger:disabled { opacity:.4;cursor:not-allowed; }
+.app-modal-footer-right { display:flex;gap:8px;align-items:center; }
 
 /* App Modal: dark class variant (MeetingGroupsPage, ArchivePage) */
 .app-modal.dark { background:#1e293b;border-color:rgba(255,255,255,.1);box-shadow:0 24px 64px rgba(0,0,0,.4); }
@@ -448,7 +449,8 @@ html.night-mode .app-btn-cancel { background:rgba(255,255,255,.06) !important;bo
 html.night-mode .app-btn-cancel:hover { background:rgba(255,255,255,.1) !important; }
 
 /* Required field marker */
-.req { color:#ef4444; }
+.req { color:#ef4444;vertical-align:middle; }
+.field-error { color:#ef4444;font-size:11px;margin:2px 0 0;padding:0; }
 .app-modal.dark .req { color:#f87171; }
 html.night-mode .req { color:#f87171 !important; }
 

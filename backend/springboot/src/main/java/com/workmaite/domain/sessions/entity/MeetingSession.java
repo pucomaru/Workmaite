@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
 /**
  * 회의 세션 엔티티 - meeting_sessions 테이블 매핑
@@ -51,6 +52,12 @@ public class MeetingSession {
     @Column(columnDefinition = "TEXT")
     private String context;
 
+    @Column(name = "recording_seconds", nullable = false)
+    private Long recordingSeconds = 0L;
+
+    @Column(name = "last_resumed_at")
+    private LocalDateTime lastResumedAt;
+
     public static MeetingSession create(Long meetingId, String title, String description, String location, String type, LocalDateTime scheduledAt) {
         MeetingSession session = new MeetingSession();
         session.meetingId = meetingId;
@@ -71,20 +78,32 @@ public class MeetingSession {
         if (scheduledAt != null) this.scheduledAt = scheduledAt;
     }
 
-    // SCHEDULED → ONGOING: 현재 시간을 started_at에 기록
+    // SCHEDULED → ONGOING: 현재 시간을 started_at, last_resumed_at에 기록
     public void start() {
         this.startedAt = LocalDateTime.now();
+        this.lastResumedAt = LocalDateTime.now();
         this.status = SessionStatus.ONGOING;
     }
 
-    // ONGOING → SCHEDULED: 일시정지 시 started_at 초기화 후 대기 상태로 복귀
+    // 녹음 일시정지: 시간 누적, status는 ONGOING 유지
     public void pause() {
-        this.startedAt = null;
-        this.status = SessionStatus.SCHEDULED;
+        if (this.lastResumedAt != null) {
+            this.recordingSeconds += ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
+        }
+        this.lastResumedAt = null;
     }
 
-    // ONGOING → ENDED: 현재 시간을 ended_at에 기록
+    // 녹음 재개: last_resumed_at만 갱신
+    public void resume() {
+        this.lastResumedAt = LocalDateTime.now();
+    }
+
+    // ONGOING → ENDED: 마지막 녹음 구간 누적 후 종료
     public void end() {
+        if (this.lastResumedAt != null) {
+            this.recordingSeconds += ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
+        }
+        this.lastResumedAt = null;
         this.endedAt = LocalDateTime.now();
         this.status = SessionStatus.ENDED;
     }

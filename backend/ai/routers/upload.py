@@ -9,24 +9,49 @@ Ingress: /api/upload → FastAPI (workmaite-ai:8000)
 """
 import logging
 import uuid
-from datetime import datetime
-from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-import json
 import models
 from auth import get_current_user
+from access_guard import (
+    require_meeting_member,
+    require_meeting_member_by_report,
+    require_meeting_member_by_session,
+)
 from database import get_db
-from fastapi.responses import StreamingResponse
 from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
+
+
+def _replace_report_agendas(db, report_id: int, raw_ids) -> None:
+    """report_agendas 조인 테이블 동기화 (P2-8 dual-write).
+
+    related_agenda_ids JSONB(["agenda-174", 174, ...])와 같은 내용을 정규화 테이블에 반영한다.
+    읽기 경로가 전환되면 JSONB 쪽 쓰기를 제거한다.
+    """
+    import re as _re
+    pg_ids = set()
+    for v in raw_ids or []:
+        s = str(v)
+        m = _re.search(r"\d+$", s)
+        if m:
+            pg_ids.add(int(m.group()))
+    db.query(models.ReportAgenda).filter(models.ReportAgenda.report_id == report_id).delete()
+    if pg_ids:
+        existing = {
+            row.id for row in db.query(models.Agenda.id).filter(models.Agenda.id.in_(pg_ids)).all()
+        }
+        for aid in pg_ids & existing:
+            db.add(models.ReportAgenda(report_id=report_id, agenda_id=aid))
+    db.commit()
+
 
 _MAX_BYTES = 100 * 1024 * 1024  # 100 MB
 
@@ -63,7 +88,7 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
 
 def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
     """HTML 문자열을 WeasyPrint로 PDF bytes로 변환합니다."""
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML
     logger.info(f"[PDF변환] 시작 — title={title!r}, HTML 길이={len(html_content)}자")
     full_html = (
         f'<!DOCTYPE html><html><head>'
@@ -86,9 +111,7 @@ async def get_rejected_reports(
     db: Session = Depends(get_db),
 ):
     """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다."""
-    from sqlalchemy.orm import aliased
     # 재제출된 항목(자식 버전이 있는 항목) 제외
-    from sqlalchemy import exists
     resubmitted_ids = db.query(models.Report.parent_id).filter(
         models.Report.parent_id.isnot(None)
     ).subquery()
@@ -129,6 +152,7 @@ async def upload_report(
     db: Session = Depends(get_db),
 ):
     """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다."""
+    require_meeting_member(db, current_user, meeting_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
@@ -167,6 +191,7 @@ async def upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+    _replace_report_agendas(db, report.id, agenda_ids)  # 정규화 dual-write (P2-8)
 
     from file_embedder import embed_and_store as _embed_and_store
     background_tasks.add_task(
@@ -204,6 +229,7 @@ async def get_report_score(
     db: Session = Depends(get_db),
 ):
     """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
+    require_meeting_member_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
@@ -248,7 +274,7 @@ async def save_report_score(
     db: Session = Depends(get_db),
 ):
     """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
-    import json as _json
+    require_meeting_member_by_report(db, current_user, report_id)
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
@@ -288,7 +314,7 @@ async def submit_report_review(
     db: Session = Depends(get_db),
 ):
     """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
-    import json as _json
+    require_meeting_member_by_report(db, current_user, report_id)
     from datetime import datetime as _dt
     from sqlalchemy import desc as _desc
 
@@ -305,6 +331,7 @@ async def submit_report_review(
     # 최종 아젠다 연결 업데이트 (step 2에서 사용자가 선택/확정한 값)
     if "related_agenda_ids" in data:
         report.related_agenda_ids = data["related_agenda_ids"]
+        _replace_report_agendas(db, report.id, data["related_agenda_ids"])  # P2-8
 
     # approved 시 연결된 아젠다 자동 완료
     if action == "approved":
@@ -357,6 +384,7 @@ async def delete_report(
     db: Session = Depends(get_db),
 ):
     """보고서를 R2, report_scores, hitl_reviews, reports 테이블에서 삭제합니다."""
+    require_meeting_member_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
@@ -401,7 +429,7 @@ async def delete_report(
     db.flush()
 
     # 삭제 후 approved 보고서가 없는 아젠다를 ongoing으로 되돌리기
-    from sqlalchemy import cast as _cast, text as _text
+    from sqlalchemy import cast as _cast
     from sqlalchemy.dialects.postgresql import JSONB as _JSONB
     for ag_id in agenda_ids_to_check:
         still_approved = db.query(models.Report).filter(
@@ -430,6 +458,7 @@ async def upload_minutes(
     db: Session = Depends(get_db),
 ):
     """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
+    require_meeting_member_by_session(db, current_user, session_id)
     logger.info(f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}")
 
     session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
@@ -549,6 +578,10 @@ async def upload_chat_file(
     db: Session = Depends(get_db),
 ):
     """채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다."""
+    if meeting_id:
+        require_meeting_member(db, current_user, meeting_id)
+    if session_id:
+        require_meeting_member_by_session(db, current_user, session_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")

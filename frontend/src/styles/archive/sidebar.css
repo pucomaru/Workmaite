@@ -148,7 +148,7 @@
 .dday-critical { background:rgba(239,68,68,.22);color:#f87171; }
 .dday-over { background:rgba(100,116,139,.18);color:var(--dark-muted); }
 .dday-label { font-size:11px;color:var(--text-muted);flex:1; }
-.dday-date { font-size:10px;color:#3b4152;flex-shrink:0; }
+.dday-date { font-size:11px;color:#aaa;flex-shrink:0; }
 /* ── 팀 제출 현황 ───────────────────────────────────────────── */
 .dept-submit-section { display:flex;flex-direction:column;gap:5px; }
 .dept-submit-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:2px; }
@@ -178,7 +178,7 @@
 .day-mode .dday-critical { background:rgba(239,68,68,.12);color:#dc2626; }
 .day-mode .dday-over { background:var(--surface-2);color:var(--text-muted); }
 .day-mode .dday-label { color:var(--dark-muted); }
-.day-mode .dday-date { color:#cbd5e1; }
+.day-mode .dday-date { color:var(--dark-card); }
 .day-mode .dept-submit-item { background:var(--surface);border-color:var(--surface-2); }
 .day-mode .dept-submit-item.dsi-done { border-color:rgba(22,163,74,.15); }
 .day-mode .dept-submit-item.dsi-urgent { border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04); }
@@ -325,6 +325,13 @@
 .detail-doc-name { font-size:11.5px;color:#c0c0c0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .detail-doc-date { font-size:10px;color:#454545;margin-top:1px; }
 /* 구성원 */
+.person-mg-list { display:flex;flex-direction:column;gap:7px; }
+.person-mg-item { display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.03); }
+.person-mg-item:hover { background:rgba(255,255,255,.06); }
+.person-mg-title { flex:1;min-width:0;font-size:12px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.day-mode .person-mg-title { color:#1e293b; }
+.day-mode .person-mg-item { background:rgba(0,0,0,.03); }
+.day-mode .person-mg-item:hover { background:rgba(0,0,0,.06); }
 .detail-member-list { display:flex;flex-direction:column;gap:1px; }
 .detail-member-row { display:flex;align-items:center;gap:9px;padding:5px 8px;border-radius:6px; }
 .detail-member-row:hover { background:rgba(255,255,255,.03); }

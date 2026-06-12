@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from access_guard import require_meeting_member_by_session
 from neo4j_sync import sync_minutes
 
 _openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -45,6 +46,7 @@ async def save_minutes(
     생성된 회의록을 R2에 업로드하고 PostgreSQL minutes 테이블에 저장합니다.
     스트리밍으로 생성 완료 후 프론트에서 최종 텍스트를 보내면 이 API를 호출합니다.
     """
+    require_meeting_member_by_session(db, current_user, session_id)
     session = db.query(models.MeetingSession).filter(
         models.MeetingSession.id == session_id
     ).first()
@@ -120,6 +122,7 @@ def get_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
@@ -140,6 +143,7 @@ async def update_minutes_content(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
@@ -160,6 +164,7 @@ async def delete_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
@@ -174,6 +179,8 @@ class RefineChunkRequest(BaseModel):
     session_id: int
     text: str
     context: Optional[str] = None
+    recording_start_sec: Optional[float] = None
+    recording_end_sec: Optional[float] = None
 
 class RefineChunkResponse(BaseModel):
     title: str
@@ -186,8 +193,45 @@ async def refine_chunk(
     db: Session = Depends(get_db),
     _: models.User = Depends(get_current_user),
 ):
+    session = db.query(models.MeetingSession).filter(
+        models.MeetingSession.id == body.session_id
+    ).first()
+
+    prev_block_titles = (
+        db.query(models.SessionSummaryBlock.title)
+        .filter(
+            models.SessionSummaryBlock.session_id == body.session_id,
+            models.SessionSummaryBlock.title.isnot(None),
+        )
+        .order_by(models.SessionSummaryBlock.block_index)
+        .all()
+    )
+
+    agenda_titles = []
+    if session and session.meeting_id:
+        agenda_titles = (
+            db.query(models.Agenda.title)
+            .filter(
+                models.Agenda.meeting_id == session.meeting_id,
+                models.Agenda.title.isnot(None),
+            )
+            .order_by(models.Agenda.created_at)
+            .limit(10)
+            .all()
+        )
+
     context_line = f"회의 맥락: {body.context}\n" if body.context else ""
-    prompt = f"""{context_line}아래는 회의 중 발화된 원문입니다.
+    if agenda_titles:
+        agendas = "\n".join(f"  • {row.title}" for row in agenda_titles)
+        agenda_line = f"[회의 안건]\n{agendas}\n"
+    else:
+        agenda_line = ""
+    if prev_block_titles:
+        titles = "\n".join(f"  • {row.title}" for row in prev_block_titles)
+        prev_line = f"[이번 회의 앞선 논의]\n{titles}\n"
+    else:
+        prev_line = ""
+    prompt = f"""{context_line}{agenda_line}{prev_line}아래는 회의 중 발화된 원문입니다.
         다음 조건에 따라 정리해주세요:
         1. 필러워드(어, 음, 그, 아 등) 제거
         2. 오탈자 교정
@@ -220,6 +264,8 @@ async def refine_chunk(
         block_index=block_index,
         title=title,
         bullets=bullets,
+        recording_start_sec=body.recording_start_sec,
+        recording_end_sec=body.recording_end_sec,
     ))
     db.commit()
 

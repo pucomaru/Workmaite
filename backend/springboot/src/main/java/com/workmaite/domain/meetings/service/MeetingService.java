@@ -6,6 +6,8 @@ import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.global.audit.AuditLogged;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import com.workmaite.global.sync.NeoSyncService;
@@ -34,8 +36,10 @@ public class MeetingService {
     private final MeetingMemberRepository meetingMemberRepository;
     private final UserRepository userRepository;
     private final NeoSyncService neoSyncService;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "meeting")
     public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
         Meeting meeting = Meeting.create(
                 request.getTitle(), request.getDescription(), request.getGuidelines(),
@@ -50,10 +54,24 @@ public class MeetingService {
         return MeetingResponse.from(saved);
     }
 
-    public List<MeetingResponse> getMeetings(Long userId, String keyword) {
+    private static final int MAX_PAGE_SIZE = 100;
+
+    /** 회의체 목록/검색 (P8-4). size 미지정 시 기존 전체 반환(호환 모드). */
+    public List<MeetingResponse> getMeetings(Long userId, String keyword, Integer page, Integer size) {
+        boolean paged = size != null;
+        var pageable = paged
+                ? org.springframework.data.domain.PageRequest.of(
+                        page == null ? 0 : Math.max(page, 0),
+                        Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                        org.springframework.data.domain.Sort.by("createdAt").descending())
+                : null;
         List<Meeting> all = (keyword != null && !keyword.isBlank())
-                ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword)
-                : meetingRepository.findByUserId(userId);
+                ? (paged
+                    ? meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword, pageable)
+                    : meetingRepository.findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(keyword, keyword))
+                : (paged
+                    ? meetingRepository.findByUserId(userId, pageable)
+                    : meetingRepository.findByUserId(userId));
 
         // Build role map for this user
         List<Long> meetingIds = all.stream().map(Meeting::getId).toList();
@@ -100,6 +118,7 @@ public class MeetingService {
     }
 
     public MeetingDetailResponse getMeeting(Long meetingId) {
+        meetingAccessGuard.requireMember(meetingId);
         Meeting meeting = findMeetingOrThrow(meetingId);
         List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
         Map<Long, User> userMap = buildUserMap(members);
@@ -107,12 +126,14 @@ public class MeetingService {
     }
 
     public List<MeetingMemberResponse> findMembers(Long meetingId) {
+        meetingAccessGuard.requireMember(meetingId);
         List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
         Map<Long, User> userMap = buildUserMap(members);
         return members.stream().map(mm -> MeetingMemberResponse.from(mm, userMap.get(mm.getUserId()))).toList();
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "meeting")
     public MeetingResponse updateMeeting(Long meetingId, Long requesterId, MeetingUpdateRequest request) {
         checkSecretaryPermission(meetingId, requesterId);
         Meeting meeting = findMeetingOrThrow(meetingId);
@@ -126,6 +147,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "ADD", entityType = "member")
     public MeetingMemberResponse addMember(Long meetingId, Long requesterId, MeetingMemberAddRequest request) {
         checkSecretaryPermission(meetingId, requesterId);
         findMeetingOrThrow(meetingId);
@@ -141,6 +163,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "REMOVE", entityType = "member")
     public void removeMember(Long meetingId, Long requesterId, Long memberId) {
         checkSecretaryPermission(meetingId, requesterId);
         MeetingMember member = meetingMemberRepository.findById(memberId)
@@ -151,6 +174,7 @@ public class MeetingService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "member")
     public MeetingMemberResponse updateMemberRole(Long meetingId, Long requesterId,
                                                    Long memberId, MeetingMemberUpdateRequest request) {
         checkSecretaryPermission(meetingId, requesterId);

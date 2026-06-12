@@ -1,8 +1,9 @@
 <script setup>
 import { inject } from 'vue'
 import MemberInvite from './MemberInvite.vue'
-import DateInput from './DateInput.vue'
+import { useAuthStore } from '../stores/auth'
 const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, createMembers } = inject('archiveModals')
+const authStore = useAuthStore()
 </script>
 
 <template>
@@ -35,11 +36,11 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label>시작일</label>
-              <DateInput v-model="createForm.start_date" class="app-modal-input" />
+              <input type="date" v-model="createForm.start_date" class="app-modal-input" />
             </div>
             <div class="app-modal-field">
               <label>종료일</label>
-              <DateInput v-model="createForm.end_date" class="app-modal-input" />
+              <input type="date" v-model="createForm.end_date" class="app-modal-input" />
             </div>
           </div>
           <div class="app-modal-field">
@@ -48,7 +49,7 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
 예: 매주 월요일 10시, 의장 승인 필수, 안건 72시간 전 제출 등"></textarea>
           </div>
           <div class="app-modal-field">
-            <MemberInvite v-model="createMembers" />
+            <MemberInvite v-model="createMembers" :lockedUserId="authStore.user?.id" />
           </div>
         </div>
         <div class="app-modal-footer">

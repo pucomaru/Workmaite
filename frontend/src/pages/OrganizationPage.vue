@@ -1,9 +1,11 @@
 <script setup>
+import { useAuthStore } from '../stores/auth'
 import { ref, computed, onMounted } from 'vue'
 import api, { apiAI } from '../api'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 
+const auth = useAuthStore()
 const orgColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
   { label: '회사', width: '110px', sortKey: 'company' },
@@ -84,30 +86,30 @@ function openAddModal() {
   showAddModal.value = true
 }
 
+// 임시 비밀번호 방식 (P1-7② 개정): 관리자가 임시 비밀번호로 즉시 계정 생성,
+// 해당 계정은 최초 로그인 시 비밀번호 변경이 강제된다(서버 필터로 차단)
 async function submitAdd() {
-  if (!addForm.value.name.trim()) return
   addError.value = ''
-  if (!addForm.value.email.trim()) {
-    addError.value = '이메일을 입력해주세요.'
-    return
-  }
-  if (!addForm.value.password.trim()) {
-    addError.value = '비밀번호를 입력해주세요.'
+  if (!addForm.value.name.trim()) { addError.value = '이름을 입력해주세요.'; return }
+  if (!addForm.value.email.trim()) { addError.value = '이메일을 입력해주세요.'; return }
+  if ((addForm.value.password || '').length < 8) {
+    addError.value = '임시 비밀번호(8자 이상)를 입력해주세요.'
     return
   }
   try {
-    await api.post('/api/v1/auth/signup', {
+    const { data } = await api.post('/api/v1/users/bulk', [{
       name: addForm.value.name,
       email: addForm.value.email,
-      company: addForm.value.company || null,
-      department: addForm.value.department || null,
-      position: addForm.value.position || null,
+      department: addForm.value.department || '',
+      position: addForm.value.position || '',
       password: addForm.value.password,
-    })
+    }])
+    const r = data?.[0]
+    if (r && !r.ok) { addError.value = r.reason || '등록 실패'; return }
     await fetchAllMembers()
     showAddModal.value = false
   } catch (e) {
-    addError.value = e.response?.data?.message || '등록에 실패했습니다.'
+    addError.value = e.response?.data?.message || '등록에 실패했습니다. (관리자 권한 필요)'
   }
 }
 
@@ -122,7 +124,7 @@ async function removeMember(member) {
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
 
-function openEdit(member) { editModal.value = { ...member } }
+function openEdit(member) { editModal.value = { ...member, _origRole: member.role } }
 
 async function saveEdit() {
   const m = editModal.value
@@ -133,8 +135,11 @@ async function saveEdit() {
       department: m.department || null,
       position: m.position || null,
     })
+    if (auth.user?.role === 'SYSTEM_ADMIN' && m.role && m.role !== m._origRole) {
+      await api.patch(`/api/v1/users/${m.id}/role`, { role: m.role }) // COMPANY_ADMIN 부여/회수 (P1-7②)
+    }
     await fetchAllMembers()
-  } catch (e) { alert(e.response?.data?.detail || '변경 실패') }
+  } catch (e) { alert(e.response?.data?.detail || e.response?.data?.message || '변경 실패') }
   editModal.value = null
 }
 
@@ -211,6 +216,7 @@ const CSV_HEADER_MAP = {
   '회사': 'company', '회사명': 'company', 'company': 'company', 'organization': 'company',
   '부서': 'department', '부서명': 'department', 'department': 'department',
   '직책': 'position', 'position': 'position',
+  '임시비밀번호': 'password', '비밀번호': 'password', 'password': 'password',
 }
 
 function generateTempPassword() {
@@ -255,15 +261,19 @@ async function parseAndImportCSV(text) {
       continue
     }
 
+    if (!obj.password || obj.password.length < 8) {
+      failed.push(`${obj.name} (임시 비밀번호 컬럼 누락/8자 미만)`)
+      continue
+    }
     try {
-      await api.post('/api/v1/auth/signup', {
-        name: obj.name,
-        email: obj.email,
-        company: obj.company || null,
-        department: obj.department || null,
-        position: obj.position || null,
-        password: generateTempPassword(),
-      })
+      // 임시 비밀번호 방식 (P1-7② 개정): CSV의 비밀번호로 즉시 생성, 로그인 시 변경 강제
+      const { data } = await api.post('/api/v1/users/bulk', [{
+        name: obj.name, email: obj.email,
+        department: obj.department || '', position: obj.position || '',
+        password: obj.password,
+      }])
+      const r = data?.[0]
+      if (r && !r.ok) { failed.push(`${obj.name} (${r.reason})`); continue }
       existingEmails.add(emailLower)
       succeeded.push(obj.name)
     } catch {
@@ -273,7 +283,7 @@ async function parseAndImportCSV(text) {
 
   await fetchAllMembers()
 
-  const resultLines = [`${succeeded.length}명 등록 완료`]
+  const resultLines = [`${succeeded.length}명 등록 완료 (각자 CSV의 임시 비밀번호로 로그인 → 변경 강제)`]
   if (skippedNoEmail.length) resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
   if (skippedDuplicate.length) resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
   if (failed.length) resultLines.push(`등록 실패 (${failed.length}명): ${failed.join(', ')}`)
@@ -469,7 +479,8 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
               <div class="app-modal-field">
                 <label>비밀번호 <span class="req">*</span></label>
-                <input v-model="addForm.password" type="password" class="app-modal-input" placeholder="초기 비밀번호" />
+                <input v-model="addForm.password" type="password" class="app-modal-input"
+                       placeholder="임시 비밀번호 (8자 이상 — 최초 로그인 시 변경 강제)" />
               </div>
             </div>
             <div v-if="addError" style="color:#ef4444;font-size:13px;margin-top:8px">{{ addError }}</div>
@@ -517,6 +528,14 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <label>이메일</label>
                 <input :value="editModal.email" class="app-modal-input" disabled style="background:var(--surface);color:var(--dark-muted)" />
               </div>
+            </div>
+            <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
+              <label>시스템 역할 (SYSTEM_ADMIN 전용)</label>
+              <select v-model="editModal.role" class="app-modal-input">
+                <option value="USER">USER</option>
+                <option value="COMPANY_ADMIN">COMPANY_ADMIN (자사 구성원 관리)</option>
+                <option value="SYSTEM_ADMIN">SYSTEM_ADMIN</option>
+              </select>
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">

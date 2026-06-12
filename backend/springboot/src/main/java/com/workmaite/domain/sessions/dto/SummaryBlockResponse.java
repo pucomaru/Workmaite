@@ -19,12 +19,20 @@ public class SummaryBlockResponse {
     private String title;
     private List<String> bullets;
 
+    @JsonProperty("recording_start_sec")
+    private Double recordingStartSec;
+
+    @JsonProperty("recording_end_sec")
+    private Double recordingEndSec;
+
     public static SummaryBlockResponse from(SessionSummaryBlock block) {
         return SummaryBlockResponse.builder()
                 .id(block.getId())
                 .blockIndex(block.getBlockIndex())
                 .title(block.getTitle())
                 .bullets(block.getBullets())
+                .recordingStartSec(block.getRecordingStartSec())
+                .recordingEndSec(block.getRecordingEndSec())
                 .build();
     }
 }

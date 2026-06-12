@@ -1,5 +1,6 @@
 <script setup>
 import { inject, computed, ref, watch } from 'vue'
+import DOMPurify from 'dompurify'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
@@ -230,20 +231,24 @@ watch(relAddActive, v => {
               <div class="detail-purpose">{{ detailMeeting.purpose || detailMeeting.description }}</div>
             </div>
 
+            <!-- 맥락 -->
+            <div v-if="detailMeeting?.context" class="detail-section">
+              <div class="detail-section-label">회의 맥락</div>
+              <div class="detail-purpose detail-context">{{ detailMeeting.context }}</div>
+            </div>
+
             <!-- 간사 + 참여부서 -->
             <div class="detail-section" style="gap:7px">
               <SidebarInfoRow label="간사" :value="detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName || detailMeeting?.members?.find(mb => mb.role === 'admin')?.name || '-'" />
               <SidebarInfoRow label="참여부서" :value="[...new Set((detailMeeting?.members||[]).map(mb => mb.department||mb.dept||'').filter(Boolean))].join(' · ') || '-'" />
-              <SidebarInfoRow label="시작일">
-                <span style="font-size:10px;color:#999;white-space:nowrap">{{ detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-' }}</span>
-              </SidebarInfoRow>
+              <SidebarInfoRow label="시작일" :value="detailMeeting?.start_date ? detailMeeting.start_date.slice(0,10) : '-'" />
               <SidebarInfoRow label="종료일">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden">
                   <template v-if="detailDday !== null">
                     <span class="dday-date" style="white-space:nowrap">{{ detailEndDateFormatted }}</span>
                     <span class="dday-badge" :class="detailDday <= 0 ? 'dday-over' : detailDday <= 1 ? 'dday-critical' : detailDday <= 3 ? 'dday-warning' : 'dday-normal'" style="white-space:nowrap">{{ detailDday <= 0 ? '마감 초과' : `D-${detailDday}` }}</span>
                   </template>
-                  <span v-else class="dday-label" style="font-size:10px;white-space:nowrap">없음</span>
+                  <span v-else class="dday-label" style="white-space:nowrap">없음</span>
                 </div>
               </SidebarInfoRow>
             </div>
@@ -874,7 +879,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="DOMPurify.sanitize(detailNode.data.content_summary)"></div>
               </div>
             </template>
 
@@ -1023,25 +1028,13 @@ watch(relAddActive, v => {
               </div>
               <div class="detail-section">
                 <div class="detail-section-label">참여 회의체</div>
-                <div v-if="personMeetingGroups(detailNode).length" class="detail-info-grid">
-                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="detail-info-item">
-                    <span class="detail-info-key">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
-                    <span class="detail-info-val">{{ mg.title }}</span>
+                <div v-if="personMeetingGroups(detailNode).length" class="person-mg-list">
+                  <div v-for="mg in personMeetingGroups(detailNode)" :key="mg.id" class="person-mg-item">
+                    <span class="detail-role-badge" :class="mg.role==='admin' ? 'role-admin' : 'role-member'">{{ mg.role==='admin' ? '간사' : '참여' }}</span>
+                    <span class="person-mg-title">{{ mg.title }}</span>
                   </div>
                 </div>
                 <div v-else class="detail-log-empty">회의체 정보 없음</div>
-              </div>
-              <div class="detail-section">
-                <div class="detail-section-label">할당된 아젠다</div>
-                <div v-if="personTasks(detailNode).length" class="detail-info-grid">
-                  <div v-for="t in personTasks(detailNode)" :key="t.id" class="detail-info-item">
-                    <span class="detail-info-key">
-                      <span class="status-badge" :class="{'sb-done':t.status==='done','sb-progress':t.status==='in_progress','sb-pending':!t.status||t.status==='pending'}">{{ {done:'완료',in_progress:'진행',pending:'대기'}[t.status]||t.status }}</span>
-                    </span>
-                    <span class="detail-info-val detail-info-val--wrap">{{ t.content }}</span>
-                  </div>
-                </div>
-                <div v-else class="detail-log-empty">할당된 아젠다 없음</div>
               </div>
             </template>
 

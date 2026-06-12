@@ -5,6 +5,8 @@ import com.workmaite.domain.reports.entity.Report;
 import com.workmaite.domain.reports.entity.ReportScore;
 import com.workmaite.domain.reports.repository.ReportRepository;
 import com.workmaite.domain.reports.repository.ReportScoreRepository;
+import com.workmaite.global.audit.AuditLogged;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +22,12 @@ public class ReportService {
 
     private final ReportRepository reportRepository;
     private final ReportScoreRepository reportScoreRepository;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "report")
     public ReportResponse submitReport(Long meetingId, ReportSubmitRequest request) {
+        meetingAccessGuard.requireMember(meetingId);
         Report report = Report.builder()
                 .meetingId(meetingId)
                 .uploadId(request.getUploadId())
@@ -34,7 +39,9 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "CREATE", entityType = "report")
     public ReportResponse submitReportForSession(Long sessionId, ReportSessionSubmitRequest request) {
+        meetingAccessGuard.requireMember(request.getMeetingId());
         Report report = Report.builder()
                 .meetingId(request.getMeetingId())
                 .uploadId(request.getUploadId())
@@ -46,6 +53,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "RESUBMIT", entityType = "report")
     public ReportResponse resubmitReport(Long reportId, ReportResubmitRequest request) {
         Report original = findByIdOrThrow(reportId);
 
@@ -63,6 +71,7 @@ public class ReportService {
     }
 
     public List<ReportResponse> getReportsByMeeting(Long meetingId) {
+        meetingAccessGuard.requireMember(meetingId);
         return reportRepository.findAllByMeetingId(meetingId).stream()
                 .map(ReportResponse::of)
                 .toList();
@@ -73,6 +82,7 @@ public class ReportService {
     }
 
     @Transactional
+    @AuditLogged(action = "REVIEW", entityType = "report")
     public ReportResponse updateHumanStatus(Long reportId, ReportStatusUpdateRequest request) {
         Report report = findByIdOrThrow(reportId);
         report.updateHumanStatus(request.getStatus());
@@ -80,21 +90,24 @@ public class ReportService {
     }
 
     public ReportReviewResultResponse getReviewResult(Long reportId) {
+        meetingAccessGuard.requireMemberByReport(reportId);
         ReportScore reportScore = reportScoreRepository.findByReportId(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
         return ReportReviewResultResponse.of(reportScore);
     }
 
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "report")
     public void deleteReport(Long reportId) {
-        if (!reportRepository.existsById(reportId)) {
-            throw new BusinessException(ErrorCode.REPORT_NOT_FOUND);
-        }
+        meetingAccessGuard.requireMemberByReport(reportId);
         reportRepository.deleteById(reportId);
     }
 
+    // 모든 reportId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
     private Report findByIdOrThrow(Long reportId) {
-        return reportRepository.findById(reportId)
+        Report report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
+        meetingAccessGuard.requireMember(report.getMeetingId());
+        return report;
     }
 }

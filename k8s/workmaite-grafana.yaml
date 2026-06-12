@@ -1,0 +1,244 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: workmaite-grafana-data
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workmaite-grafana-datasources
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://workmaite-prometheus:9090
+        isDefault: true
+        editable: false
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://workmaite-loki:3100
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workmaite-grafana-dashboard-providers
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: workmaite
+        orgId: 1
+        folder: Workmaite
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workmaite-grafana-dashboards
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+data:
+  workmaite-overview.json: |
+    {
+      "title": "Workmaite Overview",
+      "uid": "workmaite-overview",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Backend HTTP Requests/sec",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "rate(http_server_requests_seconds_count{service=\"workmaite-backend\"}[1m])",
+              "legendFormat": "{{method}} {{uri}} {{status}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Backend HTTP Latency (p99)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{service=\"workmaite-backend\"}[5m]))",
+              "legendFormat": "p99 {{uri}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "AI Service HTTP Requests/sec",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "rate(http_requests_total{service=\"workmaite-ai\"}[1m])",
+              "legendFormat": "{{method}} {{handler}} {{status_code}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "AI Service HTTP Latency (p99)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{service=\"workmaite-ai\"}[5m]))",
+              "legendFormat": "p99 {{handler}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "JVM Heap Memory (Backend)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "targets": [
+            {
+              "expr": "jvm_memory_used_bytes{area=\"heap\", service=\"workmaite-backend\"}",
+              "legendFormat": "{{id}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Service Up Status",
+          "type": "stat",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "targets": [
+            {
+              "expr": "up",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-grafana
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: workmaite-grafana
+  template:
+    metadata:
+      labels:
+        app: workmaite-grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.5.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: dashboard-providers
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: datasources
+          configMap:
+            name: workmaite-grafana-datasources
+        - name: dashboard-providers
+          configMap:
+            name: workmaite-grafana-dashboard-providers
+        - name: dashboards
+          configMap:
+            name: workmaite-grafana-dashboards
+        - name: data
+          persistentVolumeClaim:
+            claimName: workmaite-grafana-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workmaite-grafana
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: workmaite-grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

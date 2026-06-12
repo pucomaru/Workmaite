@@ -5,15 +5,38 @@ import AgentComposer from './AgentComposer.vue'
 
 const {
   SUPERVISOR, agentInfo, agentSidebarOpen, clearAgentChat,
-  agentMessagesEl, currentMessages, agentLoading,
+  agentMessagesEl, currentMessages, agentLoading, stopAgentResponse, loadOlderMessages,
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
-  sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory,
+  sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory, getThreadId,
 } = inject('agentSidebar')
 
-// 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드
-onMounted(() => { loadChatHistory() })
+import { apiAI } from '../api'
+
+// 응답 피드백 (P3C-3) — 👎는 사유를 선택적으로 수집
+async function sendFeedback(msg, rating) {
+  if (msg._fb === rating) return
+  let reason = null
+  if (rating === -1) reason = window.prompt('어떤 점이 아쉬웠나요? (선택, 취소 시 사유 없이 전송)') || null
+  msg._fb = rating
+  try {
+    await apiAI.post('/api/agent/feedback', {
+      thread_id: getThreadId?.() || 'unknown',
+      rating,
+      reason,
+      content_snippet: (msg.content || '').slice(0, 300),
+    })
+  } catch { /* 피드백 실패는 조용히 무시 */ }
+}
+
+// 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드 후 맨 아래로 스크롤
+onMounted(async () => {
+  await loadChatHistory()
+  requestAnimationFrame(() => {
+    if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+  })
+})
 
 const composerRef = ref(null)
 // 공통 컴포저가 마운트되면 내부 textarea를 컴포저블 ref에 연결 (@멘션 커서/포커스용)
@@ -59,7 +82,8 @@ function onResizeEnd() {
           </div>
         </div>
         <!-- Messages -->
-        <div ref="agentMessagesEl" class="agent-messages">
+        <div ref="agentMessagesEl" class="agent-messages"
+             @scroll="$event.target.scrollTop < 40 && loadOlderMessages()">
           <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role === 'planning' ? 'planning' : msg.role">
 
             <!-- 사고 과정 블록 -->
@@ -111,6 +135,16 @@ function onResizeEnd() {
               <div class="agent-bubble agent theme-supervisor"
                    :class="{ 'is-streaming': agentLoading && i === currentMessages.length - 2 }"
                    v-html="renderMd(msg.content)"></div>
+              <div v-if="!(agentLoading && i === currentMessages.length - 2)" class="agent-feedback">
+                <button class="fb-btn" style="border:none;background:none;" :class="{ active: msg._fb === 1 }" title="도움이 됐어요"
+                  @click="sendFeedback(msg, 1)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgb(147,197,253)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                </button>
+                <button class="fb-btn" style="border:none;background:none;" :class="{ active: msg._fb === -1 }" title="아쉬워요"
+                        @click="sendFeedback(msg, -1)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgb(147,197,253)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H6.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+                </button>
+              </div>
               <div v-if="i===0&&(agentInfo.suggested?.length||agentInfo.suggestedAt?.length)" class="agent-suggested">
                 <button
                   v-for="s in agentInfo.suggested" :key="s"
@@ -156,6 +190,7 @@ function onResizeEnd() {
           @input="onAgentInput"
           @keydown="onAgentKeydown"
           @send="sendAgentMsg"
+          @stop="stopAgentResponse"
           @select-at-item="selectAtItem"
           @remove-ctx="removeMentionCtx"
           @file-change="onAgentFileSelected"

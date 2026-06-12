@@ -12,19 +12,20 @@ spring:
   datasource:
     # k8s 클러스터 내부: postgres-1-postgresql.postgres.svc.cluster.local:5432
     # 로컬 개발 시: kubectl port-forward svc/postgres-1-postgresql 5432:5432 -n postgres 후 localhost:5432
-    url: jdbc:postgresql://localhost:5432/sk-team-9
-    username: team9
-    password: team9postgres1234
+    # 비밀번호 등 시크릿은 환경변수로 주입 (로컬: DB_PASSWORD/REDIS_PASSWORD/JWT_SECRET export, k8s: backend-secret)
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/sk-team-9}
+    username: ${DB_USER:team9}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 20000
       maximum-pool-size: 10
 
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      password: "Skala25a!23$"
+  # 스키마의 단일 소스는 Flyway 마이그레이션 (기존 운영 스키마는 V1 baseline 처리)
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
 
   jpa:
     hibernate:
@@ -34,15 +35,31 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
         default_schema: public
-    show-sql: true
+    # SQL 로그는 로컬 디버깅 시에만: SHOW_SQL=true 환경변수로 활성화
+    show-sql: ${SHOW_SQL:false}
     open-in-view: false
 
 jwt:
-  # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증)
-  secret: workmaite-shared-secret-key-2024-very-secure-at-least-32chars
+  # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증) — 반드시 환경변수로 주입
+  secret: ${JWT_SECRET:}
   access-token-expiration: 900000   # 15분 (ms)
   refresh-token-expiration: 1209600000 # 14일 (ms)
 
 ai:
   # FastAPI AI 서버 URL (Neo4j 동기화 webhook 호출)
   url: http://localhost:8000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true

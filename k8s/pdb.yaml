@@ -1,0 +1,22 @@
+# P7-6: PodDisruptionBudget — 노드 드레인/롤아웃 중 최소 가용성 보장
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: workmaite-backend-pdb
+  namespace: skala3-finalproj-class2-team9
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: workmaite-backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: workmaite-ai-pdb
+  namespace: skala3-finalproj-class2-team9
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: workmaite-ai

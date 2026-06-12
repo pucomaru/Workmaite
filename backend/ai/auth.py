@@ -1,9 +1,5 @@
 import os
-import hashlib
 import logging
-import secrets
-from datetime import datetime, timedelta
-from typing import Optional
 from jose import JWTError, jwt
 try:
     from jose.exceptions import ExpiredSignatureError as _ExpiredSignatureError
@@ -24,27 +20,6 @@ ALGORITHM = "HS256"
 bearer_scheme = HTTPBearer()
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
-    return f"pbkdf2:{salt}:{hashed.hex()}"
-
-
-def verify_password(plain: str, stored: str) -> bool:
-    try:
-        _, salt, hashed = stored.split(":")
-        test = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt.encode(), 100000)
-        return test.hex() == hashed
-    except Exception:
-        return False
-
-
-def create_access_token(data: dict, expires_minutes: int = 60 * 24 * 7) -> str:
-    to_encode = data.copy()
-    to_encode["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -56,6 +31,10 @@ def get_current_user(
         sub = payload.get("sub")
         if sub is None:
             logger.warning("[Auth] JWT에 sub 없음")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        if payload.get("type") == "refresh":
+            # refresh token을 API 인증에 사용하는 것 차단 (SEC-7)
+            logger.warning("[Auth] refresh token으로 API 접근 시도")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except JWTError as e:
         if _ExpiredSignatureError and isinstance(e, _ExpiredSignatureError):

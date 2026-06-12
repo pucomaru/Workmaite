@@ -54,6 +54,13 @@ export function useAgentChat({
   const currentMessages = computed(() => allMessages.value['supervisor'])
   const agentInput = ref('')
   const agentLoading = ref(false)
+  let _agentAbortCtrl = null
+
+  /** 스트리밍 응답 중단 (P3A-6) — fetch abort가 서버 generator 취소까지 전파된다 */
+  function stopAgentResponse() {
+    try { _agentAbortCtrl?.abort() } catch {}
+    agentLoading.value = false
+  }
   const agentMessagesEl = ref(null)
   const agentFileInput = ref(null)
   const agentPendingFiles = ref([])
@@ -75,44 +82,40 @@ export function useAgentChat({
   })
 
   // ─── thread_id 계산 ──────────────────────────────────────────
-  const _LS_THREAD_KEY = 'workmaite_last_chat_thread'
-
-  function _saveLastThread(threadId) {
-    try { localStorage.setItem(_LS_THREAD_KEY, threadId) } catch {}
-  }
-
-  function _getLastThread() {
-    try { return localStorage.getItem(_LS_THREAD_KEY) } catch { return null }
-  }
-
+  // 아카이브 탭은 회의체 선택과 무관하게 사용자별 단일 스레드로 유지
   function getThreadId() {
-    const mid = toNumericId(detailMeeting.value?.id)
-    if (mid) {
-      const tid = `meeting_${mid}`
-      _saveLastThread(tid)
-      return tid
-    }
     const uid = authStore.user?.id
-    if (!uid) return null
-    // 회의가 선택되지 않은 경우: 마지막 활성 스레드로 복원 (새로고침 후 히스토리 유지)
-    const last = _getLastThread()
-    if (last) return last
-    return `global_${uid}`
-  }
-
-  // localStorage 복원 스레드에서 meeting_id 추출 (메시지 전송 시 올바른 AI 컨텍스트 유지)
-  function _getEffectiveMeetingId() {
-    const mid = toNumericId(detailMeeting.value?.id)
-    if (mid) return mid
-    const last = _getLastThread()
-    if (last?.startsWith('meeting_')) {
-      const id = parseInt(last.slice('meeting_'.length), 10)
-      return isNaN(id) ? 0 : id
-    }
-    return 0
+    return uid ? `archive_${uid}` : null
   }
 
   // ─── 채팅 히스토리 로드 (Spring Boot GET) ─────────────────────
+  // 상단 스크롤 시 이전 페이지 로드 (P8-6, keyset beforeId)
+  let _loadingOlder = false
+  let _historyExhausted = false
+
+  async function loadOlderMessages() {
+    const list = allMessages.value['supervisor'] || []
+    const first = list.find(m => m.id)
+    if (!first || _loadingOlder || _historyExhausted) return
+    _loadingOlder = true
+    try {
+      const threadId = getThreadId()
+      const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100, beforeId: first.id } })
+      const older = (Array.isArray(res.data) ? res.data : []).map(m => ({
+        id: m.id,
+        role: m.role === 'assistant' ? 'agent' : m.role,
+        content: m.content,
+      }))
+      if (!older.length) { _historyExhausted = true; return }
+      const el = agentMessagesEl.value
+      const prevHeight = el ? el.scrollHeight : 0
+      list.unshift(...older)
+      await nextTick()
+      if (el) el.scrollTop = el.scrollHeight - prevHeight // 보던 위치 유지
+    } catch { /* 다음 스크롤에서 재시도 */ }
+    finally { _loadingOlder = false }
+  }
+
   async function loadChatHistory() {
     const threadId = getThreadId()
     if (!threadId) {
@@ -120,7 +123,7 @@ export function useAgentChat({
       return
     }
     try {
-      const res = await api.get('/api/v1/chat/messages', { params: { threadId } })
+      const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100 } })  // P8-2: 초기 로드 상한 (과거 페이지는 P8-6)
       // 인터셉터가 ApiResponse를 언랩하므로 res.data 가 바로 List<ChatMessageResponse>
       const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
       if (messages.length === 0) {
@@ -128,6 +131,7 @@ export function useAgentChat({
       } else {
         // DB의 role: 'user' | 'assistant' → UI: 'user' | 'agent'
         allMessages.value['supervisor'] = messages.map(m => ({
+          id: m.id, // loadMore 커서용 (P8-6)
           role: m.role === 'assistant' ? 'agent' : m.role,
           content: m.content,
         }))
@@ -136,13 +140,15 @@ export function useAgentChat({
       console.error('[AgentChat] loadChatHistory error:', err?.response?.status, err?.message)
       allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
     }
+    await nextTick()
+    requestAnimationFrame(() => {
+      if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+    })
   }
 
-  // ─── 사이드바가 열릴 때마다 히스토리 자동 로드 ──────────────────
+  // ─── 사이드바가 열릴 때마다 히스토리 로드 ───────────────────────
+  // archive 스레드는 회의체 변경과 무관하므로 열릴 때만 로드
   watch(agentSidebarOpen, (open) => { if (open) loadChatHistory() })
-
-  // 회의체가 변경되면 해당 회의체 히스토리로 갱신
-  watch(detailMeeting, () => { if (agentSidebarOpen.value) loadChatHistory() })
 
   function initAgentGreeting() {
     if (!allMessages.value['supervisor'].length)
@@ -154,13 +160,12 @@ export function useAgentChat({
     loadChatHistory()
   }
 
-  // 새 채팅: DB 삭제 + UI 초기화 + localStorage 초기화
+  // 새 채팅: DB 삭제 + UI 초기화
   async function clearAgentChat() {
     const threadId = getThreadId()
     if (threadId) {
       try { await api.delete('/api/v1/chat/messages', { params: { threadId } }) } catch { /* 무시 */ }
     }
-    try { localStorage.removeItem(_LS_THREAD_KEY) } catch {}
     allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR.greeting }]
     agentInput.value = ''; agentPendingFiles.value = []
   }
@@ -251,6 +256,7 @@ export function useAgentChat({
     }
 
     // 일반 모드: supervisor 채팅 — [PLANNING] 이벤트를 실시간으로 수신
+    _agentAbortCtrl = new AbortController()
     const history = allMessages.value[key]
       .filter(m => m.role === 'user' || m.role === 'agent')
       .slice(0, -1)
@@ -258,7 +264,7 @@ export function useAgentChat({
     try {
       await streamPost(
         agentInfo.value.endpoint,
-        { meeting_id: _getEffectiveMeetingId(), message: content, chat_history: history },
+        { thread_id: getThreadId(), meeting_id: toNumericId(detailMeeting.value?.id) || 0, message: content, chat_history: history },
         (chunk) => {
           agentMsg.content += chunk
           nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })
@@ -279,7 +285,9 @@ export function useAgentChat({
         (labels) => {
           // AI 기반 하이라이팅: LLM 답변에 실제 언급된 노드
           onLabelsHighlight(labels)
-        }
+        },
+        undefined, // onResult
+        { signal: _agentAbortCtrl.signal },
       )
     } catch {
       agentMsg.content = '응답 중 오류가 발생했습니다.'
@@ -406,6 +414,9 @@ export function useAgentChat({
     agentSidebarOpen, currentAgent, agentInfo,
     allMessages, currentMessages,
     agentInput, agentLoading, agentMessagesEl, agentFileInput, agentPendingFiles, agentTextareaEl,
+    stopAgentResponse,
+    getThreadId,
+    loadOlderMessages,
     atMenuOpen, atQuery, atCursorPos, atHighlight, mentionedContexts,
     AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
     onAgentInput, selectAtItem, removeMentionCtx, initAgentGreeting,

@@ -1,91 +1,84 @@
 package com.workmaite.global.sync;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * PostgreSQL CUD 이후 FastAPI를 통해 Neo4j를 비동기 동기화.
- * 실패해도 메인 트랜잭션에 영향 없음.
+ * PostgreSQL CUD 이후 Neo4j 동기화 — 아웃박스 패턴 (P2-4).
+ *
+ * 호출자의 트랜잭션 안에서 neo4j_sync_outbox 행을 기록한다(원자성 — 비즈니스 변경과
+ * 동기화 의도가 함께 커밋/롤백). 실제 FastAPI 호출은 커밋 후 SyncOutboxDispatcher가
+ * 수행하고, 실패 시 행이 남아 폴러가 재시도한다 (DATA-1 fire-and-forget 유실 해결).
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class NeoSyncService {
 
-    private final RestTemplate restTemplate;
-    private final String aiUrl;
-    private final String internalSecret;
+    private final SyncOutboxRepository outboxRepository;
+    private final SyncOutboxDispatcher dispatcher;
 
-    public NeoSyncService(RestTemplate restTemplate,
-                          @Value("${ai.url:http://localhost:8000}") String aiUrl,
-                          @Value("${internal.secret:workmaite-internal-secret-2024}") String internalSecret) {
-        this.restTemplate = restTemplate;
-        this.aiUrl = aiUrl;
-        this.internalSecret = internalSecret;
-    }
-
-    private HttpEntity<Void> internalEntity() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-Internal-Secret", internalSecret);
-        return new HttpEntity<>(headers);
-    }
-
-    @Async
     public void syncMeeting(Long meetingId) {
-        call("/api/sync/meeting/" + meetingId, "meeting:" + meetingId);
+        enqueue("meeting", meetingId, "upsert", null);
     }
 
-    @Async
     public void syncSession(Long sessionId) {
-        call("/api/sync/session/" + sessionId, "session:" + sessionId);
+        enqueue("session", sessionId, "upsert", null);
     }
 
-    @Async
     public void syncAgenda(Long agendaId) {
-        call("/api/sync/agenda/" + agendaId, "agenda:" + agendaId);
+        enqueue("agenda", agendaId, "upsert", null);
     }
 
-    @Async
     public void syncUser(Long userId) {
-        call("/api/sync/user/" + userId, "user:" + userId);
+        enqueue("user", userId, "upsert", null);
     }
 
-    @Async
     public void syncMember(Long meetingId, Long userId, String role) {
-        call("/api/sync/member?meetingId=" + meetingId + "&userId=" + userId + "&role=" + role,
-                "member:" + meetingId + "/" + userId);
+        enqueue("member", meetingId, "upsert",
+                "{\"user_id\": " + userId + ", \"role\": \"" + role + "\"}");
     }
 
-    @Async
     public void deleteMeeting(Long meetingId) {
-        callDelete("/api/sync/meeting/" + meetingId + "/delete", "delete-meeting:" + meetingId);
+        enqueue("meeting", meetingId, "delete", null);
     }
 
-    @Async
+    /** 세션 삭제 전파 (DATA-4) */
+    public void deleteSession(Long sessionId) {
+        enqueue("session", sessionId, "delete", null);
+    }
+
+    /** 아젠다 삭제 전파 (DATA-4) */
+    public void deleteAgenda(Long agendaId) {
+        enqueue("agenda", agendaId, "delete", null);
+    }
+
     public void deleteMember(Long meetingId, Long userId) {
-        callDelete("/api/sync/member/delete?meetingId=" + meetingId + "&userId=" + userId, "delete-member:" + meetingId + "/" + userId);
+        enqueue("member", meetingId, "delete", "{\"user_id\": " + userId + "}");
     }
 
-    private void call(String path, String label) {
-        try {
-            restTemplate.exchange(aiUrl + path, HttpMethod.POST, internalEntity(), Void.class);
-            log.debug("[NeoSync] synced {}", label);
-        } catch (Exception e) {
-            log.warn("[NeoSync] failed to sync {} — {}", label, e.getMessage());
-        }
-    }
+    private void enqueue(String entityType, Long entityId, String op, String payloadJson) {
+        // 호출자 트랜잭션에 참여해 비즈니스 변경과 함께 커밋된다 (롤백 시 동기화도 취소)
+        outboxRepository.save(SyncOutbox.builder()
+                .entityType(entityType)
+                .entityId(entityId)
+                .op(op)
+                .payload(payloadJson)
+                .build());
 
-    private void callDelete(String path, String label) {
-        try {
-            restTemplate.exchange(aiUrl + path, HttpMethod.DELETE, internalEntity(), Void.class);
-            log.debug("[NeoSync] deleted {}", label);
-        } catch (Exception e) {
-            log.warn("[NeoSync] failed to delete {} — {}", label, e.getMessage());
+        // 커밋 후 즉시 디스패치 (지연 최소화) — 실패해도 폴러가 재시도
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    dispatcher.kick();
+                }
+            });
+        } else {
+            dispatcher.kick();
         }
     }
 }
