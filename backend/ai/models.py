@@ -27,6 +27,13 @@ class User(Base):
     updated_at    = Column(DateTime, default=datetime.utcnow)
 
 
+class ReportAgenda(Base):
+    """보고서-아젠다 연결 정규화 (P2-8) — reports.related_agenda_ids의 관계형 대체."""
+    __tablename__ = "report_agendas"
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
+    agenda_id = Column(Integer, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True)
+
+
 class Meeting(Base):
     __tablename__ = "meetings"
     id          = Column(Integer, primary_key=True, index=True)
