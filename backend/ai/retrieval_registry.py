@@ -210,3 +210,45 @@ async def hybrid_search(
     if not out:
         RETRIEVAL_ZERO_RESULTS.labels(real_label).inc()
     return out
+
+
+async def graph_expanded_search(
+    query: str,
+    meeting_ids: list[int] | None = None,
+    k: int = 3,
+) -> list[dict]:
+    """시드 벡터 검색 → 1-hop 그래프 확장 → 경로 근거 반환 (P3B-7, G-2).
+
+    아젠다를 시드로 찾고 연결된 세션·보고서·판단으로 확장해, 답변이 인용할 수 있는
+    "아젠다 → 세션/보고서" 경로를 함께 돌려준다.
+    """
+    from neo4j_client import run_cypher
+
+    seeds = await vector_search("Agenda", query, k=k, meeting_ids=meeting_ids)
+    out: list[dict] = []
+    for s in seeds:
+        title = s.get("title")
+        if not title:
+            continue
+        try:
+            paths = await run_cypher(
+                "MATCH (ag:Agenda {title: $title}) "
+                "OPTIONAL MATCH (ag)--(s:Session) "
+                "OPTIONAL MATCH (ag)<-[:첨부|관할]-(r:Report) "
+                "RETURN ag.title AS agenda, ag.status AS status, "
+                "collect(DISTINCT s.title)[..3] AS sessions, "
+                "collect(DISTINCT r.file_name)[..3] AS reports LIMIT 1",
+                {"title": title},
+            )
+            if paths:
+                row = paths[0]
+                parts = [f"아젠다 '{row['agenda']}' ({row.get('status') or '?'})"]
+                if row.get("sessions"):
+                    parts.append("세션: " + ", ".join(filter(None, row["sessions"])))
+                if row.get("reports"):
+                    parts.append("보고서: " + ", ".join(filter(None, row["reports"])))
+                out.append({"title": title, "path": " → ".join(parts), "score": s.get("score")})
+        except Exception as e:
+            logger.warning(f"[Retrieval] 그래프 확장 실패({title}): {e}")
+            out.append({"title": title, "path": f"아젠다 '{title}'", "score": s.get("score")})
+    return out

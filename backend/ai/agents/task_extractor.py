@@ -1,6 +1,8 @@
-import os, json, re, uuid
+import os, json, logging, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
+
+logger = logging.getLogger(__name__)
 
 from llm_factory import StructuredOutputError, llm_factory
 from langchain_openai import ChatOpenAI
@@ -259,20 +261,50 @@ async def chat_stream(
 
 
 @log_agent_run("task_extract")
+async def _similar_agenda_hint(content: str, meeting_id: int | None) -> str:
+    """유사 과거 아젠다 top-k + 부서 담당 이력을 추출 프롬프트에 주입한다 (P3B-8, G-4).
+
+    - 중복 제안 방지·이월 과제 연결: 비슷한 아젠다가 이미 있으면 모델이 인지
+    - 부서 추천 근거: Department-담당부서-Agenda 이력
+    """
+    try:
+        from retrieval_registry import vector_search
+        from neo4j_client import run_cypher
+        mids = [meeting_id] if meeting_id else None
+        similar = await vector_search("Agenda", content[:400], k=5, meeting_ids=mids)
+        dept_rows = await run_cypher(
+            "MATCH (d:Department)-[:담당부서]->(ag:Agenda) "
+            "RETURN d.name AS dept, count(ag) AS c ORDER BY c DESC LIMIT 8"
+        )
+        parts = []
+        if similar:
+            parts.append("[유사 과거 아젠다 — 중복·이월 판단 참고]\n" +
+                         "\n".join(f"- {s.get('title')} ({s.get('status') or '?'})" for s in similar if s.get('title')))
+        if dept_rows:
+            parts.append("[부서별 과거 담당 빈도 — 부서 추천 참고]\n" +
+                         ", ".join(f"{r['dept']}({r['c']})" for r in dept_rows if r.get('dept')))
+        return ("\n\n" + "\n\n".join(parts)) if parts else ""
+    except Exception as e:
+        logger.warning(f"[extract] 그래프 힌트 실패(무시): {e}")
+        return ""
+
+
 async def extract_agendas_and_todos(
     content: str,
     previous_minutes: List[str] = None,
     knowledge: List[dict] = None,
     org_dept_list: str = "",
+    meeting_id: int = None,
 ) -> dict:
     prev_hint = ""
     if previous_minutes:
         prev_hint = "\n\n[이전 회의록 참고]\n" + "\n\n".join(previous_minutes[:2])[:2000]
+    graph_hint = await _similar_agenda_hint(content, meeting_id)  # P3B-8
 
     llm = llm_factory("extract")
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list or "정보 없음", knowledge=knowledge)),
-        HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}\n\n{content[:8000]}"),
+        HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}{graph_hint}\n\n{content[:8000]}"),
     ])
     parsed = _parse_json_from_text(response.content)
     reason = re.sub(r'```(?:json)?\s*[\s\S]*?```', '', response.content).strip()

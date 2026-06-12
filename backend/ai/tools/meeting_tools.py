@@ -149,10 +149,29 @@ async def search_minutes(query: str, config: RunnableConfig) -> str:
         return f"회의록 검색 중 오류가 발생했습니다: {e}. 다른 도구를 사용하거나 질문을 바꿔보세요."
 
 
+@tool
+async def search_with_context(query: str, config: RunnableConfig) -> str:
+    """주제로 아젠다를 찾고 연결된 세션·보고서까지 경로로 보여준다 (그래프 확장 검색, P3B-7).
+
+    "이 아젠다가 어느 회의/보고서와 연결됐나" 같은 맥락 질문에 적합하다.
+    """
+    _, allowed, is_admin = _scope(config)
+    try:
+        from retrieval_registry import graph_expanded_search
+        rows = await graph_expanded_search(query, meeting_ids=None if is_admin else list(allowed), k=3)
+        if not rows:
+            return "관련 아젠다를 찾지 못했습니다."
+        return "\n".join(f"- {r['path']}" for r in rows)
+    except Exception as e:
+        logger.warning(f"[tools] search_with_context 실패: {e}")
+        return f"검색 중 오류: {e}"
+
+
 SUPERVISOR_TOOLS = [
     list_my_meetings,
     get_meeting_status,
     list_agendas,
     report_submission_status,
     search_minutes,
+    search_with_context,
 ]
