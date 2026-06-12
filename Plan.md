@@ -269,8 +269,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 0 — 비상 보안 조치 (즉시, 1–2일) 🔴
 목표: 외부에서 악용 가능한 구멍부터 차단. 코드 변경 최소.
 
-- [ ] P0-1 **유출 키 회전**: OpenAI/LangSmith 키, JWT_SECRET, INTERNAL_SECRET, DB/Redis/Neo4j 비밀번호 전부 재발급. (git 히스토리에 .env는 없지만 k8s yaml/application.yaml의 비번은 히스토리에 있음)
-  - ⏳ 사람이 직접 수행 필요 — 절차·대상 목록은 **`SECURITY_ROTATION.md`** 작성 완료 (2026-06-12)
+- [x] P0-1 **유출 키 회전** — 완료 (2026-06-12, 수동 수행). 이로써 LangSmith 트레이싱 활성화 가능: ai-secret에 `LANGSMITH_TRACING=true`+새 키 설정 시 agent_logs.trace_id(P3A-3)로 트레이스 점프 동작.
 - [x] P0-2 **시크릿을 k8s Secret으로 이전** (2026-06-12): `k8s/backend.yaml` DB 비번 → `backend-secret` secretKeyRef + JWT_SECRET 주입 추가, `application.yaml` 전 시크릿 `${ENV}` 참조화, `k8s/postgres/deployment.yaml` → `postgres-secret`, `neo4j/k8s/secret.yaml` placeholder화. 템플릿 `k8s/secrets.example.yaml` 생성, **시크릿 위치별 매뉴얼(`SECURITY_ROTATION.md` §0~2)** 작성. **⚠ develop 머지 전 클러스터에 `backend-secret` 생성 필수 + ai-secret의 JWT_SECRET 동일값 확인.**
 - [x] (추가) **Redis 완전 제거** (2026-06-12): 코드에서 Redis 미사용 확인(주석의 "도입 예정"뿐) → `spring-boot-starter-data-redis` 의존성, `application.yaml` redis 블록, `k8s/backend.yaml` REDIS env 3종 제거. 의존성만 남겨두면 actuator health가 Redis 연결을 검사해 probe 실패를 유발하므로 의존성째 제거. 컴파일 검증 통과.
 - [x] P0-3 **무인증 라우터 봉쇄** (2026-06-12): `stt.py` 2개, `neo4j_graph.py` 11개 라우트에 `get_current_user` 추가. `main.py` WebSocket 2개에 JWT 쿼리파라미터 검증(`_ws_user_id`, 실패 시 4401). `useSTT.js` fetch에 Authorization 헤더, `api.js toWsUrl`에 토큰 자동 부착. **잔여: WLK(`/wlk/asr`) WebSocket은 별도 서비스(whisperlivekit)라 미적용 — P4에서 프록시/게이트웨이로 처리.**
