@@ -50,6 +50,47 @@ _VECTOR_INDEXES: list[tuple[str, str, str]] = [
 ]
 
 
+# ─── 유니크 제약 (P2-5) ───────────────────────────────────────────────────────
+# (라벨, 제약 이름, 키 프로퍼티). User만 pg_id, 나머지는 id 문자열 키.
+_UNIQUE_CONSTRAINTS: list[tuple[str, str, str]] = [
+    ("User",          "user_pg_id",   "pg_id"),
+    ("Meetings",      "meetings_id",  "id"),
+    ("Session",       "session_id",   "id"),
+    ("Agenda",        "agenda_id",    "id"),
+    ("Minutes",       "minutes_id",   "id"),
+    ("Report",        "report_id",    "id"),
+    ("HumanJudgment", "hj_id",        "id"),
+    ("Department",    "dept_name",    "name"),
+    ("Company",       "company_name", "name"),
+]
+
+
+async def ensure_constraints() -> None:
+    """중복 노드를 정리한 뒤 유니크 제약을 생성합니다 (P2-5, 시작 시 1회).
+
+    MERGE 기반 upsert는 제약이 없으면 동시 실행 시 중복 노드를 만들 수 있다.
+    중복 정리는 관계가 많은 노드를 남기고 나머지를 제거한다.
+    """
+    for label, name, prop in _UNIQUE_CONSTRAINTS:
+        try:
+            # 1) 중복 정리 — 차수(degree) 높은 노드를 보존
+            await run_cypher(
+                f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL "
+                f"WITH n, COUNT {{ (n)--() }} AS deg ORDER BY deg DESC "
+                f"WITH n.{prop} AS key, collect(n) AS nodes "
+                f"WHERE size(nodes) > 1 "
+                f"UNWIND nodes[1..] AS dup DETACH DELETE dup"
+            )
+            # 2) 제약 생성
+            await run_cypher(
+                f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+                f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
+            )
+            logger.info(f"[Neo4jSync] 유니크 제약 '{name}' 보장 완료")
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] 유니크 제약 '{name}' 생성 실패 (무시): {e}")
+
+
 async def init_vector_index() -> None:
     """모든 노드 유형에 VectorIndex가 없으면 생성합니다."""
     for label, index_name, prop in _VECTOR_INDEXES:

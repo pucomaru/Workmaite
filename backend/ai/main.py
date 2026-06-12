@@ -26,7 +26,7 @@ from routers import sessions as sessions_router
 from routers import stt as stt_router
 from routers import upload as upload_router
 from routers import usage as usage_router
-from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
+from neo4j_sync import ensure_constraints, init_vector_index, retry_failed_syncs, sync_all_from_pg
 from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ async def _periodic_retry_task() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
 
     asyncio.create_task(_startup_sync_task())
