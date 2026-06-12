@@ -3,8 +3,6 @@ import os
 import logging
 from typing import Optional
 
-from datetime import datetime
-
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -23,7 +21,7 @@ async def _transcribe_openai(data: bytes, filename: str, lang_code: str) -> str:
     import openai
     client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
     resp = await client.audio.transcriptions.create(
-        model=os.environ.get("STT_MODEL", "gpt-4o-transcribe"),
+        model=os.environ.get("STT_MODEL", "gpt-4o-mini-transcribe"),
         file=(filename, io.BytesIO(data), "audio/webm"),
         language=lang_code,
     )
@@ -69,14 +67,5 @@ async def transcribe(
         except Exception as dbe:
             logger.warning(f"[STT] DB 저장 실패: {dbe}")
             db.rollback()
-
-    # 원본 오디오 보존 (P4-2): 세션별로 R2에 누적 저장 — 재처리 대비
-    if session_id:
-        try:
-            from r2_storage import upload_bytes
-            ts = datetime.utcnow().strftime("%H%M%S_%f")
-            upload_bytes(data, f"sessions/{session_id}/audio/{ts}_{filename}", "audio/webm")
-        except Exception as ae:
-            logger.warning(f"[STT] 원음 R2 보존 실패(무시): {ae}")
 
     return {"text": full_text, "segments": [], "text_id": text_id, "provider": "openai"}
