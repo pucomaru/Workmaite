@@ -111,6 +111,14 @@ function logout() {
 }
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
+// 권한 역할 라벨 (읽기 전용 표시용)
+const ROLE_LABELS = {
+  SYSTEM_ADMIN: '시스템 관리자',
+  COMPANY_ADMIN: '회사 관리자',
+  USER: '일반 사용자',
+}
+const roleLabel = computed(() => ROLE_LABELS[auth.user?.role] || auth.user?.role || '일반 사용자')
+
 const showProfileSettings = ref(false)
 const showUsageModal = ref(false)
 function openUsageModal() {
@@ -369,6 +377,11 @@ async function saveProfileSettings() {
               <div class="app-modal-field">
                 <label>이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
                 <input :value="auth.user?.email" class="form-control" readonly style="background:var(--surface);color:var(--dark-muted)" />
+              </div>
+              <!-- 권한 역할 (readonly) -->
+              <div class="app-modal-field">
+                <label>권한 역할 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <input :value="roleLabel" class="form-control" readonly style="background:var(--surface);color:var(--dark-muted)" />
               </div>
               <!-- 비밀번호 -->
               <div class="ps-divider">비밀번호 변경</div>

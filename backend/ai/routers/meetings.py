@@ -8,6 +8,7 @@ from access_guard import (
     require_meeting_member,
     require_user_update_permission,
     visible_user_ids,
+    is_system_admin,
 )
 from neo4j_sync import (
     sync_meeting,
@@ -478,38 +479,52 @@ def company_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """조직 탭 데이터: 현재 사용자가 속한 회의체의 구성원만 PostgreSQL 기준으로 반환한다.
-
-    데이터 보기 권한 = '본인이 속한 회의체'. 권한 밖의 사용자/회의체는 노출하지 않는다.
+    """회사 관리 탭 데이터. 역할별 가시 범위(MT-3):
+    - SYSTEM_ADMIN: 전체 사용자 (회사 경계 무시)
+    - COMPANY_ADMIN: 자기 회사 소속 사용자만
+    - 일반 사용자: 본인이 속한 회의체의 구성원만
     """
-    # 1) 본인이 속한 회의체 id 목록 (PostgreSQL)
-    my_membership = db.query(models.MeetingMember).filter(
-        models.MeetingMember.user_id == current_user.id
-    ).all()
-    my_meeting_ids = [mm.meeting_id for mm in my_membership]
-    if not my_meeting_ids:
-        return {"meetings": [], "members": []}
+    # 1) 역할별 가시 사용자 집합
+    if is_system_admin(current_user):
+        visible_users = db.query(models.User).all()
+    elif current_user.role == "COMPANY_ADMIN" and current_user.company_id is not None:
+        visible_users = db.query(models.User).filter(
+            models.User.company_id == current_user.company_id
+        ).all()
+    else:
+        my_meeting_ids = [
+            mm.meeting_id
+            for mm in db.query(models.MeetingMember.meeting_id)
+            .filter(models.MeetingMember.user_id == current_user.id).all()
+        ]
+        if not my_meeting_ids:
+            return {"meetings": [], "members": []}
+        shared_user_ids = {
+            mm.user_id
+            for mm in db.query(models.MeetingMember.user_id)
+            .filter(models.MeetingMember.meeting_id.in_(my_meeting_ids)).all()
+        }
+        visible_users = db.query(models.User).filter(
+            models.User.id.in_(shared_user_ids)
+        ).all()
 
-    # 2) 해당 회의체 메타 (제목 등) + 본인 역할
-    my_role_map = {mm.meeting_id: mm.role for mm in my_membership}
-    meetings_map = {
+    visible_ids = {u.id for u in visible_users}
+
+    # 2) 가시 사용자들의 회의체 참여 정보 묶기
+    member_rows = (
+        db.query(models.MeetingMember)
+        .filter(models.MeetingMember.user_id.in_(visible_ids)).all()
+        if visible_ids else []
+    )
+    involved_meeting_ids = {mm.meeting_id for mm in member_rows}
+    meetings_meta = {
         m.id: m
-        for m in db.query(models.Meeting).filter(models.Meeting.id.in_(my_meeting_ids)).all()
-    }
-    meetings_list = [
-        {"id": m.id, "title": m.title, "my_role": my_role_map.get(m.id)}
-        for m in sorted(meetings_map.values(), key=lambda x: x.title or "")
-    ]
-
-    # 3) 해당 회의체들의 전체 멤버십 행
-    member_rows = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id.in_(my_meeting_ids)
-    ).all()
-
-    # 4) user_id 별로 참여 회의체 묶기
+        for m in db.query(models.Meeting)
+        .filter(models.Meeting.id.in_(involved_meeting_ids)).all()
+    } if involved_meeting_ids else {}
     user_meetings: dict[int, list] = {}
     for mm in member_rows:
-        meeting = meetings_map.get(mm.meeting_id)
+        meeting = meetings_meta.get(mm.meeting_id)
         user_meetings.setdefault(mm.user_id, []).append({
             "id": mm.meeting_id,
             "member_id": mm.id,
@@ -517,18 +532,24 @@ def company_members(
             "role": mm.role,
         })
 
-    user_ids = list(user_meetings.keys())
-    users_map = {
-        u.id: u
-        for u in db.query(models.User).filter(models.User.id.in_(user_ids)).all()
-    }
+    # 3) 필터 드롭다운: 본인이 속한 회의체 + 본인 역할
+    my_membership = db.query(models.MeetingMember).filter(
+        models.MeetingMember.user_id == current_user.id
+    ).all()
+    my_role_map = {mm.meeting_id: mm.role for mm in my_membership}
+    meetings_list = [
+        {"id": m.id, "title": m.title, "my_role": my_role_map.get(m.id)}
+        for m in sorted(
+            db.query(models.Meeting).filter(
+                models.Meeting.id.in_(list(my_role_map.keys()))
+            ).all() if my_role_map else [],
+            key=lambda x: x.title or "",
+        )
+    ]
 
-    members = []
-    for uid, meetings in user_meetings.items():
-        u = users_map.get(uid)
-        if not u:
-            continue
-        members.append({
+    # 4) members
+    members = [
+        {
             "id": u.id,
             "name": u.name,
             "email": u.email,
@@ -536,8 +557,11 @@ def company_members(
             "company": u.company_name,
             "company_id": u.company_id,
             "position": u.position,
-            "meetings": meetings,
-        })
+            "role": u.role,
+            "meetings": user_meetings.get(u.id, []),
+        }
+        for u in visible_users
+    ]
     members.sort(key=lambda r: r["name"] or "")
 
     return {"meetings": meetings_list, "members": members}
@@ -558,8 +582,21 @@ async def ai_remove_member(
     ).first()
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
-    if target.user_id != current_user.id and my_role != "admin":
-        raise HTTPException(status_code=403, detail="간사만 구성원을 제거할 수 있습니다.")
+    # 제거 권한: 본인 / 회의체 간사 / SYSTEM_ADMIN / 같은 회사 COMPANY_ADMIN
+    target_user = db.query(models.User).filter(models.User.id == target.user_id).first()
+    is_company_admin = (
+        current_user.role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+        and target_user is not None
+        and current_user.company_id == target_user.company_id
+    )
+    if (
+        target.user_id != current_user.id
+        and my_role != "admin"
+        and not is_system_admin(current_user)
+        and not is_company_admin
+    ):
+        raise HTTPException(status_code=403, detail="구성원을 제거할 권한이 없습니다. (회의체 간사 또는 관리자만 가능)")
 
     removed_user_id = target.user_id
     db.delete(target)
