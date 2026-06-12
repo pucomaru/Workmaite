@@ -3,14 +3,10 @@ from typing import List
 
 from langchain_openai import ChatOpenAI
 
+from llm_factory import llm_factory
+
 def make_llm(temperature: float = 0.2, streaming: bool = False) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=os.environ["OPENAI_MODEL"],
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=streaming,
-        stream_usage=streaming,  # streaming 시 usage 포함
-    )
+    return llm_factory("chat", temperature=temperature, streaming=streaming)
 
 
 # ─── supervisor/chat: B-type (현황 조회 / 인사 / 일반 질문) ──────────────────

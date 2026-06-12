@@ -2,6 +2,7 @@ import os, json, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -144,7 +145,7 @@ def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
 
 def _build_chat_graph():
     """LangGraph create_react_agent — TASK_TOOLS를 도구로 사용하는 에이전트 그래프."""
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"], streaming=True, stream_usage=True)
+    llm = llm_factory("chat", temperature=0.1)
     return create_react_agent(
         model=llm,
         tools=TASK_TOOLS,
@@ -158,7 +159,7 @@ _chat_graph = _build_chat_graph()
 
 # ── HITL 추출 그래프 ─────────────────────────────────────────────────────
 async def _extract_propose_node(state: ExtractionState) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract")
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(
             org_dept_list=state.get("org_dept_list") or "정보 없음",
@@ -253,7 +254,7 @@ async def extract_agendas_and_todos(
     if previous_minutes:
         prev_hint = "\n\n[이전 회의록 참고]\n" + "\n\n".join(previous_minutes[:2])[:2000]
 
-    llm = ChatOpenAI(model=MODEL, temperature=0.0, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract")
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list or "정보 없음", knowledge=knowledge)),
         HumanMessage(content=f"아래 문서에서 아젠다와 Todo를 추출해 주세요.{prev_hint}\n\n{content[:8000]}"),
@@ -327,7 +328,7 @@ async def confirm_extraction_review(
 # ── 컨텍스트 기반 아젠다 추출 / 채팅 업데이트 ──────────────────────────────
 @log_agent_run("task_extract", user_id="user_id")
 async def extract_agendas_from_context(context_parts: List[str], org_dept_list: str, user_id: int = None) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract", temperature=0.15)
     response = await llm.ainvoke([
         SystemMessage(content=extract_agendas_system(org_dept_list)),
         HumanMessage(content=f"다음 컨텍스트를 바탕으로 과제를 추출해 주세요:\n\n{chr(10).join(context_parts)}"),
@@ -341,7 +342,7 @@ async def chat_update_agendas(
     org_dept_list: str,
     current_agendas_text: str,
 ) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.15, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("extract", temperature=0.15)
     response = await llm.ainvoke([
         SystemMessage(content=chat_extract_system(meeting_context, org_dept_list, current_agendas_text)),
         HumanMessage(content=message),

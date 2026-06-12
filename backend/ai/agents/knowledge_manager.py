@@ -6,6 +6,7 @@ from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -42,12 +43,7 @@ class KnowledgeEntry(BaseModel):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-    )
+    return llm_factory("knowledge", temperature=temperature)
 
 
 # ── Neo4j 벡터 인덱스 관리 ─────────────────────────────────────────────────
@@ -392,7 +388,7 @@ async def propose_relationships(
         f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
         for r in nodes
     ])
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = llm_factory("knowledge", temperature=0.1, streaming=False)
     response = await llm.ainvoke([
         SystemMessage(content="""회의체 온톨로지 분석 전문가입니다.
 제공된 Neo4j 노드 목록을 보고 연결해야 할 관계를 제안하세요.

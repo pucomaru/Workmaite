@@ -2,6 +2,7 @@ import os, json, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -53,13 +54,7 @@ class ReviewResult(BaseModel):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-        stream_usage=True,
-    )
+    return llm_factory("review", temperature=temperature)
 
 
 def _build_system_with_knowledge(knowledge: List[dict], meeting_context: str = "") -> str:
@@ -154,7 +149,7 @@ _chat_graph = _build_chat_graph()
 
 # ── HITL 보고서 검토 그래프 ──────────────────────────────────────────────
 async def _review_propose_node(state: ReportReviewState) -> dict:
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("review", temperature=0.1, streaming=False)
     system = _build_system_with_knowledge(state.get("knowledge", []))
 
     response = await llm.ainvoke([
@@ -271,7 +266,7 @@ async def review_report(
     knowledge: List[dict] = None,
 ) -> dict:
     system = _build_system_with_knowledge(knowledge or [])
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.environ["OPENAI_API_KEY"])
+    llm = llm_factory("review", temperature=0.1, streaming=False)
     response = await llm.ainvoke([
         SystemMessage(content=system),
         HumanMessage(content=review_direct_prompt(agenda, report_content)),
