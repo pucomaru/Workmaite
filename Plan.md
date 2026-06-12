@@ -356,8 +356,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P5-4 PostgreSQL/Neo4j 백업 CronJob(pg_dump → R2, neo4j-admin dump), 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
-- [ ] P6-1 골든 데이터셋: 회의록/보고서 샘플 10–20건에 대해 기대 아젠다·부서·요약 라벨링(`eval/dataset/`).
-- [ ] P6-2 eval 하네스(`eval/run_eval.py`): 아젠다 추출 P/R/F1(제목 임베딩 유사도 ≥0.85 매칭), 부서 매칭 정확도, 회의록 LLM-judge 루브릭 점수. 결과를 JSON으로 저장해 프롬프트/모델 변경 시 회귀 비교.
+- [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/ai/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
+- [~] P6-2 eval 하네스 — **스모크판 구축 (2026-06-12)**: `eval/run_eval.py`(라우팅 정확도 + 추출 P/R/F1·부서 정확도, JSON 기록). **베이스라인: 라우팅 93.75%(15/16), 추출 F1=1.00.** 발견: off_topic이 라우팅 Literal에 없어 반환 불가(죽은 지시) — 코딩 요청이 task_extractor로 오분류, P3A-5에서 처리. 잔여: 제목 임베딩 매칭(현 difflib), 회의록 LLM-judge.
 - [ ] P6-3 CI에 스모크 eval(소형 5건) 추가 — 프롬프트 변경 PR에서 자동 실행.
 - [ ] P6-4 **트레이스 기반 평가 환류**: P3A-3 트레이싱 + P3C-3 피드백(👍/👎, HITL 반려 사유)에서 실패 사례를 주기적으로 골든 데이터셋에 추가 — eval이 운영 데이터로 계속 자라는 구조(eval-driven development). 라우팅 정확도(classify→handoff 결정)도 평가 항목에 포함.
 - [ ] P6-5 **retrieval 평가(G-8)**: "질의 → 반드시 찾아야 할 노드" 쌍 20건으로 recall@k·MRR 측정(`eval/retrieval_eval.py`). 검색 0건 비율 메트릭 상시 수집 — G-1 같은 전면 검색 장애를 즉시 탐지. 부서 추천(P3B-8)의 정확도(테스트 데이터 대비 추출 아젠다·부서 유사도)도 여기서 측정.
