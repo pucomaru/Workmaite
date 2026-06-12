@@ -297,7 +297,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P1-5 Neo4j 사용자 매칭 `pg_id` 단일 키 통일 (2026-06-12): /archive·supervisor 본인 매칭, meeting-groups 멤버 추가/삭제(user_id 필수화), 간사 연결(호출자 본인) — email/name OR 매칭 전부 제거.
 - [x] P1-6 **감사 로그 도입** (2026-06-12): audit_logs(V2) + Spring @AuditLogged AOP(6개 서비스 CUD·승인·할당) + AuthService LOGIN/SIGNUP/LOGOUT + FastAPI AuditLogMiddleware(변경성 요청). TransactionTemplate(REQUIRES_NEW)로 본 처리와 분리, signup은 afterCommit(FK). 4종 이벤트 DB 기록 검증.
 - [x] P1-7① **멀티테넌시 즉시 조치** (2026-06-12): PATCH /users/{id} 비밀번호 변경 제거+권한 가드(MT-1), GET /users·search 디렉터리 스코프(본인+내 회사+공유 회의체, MT-3) — Spring/FastAPI 양쪽. E2E 검증.
-- [~] P1-7② **(개정: 임시 비밀번호 방식, 2026-06-12 사용자 결정)**: 초대 링크 제거 → POST /users/bulk(ADMIN만, 임시 비밀번호 필수, must_change_password) + MustChangePasswordFilter(변경 전 전 API 403 — 강제). CSV는 임시비밀번호 컬럼 필수. 기존 MT-1/2 핵심(생성자 입력 영구 비밀번호·변경 강제 부재)은 해소 유지: 변경 강제가 노출 창을 최초 로그인까지로 제한. companies 정규화(V9)는 유지. E2E 검증. 잔여 중 COMPANY_ADMIN 부여 UI/API(2026-06-12)·invitations DROP(V10) 완료. **남은 것: users.company 문자열 DROP(코드 의존 정리 후), AI company 스코프(P3B-1 통합).**
+- [~] P1-7② **(개정: 임시 비밀번호 방식, 2026-06-12 사용자 결정)**: 초대 링크 제거 → POST /users/bulk(ADMIN만, 임시 비밀번호 필수, must_change_password) + MustChangePasswordFilter(변경 전 전 API 403 — 강제). CSV는 임시비밀번호 컬럼 필수. 기존 MT-1/2 핵심(생성자 입력 영구 비밀번호·변경 강제 부재)은 해소 유지: 변경 강제가 노출 창을 최초 로그인까지로 제한. companies 정규화(V9)는 유지. E2E 검증. 잔여 중 COMPANY_ADMIN 부여 UI/API(2026-06-12)·invitations DROP(V10)·users.company 문자열 DROP(V11, 2026-06-12: companies+company_id FK로 코드 전면 전환·Spring/FastAPI/Neo4j 동기화 E2E 검증) 완료. **남은 것: AI company 스코프(P3B-1 통합).**
 
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
@@ -341,12 +341,12 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P3C-4 (2026-06-12): supervisor 프롬프트 가드레일(날조·미확인 단정 금지, 쓰기 도구 없음)+분석 동시 1 세마포어(429). 쓰기는 HITL interrupt 유지.
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
-- [ ] P4-1 **청크 diarization 폐기**: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
+- [x] ~~P4-1 화자분리~~ **화자분리 자체를 폐기 (2026-06-12, 사용자 결정)** — STT를 OpenAI 단순 전사로 통일. (v2 streaming은 diarization 미지원, batch는 GCS 필요, WhisperX는 CPU라 느림). ~~원계획~~: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
 - [x] P4-2 원본 오디오 R2 보존 (2026-06-12, sessions/{id}/audio/). 보존기간 정책 문서화는 잔여. ~~원계획~~: 청크를 R2에 append 저장(`sessions/{id}/audio/...`), 실패 시 재처리 큐. 보존 기간 정책(예: 회의록 확정 후 30일) 문서화 — 개인정보 관점 필수.
 - [x] P4-3 STT 폴백 체인(→localwhisper)+전실패 502+프론트 재시도/알림 (2026-06-12). ~~원계획~~(에러 응답 + 프론트 재시도 UI), 5xx 시 provider 폴백 체인(gcapi→whisperx).
 - [x] P4-4 **부분 (2026-06-12)**: align model 언어별 1회 캐시+ko 워밍업, batch_size 8. 잔여: 요청 큐(동시 1) 보호.
-- [x] P4-5 (2026-06-12): SessionPage 화자 범례+클릭 이름 지정(세션별 localStorage), 스크립트가 실명 표시. 화자 임베딩 자동 제안은 선택 잔여.
-- [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
+- [x] ~~P4-5 화자 매핑 UI~~ **폐기 (2026-06-12)** — 화자분리 미사용으로 제거.
+- [x] ~~P4-6 WER/DER 측정~~ **불요 (2026-06-12)** — 단일 provider(OpenAI)·화자분리 없음. WER은 필요 시 별도.
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
 - [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).

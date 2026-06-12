@@ -13,125 +13,17 @@ function getRMS(analyser) {
   return Math.sqrt(sum / buf.length)
 }
 
-function parseWLKTime(t) {
-  if (t == null) return 0
-  const parts = String(t).split(':').map(Number)
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  return parts[0] || 0
-}
-
 function authHeaders() {
   const token = sessionStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function saveToDB(sessionId, segments) {
-  try {
-    const res = await fetch('/api/stt/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ session_id: sessionId, segments }),
-    })
-    const data = await res.json()
-    return data.segments ?? segments
-  } catch { return segments }
-}
-
-export function useSTT({ onResult, onSegments = null, onError = null, getLang = null, getSessionId = null, getSttMode = null }) {
+export function useSTT({ onResult, onError = null, getLang = null, getSessionId = null }) {
   let stream = null
   let active = false
   let currentRecorder = null
   let currentWS = null
   let generation = 0
-
-  // ── WhisperLiveKit WebSocket 모드 ──────────────────────────────
-  async function runWLKLoop(gen, lang) {
-    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${protocol}://${location.host}/wlk/asr?language=${lang}`)
-    currentWS = ws
-    ws.binaryType = 'arraybuffer'
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus' : 'audio/webm'
-    const recorder = new MediaRecorder(stream, { mimeType })
-    currentRecorder = recorder
-
-    // WLK는 누적 전체 lines를 매 메시지마다 보냄 → 신규 라인만 처리
-    let processedCount = 0
-    let lastData = null
-
-    recorder.ondataavailable = async (e) => {
-      if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-        ws.send(await e.data.arrayBuffer())
-      }
-    }
-
-    async function flushSegments(lines, bufferText = '') {
-      const newLines = lines.slice(processedCount)
-      processedCount = lines.length
-
-      const toProcess = newLines.map(l => ({
-        speaker: normalizeSpeaker(l.speaker),
-        text:    (l.text ?? '').trim(),
-        start:   parseWLKTime(l.beg ?? l.start),
-        end:     parseWLKTime(l.end),
-      })).filter(s => s.text)
-
-      // 녹음 종료 시 buffer 잔여분을 마지막 세그먼트로 추가
-      const trimmed = (bufferText ?? '').trim()
-      if (trimmed) {
-        toProcess.push({ speaker: normalizeSpeaker(null), text: trimmed, start: 0, end: 0 })
-      }
-
-      if (!toProcess.length) return
-
-      const sessionId = typeof getSessionId === 'function' ? getSessionId() : null
-      const saved = sessionId ? await saveToDB(sessionId, toProcess) : toProcess
-
-      if (typeof onSegments === 'function') {
-        onSegments(saved)
-      } else if (saved[0]?.text) {
-        onResult(saved.map(s => s.text).join(' '), saved[0]?.id ?? null)
-      }
-    }
-
-    ws.onmessage = async (event) => {
-      if (!active || generation !== gen) return
-      let data
-      try { data = JSON.parse(event.data) } catch { return }
-
-      if (data.type === 'config' || data.type === 'ready_to_stop') return
-      lastData = data
-
-      await flushSegments(data.lines ?? [])
-    }
-
-    await new Promise(resolve => {
-      ws.onopen  = () => { recorder.start(200) }
-      ws.onerror = () => resolve()
-      ws.onclose = async () => {
-        // 종료 시점에 buffer에 남은 텍스트 저장
-        if (lastData?.buffer?.trim()) {
-          await flushSegments(lastData.lines ?? [], lastData.buffer)
-        }
-        resolve()
-      }
-    })
-    currentWS = null
-  }
-
-  // "SPEAKER_00" → "1", "SPEAKER_01" → "2", null/"" → "1"
-  function normalizeSpeaker(raw) {
-    if (!raw) return '1'
-    const m = String(raw).match(/(\d+)$/)
-    return m ? String(parseInt(m[1], 10) + 1) : String(raw)
-  }
-
-  function stopWLK() {
-    if (currentRecorder?.state === 'recording') currentRecorder.stop()
-    if (currentWS && currentWS.readyState === WebSocket.OPEN) currentWS.close()
-  }
 
   // ── HTTP 청크 방식 (gcapi / whisperapi 모드) ───────────────────
   async function runLoop(gen) {
@@ -179,13 +71,11 @@ export function useSTT({ onResult, onSegments = null, onError = null, getLang = 
 
       const rawLang = typeof getLang === 'function' ? getLang() : 'ko'
       const lang = rawLang.split('-')[0].toLowerCase()
-      const sttMode = typeof getSttMode === 'function' ? getSttMode() : 'localwhisper'
       const sessionId = typeof getSessionId === 'function' ? getSessionId() : null
 
       const formData = new FormData()
       formData.append('audio', blob, 'audio.webm')
       formData.append('lang', lang)
-      formData.append('stt_mode', sttMode)
       if (sessionId) formData.append('session_id', String(sessionId))
 
       try {
@@ -199,17 +89,12 @@ export function useSTT({ onResult, onSegments = null, onError = null, getLang = 
           }
           const data = await retry.json()
           if (!active || generation !== gen) break
-          if (data.segments?.length && typeof onSegments === 'function') onSegments(data.segments)
-          else if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
+          if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
           continue
         }
         const data = await res.json()
         if (!active || generation !== gen) break
-        if (data.segments?.length && typeof onSegments === 'function') {
-          onSegments(data.segments)
-        } else if (data.text?.trim()) {
-          onResult(data.text.trim(), data.text_id ?? null)
-        }
+        if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
       } catch (e) { console.warn('[STT] 전송 실패', e) }
     }
 
@@ -224,14 +109,7 @@ export function useSTT({ onResult, onSegments = null, onError = null, getLang = 
     const myGen = generation
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const sttMode = typeof getSttMode === 'function' ? getSttMode() : 'localwhisper'
-      if (sttMode === 'localwhisper') {
-        const rawLang = typeof getLang === 'function' ? getLang() : 'ko'
-        const lang = rawLang.split('-')[0].toLowerCase()
-        runWLKLoop(myGen, lang)
-      } else {
-        runLoop(myGen)
-      }
+      runLoop(myGen)  // 12초 청크 → /api/stt/transcribe (OpenAI 단순 전사)
     } catch (e) {
       active = false
       console.warn('[STT] 마이크 권한 없음', e)
@@ -242,7 +120,8 @@ export function useSTT({ onResult, onSegments = null, onError = null, getLang = 
   function stop() {
     active = false
     generation++
-    stopWLK()
+    if (currentRecorder?.state === 'recording') currentRecorder.stop()
+    if (currentWS && currentWS.readyState === WebSocket.OPEN) currentWS.close()
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null }
     currentRecorder = null
   }

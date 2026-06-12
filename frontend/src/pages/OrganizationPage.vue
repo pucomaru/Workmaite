@@ -530,7 +530,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
             </div>
             <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
-              <label>시스템 역할 (SYSTEM_ADMIN 전용)</label>
+              <label>역할 (관리자 전용)</label>
               <select v-model="editModal.role" class="app-modal-input">
                 <option value="USER">USER</option>
                 <option value="COMPANY_ADMIN">COMPANY_ADMIN (자사 구성원 관리)</option>

@@ -9,6 +9,7 @@ import com.workmaite.domain.auth.repository.RefreshTokenRepository;
 import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.domain.company.service.CompanyService;
 import com.workmaite.global.audit.AuditLogService;
 import com.workmaite.global.auth.JwtTokenProvider;
 import com.workmaite.global.auth.LegacyPbkdf2Verifier;
@@ -43,6 +44,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AuditLogService auditLogService;
+    private final CompanyService companyService;
 
     public void signup(SignupRequest request) {
         // 이메일 중복 확인
@@ -54,7 +56,7 @@ public class AuthService {
                 .email(request.getEmail())
                 .name(request.getName())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .company(request.getCompany())
+                .company(companyService.getOrCreate(request.getCompany()))
                 .department(request.getDepartment())
                 .position(request.getPosition())
                 .build();

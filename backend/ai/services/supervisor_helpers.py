@@ -78,7 +78,7 @@ def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
     for m in members:
         if not m.user or not m.user.department:
             continue
-        company = m.user.company or ""
+        company = m.user.company_name or ""
         dept = m.user.department
         if (company, dept) not in seen:
             seen.add((company, dept))

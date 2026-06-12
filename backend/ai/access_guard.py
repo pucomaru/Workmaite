@@ -8,7 +8,6 @@ Spring의 MeetingAccessGuard와 동일한 규칙:
 import logging
 
 from fastapi import HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -54,8 +53,8 @@ def require_user_update_permission(current_user: models.User, target: models.Use
         return
     same_company_admin = (
         current_user.role == "COMPANY_ADMIN"
-        and (current_user.company or "").strip()
-        and (current_user.company or "").strip().lower() == (target.company or "").strip().lower()
+        and current_user.company_id is not None
+        and current_user.company_id == target.company_id
     )
     if not same_company_admin:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
@@ -79,12 +78,11 @@ def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
             .filter(models.MeetingMember.meeting_id.in_(my_meetings))
             .all()
         }
-    company = (user.company or "").strip()
-    if company:
+    if user.company_id is not None:
         ids |= {
             r.id
             for r in db.query(models.User.id)
-            .filter(func.lower(func.trim(models.User.company)) == company.lower())
+            .filter(models.User.company_id == user.company_id)
             .all()
         }
     return ids

@@ -6,6 +6,7 @@ import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.dto.UpdateUserRequest;
 import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
+import com.workmaite.domain.company.service.CompanyService;
 import com.workmaite.domain.user.entity.UserRole;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogged;
@@ -36,6 +37,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final MeetingMemberRepository meetingMemberRepository;
     private final MeetingRepository meetingRepository;
+    private final CompanyService companyService;
 
     public UserResponse getMe(Long userId) {
         User user = userRepository.findById(userId)
@@ -48,7 +50,8 @@ public class UserService {
     public UserResponse updateMe(Long userId, UpdateUserRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        user.update(request.getName(), request.getCompany(), request.getDepartment(), request.getPosition());
+        user.update(request.getName(), request.getDepartment(), request.getPosition());
+        user.assignCompany(companyService.getOrCreate(request.getCompany()));
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.updatePassword(passwordEncoder.encode(request.getPassword()));
         }
@@ -114,14 +117,14 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         boolean sameCompanyAdmin = caller.getRole() == UserRole.COMPANY_ADMIN
-                && caller.getCompany() != null && !caller.getCompany().isBlank()
-                && caller.getCompany().trim().equalsIgnoreCase(
-                        user.getCompany() == null ? "" : user.getCompany().trim());
+                && caller.getCompanyId() != null
+                && caller.getCompanyId().equals(user.getCompanyId());
         if (caller.getRole() != UserRole.SYSTEM_ADMIN && !sameCompanyAdmin) {
             throw new BusinessException(ErrorCode.ACCESS_DENIED);
         }
 
-        user.update(request.getName(), request.getCompany(), request.getDepartment(), request.getPosition());
+        user.update(request.getName(), request.getDepartment(), request.getPosition());
+        user.assignCompany(companyService.getOrCreate(request.getCompany()));
         return UserResponse.from(user);
     }
 
@@ -176,8 +179,7 @@ public class UserService {
                         .email(email)
                         .name(name)
                         .passwordHash(passwordEncoder.encode(password))
-                        .company(caller.getCompany())
-                        .companyId(caller.getCompanyId())
+                        .company(caller.getCompany())  // 관리자와 같은 회사 (정규화 엔티티)
                         .department(blankToNull(row.get("department")))
                         .position(blankToNull(row.get("position")))
                         .mustChangePassword(true) // 최초 로그인 시 변경 강제
@@ -204,7 +206,7 @@ public class UserService {
             return users;
         }
 
-        String company = caller.getCompany() == null ? "" : caller.getCompany().trim();
+        Long companyId = caller.getCompanyId();
         List<Long> myMeetingIds = meetingMemberRepository.findByUserId(callerId)
                 .stream().map(MeetingMember::getMeetingId).toList();
         Set<Long> sharedUserIds = myMeetingIds.isEmpty() ? Set.of()
@@ -213,8 +215,7 @@ public class UserService {
 
         return users.stream()
                 .filter(u -> u.getId().equals(callerId)
-                        || (!company.isBlank() && u.getCompany() != null
-                            && company.equalsIgnoreCase(u.getCompany().trim()))
+                        || (companyId != null && companyId.equals(u.getCompanyId()))
                         || sharedUserIds.contains(u.getId()))
                 .toList();
     }

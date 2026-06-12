@@ -15,6 +15,17 @@ const {
 import { apiAI } from '../api'
 
 // 응답 피드백 (P3C-3) — 👎는 사유를 선택적으로 수집
+// 피드백 버튼 시각 상태 (active 시 색·배경·불투명도) — 컴포넌트에 <style>이 없어 인라인으로 처리
+function fbBtnStyle(active, color) {
+  return {
+    border: 'none', borderRadius: '6px', padding: '1px 5px', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', lineHeight: '1',
+    background: active ? color + '22' : 'none',
+    color: active ? color : 'rgb(147,197,253)',
+    opacity: active ? 1 : 0.5,
+  }
+}
+
 async function sendFeedback(msg, rating) {
   if (msg._fb === rating) return
   let reason = null
@@ -136,13 +147,13 @@ function onResizeEnd() {
                    :class="{ 'is-streaming': agentLoading && i === currentMessages.length - 2 }"
                    v-html="renderMd(msg.content)"></div>
               <div v-if="!(agentLoading && i === currentMessages.length - 2)" class="agent-feedback">
-                <button class="fb-btn" style="border:none;background:none;" :class="{ active: msg._fb === 1 }" title="도움이 됐어요"
+                <button class="fb-btn" :style="fbBtnStyle(msg._fb === 1, '#3b82f6')" title="도움이 됐어요"
                   @click="sendFeedback(msg, 1)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgb(147,197,253)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
                 </button>
-                <button class="fb-btn" style="border:none;background:none;" :class="{ active: msg._fb === -1 }" title="아쉬워요"
+                <button class="fb-btn" :style="fbBtnStyle(msg._fb === -1, '#ef4444')" title="아쉬워요"
                         @click="sendFeedback(msg, -1)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgb(147,197,253)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H6.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H6.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
                 </button>
               </div>
               <div v-if="i===0&&(agentInfo.suggested?.length||agentInfo.suggestedAt?.length)" class="agent-suggested">

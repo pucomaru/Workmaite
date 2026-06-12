@@ -11,19 +11,34 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
+class Company(Base):
+    """회사(테넌트) — companies 테이블 (P1-7② 정규화, MT-4)."""
+    __tablename__ = "companies"
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String(100), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
     id            = Column(Integer, primary_key=True, index=True)
     name          = Column(String(100), nullable=False)
     email         = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    company       = Column(String(100), nullable=True)
+    # 회사 정규화 (P1-7②) — users.company 문자열 폐기, companies FK
+    company_id    = Column(Integer, ForeignKey("companies.id"), nullable=True)
     department    = Column(String(100), nullable=True)
     position      = Column(String(100), nullable=True)
     # 시스템 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN
     role          = Column(String(30), nullable=False, default="USER", server_default="USER")
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
+
+    company       = relationship("Company", lazy="joined")
+
+    @property
+    def company_name(self):
+        return self.company.name if self.company else None
 
 
 class ReportAgenda(Base):

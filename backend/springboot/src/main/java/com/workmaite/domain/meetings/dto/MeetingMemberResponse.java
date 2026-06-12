@@ -32,6 +32,7 @@ public class MeetingMemberResponse {
         private String name;
         private String email;
         private String company;
+        private Long companyId;
         private String department;
         private String position;
     }
@@ -45,7 +46,8 @@ public class MeetingMemberResponse {
                 .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
-                .company(user.getCompany())
+                .company(user.getCompany() != null ? user.getCompany().getName() : null)
+                .companyId(user.getCompanyId())
                 .department(user.getDepartment())
                 .position(user.getPosition())
                 .build();

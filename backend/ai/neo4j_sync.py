@@ -849,7 +849,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 user_id=u.id,
                 name=u.name,
                 email=u.email,
-                company=u.company,
+                company=u.company_name,
                 department=u.department,
                 position=u.position,
                 created_at=u.created_at.isoformat() if u.created_at else None,
@@ -867,9 +867,9 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
 
         # 3. Companies (User.company 기반 파생 노드)
         company_names: set[str] = set()
-        for u in db.query(models.User).all():
-            if u.company and u.company.strip():
-                company_names.add(u.company.strip())
+        for c in db.query(models.Company).all():
+            if c.name and c.name.strip():
+                company_names.add(c.name.strip())
         for company_name in company_names:
             await sync_company(company_name)
             stats["companies"] += 1
@@ -1070,7 +1070,7 @@ async def cleanup_deleted_from_pg(db: DBSession) -> dict:
 
     # Company: User.company 기반으로 정리
     pg_company_names = [
-        row[0] for row in db.query(models.User.company).all()
+        row[0] for row in db.query(models.Company.name).all()
         if row[0] and row[0].strip()
     ]
     if pg_company_names:
