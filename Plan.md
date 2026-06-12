@@ -258,7 +258,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 | PG-5 | 🟡 | `UserController GET /users`(전체 사용자), `GET /users/search` | 사용자 디렉터리 무제한 — MT-3(전사 디렉터리 공개)과 같은 API. 스코프 축소(P1-7)와 페이지네이션을 한 작업으로. |
 | PG-6 | 🟡 | FastAPI `meetings.py:43`(전체 회의), `meetings.py:364-370`(전체 사용자 + **사용자별 멤버십 개별 쿼리 N+1**), `upload.py:105` | 관리/조회용 목록 라우트들이 `.all()` — N+1까지 겹쳐 사용자 수에 제곱 비례 비용. |
 | PG-7 | 🟡 | `neo4j_graph.py GET /archive` | 사용자 소속 그래프 **전체**를 한 응답으로(LIMIT 없는 Cypher 다수: Department 전체, 소속 회의체 전체와 하위 노드). 응답 크기가 데이터 증가에 정비례. |
-| PG-8 | 🟡 | `PastMeetingsPage.vue:15,36` | 프론트 N+1 HTTP: 전체 회의 조회 후 **회의마다** `GET /meetings/{id}/sessions` 개별 호출 — 회의 50개면 요청 51회. |
+| PG-8 | ~~🟡~~ | `PastMeetingsPage.vue` | ~~프론트 N+1 HTTP~~ **재확인 결과 오진(2026-06-12)**: 세션은 펼칠 때만 lazy-load — 수정 불필요. |
 | PG-9 | ⚪ | `AgentPanel.vue:130`, SessionPage 스크립트 영역 | 메시지/세그먼트 배열 전체를 `v-for` 렌더 — 증분 로드·가상 스크롤 없음(PG-1·2 해결의 프론트 짝). |
 | PG-10 | ⚪ | `ApiResponse.java`, FastAPI 응답 모델 | **페이지 응답 계약 자체가 부재**: envelope에 page/size/total/next_cursor 메타 필드 없음 — 개별 API를 고치기 전에 계약부터 정의해야 함. |
 
@@ -269,8 +269,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 0 — 비상 보안 조치 (즉시, 1–2일) 🔴
 목표: 외부에서 악용 가능한 구멍부터 차단. 코드 변경 최소.
 
-- [ ] P0-1 **유출 키 회전**: OpenAI/LangSmith 키, JWT_SECRET, INTERNAL_SECRET, DB/Redis/Neo4j 비밀번호 전부 재발급. (git 히스토리에 .env는 없지만 k8s yaml/application.yaml의 비번은 히스토리에 있음)
-  - ⏳ 사람이 직접 수행 필요 — 절차·대상 목록은 **`SECURITY_ROTATION.md`** 작성 완료 (2026-06-12)
+- [x] P0-1 **유출 키 회전** — 완료 (2026-06-12, 수동 수행). 이로써 LangSmith 트레이싱 활성화 가능: ai-secret에 `LANGSMITH_TRACING=true`+새 키 설정 시 agent_logs.trace_id(P3A-3)로 트레이스 점프 동작.
 - [x] P0-2 **시크릿을 k8s Secret으로 이전** (2026-06-12): `k8s/backend.yaml` DB 비번 → `backend-secret` secretKeyRef + JWT_SECRET 주입 추가, `application.yaml` 전 시크릿 `${ENV}` 참조화, `k8s/postgres/deployment.yaml` → `postgres-secret`, `neo4j/k8s/secret.yaml` placeholder화. 템플릿 `k8s/secrets.example.yaml` 생성, **시크릿 위치별 매뉴얼(`SECURITY_ROTATION.md` §0~2)** 작성. **⚠ develop 머지 전 클러스터에 `backend-secret` 생성 필수 + ai-secret의 JWT_SECRET 동일값 확인.**
 - [x] (추가) **Redis 완전 제거** (2026-06-12): 코드에서 Redis 미사용 확인(주석의 "도입 예정"뿐) → `spring-boot-starter-data-redis` 의존성, `application.yaml` redis 블록, `k8s/backend.yaml` REDIS env 3종 제거. 의존성만 남겨두면 actuator health가 Redis 연결을 검사해 probe 실패를 유발하므로 의존성째 제거. 컴파일 검증 통과.
 - [x] P0-3 **무인증 라우터 봉쇄** (2026-06-12): `stt.py` 2개, `neo4j_graph.py` 11개 라우트에 `get_current_user` 추가. `main.py` WebSocket 2개에 JWT 쿼리파라미터 검증(`_ws_user_id`, 실패 시 4401). `useSTT.js` fetch에 Authorization 헤더, `api.js toWsUrl`에 토큰 자동 부착. **잔여: WLK(`/wlk/asr`) WebSocket은 별도 서비스(whisperlivekit)라 미적용 — P4에서 프록시/게이트웨이로 처리.**
@@ -321,8 +320,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P3A-2 **structured output** (2026-06-12): 검토 경로(HITL propose·직접 검토)를 pydantic 스키마(12요소 ElementScore 포함)로 전환 — **가짜 score=50 fabrication 제거**, 실패는 명시적 에러(502/status:error). 추출 경로는 분석텍스트+JSON 프롬프트 설계 유지(P6 eval 전 프롬프트 변경 금지) + 파싱 실패 1회 재시도 후 명시적 실패. 공통 헬퍼 `ainvoke_structured`. 잔여: archive 분석(_parse_archive_result)의 루브릭 스키마는 HC-6과 함께. 실패율 메트릭은 P5-1에서.
 - [x] P3A-3 **trace_id 연결** (2026-06-12): V7 + log_agent_run이 collect_runs()로 루트 run id 기록(트레이싱 off여도 동작). LangSmith env 제어화는 Phase 0에서 기완료 — 키 회전(P0-1) 후 LANGSMITH_TRACING=true로 활성화하면 trace_id로 점프 가능.
 - [x] P3A-4 `supervisor.py` 해체 (2026-06-12): 2,966줄 → 1,024줄. services/supervisor_helpers.py(공용 DB 컨텍스트·로그) + 라우터 4분리(graph_analysis 608/archive 838/hitl_reviews 289/knowledge 184). OpenAPI 80경로 누락 0·스모크 통과. **잔여: supervisor chat 핸들러(~600줄)는 P3A-5 재작성과 함께, archive.py 추가 분해는 P7-1과 함께. graphs/·tools/ 레이어는 P3A-5·P3B-1에서 생성.**
-- [ ] P3A-5 **Supervisor 그래프 전환**: `langgraph-supervisor`(또는 StateGraph + handoff tool) — supervisor가 도구 호출로 sub-agent 위임, 결과 보고 후 재라우팅. `classify_intent` 제거(대화 이력이 state에 있으므로 AI-9 자동 해결). 단, **단순한 요청까지 다단 그래프를 태우지 말 것** — 현황 조회류는 도구 1–2개의 single-loop로 충분(에이전트는 필요한 만큼만 복잡하게).
-- [ ] P3A-6 **스트리밍 프로토콜 v2(FE-2·H-10·H-13 통합)**: SSE `event:` 필드 기반 타입 이벤트(`planning|token|tool_call|result|usage|error`) + 응답에 `run_id`. 클라이언트 abort 시 `asyncio.CancelledError`를 LLM 호출까지 전파(취소된 만큼만 과금), 프론트에 중단 버튼. 체크포인터 덕에 끊긴 run 상태 조회/이어보기 가능. **진행 표시는 `astream_events`의 실제 도구/노드 이벤트에서 파생** — `_stream_plan`·`classify_intent.steps` 같은 보여주기 전용 narration LLM 호출 제거(플래닝 연극 해소 + 대화당 LLM 1회 절감).
+- [~] P3A-5 **Supervisor 전환 — 1단계 완료 (2026-06-12)**: 라우팅 계층 개선 — off_topic Literal 복구(죽은 분기 살림), 인사 예외, classify_intent에 대화이력 6턴 반영(AI-9). **eval 93.75%→100%(18/18)**, off_topic SSE 조기종료 라이브 검증. 2단계(2026-06-12): tools/meeting_tools.py 5종(스코프 강제, P3B-1) + graphs/supervisor_graph.py JIT 에이전트 — SUPERVISOR_TOOLS_MODE=react opt-in, 도구 이벤트 기반 진행표시(narration 제거). **잔여(3단계): react 모드 eval 비교 후 기본 전환 + 사전조립 경로 제거, classify_intent → handoff 통합.**
+- [~] P3A-6 **스트리밍 프로토콜 v2 — 1단계 완료 (2026-06-12)**: sse.py 포매터 + supervisor 전 스트림 16곳 event: 기반 전환(payload JSON화 — FE-2 해소), api.js v2 파서+v1 폴백, 라이브 검증. 2단계 완료(2026-06-12): 타 라우터 19곳 v2 전환·v1 마커 전면 제거(예외: analyze-file/stream은 streamPostForm 파서와 함께). 3단계 완료(2026-06-12): run_id 이벤트, 중단 버튼(AbortSignal→서버 generator 취소 전파). **잔여**: narration 제거(astream_events 기반 진행표시 — P3A-5 2단계 그래프 전환과 함께). 원계획: **스트리밍 프로토콜 v2(FE-2·H-10·H-13 통합)**: SSE `event:` 필드 기반 타입 이벤트(`planning|token|tool_call|result|usage|error`) + 응답에 `run_id`. 클라이언트 abort 시 `asyncio.CancelledError`를 LLM 호출까지 전파(취소된 만큼만 과금), 프론트에 중단 버튼. 체크포인터 덕에 끊긴 run 상태 조회/이어보기 가능. **진행 표시는 `astream_events`의 실제 도구/노드 이벤트에서 파생** — `_stream_plan`·`classify_intent.steps` 같은 보여주기 전용 narration LLM 호출 제거(플래닝 연극 해소 + 대화당 LLM 1회 절감).
 - [x] P3A-7 LLM 클라이언트 공통화 (2026-06-12): `llm_factory(profile)` — _make_llm 4중복+직접 생성 12곳 통합, timeout(60s)/retry(2) 일관, OPENAI_MODEL_{PROFILE} env로 프로파일별 모델 분리 가능. 잔여: 폴백 체인, run_cypher 공유 풀.
 
 **3B. 도구 & 컨텍스트 엔지니어링**
@@ -336,9 +335,9 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P3B-8 **과제 추출의 그래프 활용(G-4)**: 추출 시 ① 유사 과거 아젠다 top-k(중복 제안 방지·이월 과제 연결) ② `Department-[담당부서]->Agenda` 이력 기반 부서 추천(현 PG 멤버 부서 목록 단독 사용 대체) ③ 추출 결과를 세션 노드에 연결(UX-11의 "회의에서 나온 아젠다는 회의에 연결" 구조 반영). 부서 추천 정확도는 P6 eval로 측정.
 
 **3C. 서비스 가드 (챗봇 운영 안전망)**
-- [ ] P3C-1 **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
-- [ ] P3C-2 **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
-- [ ] P3C-3 **피드백 루프(H-9)**: 응답별 👍/👎+사유 수집(`chat_feedback` 테이블, §4.2) → P6 eval 데이터셋으로 환류. HITL 반려 사유도 동일 파이프라인.
+- [~] P3C-1 **비용 상한 — 완료 (2026-06-12)**: 일일 토큰 예산을 PG 집계(token_usage_logs)로 판정. 분당 rate limit은 **사용자 결정으로 제외**. 동시 1개 세마포어는 잔여. 원계획: **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
+- [~] P3C-2 **idempotency — 백엔드 완료 (2026-06-12)**: HITL confirm 2종+아젠다 commit 중복 차단(409, 실패 시 키 해제 — E2E 검증). 잔여: 프론트 버튼 더블클릭 가드. 원계획: **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
+- [~] P3C-3 **피드백 루프 — 수집부 완료 (2026-06-12)**: V8 chat_feedback + POST /api/agent/feedback + 👍/👎 UI(👎 사유 수집). E2E 검증. 잔여: eval 데이터셋 환류 자동화(P6-4), HITL 반려 사유 통합.
 - [ ] P3C-4 출력 가드레일(H-12): 쓰기 도구는 HITL interrupt 필수 유지, 근거 없는 단정 답변 방지 지침, (선택) 입력 모더레이션.
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
@@ -350,9 +349,9 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
-- [ ] P5-1 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
+- [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
 - [ ] P5-2 Alertmanager 룰: sync outbox 적체, STT 실패율, LLM 에러율, 5xx, pod 재시작.
-- [ ] P5-3 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
+- [~] P5-3(부분) 가격표 pricing.yaml 외출 + prefix 매칭 버그 수정 (2026-06-12). 잔여: 월별 비용 리포트 API, STT 분 단위 실측. 원계획: 비용: 가격표를 설정 파일로 외출 + 월별 비용 리포트 API(이미 usage.py 토대 있음), STT 분 단위 실측 로그.
 - [ ] P5-4 PostgreSQL/Neo4j 백업 CronJob(pg_dump → R2, neo4j-admin dump), 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
@@ -375,8 +374,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 목표: 데이터 누적에 정비례로 느려지는 목록 경로 제거. 계약 정의 → 절벽이 빠른 순(채팅·STT)부터 적용 → 프론트 전환 → 기본값 강제 순서로, **배포 중간 단계에서도 기존 프론트가 깨지지 않게** 진행.
 
 - [ ] P8-1 **공통 페이지 계약 정의(PG-10)**: 응답 envelope 표준화 — `items` + `pageInfo { nextCursor }`(keyset) 또는 `{ page, size, totalElements }`(offset). 기본 size 30, 최대 100을 **서버에서 강제**. 시간순 무한 누적 데이터(채팅·STT 세그먼트)는 keyset 커서(`(created_at,id)` / `(start_sec,id)`), 관리·검색 목록은 offset(`Pageable`). Spring은 `ApiResponse`에 pageInfo 추가, FastAPI는 제네릭 `Page[T]` Pydantic 모델. `docs/api-pagination.md`에 규약 기록.
-- [ ] P8-2 **채팅 이력(PG-1)**: `GET /chat/messages?threadId&before=<cursor>&limit=` — 최초 로드는 최신 N개(역순 조회 후 클라이언트 정렬), `before` 커서로 과거 페이지. Spring 리포지토리 keyset 쿼리 + FastAPI `chat_history.py` 동일 계약. AgentPanel은 상단 스크롤 도달 시 loadMore. supervisor의 최근 20개 replay 로직은 무변경 확인.
-- [ ] P8-3 **STT 스크립트(PG-2)**: `GET /sessions/{id}/scripts?after_sec=&limit=` keyset. SessionPage는 증분 로드, 진행 중 세션의 실시간 세그먼트 추가(WS)는 기존 경로 유지 — 페이지 로드와 실시간 append가 겹치지 않게 커서 기준 명확히. 세그먼트 수가 큰 화면은 가상 스크롤 검토(PG-9).
+- [~] P8-2 **채팅 이력(PG-1) — 백엔드+초기로드 완료 (2026-06-12)**: beforeId/limit keyset(Spring+FastAPI 동일 계약, 호환 모드), 프론트 초기 로드 100건 제한. E2E 검증. 잔여: 상단 스크롤 loadMore UI(P8-6). 원계획: **채팅 이력(PG-1)**: `GET /chat/messages?threadId&before=<cursor>&limit=` — 최초 로드는 최신 N개(역순 조회 후 클라이언트 정렬), `before` 커서로 과거 페이지. Spring 리포지토리 keyset 쿼리 + FastAPI `chat_history.py` 동일 계약. AgentPanel은 상단 스크롤 도달 시 loadMore. supervisor의 최근 20개 replay 로직은 무변경 확인.
+- [~] P8-3 **STT 스크립트(PG-2) — 백엔드 완료 (2026-06-12)**: afterSec/limit keyset(상한 500, 호환 모드). 잔여: SessionPage 증분 로드 적용(P8-6). 원계획: **STT 스크립트(PG-2)**: `GET /sessions/{id}/scripts?after_sec=&limit=` keyset. SessionPage는 증분 로드, 진행 중 세션의 실시간 세그먼트 추가(WS)는 기존 경로 유지 — 페이지 로드와 실시간 append가 겹치지 않게 커서 기준 명확히. 세그먼트 수가 큰 화면은 가상 스크롤 검토(PG-9).
 - [ ] P8-4 **Spring 목록 API(PG-3/4/5)**: `MeetingRepository`/`SessionRepository`/`ReportRepository`/`AgendaRepository`/`UserRepository` 목록 메서드에 `Pageable` 도입, 컨트롤러는 `page,size,sort` 수용 + size 상한 검증. **호환 전략**: 1단계는 파라미터 미지정 시 기존 전체 반환 유지(기존 프론트 보호), 프론트 전환(P8-6) 후 2단계에서 기본 size 강제. `/users`·`/users/search`는 P1-7(MT-3 스코프 축소)과 같은 PR로.
 - [ ] P8-5 **FastAPI/Neo4j(PG-6/7)**: 목록 라우트에 `limit/offset` Query 파라미터(FastAPI `Query(le=100)`), Cypher에 `SKIP/LIMIT`. `meetings.py:364` 사용자별 멤버십 N+1을 단일 join 쿼리로 교체. `/archive`는 회의체 목록을 페이지 단위로, 그래프 시각화 응답은 노드 수 상한 + "더 보기" 확장 쿼리로 분리.
 - [ ] P8-6 **프론트 공통화(PG-8/9)**: `composables/usePagination.js`(offset)·`useInfiniteScroll.js`(cursor) 작성 후 AgentPanel·SessionPage 스크립트·회의체/아카이브 목록에 적용. PastMeetingsPage의 회의별 sessions N+1 HTTP는 서버에 집계 엔드포인트(회의+세션 요약 한 번에) 또는 배치 조회로 교체.

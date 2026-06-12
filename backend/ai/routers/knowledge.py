@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import models, schemas
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from agents import (
     knowledge_manager as knowledge_agent,
@@ -174,10 +175,10 @@ async def knowledge_chat_stream_ep(
                 meeting_id=data.meeting_id or 0,
                 meeting_context=meeting_context,
             ):
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
         except Exception as e:
-            yield f"data: [오류] {str(e)}\n\n"
-        yield "data: [DONE]\n\n"
+            yield sse_error(str(e))
+        yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

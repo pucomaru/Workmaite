@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import models, schemas
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from agents import (
     knowledge_manager as knowledge_agent,
@@ -168,10 +169,10 @@ async def global_review_stream_ep(
                 meeting_id=data.meeting_id,
                 meeting_context=meeting_context,
             ):
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
         except Exception as e:
-            yield f"data: [오류] {str(e)}\n\n"
-        yield "data: [DONE]\n\n"
+            yield sse_error(str(e))
+        yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -234,13 +235,21 @@ async def confirm_report_review_ep(
     data: ConfirmReportReviewRequest,
     current_user: models.User = Depends(get_current_user),
 ):
-    result = await report_agent.confirm_report_review(
-        thread_id=data.thread_id,
-        approved=data.approved,
-        title=data.title or "",
-        content=data.content or "",
-        meeting_id=data.meeting_id,
-    )
+    from service_guards import idempotency_guard, release_idempotency
+    _idem_key = f"report-confirm:{data.thread_id}"
+    idempotency_guard(_idem_key)  # 더블클릭/재시도 중복 차단 (P3C-2)
+
+    try:
+        result = await report_agent.confirm_report_review(
+            thread_id=data.thread_id,
+            approved=data.approved,
+            title=data.title or "",
+            content=data.content or "",
+            meeting_id=data.meeting_id,
+        )
+    except Exception:
+        release_idempotency(_idem_key)  # 실패한 시도는 재시도 가능해야 함
+        raise
     return result
 
 
@@ -279,11 +288,19 @@ async def confirm_extraction_review_ep(
     data: ConfirmExtractionRequest,
     current_user: models.User = Depends(get_current_user),
 ):
-    result = await task_agent.confirm_extraction_review(
-        thread_id=data.thread_id,
-        approved=data.approved,
-        meeting_id=data.meeting_id,
-    )
+    from service_guards import idempotency_guard, release_idempotency
+    _idem_key = f"extract-confirm:{data.thread_id}"
+    idempotency_guard(_idem_key)  # 더블클릭/재시도 중복 차단 (P3C-2)
+
+    try:
+        result = await task_agent.confirm_extraction_review(
+            thread_id=data.thread_id,
+            approved=data.approved,
+            meeting_id=data.meeting_id,
+        )
+    except Exception:
+        release_idempotency(_idem_key)  # 실패한 시도는 재시도 가능해야 함
+        raise
     return result
 
 

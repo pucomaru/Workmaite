@@ -10,6 +10,7 @@ import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,11 +46,23 @@ public class ScriptService {
     }
 
     // 세션의 STT 세그먼트 목록 조회 (발화 시작 시간 오름차순)
-    public List<ScriptResponse> getScripts(Long sessionId) {
+    private static final int MAX_PAGE_SIZE = 500;
+
+    /**
+     * STT 세그먼트 조회 (P8-3 keyset). limit 미지정 시 기존 전체 반환(호환 모드).
+     * afterSec 지정 시 그 이후 발화부터 limit개 — 증분 로드용.
+     */
+    public List<ScriptResponse> getScripts(Long sessionId, Double afterSec, Integer limit) {
         meetingAccessGuard.requireMemberBySession(sessionId);
-        return scriptRepository.findBySessionIdOrderByStartSecAsc(sessionId).stream()
-                .map(ScriptResponse::from)
-                .toList();
+        if (limit == null && afterSec == null) {
+            return scriptRepository.findBySessionIdOrderByStartSecAsc(sessionId).stream()
+                    .map(ScriptResponse::from)
+                    .toList();
+        }
+        int size = Math.min(limit == null ? MAX_PAGE_SIZE : Math.max(limit, 1), MAX_PAGE_SIZE);
+        return scriptRepository.findBySessionIdAndStartSecGreaterThanOrderByStartSecAsc(
+                        sessionId, afterSec == null ? -1.0 : afterSec, PageRequest.of(0, size))
+                .stream().map(ScriptResponse::from).toList();
     }
 
     // 세그먼트 부분 수정 - 세그먼트 ID 목록을 받아 각각 업데이트

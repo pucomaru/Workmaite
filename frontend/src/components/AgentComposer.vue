@@ -22,7 +22,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:modelValue', 'update:atHighlight',
-  'input', 'keydown', 'send', 'selectAtItem', 'removeCtx', 'fileChange', 'ready',
+  'input', 'keydown', 'send', 'stop', 'selectAtItem', 'removeCtx', 'fileChange', 'ready',
 ])
 
 const textareaEl = ref(null)
@@ -72,7 +72,8 @@ function onFileChange(e) {
       @input="onInput" @keydown="emit('keydown', $event)" />
     <div class="agent-composer-toolbar">
       <button class="agent-attach-btn" :disabled="attachDisabled" @click="fileInput?.click()" title="파일 첨부">＋</button>
-      <button class="agent-send-btn" :disabled="loading || !canSend" @click="emit('send')" title="전송">
+      <button v-if="loading" class="agent-send-btn" @click="emit('stop')" title="응답 중단">■</button>
+      <button v-else class="agent-send-btn" :disabled="!canSend" @click="emit('send')" title="전송">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
       </button>
     </div>

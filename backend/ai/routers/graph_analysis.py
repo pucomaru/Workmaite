@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import models, schemas
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from agents import (
     knowledge_manager as knowledge_agent,
@@ -451,7 +452,7 @@ async def analyze_relationships_stream(
             )
             _pre_hmn = "회의체·세션·안건·문서·구성원의 관계 전체를 점검합니다."
             async for _step in _stream_plan(_pre_sys, _pre_hmn):
-                yield f"data: [PLANNING] {_step}\n\n"
+                yield sse_event("planning", f"{_step}")
             analysis = await analysis_task
 
             sem    = analysis["semantic"]
@@ -512,7 +513,7 @@ async def analyze_relationships_stream(
                 "각 항목은 한 줄, 총 3~6개, 마크다운·번호·기호 없이 plain text만."
             )
             async for step in _stream_plan(system_findings, findings_text):
-                yield f"data: [PLANNING] {step}\n\n"
+                yield sse_event("planning", f"{step}")
 
             # ── 실제 그래프 재구성 수행 ──────────────────────────────────
             actionable = (missing_seq + session_no_agenda_n + lifecycle_n + stale_n +
@@ -558,13 +559,13 @@ async def analyze_relationships_stream(
                         "마크다운·번호·기호 없이 plain text만."
                     )
                     async for step in _stream_plan(system_actions, actions_text):
-                        yield f"data: [PLANNING] {step}\n\n"
+                        yield sse_event("planning", f"{step}")
 
             # ── 관계 방향·명칭 정규화 (항상 실행) ────────────────────
             try:
                 norm = await _normalize_rel_directions()
                 if norm["total"]:
-                    yield f"data: [PLANNING] 관계 방향·명칭 정규화 {norm['total']}건 완료\n\n"
+                    yield sse_event("planning", f"관계 방향·명칭 정규화 {norm['total']}건 완료")
             except Exception:
                 pass
 
@@ -580,7 +581,7 @@ async def analyze_relationships_stream(
                     _hl.add(a["highlight"])
             _hl.discard(None); _hl.discard("")
             if _hl:
-                yield f"data: [HIGHLIGHT] {json.dumps(list(_hl), ensure_ascii=False)}\n\n"
+                yield sse_event("highlight", list(_hl))
 
             report = {**result, "counts": counts,
                       "findings": {"session_missing": missing_seq, "session_groups": len(chains),
@@ -590,18 +591,18 @@ async def analyze_relationships_stream(
                                    "examples": ag_links[:5], "doc_examples": doc_links[:5],
                                    "chain_examples": chains[:3]}}
             async for chunk in knowledge_agent.summarize_relationship_analysis(report):
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
 
         except Exception as e:
             _stream_error = e
-            yield f"data: 관계도 분석 중 오류가 발생했습니다: {str(e)}\n\n"
+            yield sse_error(f"관계도 분석 중 오류가 발생했습니다: {str(e)}")
         except BaseException as _e:
             _stream_error = _e
             raise
         finally:
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
-        yield "data: [DONE]\n\n"
+        yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 import models, schemas
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
 from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
 from agents import (
     knowledge_manager as knowledge_agent,
@@ -291,7 +292,7 @@ async def archive_chat_extract(
             )
             _plan_hmn = f"현재 과제 {cnt}건. 사용자 요청: {message[:300]}"
             async for _step in _stream_plan(_plan_sys, _plan_hmn):
-                yield f"data: [PLANNING] {_step}\n\n"
+                yield sse_event("planning", f"{_step}")
 
             parsed = await task_agent.chat_update_agendas(message, meeting_context, org_dept_list, current_agendas_text)
             if not parsed:
@@ -314,19 +315,19 @@ async def archive_chat_extract(
                 ],
                 "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
             }
-            yield f"data: [RESULT] {json.dumps(result, ensure_ascii=False)}\n\n"
+            yield sse_event("result", result)
         except Exception as e:
             _stream_error = e
             logger.warning(f"[chat-extract] 오류: {e}")
             fallback = {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
-            yield f"data: [RESULT] {json.dumps(fallback, ensure_ascii=False)}\n\n"
+            yield sse_event("result", fallback)
         except BaseException as _e:
             _stream_error = _e
             raise
         finally:
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
-        yield "data: [DONE]\n\n"
+        yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -452,6 +453,7 @@ async def analyze_archive_file_stream_ep(
                 },
             }
             yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+        # 이 라우트는 streamPostForm(JSON 이벤트 파서)이 소비 — v1 [DONE] 유지 (v2 전환은 파서와 함께)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -470,7 +472,10 @@ async def commit_draft_agendas(
     meeting_id: int = data.get("meeting_id", 0)
     if meeting_id:
         require_meeting_member(db, current_user, meeting_id)
-    approved: list = data.get("approved", [])   # [{db_id, assignee_name, dept, due_date}]
+    approved: list = data.get("approved", [])
+    from service_guards import idempotency_guard
+    _ids = sorted(str(a.get("db_id")) for a in approved if isinstance(a, dict))
+    idempotency_guard(f"agenda-commit:{meeting_id}:{','.join(_ids)}:{sorted(data.get('rejected_ids', []))}")  # P3C-2   # [{db_id, assignee_name, dept, due_date}]
     rejected_ids: list = data.get("rejected_ids", [])  # [int]
 
     # 반려된 draft 삭제

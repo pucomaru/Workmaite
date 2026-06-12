@@ -1,21 +1,153 @@
 {
   "_note": "라우팅 골든셋 (P6 스모크). expected는 허용 라벨 목록 — off_topic은 프롬프트에는 있으나 _RoutingDecision Literal에 없어 현행 계약상 반환 불가(발견사항). P3A-5 전환 후 동일 셋으로 비교한다.",
   "cases": [
-    {"id": "r01", "message": "이 회의록에서 다음 과제를 추출해줘", "expected": ["task_extractor"]},
-    {"id": "r02", "message": "다음 회의 때 각 팀이 할 일 정리해줘", "expected": ["task_extractor"]},
-    {"id": "r03", "message": "업로드한 파일 분석해서 아젠다 뽑아줘", "expected": ["task_extractor"]},
-    {"id": "r04", "message": "오늘 회의 내용으로 회의록 작성해줘", "expected": ["minutes_generator"]},
-    {"id": "r05", "message": "방금 논의한 내용 요약해서 회의록 초안 만들어줘", "expected": ["minutes_generator"]},
-    {"id": "r06", "message": "이 보고서 검토하고 피드백 줘", "expected": ["report_reviewer"]},
-    {"id": "r07", "message": "첨부한 기획안 평가해줘", "expected": ["report_reviewer"]},
-    {"id": "r08", "message": "지난 분기 회의에서 예산 관련 논의 내용 찾아줘", "expected": ["knowledge_manager"]},
-    {"id": "r09", "message": "이 결정사항 지식베이스에 저장해줘", "expected": ["knowledge_manager"]},
-    {"id": "r10", "message": "우리 회의체 현황 브리핑해줘", "expected": ["supervisor_direct"]},
-    {"id": "r11", "message": "과제 진행 상황 어때?", "expected": ["supervisor_direct"]},
-    {"id": "r12", "message": "내가 속한 회의체 목록 알려줘", "expected": ["supervisor_direct"]},
-    {"id": "r13", "message": "안녕하세요!", "expected": ["supervisor_direct"]},
-    {"id": "r14", "message": "너 몇살이야?", "expected": ["off_topic", "supervisor_direct"]},
-    {"id": "r15", "message": "파이썬으로 퀵소트 코드 짜줘", "expected": ["off_topic", "supervisor_direct"]},
-    {"id": "r16", "message": "보고서 제출 현황 보여줘", "expected": ["supervisor_direct"]}
+    {
+      "id": "r01",
+      "message": "이 회의록에서 다음 과제를 추출해줘",
+      "expected": [
+        "task_extractor"
+      ]
+    },
+    {
+      "id": "r02",
+      "message": "다음 회의 때 각 팀이 할 일 정리해줘",
+      "expected": [
+        "task_extractor"
+      ]
+    },
+    {
+      "id": "r03",
+      "message": "업로드한 파일 분석해서 아젠다 뽑아줘",
+      "expected": [
+        "task_extractor"
+      ]
+    },
+    {
+      "id": "r04",
+      "message": "오늘 회의 내용으로 회의록 작성해줘",
+      "expected": [
+        "minutes_generator"
+      ]
+    },
+    {
+      "id": "r05",
+      "message": "방금 논의한 내용 요약해서 회의록 초안 만들어줘",
+      "expected": [
+        "minutes_generator"
+      ]
+    },
+    {
+      "id": "r06",
+      "message": "이 보고서 검토하고 피드백 줘",
+      "expected": [
+        "report_reviewer"
+      ]
+    },
+    {
+      "id": "r07",
+      "message": "첨부한 기획안 평가해줘",
+      "expected": [
+        "report_reviewer"
+      ]
+    },
+    {
+      "id": "r08",
+      "message": "지난 분기 회의에서 예산 관련 논의 내용 찾아줘",
+      "expected": [
+        "knowledge_manager"
+      ]
+    },
+    {
+      "id": "r09",
+      "message": "이 결정사항 지식베이스에 저장해줘",
+      "expected": [
+        "knowledge_manager"
+      ]
+    },
+    {
+      "id": "r10",
+      "message": "우리 회의체 현황 브리핑해줘",
+      "expected": [
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r11",
+      "message": "과제 진행 상황 어때?",
+      "expected": [
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r12",
+      "message": "내가 속한 회의체 목록 알려줘",
+      "expected": [
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r13",
+      "message": "안녕하세요!",
+      "expected": [
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r14",
+      "message": "너 몇살이야?",
+      "expected": [
+        "off_topic",
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r15",
+      "message": "파이썬으로 퀵소트 코드 짜줘",
+      "expected": [
+        "off_topic",
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r16",
+      "message": "보고서 제출 현황 보여줘",
+      "expected": [
+        "supervisor_direct"
+      ]
+    },
+    {
+      "id": "r17",
+      "message": "방금 그 내용 회의록 초안으로 만들어줘",
+      "history": [
+        {
+          "role": "user",
+          "content": "오늘 회의에서 결정된 사항 알려줘"
+        },
+        {
+          "role": "assistant",
+          "content": "오늘 회의에서는 3분기 예산안 작성과 워크숍 일정 확정이 결정되었습니다."
+        }
+      ],
+      "expected": [
+        "minutes_generator"
+      ]
+    },
+    {
+      "id": "r18",
+      "message": "거기서 우리 팀이 할 일만 뽑아줘",
+      "history": [
+        {
+          "role": "user",
+          "content": "지난 회의록 요약해줘"
+        },
+        {
+          "role": "assistant",
+          "content": "지난 회의에서는 신규 서비스 출시 일정과 팀별 역할 분담을 논의했습니다."
+        }
+      ],
+      "expected": [
+        "task_extractor"
+      ]
+    }
   ]
 }

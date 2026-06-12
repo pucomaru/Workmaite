@@ -33,6 +33,8 @@ class MessageOut(BaseModel):
 def get_chat_history(
     context_type: str,
     context_id: int,
+    before_id: int | None = None,
+    limit: int | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -40,16 +42,18 @@ def get_chat_history(
         raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
 
     thread_id = f"{context_type}-{context_id}"
-    messages = (
-        db.query(models.ChatMessage)
-        .filter(
-            models.ChatMessage.user_id == current_user.id,
-            models.ChatMessage.thread_id == thread_id,
-        )
-        .order_by(models.ChatMessage.created_at)
-        .all()
+    q = db.query(models.ChatMessage).filter(
+        models.ChatMessage.user_id == current_user.id,
+        models.ChatMessage.thread_id == thread_id,
     )
-    return messages
+    # keyset 페이지네이션 (P8-2, Spring과 동일 계약) — 파라미터 없으면 기존 전체 반환(호환)
+    if before_id is not None or limit is not None:
+        size = min(limit or 100, 100)
+        if before_id is not None:
+            q = q.filter(models.ChatMessage.id < before_id)
+        rows = q.order_by(models.ChatMessage.id.desc()).limit(size).all()
+        return list(reversed(rows))
+    return q.order_by(models.ChatMessage.created_at).all()
 
 
 # ─── POST: 메시지 1건 저장 ────────────────────────────────────────────

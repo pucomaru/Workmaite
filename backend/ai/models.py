@@ -174,6 +174,20 @@ class ChatMessage(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class ChatFeedback(Base):
+    """응답 피드백 (P3C-3, H-9) — eval 데이터셋 환류용."""
+    __tablename__ = "chat_feedback"
+    id              = Column(Integer, primary_key=True, index=True)
+    user_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    thread_id       = Column(String(100), nullable=False)
+    message_id      = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
+    agent_log_id    = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
+    rating          = Column(Integer, nullable=False)  # 1=up / -1=down
+    reason          = Column(Text, nullable=True)
+    content_snippet = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
 class AgentLog(Base):
     __tablename__ = "agent_logs"
     id              = Column(Integer, primary_key=True, index=True)

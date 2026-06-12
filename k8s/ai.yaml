@@ -33,6 +33,9 @@ spec:
               value: "http://workmaite-neo4j:7474"
             - name: DB_HOST
               value: "postgres-1-postgresql.postgres.svc.cluster.local"
+            # P3A-5 2단계: 도구 기반 supervisor 에이전트 (기존 사전조립 경로와 비교 평가용)
+            - name: SUPERVISOR_TOOLS_MODE
+              value: "react"
           readinessProbe:
             httpGet:
               path: /health

@@ -14,6 +14,8 @@ import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
+from metrics import instrument_stream
 from agents import (
     task_extractor as task_agent,
     knowledge_manager as knowledge_agent,
@@ -94,6 +96,9 @@ class _RoutingDecision(BaseModel):
         "report_reviewer",
         "knowledge_manager",
         "supervisor_direct",
+        # 프롬프트가 지시하는데 Literal에 없어 반환 불가였던 죽은 라벨 복구 (P3A-5
+        # — eval r15에서 코딩 요청이 task_extractor로 오분류되는 것으로 실측 확인)
+        "off_topic",
     ] = Field(description="위임할 에이전트 이름")
     steps: List[str] = Field(
         default_factory=list,
@@ -121,18 +126,30 @@ _ROUTING_SYSTEM = """\
 
 ★ off_topic 케이스 예시 (반드시 off_topic):
   "너 몇살이야", "오늘 날씨 어때", "파이썬 코드 짜줘", "주식 어때", "점심 뭐 먹지", "농담 해줘"
+  단, 인사말("안녕하세요", "고마워" 등)과 워크메이트 사용법 질문은 off_topic이 아니라 supervisor_direct.
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요.
 steps 필드에 처리 계획을 한국어 2~4단계로 작성하세요. 각 단계는 20자 이내의 짧은 문장."""
 
 
-async def classify_intent(message: str) -> tuple[str, str, List[str]]:
-    """사용자 메시지를 분석해 (에이전트명, 근거, 처리단계) 튜플을 반환합니다."""
+async def classify_intent(message: str, history: List[dict] | None = None) -> tuple[str, str, List[str]]:
+    """사용자 메시지를 분석해 (에이전트명, 근거, 처리단계) 튜플을 반환합니다.
+
+    history(최근 대화)를 주면 멀티턴 맥락을 반영해 라우팅한다 (AI-9 — 예:
+    "방금 그거 회의록으로 만들어줘"처럼 직전 대화를 가리키는 요청).
+    """
     try:
+        human = message[:500]
+        if history:
+            recent = "\n".join(
+                f"{m.get('role', 'user')}: {str(m.get('content', ''))[:120]}"
+                for m in history[-6:]
+            )
+            human = f"[최근 대화]\n{recent}\n\n[현재 요청]\n{message[:500]}"
         routing_llm = make_llm(temperature=0.0, streaming=False).with_structured_output(_RoutingDecision)
         decision = await routing_llm.ainvoke([
             SystemMessage(content=_ROUTING_SYSTEM),
-            HumanMessage(content=message[:500]),
+            HumanMessage(content=human),
         ])
         return decision.agent, decision.thinking, decision.steps or []
     except Exception as e:
@@ -208,8 +225,8 @@ async def minutes_sessions_chat(
                 current_agendas=[{"content": a.title, "status": a.status} for a in agendas],
                 meeting_context=_get_meeting_context(db, data.meeting_id),
             ):
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
-            yield "data: [DONE]\n\n"
+                yield sse_token(chunk)
+            yield sse_done()
         except BaseException as _e:
             _stream_error = _e
             raise
@@ -217,7 +234,7 @@ async def minutes_sessions_chat(
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "minutes_chat"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 @router.post("/minutes/generate-minutes")
 async def minutes_generate_minutes(
@@ -351,7 +368,7 @@ async def minutes_generate_minutes(
             overdue_agendas=overdue_agendas,
         ):
             collected_parts.append(chunk)
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+            yield sse_token(chunk)
 
         try:
             collected_parts = []
@@ -362,7 +379,7 @@ async def minutes_generate_minutes(
                 title=minutes_title,
             ):
                 collected_parts.append(chunk)
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
             try:
                 if data.session_id and collected_parts:
                     full_content = "".join(collected_parts)
@@ -394,7 +411,7 @@ async def minutes_generate_minutes(
             except Exception as e:
                 logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
 
-            yield "data: [DONE]\n\n"
+            yield sse_done()
         except BaseException as _e:
             _stream_error = _e
             raise
@@ -402,7 +419,7 @@ async def minutes_generate_minutes(
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "minutes_generate"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 
 # ─── Supervisor Chat ──────────────────────────────────────────────────────────
@@ -415,8 +432,12 @@ async def supervisor_chat(
 ):
     msg = data.message or ""
 
-    # ── LLM 라우팅 결정 ─────────────────────────────────────────────────────────
-    _route, _route_thinking, _route_steps = await classify_intent(msg)
+    # 서비스 가드 (P3C-1): 일일 토큰 예산(PG 집계 — 비용 상한)
+    from service_guards import check_daily_token_budget
+    check_daily_token_budget(db, current_user.id)
+
+    # ── LLM 라우팅 결정 — 최근 대화 맥락 포함 (AI-9) ────────────────────────────
+    _route, _route_thinking, _route_steps = await classify_intent(msg, data.chat_history or [])
 
     background_tasks.add_task(
         _log_activity, data.meeting_id, f"워크메이트[{_route}]",
@@ -488,8 +509,9 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
+            yield sse_event("run", {"run_id": _thread_id})  # 중단/이어보기용 식별자 (P3A-6)
             for _s in (_route_steps or [_route_thinking]):
-                yield f"data: [PLANNING] {_s}\n\n"
+                yield sse_event("planning", _s)
 
             # ── off_topic 조기 종료: Neo4j·DB 조회 없이 안내 메시지 반환 ──────────
             if _route == 'off_topic':
@@ -501,8 +523,8 @@ async def supervisor_chat(
                     "- \"아젠다 진행 상황 알려줘\"\n"
                     "- \"최근 보고서 제출 현황은?\""
                 )
-                yield f"data: {_off_msg.replace(chr(10), chr(92)+chr(110))}\n\n"
-                yield "data: [DONE]\n\n"
+                yield sse_token(_off_msg)
+                yield sse_done()
                 return
             if data.meeting_id:
                 mid_neo4j = f"mg-{int(data.meeting_id)}"
@@ -513,17 +535,17 @@ async def supervisor_chat(
                         else int(data.meeting_id) in pg_meeting_ids
                     )
                     if not has_access:
-                        yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
-                        yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
-                        yield "data: [DONE]\n\n"
+                        yield sse_event("planning", f"접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다")
+                        yield sse_token("이 회의체에 대한 접근 권한이 없습니다.")
+                        yield sse_done()
                         return
 
                 neo4j_ctx = await get_meeting_graph_context(data.meeting_id)
 
                 if neo4j_ctx.get("meeting", {}).get("title"):
-                    yield f"data: [PLANNING] [{neo4j_ctx['meeting']['title']}] 회의체 정보 확인\n\n"
+                    yield sse_event("planning", f"[{neo4j_ctx['meeting']['title']}] 회의체 정보 확인")
                 if neo4j_ctx.get("agendas"):
-                    yield f"data: [PLANNING] 아젠다 {len(neo4j_ctx['agendas'])}건 분석\n\n"
+                    yield sse_event("planning", f"아젠다 {len(neo4j_ctx['agendas'])}건 분석")
 
                 neo4j_ctx_str = graph_context_to_str(neo4j_ctx)
 
@@ -593,7 +615,7 @@ async def supervisor_chat(
                                 seen_mg_ids.add(_mid)
                             unique_rows.append(_row)
 
-                        yield f"data: [PLANNING] 소속 회의체 {len(unique_rows)}건 상세 조회\n\n"
+                        yield sse_event("planning", f"소속 회의체 {len(unique_rows)}건 상세 조회")
 
                         ctx_lines = ["[소속 회의체 목록]"]
                         for _row in unique_rows:
@@ -642,7 +664,7 @@ async def supervisor_chat(
                         ) if _pg_mids else []
 
                         if _pg_meetings:
-                            yield f"data: [PLANNING] 소속 회의체 {len(_pg_meetings)}건 조회\n\n"
+                            yield sse_event("planning", f"소속 회의체 {len(_pg_meetings)}건 조회")
                             ctx_lines = ["[소속 회의체 목록]"]
                             for _mg in _pg_meetings:
                                 _mems = (
@@ -697,12 +719,12 @@ async def supervisor_chat(
                                 "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
                             )
                             if org_rows:
-                                yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
+                                yield sse_event("planning", f"조직: {org_rows[0].get('name', '?')} 확인")
                 except Exception:
                     pass
 
         except Exception as _outer_e:
-            yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
+            yield sse_event("planning", "지식 그래프 조회 중 오류 발생")
 
         _user_scope_header = (
             f"[현재 사용자] {current_user.name}"
@@ -725,7 +747,26 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ('supervisor_direct', 'knowledge_manager'):
-                yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+                # P3A-5 2단계: 도구 기반 JIT 에이전트 — SUPERVISOR_TOOLS_MODE=react로 활성화
+                # (사전 조립 컨텍스트 경로와 eval 비교 후 기본 전환 예정, H-6/H-13)
+                from graphs.supervisor_graph import direct_agent_stream, react_mode_enabled
+                if react_mode_enabled():
+                    async for _kind, _text in direct_agent_stream(
+                        msg,
+                        _to_base_messages(_chat_history_from_db),
+                        user_id=current_user.id,
+                        allowed_meeting_ids=list(pg_meeting_ids),
+                        is_admin=is_admin,
+                        meeting_id=data.meeting_id or None,
+                    ):
+                        if _kind == "planning":
+                            yield sse_event("planning", _text)
+                        else:
+                            yield sse_token(_text)
+                    yield sse_done()
+                    return
+
+                yield sse_event("planning", "Knowledge Base에서 관련 자료 검색 중...")
 
                 _kb_results: list[dict] = []
                 _node_type_map = [("Minutes", "회의록", 5)]
@@ -744,7 +785,7 @@ async def supervisor_chat(
                     pass
 
                 if _kb_results:
-                    yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+                    yield sse_event("planning", f"관련 자료 {len(_kb_results)}건 확인")
 
                 _ctx_parts: list[str] = [_user_scope_header]
                 if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
@@ -882,15 +923,15 @@ async def supervisor_chat(
                 ):
                     if chunk.content:
                         _assistant_chunks.append(chunk.content)
-                        yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+                        yield sse_token(chunk.content)
 
                 if hl_candidates and _assistant_chunks:
                     _sup_full = "".join(_assistant_chunks)
                     matched = [c for c in hl_candidates if c and c in _sup_full]
                     if matched:
-                        yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
+                        yield sse_event("highlight", matched)
 
-                yield "data: [DONE]\n\n"
+                yield sse_done()
                 return
 
             # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
@@ -929,15 +970,15 @@ async def supervisor_chat(
 
             async for chunk in gen:
                 _assistant_chunks.append(chunk)
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
 
             if hl_candidates and _assistant_chunks:
                 full_text = "".join(_assistant_chunks)
                 matched = [c for c in hl_candidates if c and c in full_text]
                 if matched:
-                    yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
+                    yield sse_event("highlight", matched)
 
-            yield "data: [DONE]\n\n"
+            yield sse_done()
 
         except BaseException as _e:
             _stream_error = _e
@@ -981,10 +1022,42 @@ async def supervisor_chat(
             logger.warning(f"[supervisor_chat] 사용자 메시지 저장 실패: {_e}")
             db.rollback()
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(instrument_stream(stream(), "supervisor_chat"), media_type="text/event-stream")  # TTFT 측정 (P5-1)
 
 
 # ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────
+# ─── 응답 피드백 (P3C-3, H-9) ────────────────────────────────────────────────
+class FeedbackRequest(BaseModel):
+    thread_id: str
+    rating: int  # 1=up / -1=down
+    reason: Optional[str] = None
+    message_id: Optional[int] = None
+    content_snippet: Optional[str] = None
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    data: FeedbackRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """응답 👍/👎ㆍ사유 수집 — P6 eval 데이터셋으로 환류된다."""
+    if data.rating not in (1, -1):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating은 1 또는 -1이어야 합니다.")
+    fb = models.ChatFeedback(
+        user_id=current_user.id,
+        thread_id=data.thread_id,
+        message_id=data.message_id,
+        rating=data.rating,
+        reason=(data.reason or "")[:1000] or None,
+        content_snippet=(data.content_snippet or "")[:500] or None,
+    )
+    db.add(fb)
+    db.commit()
+    return {"ok": True, "id": fb.id}
+
+
 @router.get("/supervisor/chat/history")
 async def supervisor_chat_history(
     meeting_id: int,

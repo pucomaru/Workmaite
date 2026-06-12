@@ -133,10 +133,27 @@ apiAI.interceptors.response.use(
 )
 
 // ── Streaming (FastAPI) ────────────────────────────────────────────────────
+// SSE v2(event: 필드 기반, P3A-6)와 v1([PLANNING] 등 data 프리픽스) 모두 파싱.
+// v2는 LLM 출력에 'data:'/'[DONE]'이 섞여도 오동작하지 않는다 (FE-2).
 async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let eventType = null // 직전 'event:' 라인 (v2)
+  const handleV2 = (type, data) => {
+    switch (type) {
+      case 'done': onDone?.(); return true
+      case 'planning': { try { onPlanning?.(JSON.parse(data).text ?? data) } catch { onPlanning?.(data) } break }
+      case 'result': { try { onResult?.(JSON.parse(data)) } catch {} break }
+      case 'highlight': { try { onHighlight?.(JSON.parse(data)) } catch {} break }
+      case 'error': { try { onChunk(`[오류] ${JSON.parse(data).message ?? data}`) } catch { onChunk(`[오류] ${data}`) } break }
+      case 'run': break // {run_id} — 중단/이어보기용 메타 (후속 UI에서 사용)
+      case 'token': default: {
+        try { onChunk(JSON.parse(data).text ?? '') } catch { onChunk(data.replace(/\\n/g, '\n')) }
+      }
+    }
+    return false
+  }
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -144,25 +161,32 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
     const lines = buffer.split('\n')
     buffer = lines.pop()
     for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6)
-        if (data === '[DONE]') { onDone?.(); return }
-        if (data.startsWith('[PLANNING] ') && onPlanning) {
-          onPlanning(data.slice(11))
-        } else if (data.startsWith('[RESULT] ') && onResult) {
-          try { onResult(JSON.parse(data.slice(9))) } catch {}
-        } else if (data.startsWith('[HIGHLIGHT] ') && onHighlight) {
-          try { onHighlight(JSON.parse(data.slice(12))) } catch {}
-        } else {
-          onChunk(data.replace(/\\n/g, '\n'))
-        }
+      if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); continue }
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6)
+      if (eventType) { // v2
+        const finished = handleV2(eventType, data)
+        eventType = null
+        if (finished) return
+        continue
+      }
+      // v1 폴백
+      if (data === '[DONE]') { onDone?.(); return }
+      if (data.startsWith('[PLANNING] ') && onPlanning) {
+        onPlanning(data.slice(11))
+      } else if (data.startsWith('[RESULT] ') && onResult) {
+        try { onResult(JSON.parse(data.slice(9))) } catch {}
+      } else if (data.startsWith('[HIGHLIGHT] ') && onHighlight) {
+        try { onHighlight(JSON.parse(data.slice(12))) } catch {}
+      } else {
+        onChunk(data.replace(/\\n/g, '\n'))
       }
     }
   }
   onDone?.()
 }
 
-export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult) {
+export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult, options = {}) {
   // 만료 임박 시 미리 갱신 (스트림 도중 토큰 만료 방지)
   await ensureFreshToken()
 
@@ -170,6 +194,7 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
     body: JSON.stringify(body),
+    signal: options.signal, // 중단 버튼 (P3A-6) — abort 시 서버 generator도 취소됨
   })
 
   let token = sessionStorage.getItem('token')
@@ -187,7 +212,12 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
 
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-  await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+  try {
+    await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+  } catch (e) {
+    if (e.name === 'AbortError') { onDone?.(); return } // 사용자 중단은 정상 종료로 처리
+    throw e
+  }
 }
 
 // ── Streaming with FormData (FastAPI SSE) ───────────────────────────────────

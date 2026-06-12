@@ -868,7 +868,7 @@ async function wmLoadHistory() {
   const threadId = _wmThreadId()
   if (!threadId) { wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]; return }
   try {
-    const res = await api.get('/api/v1/chat/messages', { params: { threadId } })
+    const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100 } })  // P8-2: 초기 로드 상한
     const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
     wmMessages.value = messages.length
       ? messages.map(m => ({ role: m.role === 'assistant' ? 'agent' : m.role, content: m.content }))
