@@ -9,8 +9,26 @@ const {
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
-  sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory,
+  sendAgentMsg, onAgentFileSelected, triggerAtSuggest, loadChatHistory, getThreadId,
 } = inject('agentSidebar')
+
+import { apiAI } from '../api'
+
+// 응답 피드백 (P3C-3) — 👎는 사유를 선택적으로 수집
+async function sendFeedback(msg, rating) {
+  if (msg._fb === rating) return
+  let reason = null
+  if (rating === -1) reason = window.prompt('어떤 점이 아쉬웠나요? (선택, 취소 시 사유 없이 전송)') || null
+  msg._fb = rating
+  try {
+    await apiAI.post('/api/agent/feedback', {
+      thread_id: getThreadId?.() || 'unknown',
+      rating,
+      reason,
+      content_snippet: (msg.content || '').slice(0, 300),
+    })
+  } catch { /* 피드백 실패는 조용히 무시 */ }
+}
 
 // 사이드바가 열릴 때마다(v-if로 mount) 채팅 히스토리를 즉시 로드 후 맨 아래로 스크롤
 onMounted(async () => {
@@ -116,6 +134,12 @@ function onResizeEnd() {
               <div class="agent-bubble agent theme-supervisor"
                    :class="{ 'is-streaming': agentLoading && i === currentMessages.length - 2 }"
                    v-html="renderMd(msg.content)"></div>
+              <div v-if="!(agentLoading && i === currentMessages.length - 2)" class="agent-feedback">
+                <button class="fb-btn" :class="{ active: msg._fb === 1 }" title="도움이 됐어요"
+                        @click="sendFeedback(msg, 1)">👍</button>
+                <button class="fb-btn" :class="{ active: msg._fb === -1 }" title="아쉬워요"
+                        @click="sendFeedback(msg, -1)">👎</button>
+              </div>
               <div v-if="i===0&&(agentInfo.suggested?.length||agentInfo.suggestedAt?.length)" class="agent-suggested">
                 <button
                   v-for="s in agentInfo.suggested" :key="s"

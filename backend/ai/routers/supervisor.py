@@ -1026,6 +1026,38 @@ async def supervisor_chat(
 
 
 # ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────
+# ─── 응답 피드백 (P3C-3, H-9) ────────────────────────────────────────────────
+class FeedbackRequest(BaseModel):
+    thread_id: str
+    rating: int  # 1=up / -1=down
+    reason: Optional[str] = None
+    message_id: Optional[int] = None
+    content_snippet: Optional[str] = None
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    data: FeedbackRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """응답 👍/👎ㆍ사유 수집 — P6 eval 데이터셋으로 환류된다."""
+    if data.rating not in (1, -1):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="rating은 1 또는 -1이어야 합니다.")
+    fb = models.ChatFeedback(
+        user_id=current_user.id,
+        thread_id=data.thread_id,
+        message_id=data.message_id,
+        rating=data.rating,
+        reason=(data.reason or "")[:1000] or None,
+        content_snippet=(data.content_snippet or "")[:500] or None,
+    )
+    db.add(fb)
+    db.commit()
+    return {"ok": True, "id": fb.id}
+
+
 @router.get("/supervisor/chat/history")
 async def supervisor_chat_history(
     meeting_id: int,
