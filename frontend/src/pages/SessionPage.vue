@@ -595,6 +595,15 @@ function downloadPDF() {
 .speaker-legend-label { font-size:12px; color:var(--dark-muted,#888); }
 .speaker-chip { font-size:12px; padding:1px 8px; border:1px solid; border-radius:10px; cursor:pointer; }
 .speaker-chip:hover { background:rgba(0,0,0,0.04); }
+
+.wm-feedback { display:flex; gap:4px; margin:3px 0 6px 2px; }
+.wm-suggested { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 4px 2px; }
+.wm-suggested-btn {
+  font-size:12px; padding:4px 10px; border:1px solid var(--border,#3a3a3a);
+  border-radius:14px; background:transparent; color:var(--dark-muted,#aaa); cursor:pointer;
+}
+.wm-suggested-btn:hover:not(:disabled) { border-color:var(--primary,#6366f1); color:var(--dark-text,#eee); }
+.wm-suggested-btn:disabled { opacity:.4; cursor:default; }
 </style>
   </head><body>${html}</body></html>`)
   w.document.close()
@@ -883,6 +892,34 @@ const {
 
 // ─── 회의 AI 채팅 히스토리 (session_{session_id} 스레드) ──────
 const _WM_GREETING = '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"'
+
+// 회의 채팅 추천 문구 (아카이브 탭과 동일 UX)
+const WM_SUGGESTIONS = ['오늘 회의를 요약해줘', '결정 사항만 정리해줘', '액션 아이템 알려줘']
+
+// 피드백 버튼 시각 상태 (active 시 색·배경) — AgentSidebar와 동일 방식
+function fbBtnStyle(active, color) {
+  return {
+    border: 'none', borderRadius: '6px', padding: '1px 5px', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', lineHeight: '1',
+    background: active ? color + '22' : 'none',
+    color: active ? color : 'rgb(147,197,253)',
+    opacity: active ? 1 : 0.5,
+  }
+}
+
+async function sendWmFeedback(msg, rating) {
+  if (msg._fb === rating) return
+  let reason = null
+  if (rating === -1) reason = window.prompt('어떤 점이 아쉬웠나요? (선택)') || null
+  msg._fb = rating
+  try {
+    await apiAI.post('/api/agent/feedback', {
+      thread_id: _wmThreadId(),
+      rating, reason,
+      content_snippet: (msg.content || '').slice(0, 300),
+    })
+  } catch { /* 피드백 실패는 무시 */ }
+}
 
 function _wmThreadId() {
   return activeSession.value?.id ? `session_${activeSession.value.id}` : null
@@ -1485,6 +1522,18 @@ async function downloadChatFile(filePath) {
               <img :src="hyeanAvatar" class="agent-msg-avatar" />워크메이트 AI
             </div>
             <div class="agent-bubble agent theme-supervisor" v-html="renderMd(msg.content)"></div>
+            <div v-if="!(wmLoading && i === wmMessages.length - 1)" class="wm-feedback">
+              <button class="fb-btn" :style="fbBtnStyle(msg._fb === 1, '#3b82f6')" title="도움이 됐어요" @click="sendWmFeedback(msg, 1)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+              </button>
+              <button class="fb-btn" :style="fbBtnStyle(msg._fb === -1, '#ef4444')" title="아쉬워요" @click="sendWmFeedback(msg, -1)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V5H6.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+              </button>
+            </div>
+            <div v-if="i === 0 && WM_SUGGESTIONS.length" class="wm-suggested">
+              <button v-for="s in WM_SUGGESTIONS" :key="s" class="wm-suggested-btn" :disabled="wmLoading"
+                      @click="wmInput = s; sendAra()">{{ s }}</button>
+            </div>
           </template>
 
           <!-- 사용자 메시지 -->
