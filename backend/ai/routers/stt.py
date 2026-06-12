@@ -9,6 +9,8 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from auth import get_current_user
+from access_guard import require_meeting_member_by_session
 from database import get_db
 import models
 from models import MeetingSession, SttSegment
@@ -173,8 +175,10 @@ def _wlk_time_to_sec(t: str) -> float:
 async def save_wlk_segments(
     body: SaveSegmentsRequest,
     db:   Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """WhisperLiveKit WebSocket에서 받은 세그먼트를 DB에 저장하고 ID를 반환합니다."""
+    require_meeting_member_by_session(db, current_user, body.session_id)
     saved = []
     for seg in body.segments:
         text = (seg.get("text") or "").strip()
@@ -211,7 +215,10 @@ async def transcribe(
     session_id: Optional[int]  = Form(None),
     stt_mode:   Optional[str]  = Form(None),   # ctrl-bar 선택값 (우선순위 최고)
     db:         Session        = Depends(get_db),
+    current_user: models.User  = Depends(get_current_user),
 ):
+    if session_id:
+        require_meeting_member_by_session(db, current_user, session_id)
     lang_code = lang.split("-")[0].lower() if lang else "ko"
     data      = await audio.read()
     filename  = audio.filename or "audio.webm"

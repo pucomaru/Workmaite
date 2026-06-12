@@ -1,7 +1,10 @@
+import logging
 import os, json, re, uuid
 from datetime import datetime
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
+
+logger = logging.getLogger(__name__)
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
@@ -53,7 +56,10 @@ async def ensure_vector_indexes() -> None:
     from neo4j_client import run_cypher
 
     index_queries = [
-        """CREATE VECTOR INDEX minutes_embedding_index IF NOT EXISTS
+        # 인덱스명은 neo4j_sync._VECTOR_INDEXES와 동일해야 한다.
+        # (같은 라벨·속성에 다른 이름의 인덱스를 만들면 한쪽 생성이 조용히 실패해
+        #  검색이 0건이 되는 사고가 있었음 — Plan.md G-1)
+        """CREATE VECTOR INDEX minutesEmbedding IF NOT EXISTS
            FOR (m:Minutes) ON (m.embedding)
            OPTIONS {indexConfig: {
              `vector.dimensions`: 1536,
@@ -263,28 +269,41 @@ async def search_knowledge(
 ) -> List[dict]:
     from neo4j_client import run_cypher
 
+    # 인덱스명은 neo4j_sync._VECTOR_INDEXES와 일치해야 한다 (불일치 시 검색이 조용히 0건이 됨)
     index_map = {
-        "Minutes":       "minutes_embedding_index",
+        "Minutes":       "minutesEmbedding",
         "Agenda":        "agendaEmbedding",
         "HumanJudgment": "humanJudgmentEmbedding",
         "ReportChunk":   "reportChunkEmbedding",
         "MinutesChunk":  "minutesChunkEmbedding",
+        "KnowledgeChunk": "reportChunkEmbedding",  # 지식 문서는 ReportChunk 라벨로 저장됨
     }
     index_name = index_map.get(node_type, "minutesChunkEmbedding")
     embedding = await _embed(query)
 
-    try:
-        rows = await run_cypher(
-            f"""CALL db.index.vector.queryNodes('{index_name}', $k, $embedding)
-                YIELD node, score
-                RETURN node.title AS title, node.content AS content,
-                       node.meeting_id AS meeting_id, score
-                ORDER BY score DESC""",
-            {"k": k, "embedding": embedding},
-        )
-        return rows
-    except Exception:
-        return []
+    # 구버전 DB에는 Minutes 인덱스가 레거시 이름으로 존재할 수 있어 폴백 후보를 둔다
+    candidates = [index_name]
+    if node_type == "Minutes":
+        candidates.append("minutes_embedding_index")
+
+    last_err: Exception | None = None
+    for idx in candidates:
+        try:
+            rows = await run_cypher(
+                f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
+                    YIELD node, score
+                    RETURN node.title AS title, node.content AS content,
+                           node.meeting_id AS meeting_id, score
+                    ORDER BY score DESC""",
+                {"k": k, "embedding": embedding},
+            )
+            if not rows:
+                logger.warning(f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}")
+            return rows
+        except Exception as e:
+            last_err = e
+    logger.warning(f"[search_knowledge] 검색 실패 ({node_type}/{candidates}): {last_err}")
+    return []
 
 
 # ── 공개 Tool 함수 (Agent가 직접 호출 가능) ──────────────────────────────────
@@ -613,7 +632,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
                 "SET r.score=score, r.kind='minutes_agenda', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
-                "MERGE (s)-[r2:`다룸멌`]->(ag) "
+                "MERGE (ag)-[r2:`다룸`]->(s) "
                 "SET r2.score=score, r2.kind='session_agenda', r2.discovered_by='knowledge_agent', r2.discovered_at=$ts "
                 "RETURN ag.title AS title, score",
                 {"sid": sid, "emb": emb, "mid": mid, "ts": ts},
@@ -671,7 +690,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         floating_rows = await run_cypher(
             "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
             "WHERE NOT (ag)-[:`발제세션`]->(:Session) "
-            "  AND NOT (s)-[:`진행`|`다룸멌`|`도출`]->(ag) "
+            "  AND NOT (s)-[:`진행`|`다룸`|`도출`]->(ag) "
             "  AND NOT coalesce(ag.status,'') IN ['DONE','COMPLETED','CLOSED','RESOLVED'] "
             "WITH s, ag LIMIT 200 "
             "MERGE (s)-[r:`진행`]->(ag) "

@@ -21,11 +21,16 @@ function parseWLKTime(t) {
   return parts[0] || 0
 }
 
+function authHeaders() {
+  const token = sessionStorage.getItem('token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function saveToDB(sessionId, segments) {
   try {
     const res = await fetch('/api/stt/save', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ session_id: sessionId, segments }),
     })
     const data = await res.json()
@@ -184,7 +189,7 @@ export function useSTT({ onResult, onSegments = null, getLang = null, getSession
       if (sessionId) formData.append('session_id', String(sessionId))
 
       try {
-        const res = await fetch('/api/stt/transcribe', { method: 'POST', body: formData })
+        const res = await fetch('/api/stt/transcribe', { method: 'POST', headers: authHeaders(), body: formData })
         const data = await res.json()
         if (!active || generation !== gen) break
         if (data.segments?.length && typeof onSegments === 'function') {

@@ -39,6 +39,12 @@ public class User {
     @Column(length = 100)
     private String position;
 
+    // 시스템 수준 역할 (P1-3) — position 문자열로 권한을 판별하던 것을 대체
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    @Builder.Default
+    private UserRole role = UserRole.USER;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -45,10 +45,12 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.updateMe(userId, request)));
     }
 
-    // 사용자 검색 - 이름 또는 이메일로 검색
+    // 사용자 검색 - 이름 또는 이메일로 검색 (내 회사 + 공유 회의체 스코프, MT-3)
     @GetMapping("/search")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> searchUsers(@RequestParam String q) {
-        return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(q)));
+    public ResponseEntity<ApiResponse<List<UserResponse>>> searchUsers(
+            Authentication authentication, @RequestParam String q) {
+        Long callerId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(callerId, q)));
     }
 
     // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용
@@ -60,17 +62,20 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getUsersByIds(idList)));
     }
 
-    // 전체 사용자 목록
+    // 사용자 목록 (내 회사 + 공유 회의체 스코프, MT-3)
     @GetMapping
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
-        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers()));
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers(Authentication authentication) {
+        Long callerId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId)));
     }
 
-    // 특정 사용자 정보 수정 (관리자 기능)
+    // 특정 사용자 정보 수정 — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만, 비밀번호 변경 불가 (MT-1)
     @PatchMapping("/{userId}")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
+            Authentication authentication,
             @PathVariable Long userId,
             @RequestBody UpdateUserRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(userService.updateUser(userId, request)));
+        Long callerId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(ApiResponse.ok(userService.updateUser(callerId, userId, request)));
     }
 }

@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from access_guard import require_meeting_member_by_session
 from neo4j_sync import sync_minutes
 
 _openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -45,6 +46,7 @@ async def save_minutes(
     생성된 회의록을 R2에 업로드하고 PostgreSQL minutes 테이블에 저장합니다.
     스트리밍으로 생성 완료 후 프론트에서 최종 텍스트를 보내면 이 API를 호출합니다.
     """
+    require_meeting_member_by_session(db, current_user, session_id)
     session = db.query(models.MeetingSession).filter(
         models.MeetingSession.id == session_id
     ).first()
@@ -120,6 +122,7 @@ def get_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
@@ -140,6 +143,7 @@ async def update_minutes_content(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
@@ -160,6 +164,7 @@ async def delete_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member_by_session(db, current_user, session_id)
     minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")

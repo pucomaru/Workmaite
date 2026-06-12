@@ -94,3 +94,6 @@ AWSCLIV2.pkg
 # AI uploaded files (runtime uploads, not source)
 backend/ai/uploads/*
 !backend/ai/uploads/.gitkeep
+
+# Secret
+k8s/secrets.yaml

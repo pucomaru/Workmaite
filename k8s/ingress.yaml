@@ -49,13 +49,7 @@ spec:
                 name: workmaite-ai
                 port:
                   number: 8000
-          - path: /api/sync
-            pathType: Prefix
-            backend:
-              service:
-                name: workmaite-ai
-                port:
-                  number: 8000
+          # /api/sync는 내부 전용(Spring→FastAPI 클러스터 내부 호출) — 공개 ingress에 노출하지 않음
           - path: /api/chats
             pathType: Prefix
             backend:

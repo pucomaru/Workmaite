@@ -1,5 +1,6 @@
 <script setup>
 import { inject, computed, ref, watch } from 'vue'
+import DOMPurify from 'dompurify'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import FileUploadArea from './FileUploadArea.vue'
@@ -878,7 +879,7 @@ watch(relAddActive, v => {
               <!-- 내용 요약 -->
               <div v-if="detailNode.data?.content_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
-                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="detailNode.data.content_summary"></div>
+                <div class="ai-evidence-box" style="max-height: 300px; overflow-y: auto; font-size: 12px;" v-html="DOMPurify.sanitize(detailNode.data.content_summary)"></div>
               </div>
             </template>
 

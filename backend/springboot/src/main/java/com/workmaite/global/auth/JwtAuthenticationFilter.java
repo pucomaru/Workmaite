@@ -38,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 토큰이 있고 유효하면 인증 처리
         if (StringUtils.hasText(token)) {
             try {
-                jwtTokenProvider.validateToken(token);
+                jwtTokenProvider.validateAccessToken(token);
                 Long userId = jwtTokenProvider.getUserId(token);
 
                 // DB에서 유저 조회 후 SecurityContext 에 저장

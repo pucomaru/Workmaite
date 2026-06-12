@@ -413,10 +413,10 @@ async def sync_agenda(
         MERGE (ag)-[:`발제세션`]->(s)
     )
     WITH ag
-    OPTIONAL MATCH (ag)-[old:`진행`|`다룸멌`|`도출`]->(s2:Session)
+    OPTIONAL MATCH (ag)-[old:`진행`|`다룸`|`도출`]->(s2:Session)
     DELETE old
     WITH ag
-    OPTIONAL MATCH (s3:Session)-[old2:`진행`|`다룸멌`|`도출`]->(ag)
+    OPTIONAL MATCH (s3:Session)-[old2:`진행`|`다룸`|`도출`]->(ag)
     DELETE old2
     WITH ag
     OPTIONAL MATCH (assignee:User {pg_id: $assignee_id})

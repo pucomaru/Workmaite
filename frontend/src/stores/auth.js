@@ -40,6 +40,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
+    // 서버 측 refresh token 폐기 (실패해도 로컬 세션은 정리)
+    const refreshToken = sessionStorage.getItem('refreshToken')
+    if (refreshToken) {
+      api.post('/api/v1/auth/logout', { refreshToken }).catch(() => {})
+    }
     token.value = ''
     user.value = null
     sessionStorage.removeItem('token')
@@ -47,7 +52,11 @@ export const useAuthStore = defineStore('auth', () => {
     sessionStorage.removeItem('user')
   }
 
-  const isStrategicTeam = computed(() => (user.value?.department || '').trim() === '전략기획팀')
+  // 관리자 판별: 서버 role(RBAC) 기준. role 필드가 없는 구버전 세션만 부서명 폴백(재로그인 시 해소)
+  const isStrategicTeam = computed(() =>
+    user.value?.role === 'SYSTEM_ADMIN' ||
+    (!user.value?.role && (user.value?.department || '').trim() === '전략기획팀')
+  )
 
   return { user, token, isStrategicTeam, login, loginWithEmail, register, updateProfile, logout }
 })

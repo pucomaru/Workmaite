@@ -16,6 +16,8 @@ class User(Base):
     company       = Column(String(100), nullable=True)
     department    = Column(String(100), nullable=True)
     position      = Column(String(100), nullable=True)
+    # 시스템 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN
+    role          = Column(String(30), nullable=False, default="USER", server_default="USER")
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
 

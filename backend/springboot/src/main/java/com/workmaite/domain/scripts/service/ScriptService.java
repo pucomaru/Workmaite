@@ -5,6 +5,8 @@ import com.workmaite.domain.scripts.dto.ScriptResponse;
 import com.workmaite.domain.scripts.dto.ScriptUpdateRequest;
 import com.workmaite.domain.scripts.entity.SttSegment;
 import com.workmaite.domain.scripts.repository.ScriptRepository;
+import com.workmaite.global.audit.AuditLogged;
+import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -19,10 +21,12 @@ import java.util.List;
 public class ScriptService {
 
     private final ScriptRepository scriptRepository;
+    private final MeetingAccessGuard meetingAccessGuard;
 
     // STT 세그먼트 일괄 저장 - 한 세션에 여러 세그먼트를 한 번에 저장
     @Transactional
     public List<ScriptResponse> saveScripts(Long sessionId, ScriptSaveRequest request) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         List<SttSegment> segments = request.getSegments().stream()
                 .map(seg -> SttSegment.builder()
                         .sessionId(sessionId)
@@ -42,6 +46,7 @@ public class ScriptService {
 
     // 세션의 STT 세그먼트 목록 조회 (발화 시작 시간 오름차순)
     public List<ScriptResponse> getScripts(Long sessionId) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         return scriptRepository.findBySessionIdOrderByStartSecAsc(sessionId).stream()
                 .map(ScriptResponse::from)
                 .toList();
@@ -50,6 +55,7 @@ public class ScriptService {
     // 세그먼트 부분 수정 - 세그먼트 ID 목록을 받아 각각 업데이트
     @Transactional
     public List<ScriptResponse> updateScripts(Long sessionId, ScriptUpdateRequest request) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         return request.getSegments().stream()
                 .map(seg -> {
                     SttSegment segment = scriptRepository.findById(seg.getId())
@@ -68,7 +74,9 @@ public class ScriptService {
 
     // 세션의 모든 STT 세그먼트 삭제
     @Transactional
+    @AuditLogged(action = "DELETE", entityType = "script")
     public void deleteScripts(Long sessionId) {
+        meetingAccessGuard.requireMemberBySession(sessionId);
         scriptRepository.deleteAllBySessionId(sessionId);
     }
 }

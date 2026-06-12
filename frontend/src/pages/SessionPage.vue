@@ -1,6 +1,5 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { marked } from 'marked'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -19,7 +18,7 @@ import { useAuthStore } from '../stores/auth'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 
-const renderMd = (t) => marked.parse(t || '', { breaks: true })
+import { renderMd } from '../composables/useMarkdown'
 
 // ─── State ────────────────────────────────────────────────────
 const meetings = ref([])          // [{ id, title, sessions: [] }]

@@ -6,6 +6,11 @@ import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
+from access_guard import (
+    require_meeting_member,
+    require_user_update_permission,
+    visible_user_ids,
+)
 from neo4j_sync import (
     sync_meeting,
     sync_user,
@@ -21,10 +26,13 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
-STRATEGIC_DEPT = "전략기획팀"
-
 def _is_strategic(user: models.User) -> bool:
-    return (user.department or "").strip() == STRATEGIC_DEPT
+    """관리자 판별 — RBAC role 기반 (P1-3).
+
+    과거 부서 문자열('전략기획팀') 판별은 가입 시 자유 입력이라 권한 상승 벡터였다(SEC-10).
+    기존 전략기획팀 사용자는 V3 마이그레이션에서 SYSTEM_ADMIN을 1회 부여받았다.
+    """
+    return user.role == "SYSTEM_ADMIN"
 
 def _my_role_in(user_id: int, meeting_id: int, db: Session):
     m = db.query(models.MeetingMember).filter(
@@ -134,6 +142,7 @@ async def update_meeting(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
@@ -182,6 +191,7 @@ def get_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_meeting_member(db, current_user, meeting_id)
     return (
         db.query(models.MeetingMember)
         .options(joinedload(models.MeetingMember.user))
@@ -350,9 +360,11 @@ def search_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).filter(
-        models.User.name.contains(q)
-    ).limit(20).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    query = db.query(models.User).filter(models.User.name.contains(q))
+    if visible is not None:
+        query = query.filter(models.User.id.in_(visible))
+    users = query.limit(20).all()
     return [{"id": u.id, "name": u.name, "email": u.email, "department": u.department, "company": u.company, "position": u.position} for u in users]
 
 
@@ -361,7 +373,11 @@ def all_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    users = db.query(models.User).order_by(models.User.name).all()
+    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
+    users_query = db.query(models.User).order_by(models.User.name)
+    if visible is not None:
+        users_query = users_query.filter(models.User.id.in_(visible))
+    users = users_query.all()
     result = []
     for u in users:
         member_rows = db.query(models.MeetingMember).filter(models.MeetingMember.user_id == u.id).all()
@@ -392,9 +408,11 @@ def update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
@@ -529,9 +547,11 @@ async def ai_update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
