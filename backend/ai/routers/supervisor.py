@@ -504,6 +504,7 @@ async def supervisor_chat(
         neo4j_ctx_str = ""
         hl_candidates: list[str] = []
         try:
+            yield sse_event("run", {"run_id": _thread_id})  # 중단/이어보기용 식별자 (P3A-6)
             for _s in (_route_steps or [_route_thinking]):
                 yield sse_event("planning", _s)
 

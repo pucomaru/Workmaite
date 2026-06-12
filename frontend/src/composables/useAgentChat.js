@@ -54,6 +54,13 @@ export function useAgentChat({
   const currentMessages = computed(() => allMessages.value['supervisor'])
   const agentInput = ref('')
   const agentLoading = ref(false)
+  let _agentAbortCtrl = null
+
+  /** 스트리밍 응답 중단 (P3A-6) — fetch abort가 서버 generator 취소까지 전파된다 */
+  function stopAgentResponse() {
+    try { _agentAbortCtrl?.abort() } catch {}
+    agentLoading.value = false
+  }
   const agentMessagesEl = ref(null)
   const agentFileInput = ref(null)
   const agentPendingFiles = ref([])
@@ -221,6 +228,7 @@ export function useAgentChat({
     }
 
     // 일반 모드: supervisor 채팅 — [PLANNING] 이벤트를 실시간으로 수신
+    _agentAbortCtrl = new AbortController()
     const history = allMessages.value[key]
       .filter(m => m.role === 'user' || m.role === 'agent')
       .slice(0, -1)
@@ -249,7 +257,9 @@ export function useAgentChat({
         (labels) => {
           // AI 기반 하이라이팅: LLM 답변에 실제 언급된 노드
           onLabelsHighlight(labels)
-        }
+        },
+        undefined, // onResult
+        { signal: _agentAbortCtrl.signal },
       )
     } catch {
       agentMsg.content = '응답 중 오류가 발생했습니다.'
@@ -376,6 +386,7 @@ export function useAgentChat({
     agentSidebarOpen, currentAgent, agentInfo,
     allMessages, currentMessages,
     agentInput, agentLoading, agentMessagesEl, agentFileInput, agentPendingFiles, agentTextareaEl,
+    stopAgentResponse,
     atMenuOpen, atQuery, atCursorPos, atHighlight, mentionedContexts,
     AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
     onAgentInput, selectAtItem, removeMentionCtx, initAgentGreeting,

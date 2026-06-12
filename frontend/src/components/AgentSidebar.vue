@@ -5,7 +5,7 @@ import AgentComposer from './AgentComposer.vue'
 
 const {
   SUPERVISOR, agentInfo, agentSidebarOpen, clearAgentChat,
-  agentMessagesEl, currentMessages, agentLoading,
+  agentMessagesEl, currentMessages, agentLoading, stopAgentResponse,
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
@@ -161,6 +161,7 @@ function onResizeEnd() {
           @input="onAgentInput"
           @keydown="onAgentKeydown"
           @send="sendAgentMsg"
+          @stop="stopAgentResponse"
           @select-at-item="selectAtItem"
           @remove-ctx="removeMentionCtx"
           @file-change="onAgentFileSelected"

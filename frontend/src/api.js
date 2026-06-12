@@ -186,7 +186,7 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
   onDone?.()
 }
 
-export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult) {
+export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult, options = {}) {
   // 만료 임박 시 미리 갱신 (스트림 도중 토큰 만료 방지)
   await ensureFreshToken()
 
@@ -194,6 +194,7 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
     body: JSON.stringify(body),
+    signal: options.signal, // 중단 버튼 (P3A-6) — abort 시 서버 generator도 취소됨
   })
 
   let token = sessionStorage.getItem('token')
@@ -211,7 +212,12 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
 
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-  await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+  try {
+    await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+  } catch (e) {
+    if (e.name === 'AbortError') { onDone?.(); return } // 사용자 중단은 정상 종료로 처리
+    throw e
+  }
 }
 
 // ── Streaming with FormData (FastAPI SSE) ───────────────────────────────────
