@@ -21,6 +21,10 @@ from websocket_manager import manager
 from auth import get_current_user
 
 from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
+from routers import archive as archive_router
+from routers import graph_analysis as graph_analysis_router
+from routers import hitl_reviews as hitl_router
+from routers import knowledge as knowledge_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
@@ -129,7 +133,12 @@ from audit_middleware import AuditLogMiddleware  # noqa: E402
 app.add_middleware(AuditLogMiddleware)
 
 # 라우터 — 인증(가입/로그인/토큰 발급)은 Spring 단일 주체, FastAPI는 검증만 (P1-1)
+# supervisor는 P3A-4에서 graph_analysis/knowledge/archive/hitl_reviews로 분리됨
 app.include_router(supervisor.router)
+app.include_router(graph_analysis_router.router)
+app.include_router(knowledge_router.router)
+app.include_router(archive_router.router)
+app.include_router(hitl_router.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
