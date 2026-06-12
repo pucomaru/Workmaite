@@ -48,7 +48,6 @@ vite.config.ts.timestamp-*
 *.db
 *.sqlite
 *.sqlite3
-*.sql
 *.dump
 
 # IDE

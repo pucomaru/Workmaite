@@ -26,9 +26,7 @@ _SECTION_ORDER = ["task_extraction", "report_analysis", "meeting", "other"]
 
 # ── STT 제공자별 비용 ─────────────────────────────────────────────────────────
 _STT_PROVIDERS: dict[str, dict] = {
-    "gcapi":        {"label": "Google Cloud",   "cost_per_min": 0.010},
-    "whisperapi":   {"label": "OpenAI Whisper", "cost_per_min": 0.006},
-    "localwhisper": {"label": "Local Whisper",  "cost_per_min": 0.000},
+    "openai": {"label": "OpenAI", "cost_per_min": 0.006},  # gpt-4o-transcribe
 }
 _STT_FALLBACK = {"label": "STT", "cost_per_min": 0.010}
 

@@ -5,7 +5,7 @@ const props = defineProps({
   file: { type: Object, default: null },
   multiple: { type: Boolean, default: false },
   accept: { type: String, default: '.pdf,.docx,.pptx,.xlsx,.ppt,.doc' },
-  hint: { type: String, default: 'PDF · DOCX · PPT · XLSX' },
+  hint: { type: String, default: 'PDF' },
   label: { type: String, default: '파일 드래그 또는 클릭' }
 })
 const emit = defineEmits(['change'])
