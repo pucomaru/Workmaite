@@ -307,7 +307,7 @@ async function refineChunk() {
   try {
     const startSec = _lastRefineEndSec
     const endSec = recordingSecs.value
-    const { data } = await apiAI.post('/api/v1/sessions/refine-chunk', {
+    const { data } = await apiAI.post('/api/ai/sessions/refine-chunk', {
       session_id: activeSession.value.id,
       text,
       context: sessionContext.value || null,
