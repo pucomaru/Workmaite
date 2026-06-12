@@ -118,7 +118,6 @@ async function selectMeeting(m) {
 
 async function enterSession(s) {
   activeSession.value = s
-  try { speakerNames.value = JSON.parse(localStorage.getItem(`speakerNames:${s.id}`) || '{}') } catch { speakerNames.value = {} }
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
   const rec = getOrCreateRecord(s.id)
@@ -175,7 +174,6 @@ async function enterSession(s) {
         const lines = data.map(seg => ({
           id: seg.id,
           time: utcToKst(seg.createdAt),
-          speaker: seg.speakerLabel,
           text: seg.content,
         }))
         rec.transcriptLines.push(...lines)
@@ -267,10 +265,8 @@ const showPopover = ref(null)
 const micSensitivity = ref(70)
 const noiseReduction = ref(true)
 const transcriptLang = ref('ko')
-const sttMode = ref('gcapi')   // 'localwhisper' | 'whisperapi' | 'gcapi'
 const micError = ref('')
 
-const STT_MODE_LABELS = { localwhisper: 'Local', whisperapi: 'Whisper API', gcapi: 'Google Cloud API' }
 
 const sessionRecords = ref(new Map())
 function getOrCreateRecord(id) {
@@ -335,31 +331,6 @@ async function refineChunk() {
 }
 
 // 스피커 레이블 — 발화 등장 순서 기반으로 A/B/C... 동적 할당
-const SPEAKER_COLORS = ['#60a5fa','#f59e0b','#34d399','#f472b6','#a78bfa','#fb923c']
-
-const speakerMap = computed(() => {
-  const map = new Map()
-  for (const line of transcriptLines.value) {
-    if (line.speaker && !map.has(line.speaker)) map.set(line.speaker, map.size)
-  }
-  return map
-})
-
-function speakerIdx(raw) { return speakerMap.value.get(raw) ?? 0 }
-function speakerColor(raw) { return raw ? SPEAKER_COLORS[speakerIdx(raw) % SPEAKER_COLORS.length] : '#94a3b8' }
-
-// 화자→실명 매핑 (P4-5) — 세션별 localStorage 보존
-const speakerNames = ref({})
-const distinctSpeakers = computed(() => [...speakerMap.value.keys()])
-function _speakerStoreKey() { return `speakerNames:${activeSession.value?.id ?? 'na'}` }
-function speakerDisplay(raw) { return speakerNames.value[raw] || raw }
-function renameSpeaker(raw) {
-  const name = window.prompt(`"${raw}"의 실제 이름`, speakerNames.value[raw] || '')
-  if (name === null) return
-  if (name.trim()) speakerNames.value = { ...speakerNames.value, [raw]: name.trim() }
-  else { const m = { ...speakerNames.value }; delete m[raw]; speakerNames.value = m }
-  try { localStorage.setItem(_speakerStoreKey(), JSON.stringify(speakerNames.value)) } catch {}
-}
 
 const KST = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' }
 function nowTime() { return new Date().toLocaleTimeString('ko-KR', KST) }
@@ -370,8 +341,8 @@ function utcToKst(str) {
   return new Date(iso).toLocaleTimeString('ko-KR', KST)
 }
 
-function _pushLine(time, text, speaker = null, id = null) {
-  const entry = { time, text, speaker, id }
+function _pushLine(time, text, id = null) {
+  const entry = { time, text, id }
   transcriptLines.value.push(entry)
   if (activeSession.value) getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
   nextTick(() => { if (transcriptAreaRef.value) transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight })
@@ -379,14 +350,9 @@ function _pushLine(time, text, speaker = null, id = null) {
 }
 
 const stt = useSTT({
-  onResult: (text, id = null) => { _pushLine(nowTime(), text, null, id) },
-  onSegments: (segments) => {
-    const t = nowTime()
-    segments.forEach(seg => { if (seg.text?.trim()) _pushLine(t, seg.text.trim(), seg.speaker ?? null, seg.id ?? null) })
-  },
+  onResult: (text, id = null) => { _pushLine(nowTime(), text, id) },
   getLang: () => transcriptLang.value,
   getSessionId: () => activeSession.value?.id ?? null,
-  getSttMode: () => sttMode.value,
 })
 
 // ─── 녹음 타이머 ──────────────────────────────────────────────
@@ -407,21 +373,20 @@ function formatTimer(s) {
 
 // ─── 발화 편집 ────────────────────────────────────────────────
 const editingIdx = ref(null)
-const editDraft = ref({ speaker: '', text: '' })
+const editDraft = ref({ text: '' })
 
 function startEdit(idx) {
   const line = transcriptLines.value[idx]
   editingIdx.value = idx
-  editDraft.value = { speaker: line.speaker || '', text: line.text }
+  editDraft.value = { text: line.text }
 }
 function cancelEdit() { editingIdx.value = null }
 async function saveEdit(idx) {
   const line = transcriptLines.value[idx]
   if (!line.id) return
   await api.patch(`/api/v1/sessions/${activeSession.value.id}/scripts`, {
-    segments: [{ id: line.id, speakerLabel: editDraft.value.speaker, content: editDraft.value.text }]
+    segments: [{ id: line.id, content: editDraft.value.text }]
   })
-  line.speaker = editDraft.value.speaker
   line.text = editDraft.value.text
   editingIdx.value = null
 }
@@ -489,17 +454,7 @@ async function generateMinutes() {
 
   const sessionTitle = activeSession.value?.title || '회의'
   // 같은 발화자의 연속 발화를 하나로 합치기
-  const consolidated = []
-  for (const line of transcriptLines.value) {
-    const speaker = line.speakerLabel || '발화자'
-    const last = consolidated[consolidated.length - 1]
-    if (last && last.speaker === speaker) {
-      last.text += ' ' + line.text
-    } else {
-      consolidated.push({ speaker, text: line.text })
-    }
-  }
-  const transcriptText = consolidated.map(l => `[${l.speaker}] ${l.text}`).join('\n')
+  const transcriptText = transcriptLines.value.map(l => l.text).join('\n')
 
   // ── 우측 채팅에 AI 사고 과정 표시 (완료 메시지는 생성 후 추가) ──
   wmMessages.value.push({ role: 'user', content: `"${sessionTitle}" 회의록을 생성해줘` })
@@ -591,10 +546,6 @@ function downloadPDF() {
       hr{border:none;border-top:1px solid #e2e8f0;margin:14px 0}
       @media print{body{padding:20px}}
     
-.speaker-legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border,#eee); }
-.speaker-legend-label { font-size:12px; color:var(--dark-muted,#888); }
-.speaker-chip { font-size:12px; padding:1px 8px; border:1px solid; border-radius:10px; cursor:pointer; }
-.speaker-chip:hover { background:rgba(0,0,0,0.04); }
 
 .wm-feedback { display:flex; gap:4px; margin:3px 0 6px 2px; }
 .wm-suggested { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 4px 2px; }
@@ -1250,14 +1201,6 @@ async function downloadChatFile(filePath) {
           </template>
 
           <template v-else-if="activeTab === 'script'">
-            <div v-if="distinctSpeakers.length" class="speaker-legend">
-              <span class="speaker-legend-label">화자 이름:</span>
-              <span v-for="raw in distinctSpeakers" :key="raw" class="speaker-chip"
-                    :style="{ borderColor: speakerColor(raw), color: speakerColor(raw) }"
-                    @click="renameSpeaker(raw)" :title="'클릭해서 이름 지정'">
-                {{ speakerDisplay(raw) }}<i class="bi bi-pencil-fill ms-1" style="font-size:9px"></i>
-              </span>
-            </div>
             <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
@@ -1265,7 +1208,6 @@ async function downloadChatFile(filePath) {
             <template v-for="(line, idx) in transcriptLines" :key="idx">
               <div v-if="editingIdx === idx" class="tline tline-editing">
                 <span class="tline-time">{{ line.time }}</span>
-                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="발화자" />
                 <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
                 <div class="tline-edit-btns">
                   <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
@@ -1274,7 +1216,6 @@ async function downloadChatFile(filePath) {
               </div>
               <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
                 <span class="tline-body">
                   <span class="tline-text">{{ line.text }}</span>
                   <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
@@ -1390,30 +1331,6 @@ async function downloadChatFile(filePath) {
               </div>
             </div>
 
-            <!-- STT mode selector -->
-            <div class="ctrl-pop-wrap">
-              <button class="ctrl-btn ctrl-lang" :class="{ 'ctrl-active': showPopover==='stt' }"
-                @click.stop="togglePopover('stt')" title="STT 방식">
-                <i class="bi bi-soundwave"></i>
-                <span>{{ STT_MODE_LABELS[sttMode] }}</span>
-                <i class="bi bi-chevron-down ctrl-chev"></i>
-              </button>
-              <div v-if="showPopover==='stt'" class="ctrl-popover" @click.stop>
-                <div class="cpop-title">STT 설정</div>
-                <button class="cpop-opt" :class="{ selected: sttMode==='gcapi' }"
-                  @click="sttMode='gcapi';showPopover=null">
-                  <i class="bi bi-people" style="margin-right:5px"></i>Google Cloud API
-                </button>
-                <button class="cpop-opt" :class="{ selected: sttMode==='whisperapi' }"
-                  @click="sttMode='whisperapi';showPopover=null">
-                  <i class="bi bi-lightning-charge" style="margin-right:5px"></i>Whisper API
-                </button>
-                <button class="cpop-opt" :class="{ selected: sttMode==='localwhisper' }"
-                  @click="sttMode='localwhisper';showPopover=null">
-                  <i class="bi bi-shield-lock" style="margin-right:5px"></i>Local
-                </button>
-              </div>
-            </div>
 
             <!-- Record / pause -->
             <!-- 맥락 입력 버튼 -->
@@ -1731,11 +1648,6 @@ async function downloadChatFile(filePath) {
 .tline { display:flex;gap:8px;align-items:baseline;padding:3px 0;position:relative; }
 .tline:hover .tline-edit-btn { opacity:1; }
 .tline-time { font-size:10px;color:var(--text-muted);flex-shrink:0;font-family:'Pretendard',inherit; }
-.tline-speaker {
-  font-size:10px;font-weight:700;flex-shrink:0;
-  padding:1px 6px;border-radius:99px;border:1px solid;
-  letter-spacing:.04em;
-}
 .tline-body { display:flex;align-items:baseline;flex:1;min-width:0; }
 .tline-text { font-size:13px;color:var(--dark-card);line-height:1.5;flex:1; }
 .tline-edit-btn { opacity:0;transition:opacity .15s;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:11px;padding:1px 4px;border-radius:4px;flex-shrink:0;margin-left:2px; }
@@ -1743,7 +1655,6 @@ async function downloadChatFile(filePath) {
 
 /* 편집 모드 */
 .tline-editing { flex-wrap:wrap;align-items:flex-start;gap:6px;background:var(--surface);border-radius:8px;padding:6px 8px;margin:2px 0; }
-.tline-edit-speaker { font-size:11px;font-weight:700;border:1px solid var(--border);border-radius:6px;padding:2px 8px;width:72px;outline:none;background:var(--bg-card);color:var(--dark-card); }
 .tline-edit-text { flex:1;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;resize:vertical;outline:none;background:var(--bg-card);color:var(--dark-card);min-width:200px;line-height:1.5; }
 .tline-edit-btns { display:flex;gap:4px;flex-shrink:0;align-items:center; }
 .tline-save-btn { font-size:11px;font-weight:700;padding:3px 10px;border-radius:5px;border:none;background:var(--accent);color:#fff;cursor:pointer; }
