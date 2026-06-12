@@ -6,7 +6,7 @@
 
 PG id ↔ Neo4j 문자열 id 변환이 f-string으로 6개 파일에 산재해 있던 것을 단일 모듈로 통일.
 규약: Meetings="mg-{pg}", Session="session-{pg}", Agenda="agenda-{pg}",
-Report="report-{pg}", Minutes="minutes-{pg}", HumanJudgment="hj-{pg}". User는 pg_id 숫자 키.
+Report="report-{pg}", Minutes="minutes-{pg}". User는 pg_id 숫자 키.
 """
 import re
 
@@ -31,10 +31,6 @@ def to_report_id(pg_id: int) -> str:
 
 def to_minutes_id(pg_id: int) -> str:
     return f"minutes-{pg_id}"
-
-
-def to_hj_id(pg_id: int) -> str:
-    return f"hj-{pg_id}"
 
 
 def parse_pg_id(node_id) -> int | None:

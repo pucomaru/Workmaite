@@ -32,7 +32,6 @@ const NODE_COLORS = {
   'dept':          0x8b5cf6,
   'person':        0xf472b6,
   'company':       0x0d9488,
-  'human_judgment': 0x22d3ee,
 }
 const NODE_RADIUS = {
   'Meetings':      11,
@@ -43,7 +42,6 @@ const NODE_RADIUS = {
   'dept':          10,
   'person':        10,
   'company':       10,
-  'human_judgment':  9,
 }
 // inbound 기반 노드 크기
 const BACKLINK_STEP = 2.4   // 백링크 1개당 가중치
@@ -457,31 +455,6 @@ function drawIcon(gfx, type, r) {
     const hr = r * 0.22, br = r * 0.28
     gfx.circle(0, -r * 0.18, hr).fill({ color: ic, alpha: 0.88 })
     gfx.arc(0, -r * 0.18 + hr + br * 1.1, br, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.88 })
-  } else if (type === 'human_judgment') {
-    // balance / scale icon — 의사결정
-    const stemH = r * 0.62, baseW = r * 0.38
-    const topY = -r * 0.32, botY = topY + stemH
-    // vertical stem
-    gfx.moveTo(0, topY).lineTo(0, botY)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
-    // base
-    gfx.moveTo(-baseW, botY).lineTo(baseW, botY)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
-    // horizontal beam
-    const beamW = r * 0.5
-    gfx.moveTo(-beamW, topY).lineTo(beamW, topY)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.09), alpha: 0.92, cap: 'round' })
-    // left pan
-    const panR = r * 0.17, panY = topY + r * 0.28
-    gfx.moveTo(-beamW, topY).lineTo(-beamW, panY)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8, cap: 'round' })
-    gfx.arc(-beamW, panY, panR, 0, Math.PI)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8 })
-    // right pan
-    gfx.moveTo(beamW, topY).lineTo(beamW, panY)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8, cap: 'round' })
-    gfx.arc(beamW, panY, panR, 0, Math.PI)
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.8 })
   } else if (type === 'company') {
     // building / company icon
     const bw = r * 0.62, bh = r * 0.66

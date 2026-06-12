@@ -56,27 +56,12 @@ async def create_hitl_review(
     db.commit()
     db.refresh(review)
 
-    # ── Neo4j HumanJudgment 즉시 동기화 ──────────────────────────────────────
+    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
     try:
-        from neo4j_sync import sync_human_judgment as _sync_hj
-        meeting_id_for_sync: int | None = None
-        if review.target_type == "agenda" and review.agenda_id:
-            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
-            if _ag:
-                meeting_id_for_sync = _ag.meeting_id
-        background_tasks.add_task(
-            _sync_hj,
-            review_id=review.id,
-            meeting_id=meeting_id_for_sync,
-            judgment=review.status,
-            reason=review.comment,
-            target_type=review.target_type,
-            target_id=review.agenda_id or review.report_id,
-            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
-            created_at=review.created_at.isoformat() if review.created_at else None,
-        )
+        from neo4j_sync import sync_hitl_target
+        background_tasks.add_task(sync_hitl_target, review.id)
     except Exception as _se:
-        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+        logger.warning(f"[hitl-reviews] Neo4j HITL 대상노드 sync 실패: {_se}")
 
     return {"id": review.id, "status": review.status}
 
@@ -107,26 +92,12 @@ async def update_hitl_review(
     db.commit()
     db.refresh(review)
 
+    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
     try:
-        from neo4j_sync import sync_human_judgment as _sync_hj
-        meeting_id_for_sync: int | None = None
-        if review.target_type == "agenda" and review.agenda_id:
-            _ag = db.query(models.Agenda).filter(models.Agenda.id == review.agenda_id).first()
-            if _ag:
-                meeting_id_for_sync = _ag.meeting_id
-        background_tasks.add_task(
-            _sync_hj,
-            review_id=review.id,
-            meeting_id=meeting_id_for_sync,
-            judgment=review.status,
-            reason=review.comment,
-            target_type=review.target_type,
-            target_id=review.agenda_id or review.report_id,
-            judged_at=review.reviewed_at.isoformat() if review.reviewed_at else None,
-            created_at=review.created_at.isoformat() if review.created_at else None,
-        )
+        from neo4j_sync import sync_hitl_target
+        background_tasks.add_task(sync_hitl_target, review.id)
     except Exception as _se:
-        logger.warning(f"[hitl-reviews] Neo4j HumanJudgment sync 실패: {_se}")
+        logger.warning(f"[hitl-reviews] Neo4j HITL 대상노드 sync 실패: {_se}")
 
     return {"id": review.id, "status": review.status, "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None}
 

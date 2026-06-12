@@ -201,32 +201,6 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const agIdx = d.agenda_id  != null ? agendaIdxById.get(String(d.agenda_id)) : undefined
         if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '도출' })
       })
-
-      // ── HumanJudgment nodes ───────────────────────────────────
-      const agendaToMinutesIdx = new Map()
-      ;(g.minutes_agendas || []).forEach(ma => {
-        if (!ma.agenda_id || !ma.session_id) return
-        const mIdx = minutesFileIdxBySessionNeoId.get(String(ma.session_id))
-        if (mIdx != null) agendaToMinutesIdx.set(String(ma.agenda_id), mIdx)
-      })
-      ;(g.session_agendas || []).forEach(sa => {
-        if (!sa.agenda_id || !sa.session_id) return
-        const mIdx = minutesFileIdxBySessionNeoId.get(String(sa.session_id))
-        if (mIdx != null) agendaToMinutesIdx.set(String(sa.agenda_id), mIdx)
-      })
-      ;(g.human_judgments || []).forEach((hj, hi) => {
-        const agId = String(hj.agenda_id || `ag-${hj.target_id}`)
-        const refIdx = agendaIdxById.get(agId) ?? agendaToMinutesIdx.get(agId) ?? mgIdx
-        const hjIdx = nodes.length
-        const rawLabel = hj.judgment || '의사결정'
-        const label = rawLabel.length > 15 ? rawLabel.slice(0, 14) + '…' : rawLabel
-        nodes.push({
-          id: `human_judgment-${g.id || gi}-${hj.id || hi}`,
-          label, type: 'human_judgment',
-          groupIdx: gi, data: hj, meetingGroupId: mgNodeId, neo4jId: hj.id || null,
-        })
-        edges.push({ from: refIdx, to: hjIdx, rel: '판단' })
-      })
     })
 
     // ── Sub-meeting edges ─────────────────────────────────────

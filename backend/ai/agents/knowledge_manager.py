@@ -67,12 +67,6 @@ async def ensure_vector_indexes() -> None:
              `vector.dimensions`: 1536,
              `vector.similarity_function`: 'cosine'
            }}""",
-        """CREATE VECTOR INDEX humanJudgmentEmbedding IF NOT EXISTS
-           FOR (hj:HumanJudgment) ON (hj.embedding)
-           OPTIONS {indexConfig: {
-             `vector.dimensions`: 1536,
-             `vector.similarity_function`: 'cosine'
-           }}""",
         """CREATE VECTOR INDEX reportChunkEmbedding IF NOT EXISTS
            FOR (c:ReportChunk) ON (c.embedding)
            OPTIONS {indexConfig: {
@@ -306,7 +300,7 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
 
     Args:
         query: 검색할 키워드 또는 자연어 쿼리
-        node_type: 검색 대상 노드 타입 (Minutes / Agenda / HumanJudgment)
+        node_type: 검색 대상 노드 타입 (Minutes / Agenda / Report)
     """
     results = await search_knowledge(query, node_type=node_type, k=5)
 
@@ -430,9 +424,9 @@ async def confirm_relationships(
     approved: bool,
     reject_reason: str = None,
 ) -> dict:
-    """제안된 관계를 승인하면 Neo4j에 MERGE, 반려하면 HumanJudgment 노드를 생성합니다.
+    """제안된 관계를 승인하면 Neo4j에 MERGE, 반려하면 제안을 폐기합니다.
     승인 반환: {status:"confirmed", relationships:[...]}
-    반려 반환: {status:"rejected", human_judgment_id:str}
+    반려 반환: {status:"rejected"}
     """
     from neo4j_client import run_cypher
 
@@ -461,36 +455,9 @@ async def confirm_relationships(
         return {"status": "confirmed", "relationships": merged}
 
     else:
-        # 반려: HumanJudgment 노드 생성 + humanJudgmentEmbedding 등록
-        await ensure_vector_indexes()
-        reason_text = reject_reason or "사유 없음"
-        node_id = f"humanjudgment-{uuid.uuid4().hex[:8]}"
-        embedding = await _embed(reason_text)
-        created_at = datetime.now(timezone.utc).isoformat()
-        try:
-            await run_cypher(
-                """MERGE (hj:HumanJudgment {id: $id})
-                   SET hj.proposal_id = $proposal_id,
-                       hj.meeting_id = $meeting_id,
-                       hj.reason = $reason,
-                       hj.decision = 'rejected',
-                       hj.created_at = $created_at
-                   WITH hj
-                   CALL db.create.setNodeVectorProperty(hj, 'embedding', $embedding)
-                   RETURN hj.id AS id""",
-                {
-                    "id": node_id,
-                    "proposal_id": proposal_id,
-                    "meeting_id": meeting_id,
-                    "reason": reason_text,
-                    "created_at": created_at,
-                    "embedding": embedding,
-                },
-            )
-        except Exception:
-            pass
+        # 반려: 제안을 폐기한다 (HumanJudgment 노드 생성 폐지)
         _proposals.pop(proposal_id, None)
-        return {"status": "rejected", "human_judgment_id": node_id}
+        return {"status": "rejected"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

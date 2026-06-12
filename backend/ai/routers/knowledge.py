@@ -47,7 +47,7 @@ class _StoreReportReq(BaseModel):
 class _ProposeRelationshipsReq(BaseModel):
     """POST /knowledge/propose-relationships 요청 바디."""
     meeting_id: int
-    node_types: Optional[List[str]] = None  # None이면 Agenda·HumanJudgment·Minutes 전체
+    node_types: Optional[List[str]] = None  # None이면 Agenda·Minutes 전체
 
 
 class _ConfirmRelationshipsReq(BaseModel):
@@ -121,7 +121,7 @@ async def knowledge_confirm_relationships(
     data: _ConfirmRelationshipsReq,
     _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
 ):
-    """제안된 관계를 승인(Neo4j MERGE) 또는 반려(HumanJudgment 노드 생성)."""
+    """제안된 관계를 승인(Neo4j MERGE) 또는 반려(제안 폐기)."""
     try:
         result = await knowledge_agent.confirm_relationships(
             proposal_id=data.proposal_id,
