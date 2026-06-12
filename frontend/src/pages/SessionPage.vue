@@ -1806,4 +1806,8 @@ async function downloadChatFile(filePath) {
 .nab-spinner { width:14px;height:14px;border:2px solid rgba(99,102,241,.2);border-top-color:#818cf8;border-radius:50%;animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .nab-list { padding:8px; }
+.wm-suggested { display:flex;flex-direction:column;gap:3px;margin:5px 0 4px 2px; }
+.wm-suggested-btn { text-align:left;background:rgba(255,255,255,.7);border:1px solid #c7d2fe;border-radius:6px;padding:4px 9px;font-size:11px;color:var(--primary);cursor:pointer;font-weight:500;width:100%; }
+.wm-suggested-btn:hover:not(:disabled) { background:#fff; }
+.wm-suggested-btn:disabled { opacity:.4;cursor:not-allowed; }
 </style>

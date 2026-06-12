@@ -1238,4 +1238,23 @@ watch(relAddActive, v => {
   font-weight: 600;
   margin: 4px 0;
 }
+.ai-evidence-box :deep(table) {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ai-evidence-box :deep(th),
+.ai-evidence-box :deep(td) {
+  word-break: break-word;
+  white-space: normal;
+  padding: 4px 6px;
+}
+.ai-evidence-box :deep(th):nth-child(1),
+.ai-evidence-box :deep(td):nth-child(1) { width: 20%; }
+.ai-evidence-box :deep(th):nth-child(2),
+.ai-evidence-box :deep(td):nth-child(2) { width: 50%; }
+.ai-evidence-box :deep(th):nth-child(3),
+.ai-evidence-box :deep(td):nth-child(3) { width: 30%; }
 </style>
