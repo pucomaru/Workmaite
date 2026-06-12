@@ -370,6 +370,8 @@ def search_users(
 
 @router.get("/users/all")
 def all_users(
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -377,17 +379,30 @@ def all_users(
     users_query = db.query(models.User).order_by(models.User.name)
     if visible is not None:
         users_query = users_query.filter(models.User.id.in_(visible))
-    users = users_query.all()
+    users = users_query.offset(offset).limit(limit).all()  # P8-5 페이지네이션
+
+    # 사용자별 개별 쿼리(N+1, PG-6) → 멤버십+회의체 일괄 2쿼리로 교체
+    user_ids = [u.id for u in users]
+    all_members = (
+        db.query(models.MeetingMember)
+        .filter(models.MeetingMember.user_id.in_(user_ids)).all()
+    ) if user_ids else []
+    meeting_ids = {mm.meeting_id for mm in all_members}
+    titles = {
+        m.id: m.title
+        for m in db.query(models.Meeting.id, models.Meeting.title)
+        .filter(models.Meeting.id.in_(meeting_ids)).all()
+    } if meeting_ids else {}
+    members_by_user: dict[int, list] = {}
+    for mm in all_members:
+        members_by_user.setdefault(mm.user_id, []).append(mm)
+
     result = []
     for u in users:
-        member_rows = db.query(models.MeetingMember).filter(models.MeetingMember.user_id == u.id).all()
-        meeting_ids = [mm.meeting_id for mm in member_rows]
-        meetings_map = {
-            m.id: m for m in db.query(models.Meeting).filter(models.Meeting.id.in_(meeting_ids)).all()
-        } if meeting_ids else {}
         meetings = [
-            {"id": mm.meeting_id, "member_id": mm.id, "title": meetings_map.get(mm.meeting_id, None) and meetings_map[mm.meeting_id].title or "", "role": mm.role}
-            for mm in member_rows
+            {"id": mm.meeting_id, "member_id": mm.id,
+             "title": titles.get(mm.meeting_id, ""), "role": mm.role}
+            for mm in members_by_user.get(u.id, [])
         ]
         result.append({
             "id": u.id,

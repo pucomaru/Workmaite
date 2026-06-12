@@ -1041,7 +1041,7 @@ async def submit_feedback(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """응답 👍/👎ㆍ사유 수집 — P6 eval 데이터셋으로 환류된다."""
+    """응답 수집 """
     if data.rating not in (1, -1):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="rating은 1 또는 -1이어야 합니다.")
