@@ -45,9 +45,21 @@ def delete_object(key: str) -> None:
 
 
 def url_to_key(url: str) -> str:
-    """R2 URL에서 object key를 추출합니다."""
-    prefix = f"{R2_ENDPOINT.rstrip('/')}/{R2_BUCKET}/"
-    return url[len(prefix):] if url.startswith(prefix) else url
+    """R2 URL에서 object key를 추출합니다 (UX-6: presigned·다른 엔드포인트 URL도 처리).
+
+    저장된 file_path가 공개 URL / presigned URL(쿼리 포함) / 다른 엔드포인트 도메인 /
+    이미 key 형태 등 무엇이든 버킷 이후 경로를 key로 안전하게 추출한다.
+    """
+    if not url:
+        return url
+    if not url.startswith("http"):
+        return url  # 이미 key
+    from urllib.parse import urlparse, unquote
+    path = unquote(urlparse(url).path).lstrip("/")  # 쿼리스트링(presigned 서명) 제거
+    # path가 "<bucket>/<key>" 또는 "<key>" — 버킷 세그먼트가 있으면 제거
+    if path.startswith(f"{R2_BUCKET}/"):
+        return path[len(R2_BUCKET) + 1:]
+    return path
 
 
 def is_r2_url(path: str) -> bool:
