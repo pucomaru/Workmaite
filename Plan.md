@@ -341,12 +341,12 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P3C-4 (2026-06-12): supervisor 프롬프트 가드레일(날조·미확인 단정 금지, 쓰기 도구 없음)+분석 동시 1 세마포어(429). 쓰기는 HITL interrupt 유지.
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
-- [ ] P4-1 **청크 diarization 폐기**: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
+- [x] ~~P4-1 화자분리~~ **화자분리 자체를 폐기 (2026-06-12, 사용자 결정)** — STT를 OpenAI 단순 전사로 통일. (v2 streaming은 diarization 미지원, batch는 GCS 필요, WhisperX는 CPU라 느림). ~~원계획~~: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
 - [x] P4-2 원본 오디오 R2 보존 (2026-06-12, sessions/{id}/audio/). 보존기간 정책 문서화는 잔여. ~~원계획~~: 청크를 R2에 append 저장(`sessions/{id}/audio/...`), 실패 시 재처리 큐. 보존 기간 정책(예: 회의록 확정 후 30일) 문서화 — 개인정보 관점 필수.
 - [x] P4-3 STT 폴백 체인(→localwhisper)+전실패 502+프론트 재시도/알림 (2026-06-12). ~~원계획~~(에러 응답 + 프론트 재시도 UI), 5xx 시 provider 폴백 체인(gcapi→whisperx).
 - [x] P4-4 **부분 (2026-06-12)**: align model 언어별 1회 캐시+ko 워밍업, batch_size 8. 잔여: 요청 큐(동시 1) 보호.
-- [x] P4-5 (2026-06-12): SessionPage 화자 범례+클릭 이름 지정(세션별 localStorage), 스크립트가 실명 표시. 화자 임베딩 자동 제안은 선택 잔여.
-- [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
+- [x] ~~P4-5 화자 매핑 UI~~ **폐기 (2026-06-12)** — 화자분리 미사용으로 제거.
+- [x] ~~P4-6 WER/DER 측정~~ **불요 (2026-06-12)** — 단일 provider(OpenAI)·화자분리 없음. WER은 필요 시 별도.
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
 - [~] P5-1(부분) TTFT·스트림 총시간 히스토그램 — 채팅/minutes 3개 스트림 계측 (2026-06-12). 잔여: 에이전트/도구별 duration, Grafana 대시보드. 원계획: 기능별 시간 측정: agent_logs에 `duration_ms`(ended_at-created_at) 활용 + Prometheus 히스토그램(에이전트별/도구별). **TTFT(첫 토큰까지 시간)·스트림 총 시간을 SSE 핸들러에서 측정** — 챗봇 체감 품질의 핵심 지표. Grafana 대시보드(라우팅 분포, 에이전트 지연, TTFT p50/p95, 토큰/비용 일별, structured output 실패율).
