@@ -187,9 +187,20 @@ def _build_extraction_graph():
     builder.add_node("propose", _extract_propose_node)
     builder.add_edge(START, "propose")
     builder.add_edge("propose", END)
-    return builder.compile()
+    # 체크포인터 필수 — interrupt/resume은 영속 상태 위에서만 동작 (P3A-1, H-1)
+    from graph_runtime import get_checkpointer
+    return builder.compile(checkpointer=get_checkpointer())
 
-_extraction_graph = _build_extraction_graph()
+
+_extraction_graph = None
+
+
+def _get_extraction_graph():
+    """체크포인터는 앱 시작 후 준비되므로 첫 사용 시점에 compile한다."""
+    global _extraction_graph
+    if _extraction_graph is None:
+        _extraction_graph = _build_extraction_graph()
+    return _extraction_graph
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -264,7 +275,8 @@ async def start_extraction_review(
     knowledge: List[dict] = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    await _extraction_graph.ainvoke(
+    graph = _get_extraction_graph()
+    await graph.ainvoke(
         {
             "messages": [],
             "content": content,
@@ -274,7 +286,7 @@ async def start_extraction_review(
         },
         config,
     )
-    state = _extraction_graph.get_state(config)
+    state = await graph.aget_state(config)
     if state.tasks and state.tasks[0].interrupts:
         proposed = state.tasks[0].interrupts[0].value
         return {"status": "pending", "proposed": proposed}
@@ -287,7 +299,7 @@ async def confirm_extraction_review(
     meeting_id: int = None,
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
-    result = await _extraction_graph.ainvoke(
+    result = await _get_extraction_graph().ainvoke(
         Command(resume={"approved": approved}),
         config,
     )

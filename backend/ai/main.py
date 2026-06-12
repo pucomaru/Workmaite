@@ -87,6 +87,8 @@ async def _periodic_retry_task() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from graph_runtime import init_checkpointer, close_checkpointer
+    await init_checkpointer()  # HITL 영속화 (P3A-1) — 그래프 compile 전에 준비
     await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
 
@@ -100,6 +102,7 @@ async def lifespan(app: FastAPI):
             await retry_task
         except asyncio.CancelledError:
             pass
+        await close_checkpointer()
 
 
 app = FastAPI(title="workma!te AI API", lifespan=lifespan)

@@ -2843,7 +2843,7 @@ async def review_report_ep(
 
 # ─── 보고서 HITL 검토 시작 ────────────────────────────────────────────────────
 class StartReportReviewRequest(BaseModel):
-    thread_id: str
+    thread_id: Optional[str] = None  # 미지정 시 서버가 run_id 발급 (P3A-1)
     report_content: str
     agenda: Optional[str] = ""
 
@@ -2853,11 +2853,13 @@ async def start_report_review_ep(
     data: StartReportReviewRequest,
     current_user: models.User = Depends(get_current_user),
 ):
+    thread_id = data.thread_id or f"run-{uuid.uuid4()}"  # 서버 발급 run_id (P3A-1)
     result = await report_agent.start_report_review(
-        thread_id=data.thread_id,
+        thread_id=thread_id,
         report_content=data.report_content,
         agenda=data.agenda or "",
     )
+    result["thread_id"] = thread_id
     return result
 
 
@@ -2887,7 +2889,7 @@ async def confirm_report_review_ep(
 
 # ─── 과제 추출 HITL 시작 ──────────────────────────────────────────────────────
 class StartExtractionRequest(BaseModel):
-    thread_id: str
+    thread_id: Optional[str] = None  # 미지정 시 서버가 run_id 발급 (P3A-1)
     content: str
     org_dept_list: Optional[str] = ""
 
@@ -2898,11 +2900,13 @@ async def start_extraction_review_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    thread_id = data.thread_id or f"run-{uuid.uuid4()}"  # 서버 발급 run_id (P3A-1)
     result = await task_agent.start_extraction_review(
-        thread_id=data.thread_id,
+        thread_id=thread_id,
         content=data.content,
         org_dept_list=data.org_dept_list or "",
     )
+    result["thread_id"] = thread_id
     return result
 
 
