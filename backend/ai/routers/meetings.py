@@ -411,6 +411,7 @@ def all_users(
             "department": u.department,
             "company": u.company,
             "position": u.position,
+            "role": u.role,  # 역할 변경 UI용 (P1-7②)
             "meetings": meetings,
         })
     return result

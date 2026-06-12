@@ -86,6 +86,10 @@ public class User {
         this.mustChangePassword = false; // 변경 완료 — 강제 플래그 해제 (P1-7②)
     }
 
+    public void changeRole(UserRole role) {
+        this.role = role;
+    }
+
     public void assignCompany(Long companyId) {
         this.companyId = companyId;
     }
