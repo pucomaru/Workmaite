@@ -38,7 +38,7 @@ async function saveToDB(sessionId, segments) {
   } catch { return segments }
 }
 
-export function useSTT({ onResult, onSegments = null, getLang = null, getSessionId = null, getSttMode = null }) {
+export function useSTT({ onResult, onSegments = null, onError = null, getLang = null, getSessionId = null, getSttMode = null }) {
   let stream = null
   let active = false
   let currentRecorder = null
@@ -190,6 +190,19 @@ export function useSTT({ onResult, onSegments = null, getLang = null, getSession
 
       try {
         const res = await fetch('/api/stt/transcribe', { method: 'POST', headers: authHeaders(), body: formData })
+        if (!res.ok) {
+          // STT 5xx (전 provider 실패, P4-3) — 청크 1회 재시도 후에도 실패면 사용자 알림
+          const retry = await fetch('/api/stt/transcribe', { method: 'POST', headers: authHeaders(), body: formData })
+          if (!retry.ok) {
+            if (typeof onError === 'function') onError('음성 인식에 일시적으로 실패했습니다. 녹음은 계속됩니다.')
+            continue
+          }
+          const data = await retry.json()
+          if (!active || generation !== gen) break
+          if (data.segments?.length && typeof onSegments === 'function') onSegments(data.segments)
+          else if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
+          continue
+        }
         const data = await res.json()
         if (!active || generation !== gen) break
         if (data.segments?.length && typeof onSegments === 'function') {

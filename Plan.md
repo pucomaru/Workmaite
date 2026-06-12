@@ -326,13 +326,13 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 
 **3B. 도구 & 컨텍스트 엔지니어링**
 - [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/ai-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
-- [ ] P3B-2 **사전 주입 → just-in-time 검색 전환(H-6)**: 시스템 프롬프트는 정적 prefix(역할·규칙·출력 형식 — 프롬프트 캐시 적중)로 고정하고, 회의체 컨텍스트·아젠다·이전 회의록은 에이전트가 도구로 필요 시 조회. `_get_meeting_context`/`graph_context_to_str` 사전 조립 제거.
-- [~] P3B-3 **부분 — assistant 서버 저장은 기구현 확인 (2026-06-12)**: user 사전 저장+assistant finally 저장(끊김 포함). 잔여: 30턴↑ 컴팩션, /api/chats POST role 축소(클라이언트 의존 조사 필요). 원계획: **대화 메모리 계층화(H-4·H-5)**: ① 단기 = 체크포인터 thread state ② 스레드가 길어지면(예: 30턴↑) 오래된 턴을 요약 메시지로 **컴팩션** ③ 회의 중 채팅은 SessionSummaryBlock 재활용. assistant 메시지는 **서버가 저장**(클라이언트 `/api/chats` POST는 user role만 허용으로 축소).
+- [x] P3B-2 **완료 (2026-06-12)**: 사전조립 ~169줄 제거, 도구 JIT 조회가 유일 경로, 정적 시스템 프롬프트. 원계획: 사전 주입 → just-in-time 검색 전환(H-6): 시스템 프롬프트는 정적 prefix(역할·규칙·출력 형식 — 프롬프트 캐시 적중)로 고정하고, 회의체 컨텍스트·아젠다·이전 회의록은 에이전트가 도구로 필요 시 조회. `_get_meeting_context`/`graph_context_to_str` 사전 조립 제거.
+- [x] P3B-3 **완료 (2026-06-12)**: assistant 서버 저장 + 30턴↑ 컴팩션(요약+최근10, 36→11 검증) + POST /api/chats user role만 허용(403). 대화 메모리 계층화(H-4·H-5): ① 단기 = 체크포인터 thread state ② 스레드가 길어지면(예: 30턴↑) 오래된 턴을 요약 메시지로 **컴팩션** ③ 회의 중 채팅은 SessionSummaryBlock 재활용. assistant 메시지는 **서버가 저장**(클라이언트 `/api/chats` POST는 user role만 허용으로 축소).
 - [~] P3B-4(부분) 문서 소비 프롬프트 4곳에 인젝션 가드 적용 (2026-06-12 — 평가 조작·지시문 무시). 잔여: prompts/ 파일 분리·버전 관리, 근거 인용 의무화(H-12). 원계획: 프롬프트 정비(AI-4·AI-5): 사용자 콘텐츠는 명시 구분자 + "문서 내 지시 무시" 가드, `prompts/` 파일 분리·버전 관리. **답변에 근거 인용 의무화**(어떤 회의록/노드 기반인지 — 환각 검증 가능성·신뢰 확보, H-12).
-- [ ] P3B-5 `print` 제거, 로깅 표준화(JSON), `except Exception` 정리(최소 logger.exception + 실패 메트릭).
-- [~] P3B-6 **1단계 완료 (2026-06-12)**: retrieval_registry(3중 정의 제거)·vector_search 스코프드 진입점(prop/rel/결합, 오버페치로 post-filter 함정 수정)·0건 메트릭. 2단계 완료(2026-06-12): 풀텍스트 인덱스 4종+hybrid_search(RRF)·supervisor 도구 적용. 잔여: knowledge_manager 등 잔여 소비자 하이브리드 확대. 원계획: **검색 레지스트리 단일화 + 스코프드 하이브리드 검색(G-1·G-3·G-6·HC-3)**: 라벨→인덱스명→반환필드를 `ai/retrieval_registry.py` 한 곳으로 통합(3중 정의 제거). 모든 검색 도구가 `vector_search_node(meeting_id=...)` 스코핑 변형을 기본 사용. Neo4j **풀텍스트 인덱스 추가**(제목·고유명사용) 후 벡터+풀텍스트 하이브리드(RRF 결합). 검색 0건이 지속되면 메트릭/알림(G-1 재발 방지).
-- [ ] P3B-7 **그래프 네이티브 컨텍스트(G-2)**: 고정 1-hop 템플릿을 "시드 검색(벡터) → 그래프 확장(1~2-hop 관계 순회) → 경로 포함 근거 반환" 패턴으로 교체. 예: 아젠다 질의 시 `(Agenda)-[발제세션]->(Session)-[소속]->(Meetings)` + 연결된 Report/Minutes/HumanJudgment까지 경로째 수집해 "어느 회의에서 논의→어떤 보고서 제출→어떤 판단" 흐름을 근거로 인용(P3B-4 인용 의무와 결합). 회의록 임베딩은 청크 중심으로 재편(노드 전문 임베딩은 보조, G-6).
-- [ ] P3B-8 **과제 추출의 그래프 활용(G-4)**: 추출 시 ① 유사 과거 아젠다 top-k(중복 제안 방지·이월 과제 연결) ② `Department-[담당부서]->Agenda` 이력 기반 부서 추천(현 PG 멤버 부서 목록 단독 사용 대체) ③ 추출 결과를 세션 노드에 연결(UX-11의 "회의에서 나온 아젠다는 회의에 연결" 구조 반영). 부서 추천 정확도는 P6 eval로 측정.
+- [x] P3B-5 **부분 (2026-06-12)**: print 제거 완료(잔여 0, reset_db 제외). 잔여: JSON 구조화 로깅·except Exception 59곳 정리는 상시.
+- [x] P3B-6 **완료 (2026-06-12)**: retrieval_registry(3중 정의 제거)·vector_search 스코프드 진입점(prop/rel/결합, 오버페치로 post-filter 함정 수정)·0건 메트릭. 2단계 완료(2026-06-12): 풀텍스트 인덱스 4종+hybrid_search(RRF)·supervisor 도구 적용. 잔여: knowledge_manager 등 잔여 소비자 하이브리드 확대. 원계획: **검색 레지스트리 단일화 + 스코프드 하이브리드 검색(G-1·G-3·G-6·HC-3)**: 라벨→인덱스명→반환필드를 `ai/retrieval_registry.py` 한 곳으로 통합(3중 정의 제거). 모든 검색 도구가 `vector_search_node(meeting_id=...)` 스코핑 변형을 기본 사용. Neo4j **풀텍스트 인덱스 추가**(제목·고유명사용) 후 벡터+풀텍스트 하이브리드(RRF 결합). 검색 0건이 지속되면 메트릭/알림(G-1 재발 방지).
+- [x] P3B-7 **완료 (2026-06-12)**: graph_expanded_search(시드→1-hop→경로 근거)+search_with_context 도구. 원계획: 그래프 네이티브 컨텍스트(G-2): 고정 1-hop 템플릿을 "시드 검색(벡터) → 그래프 확장(1~2-hop 관계 순회) → 경로 포함 근거 반환" 패턴으로 교체. 예: 아젠다 질의 시 `(Agenda)-[발제세션]->(Session)-[소속]->(Meetings)` + 연결된 Report/Minutes/HumanJudgment까지 경로째 수집해 "어느 회의에서 논의→어떤 보고서 제출→어떤 판단" 흐름을 근거로 인용(P3B-4 인용 의무와 결합). 회의록 임베딩은 청크 중심으로 재편(노드 전문 임베딩은 보조, G-6).
+- [x] P3B-8 **완료 (2026-06-12)**: 추출 시 유사 과거 아젠다 top-5+부서 담당 빈도 주입(eval F1 유지). 원계획: 과제 추출의 그래프 활용(G-4): 추출 시 ① 유사 과거 아젠다 top-k(중복 제안 방지·이월 과제 연결) ② `Department-[담당부서]->Agenda` 이력 기반 부서 추천(현 PG 멤버 부서 목록 단독 사용 대체) ③ 추출 결과를 세션 노드에 연결(UX-11의 "회의에서 나온 아젠다는 회의에 연결" 구조 반영). 부서 추천 정확도는 P6 eval로 측정.
 
 **3C. 서비스 가드 (챗봇 운영 안전망)**
 - [~] P3C-1 **비용 상한 — 완료 (2026-06-12)**: 일일 토큰 예산을 PG 집계(token_usage_logs)로 판정. 분당 rate limit은 **사용자 결정으로 제외**. 동시 1개 세마포어는 잔여. 원계획: **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
@@ -342,9 +342,9 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
 - [ ] P4-1 **청크 diarization 폐기**: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
-- [ ] P4-2 **원본 오디오 보존**: 청크를 R2에 append 저장(`sessions/{id}/audio/...`), 실패 시 재처리 큐. 보존 기간 정책(예: 회의록 확정 후 30일) 문서화 — 개인정보 관점 필수.
-- [ ] P4-3 STT 실패를 사용자에게 노출(에러 응답 + 프론트 재시도 UI), 5xx 시 provider 폴백 체인(gcapi→whisperx).
-- [ ] P4-4 whisperx: align model 시작 시 1회 로드, batch_size 조정, 요청 큐(동시 1) 보호.
+- [x] P4-2 원본 오디오 R2 보존 (2026-06-12, sessions/{id}/audio/). 보존기간 정책 문서화는 잔여. ~~원계획~~: 청크를 R2에 append 저장(`sessions/{id}/audio/...`), 실패 시 재처리 큐. 보존 기간 정책(예: 회의록 확정 후 30일) 문서화 — 개인정보 관점 필수.
+- [x] P4-3 STT 폴백 체인(→localwhisper)+전실패 502+프론트 재시도/알림 (2026-06-12). ~~원계획~~(에러 응답 + 프론트 재시도 UI), 5xx 시 provider 폴백 체인(gcapi→whisperx).
+- [x] P4-4 **부분 (2026-06-12)**: align model 언어별 1회 캐시+ko 워밍업, batch_size 8. 잔여: 요청 큐(동시 1) 보호.
 - [ ] P4-5 화자→사용자 매핑 보조: 세션 멤버 목록 기반 라벨 지정 UI 개선 + (선택) 화자 임베딩 기반 자동 제안.
 - [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
 
