@@ -14,6 +14,7 @@ import models, schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
 from access_guard import require_meeting_member
+from sse import sse_done, sse_error, sse_event, sse_token
 from agents import (
     task_extractor as task_agent,
     knowledge_manager as knowledge_agent,
@@ -223,8 +224,8 @@ async def minutes_sessions_chat(
                 current_agendas=[{"content": a.title, "status": a.status} for a in agendas],
                 meeting_context=_get_meeting_context(db, data.meeting_id),
             ):
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
-            yield "data: [DONE]\n\n"
+                yield sse_token(chunk)
+            yield sse_done()
         except BaseException as _e:
             _stream_error = _e
             raise
@@ -366,7 +367,7 @@ async def minutes_generate_minutes(
             overdue_agendas=overdue_agendas,
         ):
             collected_parts.append(chunk)
-            yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+            yield sse_token(chunk)
 
         try:
             collected_parts = []
@@ -377,7 +378,7 @@ async def minutes_generate_minutes(
                 title=minutes_title,
             ):
                 collected_parts.append(chunk)
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
             try:
                 if data.session_id and collected_parts:
                     full_content = "".join(collected_parts)
@@ -409,7 +410,7 @@ async def minutes_generate_minutes(
             except Exception as e:
                 logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
 
-            yield "data: [DONE]\n\n"
+            yield sse_done()
         except BaseException as _e:
             _stream_error = _e
             raise
@@ -504,7 +505,7 @@ async def supervisor_chat(
         hl_candidates: list[str] = []
         try:
             for _s in (_route_steps or [_route_thinking]):
-                yield f"data: [PLANNING] {_s}\n\n"
+                yield sse_event("planning", _s)
 
             # ── off_topic 조기 종료: Neo4j·DB 조회 없이 안내 메시지 반환 ──────────
             if _route == 'off_topic':
@@ -516,8 +517,8 @@ async def supervisor_chat(
                     "- \"아젠다 진행 상황 알려줘\"\n"
                     "- \"최근 보고서 제출 현황은?\""
                 )
-                yield f"data: {_off_msg.replace(chr(10), chr(92)+chr(110))}\n\n"
-                yield "data: [DONE]\n\n"
+                yield sse_token(_off_msg)
+                yield sse_done()
                 return
             if data.meeting_id:
                 mid_neo4j = f"mg-{int(data.meeting_id)}"
@@ -528,17 +529,17 @@ async def supervisor_chat(
                         else int(data.meeting_id) in pg_meeting_ids
                     )
                     if not has_access:
-                        yield f"data: [PLANNING] 접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다\n\n"
-                        yield "data: 이 회의체에 대한 접근 권한이 없습니다.\n\n"
-                        yield "data: [DONE]\n\n"
+                        yield sse_event("planning", f"접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다")
+                        yield sse_token("이 회의체에 대한 접근 권한이 없습니다.")
+                        yield sse_done()
                         return
 
                 neo4j_ctx = await get_meeting_graph_context(data.meeting_id)
 
                 if neo4j_ctx.get("meeting", {}).get("title"):
-                    yield f"data: [PLANNING] [{neo4j_ctx['meeting']['title']}] 회의체 정보 확인\n\n"
+                    yield sse_event("planning", f"[{neo4j_ctx['meeting']['title']}] 회의체 정보 확인")
                 if neo4j_ctx.get("agendas"):
-                    yield f"data: [PLANNING] 아젠다 {len(neo4j_ctx['agendas'])}건 분석\n\n"
+                    yield sse_event("planning", f"아젠다 {len(neo4j_ctx['agendas'])}건 분석")
 
                 neo4j_ctx_str = graph_context_to_str(neo4j_ctx)
 
@@ -608,7 +609,7 @@ async def supervisor_chat(
                                 seen_mg_ids.add(_mid)
                             unique_rows.append(_row)
 
-                        yield f"data: [PLANNING] 소속 회의체 {len(unique_rows)}건 상세 조회\n\n"
+                        yield sse_event("planning", f"소속 회의체 {len(unique_rows)}건 상세 조회")
 
                         ctx_lines = ["[소속 회의체 목록]"]
                         for _row in unique_rows:
@@ -657,7 +658,7 @@ async def supervisor_chat(
                         ) if _pg_mids else []
 
                         if _pg_meetings:
-                            yield f"data: [PLANNING] 소속 회의체 {len(_pg_meetings)}건 조회\n\n"
+                            yield sse_event("planning", f"소속 회의체 {len(_pg_meetings)}건 조회")
                             ctx_lines = ["[소속 회의체 목록]"]
                             for _mg in _pg_meetings:
                                 _mems = (
@@ -712,12 +713,12 @@ async def supervisor_chat(
                                 "MATCH (org:Company) RETURN org.name AS name LIMIT 1"
                             )
                             if org_rows:
-                                yield f"data: [PLANNING] 조직: {org_rows[0].get('name', '?')} 확인\n\n"
+                                yield sse_event("planning", f"조직: {org_rows[0].get('name', '?')} 확인")
                 except Exception:
                     pass
 
         except Exception as _outer_e:
-            yield "data: [PLANNING] 지식 그래프 조회 중 오류 발생\n\n"
+            yield sse_event("planning", "지식 그래프 조회 중 오류 발생")
 
         _user_scope_header = (
             f"[현재 사용자] {current_user.name}"
@@ -740,7 +741,7 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ('supervisor_direct', 'knowledge_manager'):
-                yield "data: [PLANNING] Knowledge Base에서 관련 자료 검색 중...\n\n"
+                yield sse_event("planning", "Knowledge Base에서 관련 자료 검색 중...")
 
                 _kb_results: list[dict] = []
                 _node_type_map = [("Minutes", "회의록", 5)]
@@ -759,7 +760,7 @@ async def supervisor_chat(
                     pass
 
                 if _kb_results:
-                    yield f"data: [PLANNING] 관련 자료 {len(_kb_results)}건 확인\n\n"
+                    yield sse_event("planning", f"관련 자료 {len(_kb_results)}건 확인")
 
                 _ctx_parts: list[str] = [_user_scope_header]
                 if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
@@ -897,15 +898,15 @@ async def supervisor_chat(
                 ):
                     if chunk.content:
                         _assistant_chunks.append(chunk.content)
-                        yield f"data: {chunk.content.replace(chr(10), chr(92)+chr(110))}\n\n"
+                        yield sse_token(chunk.content)
 
                 if hl_candidates and _assistant_chunks:
                     _sup_full = "".join(_assistant_chunks)
                     matched = [c for c in hl_candidates if c and c in _sup_full]
                     if matched:
-                        yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
+                        yield sse_event("highlight", matched)
 
-                yield "data: [DONE]\n\n"
+                yield sse_done()
                 return
 
             # ── A 유형: 서브에이전트 라우팅 ──────────────────────────────────
@@ -944,15 +945,15 @@ async def supervisor_chat(
 
             async for chunk in gen:
                 _assistant_chunks.append(chunk)
-                yield f"data: {chunk.replace(chr(10), chr(92)+chr(110))}\n\n"
+                yield sse_token(chunk)
 
             if hl_candidates and _assistant_chunks:
                 full_text = "".join(_assistant_chunks)
                 matched = [c for c in hl_candidates if c and c in full_text]
                 if matched:
-                    yield f"data: [HIGHLIGHT] {json.dumps(matched, ensure_ascii=False)}\n\n"
+                    yield sse_event("highlight", matched)
 
-            yield "data: [DONE]\n\n"
+            yield sse_done()
 
         except BaseException as _e:
             _stream_error = _e
