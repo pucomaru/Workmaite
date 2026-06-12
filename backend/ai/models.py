@@ -1,3 +1,8 @@
+"""SQLAlchemy 모델 — **읽기 전용 매핑** (P2-1).
+
+스키마의 단일 소스는 Spring의 Flyway 마이그레이션(backend/springboot/src/main/resources/db/migration)이다.
+이 파일로 스키마를 생성/변경하지 말 것 (Base.metadata.create_all 금지).
+"""
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean,
