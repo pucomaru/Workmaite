@@ -29,7 +29,7 @@ const lvColumns = [
   { label: '유형',    width: '160px', sortKey: 'meeting_type' },
   { label: '역할',   width: '110px', sortKey: '_role' },
   { label: '간사',   width: '300px', sortKey: '_adminName' },
-  { label: '이력',   width: '160px', sortKey: '_histCount' }
+  { label: '자료 수', width: '160px', sortKey: '_histCount' }  // 회의록+보고서 건수 (UX-22 라벨 명확화)
 ]
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
