@@ -56,9 +56,18 @@ public class UserService {
     }
 
     /** 이름 또는 이메일로 사용자 검색 — 디렉터리 가시성 스코프 적용 (MT-3) */
-    public List<UserResponse> searchUsers(Long callerId, String q) {
+    public List<UserResponse> searchUsers(Long callerId, String q, Integer page, Integer size) {
         List<User> found = userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q);
-        return scopeVisible(callerId, found).stream().map(UserResponse::from).toList();
+        return paginate(scopeVisible(callerId, found), page, size)
+                .stream().map(UserResponse::from).toList();
+    }
+
+    // 스코프(메모리 필터) 결과를 페이지로 자른다 (P8-4). size 미지정 시 전체(호환).
+    private static <T> List<T> paginate(List<T> list, Integer page, Integer size) {
+        if (size == null) return list;
+        int s = Math.min(Math.max(size, 1), 200);
+        int from = Math.min(Math.max(page == null ? 0 : page, 0) * s, list.size());
+        return list.subList(from, Math.min(from + s, list.size()));
     }
 
     public List<UserResponse> getUsersByIds(List<Long> ids) {
@@ -66,8 +75,8 @@ public class UserService {
     }
 
     /** 사용자 목록 조회 (참여 회의체 title 포함) — 디렉터리 가시성 스코프 적용 (MT-3) */
-    public List<UserResponse> getAllUsers(Long callerId) {
-        List<User> users = scopeVisible(callerId, userRepository.findAll());
+    public List<UserResponse> getAllUsers(Long callerId, Integer page, Integer size) {
+        List<User> users = paginate(scopeVisible(callerId, userRepository.findAll()), page, size);
         List<MeetingMember> allMembers = meetingMemberRepository.findAll();
 
         // meetingId → title 맵 (한 번만 조회)

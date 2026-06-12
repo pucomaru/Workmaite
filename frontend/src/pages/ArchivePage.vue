@@ -1445,9 +1445,12 @@ function personTasks(node) {
 // report 노드 → 연관 과제(아젠다) 목록
 function reportRelatedAgendas(node) {
   if (!node) return []
-  const ids = (node.data?.related_agenda_ids || []).map(String)
-  if (!ids.length) return []
-  return gNodesRef.value.filter(n => n.type === 'agenda' && ids.includes(String(n.data?.id)))
+  // related_agenda_ids는 'agenda-263' 또는 263 혼재 → 끝의 숫자만 비교 (UX-3/5: ID 형식 불일치로
+  // 항상 빈 목록이 되던 버그 수정). 노드 data.id도 동일 방식으로 정규화.
+  const norm = v => String(v ?? '').match(/\d+$/)?.[0] ?? ''
+  const ids = new Set((node.data?.related_agenda_ids || []).map(norm).filter(Boolean))
+  if (!ids.size) return []
+  return gNodesRef.value.filter(n => n.type === 'agenda' && ids.has(norm(n.data?.id)))
 }
 
 // ─── Upload: AI analysis state ────────────────────────────────

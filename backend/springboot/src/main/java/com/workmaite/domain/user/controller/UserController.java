@@ -49,9 +49,11 @@ public class UserController {
     // 사용자 검색 - 이름 또는 이메일로 검색 (내 회사 + 공유 회의체 스코프, MT-3)
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<UserResponse>>> searchUsers(
-            Authentication authentication, @RequestParam String q) {
+            Authentication authentication, @RequestParam String q,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
         Long callerId = Long.parseLong(authentication.getName());
-        return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(callerId, q)));
+        return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(callerId, q, page, size)));
     }
 
     // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용
@@ -65,9 +67,12 @@ public class UserController {
 
     // 사용자 목록 (내 회사 + 공유 회의체 스코프, MT-3)
     @GetMapping
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers(Authentication authentication) {
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers(
+            Authentication authentication,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
         Long callerId = Long.parseLong(authentication.getName());
-        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId)));
+        return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId, page, size)));
     }
 
     // 역할 변경 (COMPANY_ADMIN 부여/회수) — SYSTEM_ADMIN만
