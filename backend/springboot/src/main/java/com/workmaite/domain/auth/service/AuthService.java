@@ -8,6 +8,7 @@ import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.auth.JwtTokenProvider;
+import com.workmaite.global.auth.LegacyPbkdf2Verifier;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -54,7 +55,13 @@ public class AuthService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        if (LegacyPbkdf2Verifier.isLegacy(user.getPasswordHash())) {
+            // 구 FastAPI 가입자: pbkdf2 검증 후 성공 시 BCrypt로 재해시 (점진 마이그레이션)
+            if (!LegacyPbkdf2Verifier.matches(request.getPassword(), user.getPasswordHash())) {
+                throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+            }
+            user.updatePassword(passwordEncoder.encode(request.getPassword()));
+        } else if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
 

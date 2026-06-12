@@ -21,7 +21,6 @@ from websocket_manager import manager
 from auth import get_current_user
 
 from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
-from routers import auth as auth_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
@@ -114,8 +113,7 @@ app.add_middleware(
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
-# 라우터
-app.include_router(auth_router.router)
+# 라우터 — 인증(가입/로그인/토큰 발급)은 Spring 단일 주체, FastAPI는 검증만 (P1-1)
 app.include_router(supervisor.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)

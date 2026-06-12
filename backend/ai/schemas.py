@@ -4,20 +4,7 @@ from pydantic import BaseModel, Field, ConfigDict, AliasChoices
 
 
 # ── User (users) ──────────────────────────────────────────────────────────────
-class UserCreate(BaseModel):
-    name: str
-    email: str
-    password: str
-    company: Optional[str] = None
-    department: Optional[str] = None
-    position: Optional[str] = None
-
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
-
-
+# 인증(가입/로그인/토큰 발급)은 Spring이 단일 주체 — FastAPI는 JWT 검증만 수행 (P1-1)
 class UserOut(BaseModel):
     id: int
     name: str
@@ -28,11 +15,6 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class Token(BaseModel):
-    accessToken: str
-    user: UserOut
 
 
 # ── Meeting (meetings) ────────────────────────────────────────────────────────
