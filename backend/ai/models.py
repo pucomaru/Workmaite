@@ -188,6 +188,8 @@ class AgentLog(Base):
     reasoning_steps = Column(JSON, nullable=True)
     loop_count      = Column(Integer, default=0)
     error_message   = Column(Text, nullable=True)
+    # LangChain 루트 run id — LangSmith 트레이스 점프용 (P3A-3)
+    trace_id        = Column(String(64), nullable=True)
     ended_at        = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
 
