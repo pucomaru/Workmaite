@@ -34,8 +34,10 @@ public class ScriptController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<ScriptResponse>>> getScripts(
-            @PathVariable Long sessionId) {
-        return ResponseEntity.ok(ApiResponse.ok(scriptService.getScripts(sessionId)));
+            @PathVariable Long sessionId,
+            @RequestParam(required = false) Double afterSec,
+            @RequestParam(required = false) Integer limit) {
+        return ResponseEntity.ok(ApiResponse.ok(scriptService.getScripts(sessionId, afterSec, limit)));
     }
 
     @PatchMapping

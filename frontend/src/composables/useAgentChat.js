@@ -96,7 +96,7 @@ export function useAgentChat({
       return
     }
     try {
-      const res = await api.get('/api/v1/chat/messages', { params: { threadId } })
+      const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100 } })  // P8-2: 초기 로드 상한 (과거 페이지는 P8-6)
       // 인터셉터가 ApiResponse를 언랩하므로 res.data 가 바로 List<ChatMessageResponse>
       const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
       if (messages.length === 0) {

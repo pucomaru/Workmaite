@@ -25,13 +25,15 @@ public class ChatMessageController {
     @GetMapping("/chat/messages")
     public ResponseEntity<ApiResponse<List<ChatMessageResponse>>> getChatHistory(
             Authentication authentication,
-            @RequestParam String threadId) {
+            @RequestParam String threadId,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Integer limit) {
         Long userId = Long.parseLong(authentication.getName());
         if (!isAccessible(threadId, userId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResponse.fail("접근 권한이 없습니다."));
         }
-        return ResponseEntity.ok(ApiResponse.ok(chatMessageService.getHistory(threadId)));
+        return ResponseEntity.ok(ApiResponse.ok(chatMessageService.getHistory(threadId, beforeId, limit)));
     }
 
     /**
