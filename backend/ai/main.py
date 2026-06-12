@@ -95,6 +95,8 @@ async def lifespan(app: FastAPI):
     await init_checkpointer()  # HITL 영속화 (P3A-1) — 그래프 compile 전에 준비
     await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
+    from retrieval_registry import ensure_fulltext_indexes
+    await ensure_fulltext_indexes()  # 하이브리드 검색용 (P3B-6)
 
     asyncio.create_task(_startup_sync_task())
     retry_task = asyncio.create_task(_periodic_retry_task())

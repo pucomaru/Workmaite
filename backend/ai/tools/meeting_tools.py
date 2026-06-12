@@ -133,8 +133,8 @@ async def search_minutes(query: str, config: RunnableConfig) -> str:
     """과거 회의록을 의미 검색한다. 접근 가능한 회의체의 회의록만 대상."""
     _, allowed, is_admin = _scope(config)
     try:
-        from retrieval_registry import vector_search  # 인덱스명·스코프·0건 메트릭 단일 관리 (P3B-6)
-        rows = await vector_search(
+        from retrieval_registry import hybrid_search  # 벡터+풀텍스트 RRF (P3B-6 2단계)
+        rows = await hybrid_search(
             "Minutes", query, k=3,
             meeting_ids=None if is_admin else list(allowed),
         )

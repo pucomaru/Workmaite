@@ -27,6 +27,7 @@ REGISTRY: dict[str, dict] = {
     "Session":       {"index": "sessionEmbedding",       "legacy": [], "scope": "rel",
                       "fields": "node.title AS title, node.description AS content"},
     "Agenda":        {"index": "agendaEmbedding",        "legacy": [], "scope": "rel",
+                      "fulltext": {"index": "agendaFulltext", "props": ["title"]},
                       "fields": "node.title AS title, node.status AS status, node.department AS department"},
     # Minutes는 구형 노드에 meeting_id 프로퍼티가 없어(2-hop 관계만 존재) 결합 스코프 사용
     "Minutes":       {"index": "minutesEmbedding",       "legacy": ["minutes_embedding_index"],
@@ -34,12 +35,15 @@ REGISTRY: dict[str, dict] = {
                       "scope_cypher": ("WHERE node.meeting_id IN $mids "
                                        "OR EXISTS { MATCH (node)-[:기록]->(:Session)--(mg:Meetings) "
                                        "WHERE mg.pg_id IN $mids } "),
+                      "fulltext": {"index": "minutesFulltext", "props": ["title", "content_summary"]},
                       "fields": "node.title AS title, node.content_summary AS summary, node.content AS content"},
     "MinutesChunk":  {"index": "minutesChunkEmbedding",  "legacy": [], "scope": None,
                       "fields": "node.text AS content"},
     "Report":        {"index": "reportEmbedding",        "legacy": [], "scope": "prop",
+                      "fulltext": {"index": "reportFulltext", "props": ["file_name"]},
                       "fields": "node.file_name AS title, node.human_status AS status"},
     "ReportChunk":   {"index": "reportChunkEmbedding",   "legacy": [], "scope": None,
+                      "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
                       "fields": "node.text AS content, node.title AS title"},
     "HumanJudgment": {"index": "humanJudgmentEmbedding", "legacy": [], "scope": None,
                       "fields": "node.judgment AS title, node.reason AS content"},
@@ -125,3 +129,84 @@ async def vector_search(
         RETRIEVAL_ZERO_RESULTS.labels(real_label).inc()
         logger.warning(f"[Retrieval] {real_label} 검색 0건 (query={query[:40]!r})")
     return rows
+
+
+async def ensure_fulltext_indexes() -> None:
+    """풀텍스트 인덱스 생성 (P3B-6 2단계, 시작 시 1회) — 제목·고유명사 검색 보강."""
+    from neo4j_client import run_cypher
+
+    for label, e in REGISTRY.items():
+        ft = e.get("fulltext") if "alias" not in e else None
+        if not ft:
+            continue
+        props = ", ".join(f"n.{p}" for p in ft["props"])
+        try:
+            await run_cypher(
+                f"CREATE FULLTEXT INDEX {ft['index']} IF NOT EXISTS "
+                f"FOR (n:{label}) ON EACH [{props}]"
+            )
+        except Exception as ex:
+            logger.warning(f"[Retrieval] 풀텍스트 인덱스 {ft['index']} 생성 실패 (무시): {ex}")
+
+
+def _rrf(rank: int, k: int = 60) -> float:
+    return 1.0 / (k + rank)
+
+
+async def hybrid_search(
+    label: str,
+    query: str,
+    k: int = 5,
+    meeting_ids: list[int] | None = None,
+) -> list[dict]:
+    """벡터 + 풀텍스트 RRF 결합 검색 (P3B-6 2단계).
+
+    벡터는 의미 유사, 풀텍스트는 제목·고유명사 정확 일치에 강하다.
+    풀텍스트 미정의 라벨이면 벡터 단독으로 동작한다. 결과 행에 rrf 점수 포함.
+    """
+    from neo4j_client import run_cypher
+
+    real_label, entry = _resolve(label)
+    vec_rows = await vector_search(label, query, k=max(k * 2, 10), meeting_ids=meeting_ids)
+
+    ft = entry.get("fulltext")
+    ft_rows: list[dict] = []
+    if ft and query.strip():
+        # Lucene 특수문자 이스케이프 후 OR 검색
+        import re as _re
+        safe = _re.sub(r'[+\-&|!(){}\[\]^"~*?:\\/]', " ", query)[:100].strip()
+        if safe:
+            try:
+                ft_rows = await run_cypher(
+                    f"CALL db.index.fulltext.queryNodes('{ft['index']}', $q) "
+                    f"YIELD node, score "
+                    f"RETURN {entry['fields']}, score LIMIT $k2",
+                    {"q": safe, "k2": max(k * 2, 10)},
+                )
+            except Exception as ex:
+                logger.warning(f"[Retrieval] 풀텍스트 검색 실패 (벡터 단독 진행): {ex}")
+
+    # RRF 결합 — title+content 기준으로 동일 문서 판별
+    def _key(r: dict) -> str:
+        return f"{r.get('title')}|{str(r.get('content') or r.get('summary') or '')[:80]}"
+
+    scores: dict[str, float] = {}
+    docs: dict[str, dict] = {}
+    for rank, r in enumerate(vec_rows):
+        kkey = _key(r)
+        scores[kkey] = scores.get(kkey, 0.0) + _rrf(rank)
+        docs.setdefault(kkey, r)
+    for rank, r in enumerate(ft_rows):
+        kkey = _key(r)
+        scores[kkey] = scores.get(kkey, 0.0) + _rrf(rank)
+        docs.setdefault(kkey, r)
+
+    merged = sorted(scores.items(), key=lambda x: -x[1])[:k]
+    out = []
+    for kkey, s in merged:
+        row = dict(docs[kkey])
+        row["rrf"] = round(s, 5)
+        out.append(row)
+    if not out:
+        RETRIEVAL_ZERO_RESULTS.labels(real_label).inc()
+    return out
