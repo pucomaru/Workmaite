@@ -5,7 +5,7 @@ import AgentComposer from './AgentComposer.vue'
 
 const {
   SUPERVISOR, agentInfo, agentSidebarOpen, clearAgentChat,
-  agentMessagesEl, currentMessages, agentLoading, stopAgentResponse,
+  agentMessagesEl, currentMessages, agentLoading, stopAgentResponse, loadOlderMessages,
   atMenuOpen, atMenuItems, atHighlight, AT_TYPE_LABELS, selectAtItem,
   agentPendingFiles, mentionedContexts, removeMentionCtx,
   agentTextareaEl, agentInput, onAgentInput, onAgentKeydown,
@@ -82,7 +82,8 @@ function onResizeEnd() {
           </div>
         </div>
         <!-- Messages -->
-        <div ref="agentMessagesEl" class="agent-messages">
+        <div ref="agentMessagesEl" class="agent-messages"
+             @scroll="$event.target.scrollTop < 40 && loadOlderMessages()">
           <div v-for="(msg,i) in currentMessages" :key="i" class="agent-msg-row" :class="msg.role === 'planning' ? 'planning' : msg.role">
 
             <!-- 사고 과정 블록 -->

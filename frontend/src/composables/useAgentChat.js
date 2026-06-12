@@ -89,6 +89,33 @@ export function useAgentChat({
   }
 
   // ─── 채팅 히스토리 로드 (Spring Boot GET) ─────────────────────
+  // 상단 스크롤 시 이전 페이지 로드 (P8-6, keyset beforeId)
+  let _loadingOlder = false
+  let _historyExhausted = false
+
+  async function loadOlderMessages() {
+    const list = allMessages.value['supervisor'] || []
+    const first = list.find(m => m.id)
+    if (!first || _loadingOlder || _historyExhausted) return
+    _loadingOlder = true
+    try {
+      const threadId = getThreadId()
+      const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100, beforeId: first.id } })
+      const older = (Array.isArray(res.data) ? res.data : []).map(m => ({
+        id: m.id,
+        role: m.role === 'assistant' ? 'agent' : m.role,
+        content: m.content,
+      }))
+      if (!older.length) { _historyExhausted = true; return }
+      const el = agentMessagesEl.value
+      const prevHeight = el ? el.scrollHeight : 0
+      list.unshift(...older)
+      await nextTick()
+      if (el) el.scrollTop = el.scrollHeight - prevHeight // 보던 위치 유지
+    } catch { /* 다음 스크롤에서 재시도 */ }
+    finally { _loadingOlder = false }
+  }
+
   async function loadChatHistory() {
     const threadId = getThreadId()
     if (!threadId) {
@@ -104,6 +131,7 @@ export function useAgentChat({
       } else {
         // DB의 role: 'user' | 'assistant' → UI: 'user' | 'agent'
         allMessages.value['supervisor'] = messages.map(m => ({
+          id: m.id, // loadMore 커서용 (P8-6)
           role: m.role === 'assistant' ? 'agent' : m.role,
           content: m.content,
         }))
@@ -388,6 +416,7 @@ export function useAgentChat({
     agentInput, agentLoading, agentMessagesEl, agentFileInput, agentPendingFiles, agentTextareaEl,
     stopAgentResponse,
     getThreadId,
+    loadOlderMessages,
     atMenuOpen, atQuery, atCursorPos, atHighlight, mentionedContexts,
     AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
     onAgentInput, selectAtItem, removeMentionCtx, initAgentGreeting,
