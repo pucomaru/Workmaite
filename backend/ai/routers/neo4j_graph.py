@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from database import get_db
+from neo4j_ids import to_mg_id
 
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
@@ -98,7 +99,7 @@ async def get_archive(
 
     # ── Postgres: 현재 유저의 소속 meeting_id 목록 (빠른 단순 조회) ──
     pg_meeting_ids = {
-        f"mg-{row.meeting_id}"
+        to_mg_id(row.meeting_id)
         for row in db.query(models.MeetingMember.meeting_id)
                      .filter(models.MeetingMember.user_id == current_user.id)
                      .all()
@@ -467,7 +468,7 @@ async def get_archive(
         for sid in meetings_map:
             meetings_map[sid]["reports"] = []
         for r, hr, rs in rows:
-            sid = f"mg-{r.meeting_id}"
+            sid = to_mg_id(r.meeting_id)
             if sid not in meetings_map:
                 continue
             meetings_map[sid]["reports"].append({
@@ -580,7 +581,7 @@ async def get_archive(
         raw_ids = [int(mid.replace("mg-", "")) for mid in missing_pg_ids if mid.replace("mg-", "").isdigit()]
         pg_meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(raw_ids)).all()
         for m in pg_meetings:
-            sid = f"mg-{m.id}"
+            sid = to_mg_id(m.id)
             members_db = (
                 db.query(models.MeetingMember, models.User)
                 .join(models.User, models.User.id == models.MeetingMember.user_id)

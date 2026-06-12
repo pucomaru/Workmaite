@@ -15,6 +15,7 @@ from langgraph.graph.message import add_messages
 from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
+from neo4j_ids import to_agenda_id, to_mg_id, to_minutes_id
 
 from routers.prompts import (
     KNOWLEDGE_SYSTEM,
@@ -109,7 +110,7 @@ async def store_minutes(
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
-    node_id = f"minutes-{uuid.uuid4().hex[:8]}"
+    node_id = to_minutes_id(uuid.uuid4().hex[:8])
     embedding = await _embed(content)
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -157,7 +158,7 @@ async def store_task(
     from neo4j_client import run_cypher
 
     await ensure_vector_indexes()
-    node_id = f"agenda-{uuid.uuid4().hex[:8]}"
+    node_id = to_agenda_id(uuid.uuid4().hex[:8])
     embedding = await _embed(content)
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -249,7 +250,7 @@ async def store_report(
                 """MATCH (c:ReportChunk {id: $cid})
                    MATCH (mg:Meetings {id: $mg_id})
                    MERGE (c)-[:BELONGS_TO]->(mg)""",
-                {"cid": node_id, "mg_id": f"mg-{meeting_id}"},
+                {"cid": node_id, "mg_id": to_mg_id(meeting_id)},
             )
         except Exception:
             pass

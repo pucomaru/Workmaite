@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from database import SessionLocal
 from neo4j_client import run_cypher
+from neo4j_ids import to_agenda_id, to_hj_id, to_mg_id, to_report_id, to_session_id
 
 EMBED_DIM = 1536
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
@@ -252,7 +253,7 @@ async def sync_meeting_member(
     try:
         await run_cypher(cypher, {
             "user_id": user_id,
-            "mg_id":   f"mg-{meeting_id}",
+            "mg_id":   to_mg_id(meeting_id),
             "role":    role,
         })
     except Exception as e:
@@ -269,7 +270,7 @@ async def delete_meeting_member(
     DELETE r
     """
     try:
-        await run_cypher(cypher, {"user_id": user_id, "mg_id": f"mg-{meeting_id}"})
+        await run_cypher(cypher, {"user_id": user_id, "mg_id": to_mg_id(meeting_id)})
     except Exception as e:
         logger.error(f"[Neo4jSync] delete_meeting_member 실패 (meeting_id={meeting_id}, user_id={user_id}): {e}")
 
@@ -287,7 +288,7 @@ async def update_meeting_member_role(
     try:
         await run_cypher(cypher, {
             "user_id": user_id,
-            "mg_id":   f"mg-{meeting_id}",
+            "mg_id":   to_mg_id(meeting_id),
             "role":    role,
         })
     except Exception as e:
@@ -310,7 +311,7 @@ async def sync_meeting_group(
     created_at: str | None = None,
 ) -> None:
     """Meetings 노드를 Neo4j에 upsert합니다."""
-    mg_id = f"mg-{meeting_id}"
+    mg_id = to_mg_id(meeting_id)
     cypher = """
     MERGE (mg:Meetings {id: $id})
     SET mg.pg_id       = $pg_id,
@@ -377,8 +378,8 @@ async def sync_session(
     attendees: list[dict] = [],
 ) -> None:
     """Session 노드를 Neo4j에 upsert하고 Meetings과 관계를 맺습니다."""
-    mg_id = f"mg-{meeting_id}"
-    s_id  = f"session-{session_id}"
+    mg_id = to_mg_id(meeting_id)
+    s_id  = to_session_id(session_id)
     cypher = """
     MERGE (s:Session {id: $id})
     SET s.pg_id        = $pg_id,
@@ -454,9 +455,9 @@ async def sync_agenda(
     created_at: str | None = None,
 ) -> None:
     """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다."""
-    ag_id = f"agenda-{agenda_id}"
-    mg_id = f"mg-{meeting_id}"
-    s_id  = f"session-{session_id}" if session_id else None
+    ag_id = to_agenda_id(agenda_id)
+    mg_id = to_mg_id(meeting_id)
+    s_id  = to_session_id(session_id) if session_id else None
     cypher = """
     MERGE (ag:Agenda {id: $id})
     SET ag.pg_id        = $pg_id,
@@ -544,7 +545,7 @@ async def sync_minutes(
     generated_at: str | None = None,
 ) -> None:
     """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다."""
-    s_id = f"session-{session_id}"
+    s_id = to_session_id(session_id)
     cypher = """
     MERGE (mn:Minutes {pg_id: $pg_id})
     SET mn.session_id       = $session_id,
@@ -606,8 +607,8 @@ async def sync_report(
     created_at: str | None = None,
 ) -> None:
     """Report 노드를 upsert하고 Meetings에 [:첨부] 관계로 연결합니다."""
-    report_neo_id = f"report-{report_id}"
-    mg_id = f"mg-{meeting_id}"
+    report_neo_id = to_report_id(report_id)
+    mg_id = to_mg_id(meeting_id)
     cypher = """
     MERGE (r:Report {id: $id})
     SET r.pg_id                = $pg_id,
@@ -671,7 +672,7 @@ async def sync_human_judgment(
     created_at: str | None = None,
 ) -> None:
     """HumanJudgment 노드를 upsert하고 Meetings / reviewer와 연결합니다."""
-    hj_id = f"hj-{review_id}"
+    hj_id = to_hj_id(review_id)
     cypher = """
     MERGE (hj:HumanJudgment {id: $id})
     SET hj.pg_id        = $pg_id,
@@ -709,7 +710,7 @@ async def sync_human_judgment(
         "ai_rationale": ai_rationale or "",
         "judged_at": judged_at or "",
         "created_at": created_at or "",
-        "mg_id": f"mg-{meeting_id}" if meeting_id else "",
+        "mg_id": to_mg_id(meeting_id) if meeting_id else "",
         "reviewer_id": reviewer_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -753,7 +754,7 @@ async def vector_search_node(
     return_clause = ", ".join(f"n.{p} AS {p}" for p in return_props)
 
     if meeting_id is not None:
-        mg_id = f"mg-{meeting_id}"
+        mg_id = to_mg_id(meeting_id)
         cypher = f"""
         CALL db.index.vector.queryNodes('{index_name}', $top_k, $embedding)
         YIELD node AS n, score
@@ -797,8 +798,8 @@ async def sync_meeting_relation(
     """
     try:
         await run_cypher(cypher, {
-            "src_id": f"mg-{source_meeting_id}",
-            "tgt_id": f"mg-{target_meeting_id}",
+            "src_id": to_mg_id(source_meeting_id),
+            "tgt_id": to_mg_id(target_meeting_id),
         })
     except Exception as e:
         logger.error(f"[Neo4jSync] MeetingRelation 실패: {e}")
@@ -812,15 +813,15 @@ async def sync_meeting_relation(
 # — 예외를 삼키지 않고 전파한다. fire-and-forget이 필요한 호출자는 스스로 감싼다.
 async def delete_meeting(meeting_id: int) -> None:
     await run_cypher("MATCH (mg:Meetings {id: $id}) DETACH DELETE mg",
-                     {"id": f"mg-{meeting_id}"})
+                     {"id": to_mg_id(meeting_id)})
 
 async def delete_session(session_id: int) -> None:
     await run_cypher("MATCH (s:Session {id: $id}) DETACH DELETE s",
-                     {"id": f"session-{session_id}"})
+                     {"id": to_session_id(session_id)})
 
 async def delete_agenda(agenda_id: int) -> None:
     await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
-                     {"id": f"agenda-{agenda_id}"})
+                     {"id": to_agenda_id(agenda_id)})
 
 
 # ─── 실패 재시도 ──────────────────────────────────────────────────────────────

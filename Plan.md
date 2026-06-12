@@ -702,7 +702,7 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [ ] Phase 5 관측성/비용
 - [ ] Phase 6 평가 체계
 - [ ] Phase 7 코드 품질/UX
-- [~] Phase 8 페이지네이션 — P8-2/3 keyset(호환 모드) 완료, PG-8 오진 정정 (2026-06-12). 잔여: P8-1 공통 계약 문서화, P8-4/5 목록 API, P8-6 loadMore UI, P8-7 시드 측정
+- [~] Phase 8 페이지네이션 — P8-1 규약 문서·P8-2/3 keyset·P8-4(meetings page/size)·P8-5(/users/all N+1 제거+limit) 완료, PG-8 오진 정정 (2026-06-12). 잔여: users/검색 목록 Pageable, P8-6 loadMore UI, P8-7 시드 측정
 
 ---
 
