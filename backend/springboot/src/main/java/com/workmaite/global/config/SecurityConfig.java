@@ -44,6 +44,7 @@ public class SecurityConfig {
             // 요청별 권한 설정
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()      // 로그인/회원가입
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/invitations/*").permitAll() // 초대 검증(가입 전, P1-7②)
                 .requestMatchers("/actuator/**").permitAll()        // actuator (prometheus, health 등)
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // Swagger
                 .requestMatchers("/", "/error").permitAll()          // 루트/에러
