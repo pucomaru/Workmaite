@@ -133,7 +133,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 **아카이브/보고서 검토 흐름**
 - [ ] UX-1 `진행중` 클릭 시 AI 검토 결과가 있는 파일/없는 파일 동작 불일치 — 검토 결과 없으면 안내 문구 표시
 - [ ] UX-2 검토 결과 없는 파일이 `참고자료`로 바뀌는 동작의 의도 명확화
-- [ ] UX-3 보고서 승인 후 "연관 아젠다 연결"이 `agenda-263` 같은 내부 ID로 노출 → 아젠다 제목 표시 (근본 원인: DATA-7 related_agenda_ids JSON)
+- [x] UX-3/5 (2026-06-12): reportRelatedAgendas ID 형식 불일치 버그 수정 — 연관 아젠다가 제목으로 표시, 없으면 안내 문구.
 - [ ] UX-4 "아카이브 등록 완료" 클릭 시 AI 검토 결과 없이 결과 리뷰가 바로 뜨는 흐름 정리
 - [ ] UX-5 연관 과제 연결 정보 미표시 — 데이터 없으면 "연관 과제 없음" 표기
 - [ ] UX-6 일부 회의록 파일 다운로드 실패 (file_path R2 URL 만료/presign 문제 추정 — `upload.py`/`r2_storage.py` 확인)
@@ -338,14 +338,14 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [~] P3C-1 **비용 상한 — 완료 (2026-06-12)**: 일일 토큰 예산을 PG 집계(token_usage_logs)로 판정. 분당 rate limit은 **사용자 결정으로 제외**. 동시 1개 세마포어는 잔여. 원계획: **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
 - [~] P3C-2 **idempotency — 백엔드 완료 (2026-06-12)**: HITL confirm 2종+아젠다 commit 중복 차단(409, 실패 시 키 해제 — E2E 검증). 잔여: 프론트 버튼 더블클릭 가드. 원계획: **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
 - [~] P3C-3 **피드백 루프 — 수집부 완료 (2026-06-12)**: V8 chat_feedback + POST /api/agent/feedback + 👍/👎 UI(👎 사유 수집). E2E 검증. 잔여: eval 데이터셋 환류 자동화(P6-4), HITL 반려 사유 통합.
-- [ ] P3C-4 출력 가드레일(H-12): 쓰기 도구는 HITL interrupt 필수 유지, 근거 없는 단정 답변 방지 지침, (선택) 입력 모더레이션.
+- [x] P3C-4 (2026-06-12): supervisor 프롬프트 가드레일(날조·미확인 단정 금지, 쓰기 도구 없음)+분석 동시 1 세마포어(429). 쓰기는 HITL interrupt 유지.
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
 - [ ] P4-1 **청크 diarization 폐기**: gcapi를 v2 `StreamingRecognize`(또는 긴 녹음은 GCS 업로드 + batch `latest_long`/chirp) 로 전환해 세션 전체에 일관된 화자 태그 확보. 불가하면 WhisperX(전구간 pyannote) 경로를 기본으로.
 - [x] P4-2 원본 오디오 R2 보존 (2026-06-12, sessions/{id}/audio/). 보존기간 정책 문서화는 잔여. ~~원계획~~: 청크를 R2에 append 저장(`sessions/{id}/audio/...`), 실패 시 재처리 큐. 보존 기간 정책(예: 회의록 확정 후 30일) 문서화 — 개인정보 관점 필수.
 - [x] P4-3 STT 폴백 체인(→localwhisper)+전실패 502+프론트 재시도/알림 (2026-06-12). ~~원계획~~(에러 응답 + 프론트 재시도 UI), 5xx 시 provider 폴백 체인(gcapi→whisperx).
 - [x] P4-4 **부분 (2026-06-12)**: align model 언어별 1회 캐시+ko 워밍업, batch_size 8. 잔여: 요청 큐(동시 1) 보호.
-- [ ] P4-5 화자→사용자 매핑 보조: 세션 멤버 목록 기반 라벨 지정 UI 개선 + (선택) 화자 임베딩 기반 자동 제안.
+- [x] P4-5 (2026-06-12): SessionPage 화자 범례+클릭 이름 지정(세션별 localStorage), 스크립트가 실명 표시. 화자 임베딩 자동 제안은 선택 잔여.
 - [ ] P4-6 STT 정확도 측정: 테스트 음성(대본 있는 회의 녹음) WER/화자 DER 측정 스크립트 작성, provider별 비교 리포트.
 
 ### Phase 5 — 관측성/비용/알림 (3–4일) 🟡
@@ -702,7 +702,7 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [ ] Phase 5 관측성/비용
 - [ ] Phase 6 평가 체계
 - [ ] Phase 7 코드 품질/UX
-- [~] Phase 8 페이지네이션 — P8-1 규약 문서·P8-2/3 keyset·P8-4(meetings page/size)·P8-5(/users/all N+1 제거+limit) 완료, PG-8 오진 정정 (2026-06-12). P8-6 채팅 loadMore·P8-7 시드 측정 완료(2026-06-12 — 5,000건 기준 전체 136ms/887KB vs keyset 32ms/17KB, 4.2배). 잔여: users/검색 목록 Pageable, STT 증분 UI
+- [~] Phase 8 페이지네이션 — P8-1 규약 문서·P8-2/3 keyset·P8-4(meetings page/size)·P8-5(/users/all N+1 제거+limit) 완료, PG-8 오진 정정 (2026-06-12). P8-6 채팅 loadMore·P8-7 시드 측정 완료(2026-06-12 — 5,000건 기준 전체 136ms/887KB vs keyset 32ms/17KB, 4.2배). users/검색 목록 Pageable 완료(2026-06-12). 잔여: STT 증분 UI(P4 화면)
 
 ---
 
