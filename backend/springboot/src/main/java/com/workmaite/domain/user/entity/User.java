@@ -45,6 +45,18 @@ public class User {
     @Builder.Default
     private UserRole role = UserRole.USER;
 
+    // 회사 정규화 FK (P1-7②, MT-4) — company 문자열은 과도기 유지
+    @Column(name = "company_id")
+    private Long companyId;
+
+    @Column(name = "must_change_password", nullable = false)
+    @Builder.Default
+    private boolean mustChangePassword = false;
+
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private boolean isActive = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -71,5 +83,10 @@ public class User {
 
     public void updatePassword(String encodedPassword) {
         this.passwordHash = encodedPassword;
+        this.mustChangePassword = false; // 변경 완료 — 강제 플래그 해제 (P1-7②)
+    }
+
+    public void assignCompany(Long companyId) {
+        this.companyId = companyId;
     }
 }

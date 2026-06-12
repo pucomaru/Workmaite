@@ -1,4 +1,7 @@
 <script setup>
+// 초대 링크(?invite=&email=)로 진입 시 자동 프리필 (P1-7②)
+const _params = new URLSearchParams(window.location.search)
+const inviteToken = _params.get('invite') || ''
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -8,7 +11,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const step = ref(1)
-const form = ref({ email: '', name: '', password: '', confirm: '', company: '', department: '', position: '' })
+const form = ref({ email: _params.get('email') || '', name: '', password: '', confirm: '', company: '', department: '', position: '' })
 const error = ref('')
 const loading = ref(false)
 const showPw = ref(false)
@@ -52,6 +55,7 @@ async function submit() {
       company: form.value.company,
       department: form.value.department,
       position: form.value.position,
+      inviteToken: inviteToken || undefined, // 초대 가입 (P1-7②) — 회사 자동 연결
     })
     await auth.loginWithEmail(form.value.email, form.value.password)
     step.value = 2
