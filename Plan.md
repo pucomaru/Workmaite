@@ -258,7 +258,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 | PG-5 | 🟡 | `UserController GET /users`(전체 사용자), `GET /users/search` | 사용자 디렉터리 무제한 — MT-3(전사 디렉터리 공개)과 같은 API. 스코프 축소(P1-7)와 페이지네이션을 한 작업으로. |
 | PG-6 | 🟡 | FastAPI `meetings.py:43`(전체 회의), `meetings.py:364-370`(전체 사용자 + **사용자별 멤버십 개별 쿼리 N+1**), `upload.py:105` | 관리/조회용 목록 라우트들이 `.all()` — N+1까지 겹쳐 사용자 수에 제곱 비례 비용. |
 | PG-7 | 🟡 | `neo4j_graph.py GET /archive` | 사용자 소속 그래프 **전체**를 한 응답으로(LIMIT 없는 Cypher 다수: Department 전체, 소속 회의체 전체와 하위 노드). 응답 크기가 데이터 증가에 정비례. |
-| PG-8 | 🟡 | `PastMeetingsPage.vue:15,36` | 프론트 N+1 HTTP: 전체 회의 조회 후 **회의마다** `GET /meetings/{id}/sessions` 개별 호출 — 회의 50개면 요청 51회. |
+| PG-8 | ~~🟡~~ | `PastMeetingsPage.vue` | ~~프론트 N+1 HTTP~~ **재확인 결과 오진(2026-06-12)**: 세션은 펼칠 때만 lazy-load — 수정 불필요. |
 | PG-9 | ⚪ | `AgentPanel.vue:130`, SessionPage 스크립트 영역 | 메시지/세그먼트 배열 전체를 `v-for` 렌더 — 증분 로드·가상 스크롤 없음(PG-1·2 해결의 프론트 짝). |
 | PG-10 | ⚪ | `ApiResponse.java`, FastAPI 응답 모델 | **페이지 응답 계약 자체가 부재**: envelope에 page/size/total/next_cursor 메타 필드 없음 — 개별 API를 고치기 전에 계약부터 정의해야 함. |
 
@@ -337,7 +337,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 **3C. 서비스 가드 (챗봇 운영 안전망)**
 - [~] P3C-1 **비용 상한 — 완료 (2026-06-12)**: 일일 토큰 예산을 PG 집계(token_usage_logs)로 판정. 분당 rate limit은 **사용자 결정으로 제외**. 동시 1개 세마포어는 잔여. 원계획: **rate limit & 비용 상한(H-7)**: 사용자별 분당 요청 제한 + 일일 토큰 예산(초과 시 안내 메시지). 구현: 현재 단일 replica이므로 **인메모리 카운터(slowapi 등)로 충분**, 일일 토큰 예산은 `token_usage_logs` 집계로 판정(Redis 불필요 — 2026-06-12 제거됨). 무거운 분석 엔드포인트는 사용자당 동시 1개 세마포어. 멀티 replica 확장 시 PG 기반 카운터로 전환.
 - [~] P3C-2 **idempotency — 백엔드 완료 (2026-06-12)**: HITL confirm 2종+아젠다 commit 중복 차단(409, 실패 시 키 해제 — E2E 검증). 잔여: 프론트 버튼 더블클릭 가드. 원계획: **idempotency(H-8)**: commit/confirm 엔드포인트에 `Idempotency-Key` 헤더(또는 proposal_id 기반 중복 차단), 프론트 버튼 더블클릭 가드.
-- [ ] P3C-3 **피드백 루프(H-9)**: 응답별 👍/👎+사유 수집(`chat_feedback` 테이블, §4.2) → P6 eval 데이터셋으로 환류. HITL 반려 사유도 동일 파이프라인.
+- [~] P3C-3 **피드백 루프 — 수집부 완료 (2026-06-12)**: V8 chat_feedback + POST /api/agent/feedback + 👍/👎 UI(👎 사유 수집). E2E 검증. 잔여: eval 데이터셋 환류 자동화(P6-4), HITL 반려 사유 통합.
 - [ ] P3C-4 출력 가드레일(H-12): 쓰기 도구는 HITL interrupt 필수 유지, 근거 없는 단정 답변 방지 지침, (선택) 입력 모더레이션.
 
 ### Phase 4 — STT/화자분리 품질 (1주) 🟠
