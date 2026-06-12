@@ -742,6 +742,25 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ('supervisor_direct', 'knowledge_manager'):
+                # P3A-5 2단계: 도구 기반 JIT 에이전트 — SUPERVISOR_TOOLS_MODE=react로 활성화
+                # (사전 조립 컨텍스트 경로와 eval 비교 후 기본 전환 예정, H-6/H-13)
+                from graphs.supervisor_graph import direct_agent_stream, react_mode_enabled
+                if react_mode_enabled():
+                    async for _kind, _text in direct_agent_stream(
+                        msg,
+                        _to_base_messages(_chat_history_from_db),
+                        user_id=current_user.id,
+                        allowed_meeting_ids=list(pg_meeting_ids),
+                        is_admin=is_admin,
+                        meeting_id=data.meeting_id or None,
+                    ):
+                        if _kind == "planning":
+                            yield sse_event("planning", _text)
+                        else:
+                            yield sse_token(_text)
+                    yield sse_done()
+                    return
+
                 yield sse_event("planning", "Knowledge Base에서 관련 자료 검색 중...")
 
                 _kb_results: list[dict] = []
