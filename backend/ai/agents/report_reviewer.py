@@ -2,7 +2,7 @@ import os, json, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
-from llm_factory import llm_factory
+from llm_factory import StructuredOutputError, ainvoke_structured, llm_factory
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -50,6 +50,42 @@ class ReviewFeedbackItem(BaseModel):
 class ReviewResult(BaseModel):
     score: int = Field(..., ge=0, le=100, description="보고서 점수 (0-100)")
     feedback: List[str] = Field(default_factory=list, description="구체적인 피드백 항목들")
+
+
+class ElementScore(BaseModel):
+    """12대 필수요소 개별 평가 (P3A-2)."""
+    id: int = Field(0, description="요소 번호 1-12")
+    name: str = Field("", description="요소 이름")
+    present: bool = Field(False, description="요소 존재 여부")
+    score: int = Field(0, ge=0, le=100, description="present=false면 0")
+    comment: str = Field("", description="평가 코멘트")
+
+
+class ReviewPrinciples(BaseModel):
+    """5대 보고 원칙 충족 여부."""
+    so_what: bool = False
+    one_page_one_message: bool = False
+    data_based: bool = False
+    decision_focused: bool = False
+    concise: bool = False
+
+
+class ProposedReview(BaseModel):
+    """HITL 검토 제안 (review_propose_prompt의 JSON 스펙)."""
+    score: int = Field(..., ge=0, le=100)
+    feedback: List[str] = Field(default_factory=list)
+    element_scores: List[ElementScore] = Field(default_factory=list)
+    missing_elements: List[str] = Field(default_factory=list)
+    improvement_suggestions: List[str] = Field(default_factory=list)
+
+
+class DirectReview(BaseModel):
+    """직접 검토 (review_direct_prompt의 JSON 스펙)."""
+    score: int = Field(..., ge=0, le=100)
+    feedback: List[str] = Field(default_factory=list)
+    element_scores: List[ElementScore] = Field(default_factory=list)
+    principles: ReviewPrinciples = Field(default_factory=ReviewPrinciples)
+    missing_elements: List[str] = Field(default_factory=list)
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────
@@ -152,23 +188,14 @@ async def _review_propose_node(state: ReportReviewState) -> dict:
     llm = llm_factory("review", temperature=0.1, streaming=False)
     system = _build_system_with_knowledge(state.get("knowledge", []))
 
-    response = await llm.ainvoke([
+    # structured output — 파싱 실패 시 가짜 score=50로 위장하지 않고 명시적으로 실패한다 (P3A-2, H-2)
+    result = await ainvoke_structured(llm, ProposedReview, [
         SystemMessage(content=system),
         HumanMessage(content=review_propose_prompt(
             state.get("agenda") or "", state.get("report_content", "")
         )),
     ])
-    text = response.content
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    proposed = None
-    if match:
-        try:
-            proposed = json.loads(match.group())
-        except Exception:
-            pass
-
-    if not proposed:
-        proposed = {"score": 50, "feedback": ["구조화된 검토를 수행했습니다."], "element_scores": [], "missing_elements": [], "improvement_suggestions": []}
+    proposed = result.model_dump()
 
     feedback = interrupt(proposed)
 
@@ -267,24 +294,12 @@ async def review_report(
 ) -> dict:
     system = _build_system_with_knowledge(knowledge or [])
     llm = llm_factory("review", temperature=0.1, streaming=False)
-    response = await llm.ainvoke([
+    # structured output — 실패 시 StructuredOutputError 전파 (가짜 score=50 fabrication 제거, P3A-2)
+    result = await ainvoke_structured(llm, DirectReview, [
         SystemMessage(content=system),
         HumanMessage(content=review_direct_prompt(agenda, report_content)),
     ])
-    text = response.content
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except Exception:
-            pass
-    return {
-        "score": 50,
-        "feedback": ["발제자료를 검토했습니다. 12대 필수요소를 갖추어 다시 제출해 주세요."],
-        "element_scores": [],
-        "principles": {},
-        "missing_elements": [],
-    }
+    return result.model_dump()
 
 
 async def start_report_review(
@@ -295,16 +310,19 @@ async def start_report_review(
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
     graph = _get_review_graph()
-    await graph.ainvoke(
-        {
-            "messages": [],
-            "report_content": report_content,
-            "agenda": agenda,
-            "knowledge": knowledge or [],
-            "proposed_review": None,
-        },
-        config,
-    )
+    try:
+        await graph.ainvoke(
+            {
+                "messages": [],
+                "report_content": report_content,
+                "agenda": agenda,
+                "knowledge": knowledge or [],
+                "proposed_review": None,
+            },
+            config,
+        )
+    except StructuredOutputError as e:
+        return {"status": "error", "proposed": None, "message": str(e)}
     state = await graph.aget_state(config)
     if state.tasks and state.tasks[0].interrupts:
         proposed = state.tasks[0].interrupts[0].value

@@ -1,12 +1,15 @@
-"""LLM 클라이언트 팩토리 (P3A-7, H-11).
+"""LLM 클라이언트 팩토리 (P3A-7, H-11) + structured output 헬퍼 (P3A-2, H-2).
 
 ChatOpenAI 생성이 에이전트마다 중복(4곳의 _make_llm + 직접 생성 12곳)되어 있던 것을
 단일 팩토리로 통합한다. 모든 클라이언트에 timeout/retry가 일관 적용되고,
 작업 프로파일별 모델을 env로 분리할 수 있다 (예: OPENAI_MODEL_ROUTING=gpt-4o-mini).
 """
+import logging
 import os
 
 from langchain_openai import ChatOpenAI
+
+logger = logging.getLogger(__name__)
 
 # 작업 프로파일 → 기본값. 모델은 OPENAI_MODEL_{PROFILE} env가 있으면 그것을, 없으면 OPENAI_MODEL.
 _PROFILES: dict[str, dict] = {
@@ -41,3 +44,35 @@ def llm_factory(
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
     return ChatOpenAI(**kwargs)
+
+
+class StructuredOutputError(Exception):
+    """structured output이 재시도 후에도 실패 — 호출자는 명시적 실패로 처리해야 한다(H-2).
+
+    가짜 기본값(score=50 등)으로 대체하지 말 것: 사용자가 fabricated 결과를
+    실제 검토 결과로 신뢰하게 된다.
+    """
+
+
+async def ainvoke_structured(llm: ChatOpenAI, schema, messages, retries: int = 1):
+    """pydantic 스키마로 구조화 출력을 요청하고, 실패 시 1회 재시도 후 예외 (P3A-2).
+
+    regex JSON 파싱을 대체한다. function_calling 방식 — 자유 형식 prose 없이
+    스키마 인스턴스를 반환한다.
+    """
+    runnable = llm.with_structured_output(schema, method="function_calling")
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            result = await runnable.ainvoke(messages)
+            if result is not None:
+                return result
+            last_error = ValueError("structured output이 None을 반환")
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"[StructuredOutput] {schema.__name__} 시도 {attempt + 1}/{retries + 1} 실패: {e}"
+            )
+    raise StructuredOutputError(
+        f"{schema.__name__} 구조화 출력 실패 (재시도 {retries}회 포함): {last_error}"
+    )

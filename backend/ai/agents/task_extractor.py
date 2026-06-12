@@ -2,7 +2,7 @@ import os, json, re, uuid
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
-from llm_factory import llm_factory
+from llm_factory import StructuredOutputError, llm_factory
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -171,6 +171,21 @@ async def _extract_propose_node(state: ExtractionState) -> dict:
         )),
     ])
     proposed = _parse_json_from_text(response.content)
+    if proposed is None:
+        # 파싱 실패 — 1회 재시도 후에도 실패하면 명시적 에러 (silent-empty 금지, P3A-2)
+        response = await llm.ainvoke([
+            SystemMessage(content=extract_agendas_system(
+                org_dept_list=state.get("org_dept_list") or "정보 없음",
+                knowledge=state.get("knowledge"),
+            )),
+            HumanMessage(content=(
+                f"다음 문서에서 아젠다와 Todo를 추출해 JSON 형식으로만 응답하세요.\n\n"
+                f"[문서]\n{state['content'][:8000]}"
+            )),
+        ])
+        proposed = _parse_json_from_text(response.content)
+        if proposed is None:
+            raise StructuredOutputError("아젠다 추출 결과 JSON 파싱 실패 (재시도 포함)")
     if isinstance(proposed, list):
         proposed = {"agendas": proposed, "todos": []}
     if not isinstance(proposed, dict):
@@ -277,16 +292,19 @@ async def start_extraction_review(
 ) -> dict:
     config = {"configurable": {"thread_id": thread_id}}
     graph = _get_extraction_graph()
-    await graph.ainvoke(
-        {
-            "messages": [],
-            "content": content,
-            "org_dept_list": org_dept_list or "정보 없음",
-            "knowledge": knowledge or [],
-            "proposed": None,
-        },
-        config,
-    )
+    try:
+        await graph.ainvoke(
+            {
+                "messages": [],
+                "content": content,
+                "org_dept_list": org_dept_list or "정보 없음",
+                "knowledge": knowledge or [],
+                "proposed": None,
+            },
+            config,
+        )
+    except StructuredOutputError as e:
+        return {"status": "error", "proposed": None, "message": str(e)}
     state = await graph.aget_state(config)
     if state.tasks and state.tasks[0].interrupts:
         proposed = state.tasks[0].interrupts[0].value

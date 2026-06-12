@@ -2834,10 +2834,14 @@ async def review_report_ep(
     data: ReviewReportRequest,
     current_user: models.User = Depends(get_current_user),
 ):
-    result = await report_agent.review_report(
-        report_content=data.report_content,
-        agenda=data.agenda or "",
-    )
+    try:
+        result = await report_agent.review_report(
+            report_content=data.report_content,
+            agenda=data.agenda or "",
+        )
+    except Exception as e:
+        # 검토 생성 실패는 가짜 점수 대신 명시적 에러로 (P3A-2, H-2)
+        raise HTTPException(status_code=502, detail=f"보고서 검토 생성 실패 — 다시 시도해주세요: {e}")
     return result
 
 
