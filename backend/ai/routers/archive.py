@@ -428,18 +428,24 @@ async def analyze_archive_file_stream_ep(
         file_content = "[파일 미첨부 — 이름만 입력됨]"
 
     async def stream():
+        from service_guards import single_flight  # 사용자당 동시 1개 분석 (P3C-4)
         try:
-            async for event in report_agent.analyze_archive_file_stream(
-                file_name=file_name,
-                file_type=file_type,
-                dept_name=dept_name,
-                file_content=file_content,
-                graph_context=graph_context,
-                candidate_agendas=candidate_list,
-                user_id=current_user.id if current_user else None,
-                meeting_id=meeting_id,
-            ):
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            async with single_flight(current_user.id):
+                async for event in report_agent.analyze_archive_file_stream(
+                    file_name=file_name,
+                    file_type=file_type,
+                    dept_name=dept_name,
+                    file_content=file_content,
+                    graph_context=graph_context,
+                    candidate_agendas=candidate_list,
+                    user_id=current_user.id if current_user else None,
+                    meeting_id=meeting_id,
+                ):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except HTTPException as he:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': he.detail}}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
         except Exception as e:
             logger.warning(f"[analyze-file/stream] 검토 실패: {e}")
             err = {

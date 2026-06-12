@@ -59,3 +59,20 @@ def idempotency_guard(key: str) -> None:
 def release_idempotency(key: str) -> None:
     """처리 실패 시 키를 해제해 정당한 재시도를 허용한다."""
     _recent_keys.pop(key, None)
+
+
+# ─── 동시 실행 제한 (P3C-4) ──────────────────────────────────────────────────
+import asyncio as _asyncio
+from contextlib import asynccontextmanager as _acm
+
+_user_semaphores: dict[int, _asyncio.Semaphore] = {}
+
+
+@_acm
+async def single_flight(user_id: int):
+    """무거운 분석은 사용자당 동시 1개로 제한 — 폭주·중복 분석 방지 (단일 replica 전제)."""
+    sem = _user_semaphores.setdefault(user_id, _asyncio.Semaphore(1))
+    if sem.locked():
+        raise HTTPException(status_code=429, detail="이전 분석이 진행 중입니다. 완료 후 다시 시도해주세요.")
+    async with sem:
+        yield

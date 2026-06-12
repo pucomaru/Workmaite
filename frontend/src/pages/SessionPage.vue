@@ -118,6 +118,7 @@ async function selectMeeting(m) {
 
 async function enterSession(s) {
   activeSession.value = s
+  try { speakerNames.value = JSON.parse(localStorage.getItem(`speakerNames:${s.id}`) || '{}') } catch { speakerNames.value = {} }
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
   const rec = getOrCreateRecord(s.id)
@@ -346,6 +347,19 @@ const speakerMap = computed(() => {
 
 function speakerIdx(raw) { return speakerMap.value.get(raw) ?? 0 }
 function speakerColor(raw) { return raw ? SPEAKER_COLORS[speakerIdx(raw) % SPEAKER_COLORS.length] : '#94a3b8' }
+
+// 화자→실명 매핑 (P4-5) — 세션별 localStorage 보존
+const speakerNames = ref({})
+const distinctSpeakers = computed(() => [...speakerMap.value.keys()])
+function _speakerStoreKey() { return `speakerNames:${activeSession.value?.id ?? 'na'}` }
+function speakerDisplay(raw) { return speakerNames.value[raw] || raw }
+function renameSpeaker(raw) {
+  const name = window.prompt(`"${raw}"의 실제 이름`, speakerNames.value[raw] || '')
+  if (name === null) return
+  if (name.trim()) speakerNames.value = { ...speakerNames.value, [raw]: name.trim() }
+  else { const m = { ...speakerNames.value }; delete m[raw]; speakerNames.value = m }
+  try { localStorage.setItem(_speakerStoreKey(), JSON.stringify(speakerNames.value)) } catch {}
+}
 
 const KST = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' }
 function nowTime() { return new Date().toLocaleTimeString('ko-KR', KST) }
@@ -576,7 +590,12 @@ function downloadPDF() {
       th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:#f1f5f9;font-weight:600}
       hr{border:none;border-top:1px solid #e2e8f0;margin:14px 0}
       @media print{body{padding:20px}}
-    </style>
+    
+.speaker-legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 10px; border-bottom:1px solid var(--border,#eee); }
+.speaker-legend-label { font-size:12px; color:var(--dark-muted,#888); }
+.speaker-chip { font-size:12px; padding:1px 8px; border:1px solid; border-radius:10px; cursor:pointer; }
+.speaker-chip:hover { background:rgba(0,0,0,0.04); }
+</style>
   </head><body>${html}</body></html>`)
   w.document.close()
   setTimeout(() => { w.focus(); w.print() }, 400)
@@ -1189,6 +1208,14 @@ async function downloadChatFile(filePath) {
           </template>
 
           <template v-else-if="activeTab === 'script'">
+            <div v-if="distinctSpeakers.length" class="speaker-legend">
+              <span class="speaker-legend-label">화자 이름:</span>
+              <span v-for="raw in distinctSpeakers" :key="raw" class="speaker-chip"
+                    :style="{ borderColor: speakerColor(raw), color: speakerColor(raw) }"
+                    @click="renameSpeaker(raw)" :title="'클릭해서 이름 지정'">
+                {{ speakerDisplay(raw) }}<i class="bi bi-pencil-fill ms-1" style="font-size:9px"></i>
+              </span>
+            </div>
             <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-file-earmark-text" style="font-size:28px;opacity:.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
@@ -1205,7 +1232,7 @@ async function downloadChatFile(filePath) {
               </div>
               <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
-                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ line.speaker }}</span>
+                <span v-if="line.speaker" class="tline-speaker" :style="{ color: speakerColor(line.speaker), borderColor: speakerColor(line.speaker) }">{{ speakerDisplay(line.speaker) }}</span>
                 <span class="tline-body">
                   <span class="tline-text">{{ line.text }}</span>
                   <button v-if="line.id" class="tline-edit-btn" @click="startEdit(idx)" title="편집">
