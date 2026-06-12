@@ -21,10 +21,13 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
-STRATEGIC_DEPT = "전략기획팀"
-
 def _is_strategic(user: models.User) -> bool:
-    return (user.department or "").strip() == STRATEGIC_DEPT
+    """관리자 판별 — RBAC role 기반 (P1-3).
+
+    과거 부서 문자열('전략기획팀') 판별은 가입 시 자유 입력이라 권한 상승 벡터였다(SEC-10).
+    기존 전략기획팀 사용자는 V3 마이그레이션에서 SYSTEM_ADMIN을 1회 부여받았다.
+    """
+    return user.role == "SYSTEM_ADMIN"
 
 def _my_role_in(user_id: int, meeting_id: int, db: Session):
     m = db.query(models.MeetingMember).filter(

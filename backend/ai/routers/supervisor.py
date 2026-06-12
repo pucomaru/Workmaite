@@ -572,7 +572,7 @@ async def supervisor_chat(
 
     user_person_id: str | None = None
     user_allowed_mg_ids: set[str] = set()
-    is_admin = current_user.position in ("대표", "CEO", "임원")
+    is_admin = current_user.role == "SYSTEM_ADMIN"  # RBAC (P1-3) — position 자가신고 판별 제거
     pg_meeting_ids: set[int] = {
         row.meeting_id
         for row in db.query(models.MeetingMember.meeting_id)
@@ -1137,7 +1137,7 @@ async def supervisor_chat_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    is_admin = current_user.position in ("대표", "CEO", "임원")
+    is_admin = current_user.role == "SYSTEM_ADMIN"  # RBAC (P1-3) — position 자가신고 판별 제거
     if not is_admin:
         member = db.query(models.MeetingMember).filter(
             models.MeetingMember.meeting_id == meeting_id,
