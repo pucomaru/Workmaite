@@ -6,7 +6,11 @@ import os
 import models, schemas
 from database import get_db
 from auth import get_current_user
-from access_guard import require_meeting_member, visible_user_ids
+from access_guard import (
+    require_meeting_member,
+    require_user_update_permission,
+    visible_user_ids,
+)
 from neo4j_sync import (
     sync_meeting,
     sync_user,
@@ -408,13 +412,7 @@ def update_user(
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
-    same_company_admin = (
-        current_user.role == "COMPANY_ADMIN"
-        and (current_user.company or "").strip()
-        and (current_user.company or "").strip().lower() == (user.company or "").strip().lower()
-    )
-    if user.id != current_user.id and current_user.role != "SYSTEM_ADMIN" and not same_company_admin:
-        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:
@@ -553,13 +551,7 @@ async def ai_update_user(
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
-    same_company_admin = (
-        current_user.role == "COMPANY_ADMIN"
-        and (current_user.company or "").strip()
-        and (current_user.company or "").strip().lower() == (user.company or "").strip().lower()
-    )
-    if user.id != current_user.id and current_user.role != "SYSTEM_ADMIN" and not same_company_admin:
-        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
     if "company" in data:

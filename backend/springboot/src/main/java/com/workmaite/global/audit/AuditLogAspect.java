@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * {@link AuditLogged} 메서드가 정상 완료되면 audit_logs에 기록한다 (P1-6).
- * - entityId: "meetingId" 외의 첫 번째 `*Id` Long 파라미터
+ * - entityId: 호출자 식별용 파라미터(requesterId/callerId)를 제외한 첫 번째 `*Id` Long 파라미터
  * - meetingId: "meetingId" 이름의 Long 파라미터
  */
 @Aspect
@@ -34,8 +34,8 @@ public class AuditLogAspect {
                 }
                 if ("meetingId".equals(names[i])) {
                     meetingId = value;
-                } else if (entityId == null && names[i].endsWith("Id") && !"requesterId".equals(names[i])
-                        && !"userId".equals(names[i])) {
+                } else if (entityId == null && names[i].endsWith("Id")
+                        && !"requesterId".equals(names[i]) && !"callerId".equals(names[i])) {
                     entityId = value;
                 }
             }

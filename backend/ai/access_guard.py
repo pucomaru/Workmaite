@@ -48,6 +48,19 @@ def require_meeting_member_by_session(db: Session, user: models.User, session_id
     require_meeting_member(db, user, row.meeting_id)
 
 
+def require_user_update_permission(current_user: models.User, target: models.User) -> None:
+    """사용자 정보 수정 권한 (MT-1): 본인, SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만."""
+    if target.id == current_user.id or is_system_admin(current_user):
+        return
+    same_company_admin = (
+        current_user.role == "COMPANY_ADMIN"
+        and (current_user.company or "").strip()
+        and (current_user.company or "").strip().lower() == (target.company or "").strip().lower()
+    )
+    if not same_company_admin:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+
+
 def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
     """디렉터리 가시성 (MT-3): 본인 + 내 회사 + 공유 회의체 인원. None이면 전체(SYSTEM_ADMIN)."""
     if is_system_admin(user):

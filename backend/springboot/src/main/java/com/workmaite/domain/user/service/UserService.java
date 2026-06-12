@@ -8,6 +8,7 @@ import com.workmaite.domain.user.dto.UserResponse;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.entity.UserRole;
 import com.workmaite.domain.user.repository.UserRepository;
+import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class UserService {
     }
 
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "user")
     public UserResponse updateMe(Long userId, UpdateUserRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
@@ -95,6 +97,7 @@ public class UserService {
      * - 타인 비밀번호 변경은 어떤 권한으로도 불가 (계정 탈취 벡터 — 본인은 PATCH /users/me 사용)
      */
     @Transactional
+    @AuditLogged(action = "UPDATE", entityType = "user")
     public UserResponse updateUser(Long callerId, Long userId, UpdateUserRequest request) {
         User caller = userRepository.findById(callerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
