@@ -1,12 +1,12 @@
-export function useGraphBuilder({ meetingGroups, currentPerson, authStore, currentCompany, neo4jDepts, meetingsStore, relatedAgendas }) {
+export function useGraphBuilder({ meetings, currentPerson, authStore, currentCompany, neo4jDepts, meetingsStore, relatedAgendas }) {
   function buildGraphNodes() {
     const nodes = [], edges = []
-    const data = meetingGroups.value
+    const data = meetings.value
 
     const deptIdByName = new Map(neo4jDepts.value.map(d => [d.name, d.id]))
     const globalAgendaIdxMap = new Map()
 
-    // ── Organization node ──────────────────────────────────────
+    // ── Company node ──────────────────────────────────────
     const companyNodeIdx = nodes.length
     const _companyData = currentCompany?.value
     nodes.push({ id: 'company-node', label: _companyData?.name || '조직', type: 'company', data: _companyData })
@@ -17,14 +17,14 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
       const rawId = g.id || gi
       const mgNodeId = (typeof rawId === 'string' && rawId.includes('-')) ? rawId : `mg-${rawId}`
 
-      // ── MeetingGroup node ────────────────────────────────────
+      // ── Meeting node ────────────────────────────────────
       const mgIdx = nodes.length
       nodes.push({
         id: mgNodeId, label: g.title || `회의체${gi + 1}`, type: 'Meetings',
         data: g, groupIdx: gi, neo4jId: g.id || null,
         ended: g.status === 'ended',
       })
-      // meetingGroup -[포함]→ company (작은→큰)
+      // meeting -[포함]→ company (작은→큰)
       edges.push({ from: mgIdx, to: companyNodeIdx, rel: '포함' })
 
       // ── Department + Person nodes ────────────────────────────
@@ -43,7 +43,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         deptIdxMap.set(deptName, deptIdx)
         nodes.push({
           id: `dept-${deptIdByName.get(deptName) || deptName}`, label: deptName, type: 'dept',
-          members: membersByDept.get(deptName), groupIdx: gi, meetingGroupId: mgNodeId,
+          members: membersByDept.get(deptName), groupIdx: gi, meetingId: mgNodeId,
           neo4jId: deptIdByName.get(deptName) || null,
         })
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
@@ -57,7 +57,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
           personIdxByKey.set(pName, pIdx)
           nodes.push({
             id: `person-${mb.userId || mb.email || pName}`, label: pName, type: 'person',
-            groupIdx: gi, meetingGroupId: mgNodeId, data: mb, neo4jId: mb.userId || null,
+            groupIdx: gi, meetingId: mgNodeId, data: mb, neo4jId: mb.userId || null,
           })
           edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
           edges.push({ from: pIdx, to: mgIdx, rel: mb.role === 'admin' ? '간사' : '구성원' })
@@ -87,7 +87,7 @@ export function useGraphBuilder({ meetingGroups, currentPerson, authStore, curre
         const agLabel = (task.content || '아젠다').length > 10 ? (task.content || '아젠다').slice(0, 10) + '…' : (task.content || '아젠다')
         nodes.push({
           id: `agenda-${g.id || gi}-${task.id || agIdx}`, label: agLabel, type: 'agenda',
-          groupIdx: gi, data: task, meetingGroupId: mgNodeId, neo4jId: task.id || null,
+          groupIdx: gi, data: task, meetingId: mgNodeId, neo4jId: task.id || null,
         })
         edges.push({ from: agIdx, to: connIdx, rel: '관할' })
         if (connIdx !== mgIdx) edges.push({ from: agIdx, to: mgIdx, rel: '관할' })

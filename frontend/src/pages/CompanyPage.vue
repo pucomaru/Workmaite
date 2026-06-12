@@ -1,9 +1,10 @@
 <script setup>
 import { useAuthStore } from '../stores/auth'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import api, { apiAI } from '../api'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
+import AppPagination from '../components/AppPagination.vue'
 
 const auth = useAuthStore()
 const orgColumns = [
@@ -118,9 +119,13 @@ async function removeMember(member) {
   if (!confirm(`${member.name || member.email}을(를) 제거하시겠습니까?`)) return
   if (member.isCustom) { allMembers.value = allMembers.value.filter(m => m.id !== member.id); return }
   const meeting = member.meetings[0]
-  if (!meeting?.id || !meeting?.member_id) { alert('회의체 정보가 없어 제거할 수 없습니다.'); return }
   try {
-    await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
+    if (meeting?.id && meeting?.member_id) {
+      await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
+    } else {
+      // 참여 회의체가 없는 사용자는 계정 자체를 삭제 (관리자 전용)
+      await apiAI.delete(`/api/ai/users/${member.id}`)
+    }
     await fetchAllMembers()
   } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
 }
@@ -216,7 +221,7 @@ function parseCSVLine(line) {
 const CSV_HEADER_MAP = {
   '이름': 'name', 'name': 'name',
   '이메일': 'email', 'email': 'email',
-  '회사': 'company', '회사명': 'company', 'company': 'company', 'organization': 'company',
+  '회사': 'company', '회사명': 'company', 'company': 'company',
   '부서': 'department', '부서명': 'department', 'department': 'department',
   '직책': 'position', 'position': 'position',
   '임시비밀번호': 'password', '비밀번호': 'password', 'password': 'password',
@@ -327,6 +332,22 @@ const sortedMembers = computed(() => {
   })
 })
 
+// ── 페이지네이션 ────────────────────────────────────
+const MEMBER_PAGE_SIZE = 30
+const memberPage = ref(1)
+
+const pagedMembers = computed(() =>
+  sortedMembers.value.slice((memberPage.value - 1) * MEMBER_PAGE_SIZE, memberPage.value * MEMBER_PAGE_SIZE)
+)
+const memberFillerCount = computed(() =>
+  pagedMembers.value.length ? MEMBER_PAGE_SIZE - pagedMembers.value.length : 0
+)
+
+watch(() => sortedMembers.value.length, (len) => {
+  const tp = Math.max(1, Math.ceil(len / MEMBER_PAGE_SIZE))
+  if (memberPage.value > tp) memberPage.value = tp
+})
+
 function formatDate(s) {
   if (!s) return '-'
   const d = new Date(s)
@@ -346,7 +367,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
     <!-- Archive-style header -->
     <div class="archive-header">
       <div class="header-title-wrap">
-        <h1 class="archive-title">회사 관리</h1>
+        <h1 class="archive-title">회사 구성원 관리</h1>
       </div>
 
       <div class="search-wrap">
@@ -380,8 +401,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
           </select>
         </div>
+        <AppPagination v-if="!loadingMembers" v-model="memberPage" :totalItems="sortedMembers.length" :pageSize="MEMBER_PAGE_SIZE" :dark="nightMode" />
         <div class="lv-header-right">
-          <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '전체 구성원' }}</span>
+          <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '조회된 구성원' }}</span>
           <span class="lv-count">{{ memberCount }}명</span>
         </div>
     </div>
@@ -392,8 +414,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
         <span class="spinner-border spinner-border-sm text-primary"></span>
         <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
       </div>
-      <AppTable v-else :columns="orgColumns" :dark="nightMode" :sortKey="sortKey" :sortDir="sortDir" @sort="handleSort">
-          <tr v-for="member in sortedMembers" :key="member.email||member.name" class="member-row">
+      <template v-else>
+      <AppTable :columns="orgColumns" :dark="nightMode" :sortKey="sortKey" :sortDir="sortDir" @sort="handleSort">
+          <tr v-for="member in pagedMembers" :key="member.email||member.name" class="member-row">
             <td>
               <div class="name-cell">
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
@@ -433,6 +456,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
               </div>
             </td>
           </tr>
+          <tr v-for="i in memberFillerCount" :key="`filler-${i}`" class="filler-row">
+            <td v-for="(c, ci) in orgColumns" :key="ci">&nbsp;</td>
+          </tr>
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">
               <div class="empty-state">
@@ -442,6 +468,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
             </td>
           </tr>
       </AppTable>
+      </template>
     </div><!-- /table-wrap -->
     </div><!-- /lv-inner -->
 
@@ -467,7 +494,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
                 <input v-model="addForm.email" class="app-modal-input" placeholder="example@company.com" />
               </div>
             </div>
-            <!-- Organization & Department -->
+            <!-- Company & Department -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>회사명</label>
@@ -587,7 +614,9 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .lv-inner { width:100%;padding:6px 16px;display:flex;flex-direction:column;gap:0; }
 
 /* lv-header (아카이브 목록 스타일 재사용) */
-.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0; }
+.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0;position:relative; }
+/* 페이지네이션을 테이블 가로 중앙에 고정 (좌우 요소 폭과 무관) */
+.lv-header .app-pagination { position:absolute;left:50%;transform:translateX(-50%); }
 .lv-filter-wrap { display:flex;gap:6px; }
 .lv-header-right { display:flex;align-items:center;gap:6px; }
 .lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }

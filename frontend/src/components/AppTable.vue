@@ -1,6 +1,6 @@
 <template>
   <div class="app-table-wrap" :class="{ 'app-table-dark': dark }">
-    <table class="app-table" :style="colWidths.length ? { tableLayout: 'fixed' } : {}">
+    <table class="app-table" :style="fixed || colWidths.length ? { tableLayout: 'fixed' } : {}">
       <colgroup>
         <col
           v-for="(col, i) in columns"
@@ -52,6 +52,8 @@ const props = defineProps({
   dark: { type: Boolean, default: false },
   sortKey: { type: String, default: null },
   sortDir: { type: String, default: null },  // 'asc' | 'desc' | null
+  // true면 처음부터 table-layout:fixed — 데이터 내용과 무관하게 컬럼 폭이 columns의 width 정의만 따른다
+  fixed: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['sort'])
@@ -183,6 +185,11 @@ function startResize(e, colIndex) {
   position: sticky;
   right: 0;
   z-index: 2;
+}
+/* 행 높이 통일 — 셀 내용(버튼 유무 등)과 무관하게 모든 행이 같은 높이를 갖는다.
+   36px = 가장 높은 셀 내용(28px 버튼) + td 상하 패딩 8px. table-row의 height는 min-height처럼 동작한다. */
+.app-table tbody tr {
+  height: 36px;
 }
 .app-table td {
   padding: 4px 4px;

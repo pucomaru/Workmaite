@@ -3,9 +3,10 @@ import hyeanAvatar from '../assets/agents/hyean.png'
 import api, { apiAI, streamPost } from '../api'
 import { useAgentMention } from './useAgentMention'
 import { useAuthStore } from '../stores/auth'
+import { selectedModel } from '../stores/llmModel'
 
 export function useAgentChat({
-  meetingGroups,
+  meetings,
   membersData,
   tasksData,
   detailMeeting,
@@ -72,7 +73,7 @@ export function useAgentChat({
     AT_TYPE_ICONS, AT_TYPE_LABELS, atMenuItems,
     onAgentInput, selectAtItem, removeMentionCtx, handleMentionKeydown, consumeMentionContext,
   } = useAgentMention({
-    meetingGroups,
+    meetings,
     membersData,
     tasksData,
     detailMeeting,
@@ -264,7 +265,7 @@ export function useAgentChat({
     try {
       await streamPost(
         agentInfo.value.endpoint,
-        { thread_id: getThreadId(), meeting_id: toNumericId(detailMeeting.value?.id) || 0, message: content, chat_history: history },
+        { thread_id: getThreadId(), meeting_id: toNumericId(detailMeeting.value?.id) || 0, message: content, chat_history: history, model: selectedModel.value || undefined },
         (chunk) => {
           agentMsg.content += chunk
           nextTick(() => { if (agentMessagesEl.value) agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight })

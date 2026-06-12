@@ -244,3 +244,4 @@ class AgentChatRequest(BaseModel):
     thread_id: Optional[str] = None
     message: str
     chat_history: Optional[List[dict]] = []
+    model: Optional[str] = None  # pricing.yaml에 등록된 모델만 허용 (미지정 시 서버 기본)

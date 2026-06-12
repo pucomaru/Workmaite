@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
+import AppPagination from '../components/AppPagination.vue'
 import DateInput from '../components/DateInput.vue'
 import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 
@@ -69,6 +70,22 @@ const sortedGroups = computed(() => {
   })
 })
 
+// ── 페이지네이션 ────────────────────────────────────
+const MG_PAGE_SIZE = 30
+const mgPage = ref(1)
+
+const pagedGroups = computed(() =>
+  sortedGroups.value.slice((mgPage.value - 1) * MG_PAGE_SIZE, mgPage.value * MG_PAGE_SIZE)
+)
+const mgFillerCount = computed(() =>
+  pagedGroups.value.length ? MG_PAGE_SIZE - pagedGroups.value.length : 0
+)
+
+watch(() => sortedGroups.value.length, (len) => {
+  const tp = Math.max(1, Math.ceil(len / MG_PAGE_SIZE))
+  if (mgPage.value > tp) mgPage.value = tp
+})
+
 const activeCount = computed(() =>
   meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && (!m.status || m.status === 'active')).length)
 const endedCount = computed(() =>
@@ -127,13 +144,13 @@ async function submitCreate() {
   finally { creating.value = false }
 }
 
-// ── End (완료 처리) ──────────────────────────────────────────
+// ── End (종료 처리) ──────────────────────────────────────────
 const endingId = ref(null)
 async function endMeeting(m) {
   endingId.value = m.id
   try {
     await meetingsStore.terminateMeeting(m.id)
-  } catch (e) { alert(e.response?.data?.detail || '완료 처리 실패') }
+  } catch (e) { alert(e.response?.data?.detail || '종료 처리 실패') }
   finally { endingId.value = null }
 }
 
@@ -246,10 +263,10 @@ onMounted(async () => {
       </div>
       <div class="app-tabs">
         <button class="app-tab" :class="{ active: statusTab==='active' }" @click="statusTab='active'">
-          진행 중 <span class="app-tab-badge">{{ activeCount }}</span>
+          진행 중
         </button>
         <button class="app-tab" :class="{ active: statusTab==='ended' }" @click="statusTab='ended'">
-          완료 <span class="app-tab-badge">{{ endedCount }}</span>
+          종료
         </button>
       </div>
       <div class="plus-wrap">
@@ -260,17 +277,28 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="mg-body">
+    <div class="lv-inner">
+      <div class="lv-header">
+        <div class="lv-filter-wrap"></div>
+        <AppPagination v-model="mgPage" :totalItems="sortedGroups.length" :pageSize="MG_PAGE_SIZE" :dark="nightMode" />
+        <div class="lv-header-right">
+          <span class="lv-title">{{ search ? `"${search}" 검색 결과` : statusTab === 'active' ? '진행 중 회의체' : '종료된 회의체' }}</span>
+          <span class="lv-count">{{ sortedGroups.length }}건</span>
+        </div>
+      </div>
+
+      <div class="table-wrap">
       <div v-if="!meetingsStore.meetings.length" class="mg-empty">
         <div class="empty-icon">🗂️</div>
         <p>아직 참여 중인 회의체가 없습니다.</p>
       </div>
       <div v-else-if="!filteredGroups.length" class="mg-empty">
         <div class="empty-icon">🔍</div>
-        <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '완료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
+        <p>{{ search ? '검색 결과가 없습니다.' : statusTab==='ended' ? '종료된 회의체가 없습니다.' : '진행 중인 회의체가 없습니다.' }}</p>
       </div>
-      <AppTable v-else :columns="mgColumns" :dark="nightMode" :sortKey="mgSortKey" :sortDir="mgSortDir" @sort="handleMgSort">
-            <tr v-for="g in sortedGroups" :key="g.id" class="mg-row">
+      <template v-else>
+      <AppTable fixed :columns="mgColumns" :dark="nightMode" :sortKey="mgSortKey" :sortDir="mgSortDir" @sort="handleMgSort">
+            <tr v-for="g in pagedGroups" :key="g.id" class="mg-row">
               <td><div class="mg-status-dot" :class="g.status==='ended' ? 'ended' : 'active'"></div></td>
               <td>
                 <div class="mg-row-title">{{ g.title }}</div>
@@ -311,10 +339,10 @@ onMounted(async () => {
                   <button v-if="canManage(g)" class="mg-icon-btn settings" @click.stop="openSettings(g)" title="설정">
                     <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                   </button>
-                  <!-- 진행중: 완료 처리 버튼 -->
+                  <!-- 진행중: 종료 처리 버튼 -->
                   <button v-if="canManage(g) && statusTab==='active'" class="mg-action-btn mg-btn-end" @click.stop="endMeeting(g)" :disabled="endingId===g.id">
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-                    {{ endingId===g.id ? '처리 중…' : '완료' }}
+                    {{ endingId===g.id ? '처리 중…' : '종료' }}
                   </button>
                   <!-- 삭제 버튼 (항상) -->
                   <button v-if="canManage(g)" class="mg-action-btn mg-btn-delete" @click.stop="confirmDelete(g)" :disabled="deletingId===g.id">
@@ -324,8 +352,13 @@ onMounted(async () => {
                 </div>
               </td>
             </tr>
+            <tr v-for="i in mgFillerCount" :key="`filler-${i}`" class="filler-row">
+              <td v-for="(c, ci) in mgColumns" :key="ci">&nbsp;</td>
+            </tr>
       </AppTable>
-    </div>
+      </template>
+      </div><!-- /table-wrap -->
+    </div><!-- /lv-inner -->
 
     <Teleport to="body">
       <!-- Create modal -->
@@ -418,7 +451,19 @@ onMounted(async () => {
 
 <style scoped>
 .mg-page { display:flex;flex-direction:column;height:100%; }
-.mg-body { flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px; }
+
+/* lv-inner / table-wrap (회사 탭과 동일한 본문 구조) */
+.lv-inner { flex:1;min-height:0;width:100%;padding:6px 16px;display:flex;flex-direction:column;gap:0;overflow:hidden; }
+.table-wrap { flex:1;overflow-y:auto;min-height:0;padding:0 0 16px 0;display:flex;flex-direction:column;gap:8px; }
+
+/* lv-header (회사 탭과 동일한 목록 헤더 스타일) */
+.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0;position:relative; height: 36px; }
+/* 페이지네이션을 테이블 가로 중앙에 고정 (좌우 요소 폭과 무관) */
+.lv-header .app-pagination { position:absolute;left:50%;transform:translateX(-50%); }
+.lv-filter-wrap { display:flex;gap:6px; }
+.lv-header-right { display:flex;align-items:center;gap:6px; }
+.lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }
+.lv-count { font-size:12px;color:var(--dark-muted); }
 
 /* 테이블 행 */
 .mg-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:default;background:transparent; }
@@ -446,8 +491,8 @@ onMounted(async () => {
 .mg-icon-btn:disabled { opacity:.4;cursor:not-allowed; }
 .day-mode .mg-icon-btn { border-color:var(--border);background:#fff;color:var(--text-muted); }
 
-/* 텍스트 액션 버튼 (완료 / 삭제) — 설정 버튼과 동일 베이스 */
-.mg-action-btn { display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);transition:all .15s;white-space:nowrap; }
+/* 텍스트 액션 버튼 (종료 / 삭제) — 설정 버튼과 동일 베이스 */
+.mg-action-btn { display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted); white-space:nowrap; }
 .mg-action-btn:disabled { opacity:.4;cursor:not-allowed; }
 .mg-btn-end:hover:not(:disabled) { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
 .mg-btn-delete:hover:not(:disabled) { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }

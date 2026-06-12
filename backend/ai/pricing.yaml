@@ -1,5 +1,4 @@
-# LLM 단가표 (USD per 1M tokens, [input, output]) — P5-3/HC-7
-# 단가 변경 시 배포 없이 이 파일(또는 PRICING_FILE env 경로)만 수정하면 된다.
+# (USD per 1M tokens, [input, output])
 default: [2.50, 10.00]
 models:
   gpt-4o:        [2.50, 10.00]

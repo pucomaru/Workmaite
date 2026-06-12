@@ -567,7 +567,7 @@ function closeAgendaDropdown() {
 /* ── 항목별 점수 바 ── */
 .criteria-scores { width: 100%; max-width: 280px; display: flex; flex-direction: column; gap: 4px; }
 .cs-block { display: flex; flex-direction: column; }
-.cs-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px; transition: background .1s; }
+.cs-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;  }
 .cs-row:hover { background: rgba(0,0,0,.04); }
 .cs-label { font-size: 10px; color: #64748b; width: 52px; flex-shrink: 0; text-align: right; }
 .cs-bar-wrap { flex: 1; height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
@@ -630,7 +630,7 @@ function closeAgendaDropdown() {
   display: flex; align-items: center; gap: 5px;
   padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
   border: 1.5px solid #ef4444; color: #ef4444; background: transparent;
-  cursor: pointer; transition: background .15s;
+  cursor: pointer; 
 }
 .app-btn-reject:hover { background: #fef2f2; }
 </style>

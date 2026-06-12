@@ -67,7 +67,6 @@ defineEmits(['update:modelValue'])
   border: none; background: var(--surface-2); color: var(--text-muted);
   cursor: pointer; font-size: 14px;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s;
 }
 .base-modal-close:hover { background: var(--border); color: var(--text); }
 
