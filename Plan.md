@@ -693,14 +693,14 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [x] **Phase 0 보안 응급조치 — 코드 측 완료 (2026-06-12)**: P0-2~P0-8 적용 + 퀵윈(BE-5, DATA-2 race, DATA-9, H-3 env화, print 정리). 빌드 검증(Python ast/gradle compileJava/vite build) 통과. **잔여: P0-1 키 회전(사람, SECURITY_ROTATION.md), 클러스터 Secret 생성, WLK WS 인증, /grafana·actuator 정책 결정**
 - [x] **Phase 1 인증/인가 통합 — 코드 측 완료 (2026-06-12)**: P1-1~P1-7① 적용·E2E 검증(자세한 내용은 §3 Phase 1 체크박스). Flyway 도입 + V2(refresh_tokens/users.role/audit_logs)·V3(role 부트스트랩) 마이그레이션이 dev DB에 적용됨. **잔여: P1-7②(초대 온보딩·companies 정규화·V4), k8s 배포 시 ai-secret JWT_SECRET 동일값 확인**
 - [x] **Phase 2 스키마/동기화 — 완료 (2026-06-12)**: P2-1~P2-8 적용 (V4~V6 마이그레이션 dev DB 적용, Neo4j 제약 적용). 잔여: P2-7 TIMESTAMPTZ 전면 전환(별도 패스), P2-8 프론트 읽기 전환. Phase 1 코드리뷰(7앵글) 반영 커밋 포함.
-- [~] **Phase 3A 하네스 기반 공사 — 5/7 완료 (2026-06-12)**: P3A-1(체크포인터+HITL 복구·UX-1 수정)·P3A-2(structured output)·P3A-3(trace_id)·P3A-4(supervisor 해체)·P3A-7(llm_factory) 완료, V7까지 dev DB 적용. **잔여: P3A-5(Supervisor 그래프 전환), P3A-6(SSE v2)** — supervisor chat 핸들러 재작성을 동반하는 대형 작업, 순서는 5→6.
+- [~] **Phase 3A — 사실상 완료 (2026-06-12)**: P3A-1~4·7 완료 + P3A-5 2단계(라우팅 개선 eval 100%, 도구 기반 에이전트 react opt-in) + P3A-6 3단계(SSE v2 전면·중단 버튼·run_id). **잔여: react 모드 dev 평가 후 기본 전환+사전조립 경로 제거, narration 제거**
 - [ ] Phase 3B Supervisor 그래프 + 도구/컨텍스트 엔지니어링
-- [ ] Phase 3C 챗봇 서비스 가드 (rate limit·idempotency·피드백)
+- [~] **Phase 3C — 대부분 완료 (2026-06-12)**: 일일 토큰 예산(PG)·idempotency(실패 시 해제)·chat_feedback 수집부+👍/👎 UI. 잔여: P3C-4 출력 가드레일, 동시 1 세마포어, 프론트 더블클릭 가드. ※분당 rate limit은 사용자 결정으로 제외
 - [ ] Phase 4 STT 품질
 - [ ] Phase 5 관측성/비용
 - [ ] Phase 6 평가 체계
 - [ ] Phase 7 코드 품질/UX
-- [ ] Phase 8 페이지네이션 (§2.13)
+- [~] Phase 8 페이지네이션 — P8-2/3 keyset(호환 모드) 완료, PG-8 오진 정정 (2026-06-12). 잔여: P8-1 공통 계약 문서화, P8-4/5 목록 API, P8-6 loadMore UI, P8-7 시드 측정
 
 ---
 
