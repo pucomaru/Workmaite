@@ -303,27 +303,27 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 ### Phase 2 — DB 스키마/정합성 (1주) 🟠
 목표: 스키마 단일 소스 + PG↔Neo4j 동기화를 신뢰 가능하게.
 
-- [ ] P2-1 **Flyway 도입**: 현재 운영 스키마를 `V1__baseline.sql`로 베이스라인, 이후 모든 변경은 마이그레이션으로. SQLAlchemy `models.py`는 읽기 전용 매핑으로 선언(스키마 생성 금지 — 주인은 Flyway).
-- [ ] P2-2 `V2__indexes_constraints.sql` 적용 (§4.1 초안) — FK 인덱스, NOT NULL, status CHECK.
-- [ ] P2-3 `V3__audit_and_sync.sql` (§4.2) — `audit_logs`, `neo4j_sync_failures`(아웃박스) 테이블.
-- [ ] P2-4 **동기화 재설계(아웃박스 패턴)**: Spring은 트랜잭션 안에서 `neo4j_sync_outbox`에 행만 기록 → 커밋 후 폴러(또는 `@TransactionalEventListener(AFTER_COMMIT)` + `@EnableAsync`)가 FastAPI 호출 → 실패 시 행 유지, `retry_failed_syncs`를 **실제 구현**(아웃박스 재처리). 삭제 전파(DATA-4) 포함.
-- [ ] P2-5 Neo4j 유니크 제약 생성 (§4.3 Cypher) + `다룸멌` 오타 수정 + 기존 중복 노드 정리 쿼리.
-- [ ] P2-6 임베딩 재계산 방지: 노드에 `content_hash` 저장, 변경 시에만 임베딩 호출. 시작 시 전체 resync는 옵션 플래그로(기본 off), 변경분만 동기화.
-- [ ] P2-7 datetime을 timezone-aware(UTC)로 통일 (`datetime.now(timezone.utc)` / `Instant`), Neo4j에는 epoch 또는 ISO-8601+TZ.
-- [ ] P2-8 related_agenda_ids JSON → `report_agendas` 조인 테이블 (§4.2) — UX-3/5의 근본 해결.
+- [x] P2-1 **Flyway 도입** (2026-06-12, P1-2와 동시): baseline-on-migrate(V1), models.py 읽기 전용 선언. ※ 마이그레이션 번호가 §4 초안과 달라짐 — 실적용: V2(auth/rbac/audit), V3(role 부트스트랩), V4(인덱스/제약), V5(sync outbox), V6(report_agendas).
+- [x] P2-2 인덱스/제약 — **V4** 적용 (2026-06-12): FK/조회 인덱스 17종 + 멤버십 유니크 2종 + human_status CHECK. 운영 스키마 대조·위반 데이터 0건 확인, EXPLAIN으로 인덱스 사용 검증. **agenda.status CHECK 보류**: Spring enum(ON_HOLD/CONFIRMED/DONE) vs 실데이터(draft/ongoing/done) 불일치 발견 → HC-11에서 정리.
+- [x] P2-3 audit_logs(V2)·neo4j_sync_outbox(V5)·report_agendas(V6) 테이블 (2026-06-12). chat_feedback은 P3C-3에서.
+- [x] P2-4 **아웃박스 동기화** (2026-06-12): NeoSyncService가 트랜잭션 내 outbox 기록 → 커밋 후 SyncOutboxDispatcher kick + 30초 폴러 재시도(최대 10회, 404 skip). 삭제 전파(DATA-4): session/agenda 삭제 라우트 신설 + delete 함수 예외 전파화. E2E 검증.
+- [x] P2-5 Neo4j 유니크 제약 9종 (2026-06-12): ensure_constraints()가 시작 시 중복 정리(차수 보존) 후 생성 — dev Neo4j 적용 확인. (`다룸멌` 오타는 Phase 0에서 기처리)
+- [x] P2-6 임베딩 content_hash 게이팅 (2026-06-12): 6개 sync 함수 적용, 동일 내용 재sync 시 OpenAI 호출 생략(실측 0.18s→0.05s). STARTUP_FULL_RESYNC(기본 false)로 전체 resync 옵션화.
+- [x] P2-7(부분) Neo4j행 타임스탬프 ISO-8601+TZ(UTC) 통일 (2026-06-12). **잔여: PG TIMESTAMPTZ 컬럼 전환+JPA Instant화는 시프트 위험 때문에 별도 패스로 분리** — 현재는 naive-UTC로 일관.
+- [x] P2-8 report_agendas 정규화 (2026-06-12): V6 테이블+백필(11개 보고서→13연결), FastAPI dual-write. **잔여: 프론트 읽기 경로 전환(P7/P8) 후 JSONB DROP.**
 
 ### Phase 3 — AI 하네스 & 에이전트 재설계 (2–3주) 🟠
 목표: LangGraph v1 Supervisor 패턴 + **내구성 있는 실행(durable execution)** + 도구 중심 설계 + 데이터 범위 강제.
 설계 원칙은 §8 참조. 작업은 3A(하네스 기반) → 3B(도구/컨텍스트) → 3C(서비스 가드) 순.
 
 **3A. 하네스 기반 공사 — 신뢰 가능한 실행부터**
-- [ ] P3A-1 **체크포인터 도입(H-1 — 최우선)**: `AsyncPostgresSaver`로 전 그래프 compile. HITL `interrupt()`가 DB에 영속화되어 재시작·스케일아웃에도 승인 대기 상태 유지. thread_id는 서버가 발급하는 `run_id`로 통일(요청마다 uuid4 생성하는 H-5 제거). **착수 전 현재 interrupt 흐름이 실제로 동작하는지 재현 테스트부터** (UX-1의 원인 검증).
-- [ ] P3A-2 **structured output 전면화(H-2)**: review/extraction/분석의 regex JSON 파싱 전부 `with_structured_output(pydantic)` + 파싱 실패 시 1회 재시도, 그래도 실패면 **명시적 실패 응답**(가짜 score=50 fabrication 제거). 실패율 메트릭 기록.
-- [ ] P3A-3 **트레이싱 복원(H-3)**: main.py의 강제 off 제거, LangSmith(키 회전 후) 또는 OTel GenAI export. trace_id를 agent_logs에 저장해 "느린 요청 → 트레이스" 점프 가능하게.
-- [ ] P3A-4 `supervisor.py` 해체: `routers/`(HTTP/SSE 변환만) / `graphs/`(LangGraph 정의) / `tools/` / `services/`(DB 접근) 레이어 분리. 파일당 500줄 이하.
+- [x] P3A-1 **체크포인터 도입** (2026-06-12): 재현 결과 **HITL이 애초에 동작 불가였음** — 체크포인터 없는 compile에서 get_state가 'No checkpointer set' 실패(UX-1 원인 확정). `graph_runtime.py`(AsyncPostgresSaver+psycopg pool, lifespan 관리) + HITL 그래프 lazy-compile + aget_state. run_id 서버 발급(start 라우트 thread_id optional). **서버 재시작 후 pending resume까지 E2E 검증.** (체크포인터는 HITL 그래프에 적용 — 채팅 그래프 메모리는 P3B-3에서)
+- [x] P3A-2 **structured output** (2026-06-12): 검토 경로(HITL propose·직접 검토)를 pydantic 스키마(12요소 ElementScore 포함)로 전환 — **가짜 score=50 fabrication 제거**, 실패는 명시적 에러(502/status:error). 추출 경로는 분석텍스트+JSON 프롬프트 설계 유지(P6 eval 전 프롬프트 변경 금지) + 파싱 실패 1회 재시도 후 명시적 실패. 공통 헬퍼 `ainvoke_structured`. 잔여: archive 분석(_parse_archive_result)의 루브릭 스키마는 HC-6과 함께. 실패율 메트릭은 P5-1에서.
+- [x] P3A-3 **trace_id 연결** (2026-06-12): V7 + log_agent_run이 collect_runs()로 루트 run id 기록(트레이싱 off여도 동작). LangSmith env 제어화는 Phase 0에서 기완료 — 키 회전(P0-1) 후 LANGSMITH_TRACING=true로 활성화하면 trace_id로 점프 가능.
+- [x] P3A-4 `supervisor.py` 해체 (2026-06-12): 2,966줄 → 1,024줄. services/supervisor_helpers.py(공용 DB 컨텍스트·로그) + 라우터 4분리(graph_analysis 608/archive 838/hitl_reviews 289/knowledge 184). OpenAPI 80경로 누락 0·스모크 통과. **잔여: supervisor chat 핸들러(~600줄)는 P3A-5 재작성과 함께, archive.py 추가 분해는 P7-1과 함께. graphs/·tools/ 레이어는 P3A-5·P3B-1에서 생성.**
 - [ ] P3A-5 **Supervisor 그래프 전환**: `langgraph-supervisor`(또는 StateGraph + handoff tool) — supervisor가 도구 호출로 sub-agent 위임, 결과 보고 후 재라우팅. `classify_intent` 제거(대화 이력이 state에 있으므로 AI-9 자동 해결). 단, **단순한 요청까지 다단 그래프를 태우지 말 것** — 현황 조회류는 도구 1–2개의 single-loop로 충분(에이전트는 필요한 만큼만 복잡하게).
 - [ ] P3A-6 **스트리밍 프로토콜 v2(FE-2·H-10·H-13 통합)**: SSE `event:` 필드 기반 타입 이벤트(`planning|token|tool_call|result|usage|error`) + 응답에 `run_id`. 클라이언트 abort 시 `asyncio.CancelledError`를 LLM 호출까지 전파(취소된 만큼만 과금), 프론트에 중단 버튼. 체크포인터 덕에 끊긴 run 상태 조회/이어보기 가능. **진행 표시는 `astream_events`의 실제 도구/노드 이벤트에서 파생** — `_stream_plan`·`classify_intent.steps` 같은 보여주기 전용 narration LLM 호출 제거(플래닝 연극 해소 + 대화당 LLM 1회 절감).
-- [ ] P3A-7 LLM 클라이언트 공통화(H-11): `_make_llm` 4중복 → `llm_factory(task_profile)` — retry, timeout, max_tokens, 작업별 모델 테이블(라우팅·요약=mini / 회의록·검토=상위 모델), env 전환·폴백 체인. `run_cypher` 공유 httpx 풀.
+- [x] P3A-7 LLM 클라이언트 공통화 (2026-06-12): `llm_factory(profile)` — _make_llm 4중복+직접 생성 12곳 통합, timeout(60s)/retry(2) 일관, OPENAI_MODEL_{PROFILE} env로 프로파일별 모델 분리 가능. 잔여: 폴백 체인, run_cypher 공유 풀.
 
 **3B. 도구 & 컨텍스트 엔지니어링**
 - [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/ai-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
@@ -356,8 +356,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P5-4 PostgreSQL/Neo4j 백업 CronJob(pg_dump → R2, neo4j-admin dump), 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
-- [ ] P6-1 골든 데이터셋: 회의록/보고서 샘플 10–20건에 대해 기대 아젠다·부서·요약 라벨링(`eval/dataset/`).
-- [ ] P6-2 eval 하네스(`eval/run_eval.py`): 아젠다 추출 P/R/F1(제목 임베딩 유사도 ≥0.85 매칭), 부서 매칭 정확도, 회의록 LLM-judge 루브릭 점수. 결과를 JSON으로 저장해 프롬프트/모델 변경 시 회귀 비교.
+- [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/ai/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
+- [~] P6-2 eval 하네스 — **스모크판 구축 (2026-06-12)**: `eval/run_eval.py`(라우팅 정확도 + 추출 P/R/F1·부서 정확도, JSON 기록). **베이스라인: 라우팅 93.75%(15/16), 추출 F1=1.00.** 발견: off_topic이 라우팅 Literal에 없어 반환 불가(죽은 지시) — 코딩 요청이 task_extractor로 오분류, P3A-5에서 처리. 잔여: 제목 임베딩 매칭(현 difflib), 회의록 LLM-judge.
 - [ ] P6-3 CI에 스모크 eval(소형 5건) 추가 — 프롬프트 변경 PR에서 자동 실행.
 - [ ] P6-4 **트레이스 기반 평가 환류**: P3A-3 트레이싱 + P3C-3 피드백(👍/👎, HITL 반려 사유)에서 실패 사례를 주기적으로 골든 데이터셋에 추가 — eval이 운영 데이터로 계속 자라는 구조(eval-driven development). 라우팅 정확도(classify→handoff 결정)도 평가 항목에 포함.
 - [ ] P6-5 **retrieval 평가(G-8)**: "질의 → 반드시 찾아야 할 노드" 쌍 20건으로 recall@k·MRR 측정(`eval/retrieval_eval.py`). 검색 0건 비율 메트릭 상시 수집 — G-1 같은 전면 검색 장애를 즉시 탐지. 부서 추천(P3B-8)의 정확도(테스트 데이터 대비 추출 아젠다·부서 유사도)도 여기서 측정.
@@ -693,8 +693,8 @@ Plan.md §2.13 페이지네이션 인벤토리(PG-1~10)와 §3 Phase 8(P8-1~7)�
 - [x] 페이지네이션 전수 점검 (2026-06-12) — §2.13(PG-1~10), Phase 8(P8-1~7)·§6.11 추가
 - [x] **Phase 0 보안 응급조치 — 코드 측 완료 (2026-06-12)**: P0-2~P0-8 적용 + 퀵윈(BE-5, DATA-2 race, DATA-9, H-3 env화, print 정리). 빌드 검증(Python ast/gradle compileJava/vite build) 통과. **잔여: P0-1 키 회전(사람, SECURITY_ROTATION.md), 클러스터 Secret 생성, WLK WS 인증, /grafana·actuator 정책 결정**
 - [x] **Phase 1 인증/인가 통합 — 코드 측 완료 (2026-06-12)**: P1-1~P1-7① 적용·E2E 검증(자세한 내용은 §3 Phase 1 체크박스). Flyway 도입 + V2(refresh_tokens/users.role/audit_logs)·V3(role 부트스트랩) 마이그레이션이 dev DB에 적용됨. **잔여: P1-7②(초대 온보딩·companies 정규화·V4), k8s 배포 시 ai-secret JWT_SECRET 동일값 확인**
-- [ ] Phase 2 스키마/동기화
-- [ ] Phase 3A 하네스 기반 공사 (체크포인터·structured output·트레이싱·SSE v2)
+- [x] **Phase 2 스키마/동기화 — 완료 (2026-06-12)**: P2-1~P2-8 적용 (V4~V6 마이그레이션 dev DB 적용, Neo4j 제약 적용). 잔여: P2-7 TIMESTAMPTZ 전면 전환(별도 패스), P2-8 프론트 읽기 전환. Phase 1 코드리뷰(7앵글) 반영 커밋 포함.
+- [~] **Phase 3A 하네스 기반 공사 — 5/7 완료 (2026-06-12)**: P3A-1(체크포인터+HITL 복구·UX-1 수정)·P3A-2(structured output)·P3A-3(trace_id)·P3A-4(supervisor 해체)·P3A-7(llm_factory) 완료, V7까지 dev DB 적용. **잔여: P3A-5(Supervisor 그래프 전환), P3A-6(SSE v2)** — supervisor chat 핸들러 재작성을 동반하는 대형 작업, 순서는 5→6.
 - [ ] Phase 3B Supervisor 그래프 + 도구/컨텍스트 엔지니어링
 - [ ] Phase 3C 챗봇 서비스 가드 (rate limit·idempotency·피드백)
 - [ ] Phase 4 STT 품질

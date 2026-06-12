@@ -21,12 +21,16 @@ from websocket_manager import manager
 from auth import get_current_user
 
 from routers import supervisor, chat_history, neo4j_graph, sync as sync_router
+from routers import archive as archive_router
+from routers import graph_analysis as graph_analysis_router
+from routers import hitl_reviews as hitl_router
+from routers import knowledge as knowledge_router
 from routers import meetings as meetings_router
 from routers import sessions as sessions_router
 from routers import stt as stt_router
 from routers import upload as upload_router
 from routers import usage as usage_router
-from neo4j_sync import init_vector_index, retry_failed_syncs, sync_all_from_pg
+from neo4j_sync import ensure_constraints, init_vector_index, retry_failed_syncs, sync_all_from_pg
 from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = logging.getLogger(__name__)
@@ -54,8 +58,15 @@ async def _cleanup_stale_neo4j_nodes() -> None:
 
 
 async def _startup_sync_task() -> None:
-    """서버 시작 시 PostgreSQL → Neo4j 전체 동기화 (백그라운드, 1회)."""
+    """서버 시작 시 정리 작업 + (옵션) PostgreSQL → Neo4j 전체 동기화.
+
+    증분 동기화는 아웃박스(P2-4)가 보장하므로 전체 resync는 복구용 옵션이다 (P2-6).
+    STARTUP_FULL_RESYNC=true 일 때만 수행 (content_hash 덕에 임베딩 재계산은 없음).
+    """
     await _cleanup_stale_neo4j_nodes()
+    if os.environ.get("STARTUP_FULL_RESYNC", "false").lower() != "true":
+        logger.info("[StartupSync] 전체 resync 생략 (STARTUP_FULL_RESYNC=false)")
+        return
     try:
         result = await sync_all_from_pg()
         logger.info(f"[StartupSync] 완료: {result}")
@@ -80,6 +91,9 @@ async def _periodic_retry_task() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from graph_runtime import init_checkpointer, close_checkpointer
+    await init_checkpointer()  # HITL 영속화 (P3A-1) — 그래프 compile 전에 준비
+    await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
 
     asyncio.create_task(_startup_sync_task())
@@ -92,6 +106,7 @@ async def lifespan(app: FastAPI):
             await retry_task
         except asyncio.CancelledError:
             pass
+        await close_checkpointer()
 
 
 app = FastAPI(title="workma!te AI API", lifespan=lifespan)
@@ -118,7 +133,12 @@ from audit_middleware import AuditLogMiddleware  # noqa: E402
 app.add_middleware(AuditLogMiddleware)
 
 # 라우터 — 인증(가입/로그인/토큰 발급)은 Spring 단일 주체, FastAPI는 검증만 (P1-1)
+# supervisor는 P3A-4에서 graph_analysis/knowledge/archive/hitl_reviews로 분리됨
 app.include_router(supervisor.router)
+app.include_router(graph_analysis_router.router)
+app.include_router(knowledge_router.router)
+app.include_router(archive_router.router)
+app.include_router(hitl_router.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)

@@ -48,6 +48,8 @@ from neo4j_sync import (
     sync_minutes,
     sync_report,
     delete_meeting,
+    delete_session,
+    delete_agenda,
     retry_failed_syncs,
     sync_all_from_pg,
 )
@@ -272,6 +274,26 @@ async def sync_agenda_manual(
         created_at=agenda.created_at.isoformat() if agenda.created_at else None,
     )
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
+
+
+@router.delete("/agenda/{agenda_id}")
+async def delete_agenda_sync(
+    agenda_id: int,
+    _: None = Depends(verify_internal),
+):
+    """Agenda 삭제를 Neo4j에 전파합니다 (DATA-4)."""
+    await delete_agenda(agenda_id)
+    return {"success": True, "agenda_id": agenda_id}
+
+
+@router.delete("/session/{session_id}")
+async def delete_session_sync(
+    session_id: int,
+    _: None = Depends(verify_internal),
+):
+    """Session 삭제를 Neo4j에 전파합니다 (DATA-4)."""
+    await delete_session(session_id)
+    return {"success": True, "session_id": session_id}
 
 
 # ─── Minutes 수동 동기화 ──────────────────────────────────────────────────────

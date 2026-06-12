@@ -5,6 +5,7 @@ from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -29,13 +30,7 @@ class MinutesState(TypedDict):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-        stream_usage=True,
-    )
+    return llm_factory("minutes", temperature=temperature)
 
 
 # ── Neo4j 벡터 검색 (유사 회의록) ────────────────────────────────────────

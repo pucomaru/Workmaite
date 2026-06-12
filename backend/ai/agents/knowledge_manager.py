@@ -1,11 +1,12 @@
 import logging
 import os, json, re, uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
+from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
@@ -42,12 +43,7 @@ class KnowledgeEntry(BaseModel):
 
 # ── LLM ───────────────────────────────────────────────────────────────────
 def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=MODEL,
-        temperature=temperature,
-        api_key=os.environ["OPENAI_API_KEY"],
-        streaming=True,
-    )
+    return llm_factory("knowledge", temperature=temperature)
 
 
 # ── Neo4j 벡터 인덱스 관리 ─────────────────────────────────────────────────
@@ -115,7 +111,7 @@ async def store_minutes(
     await ensure_vector_indexes()
     node_id = f"minutes-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (m:Minutes {id: $id})
@@ -163,7 +159,7 @@ async def store_task(
     await ensure_vector_indexes()
     node_id = f"agenda-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (t:Agenda {id: $id})
@@ -223,7 +219,7 @@ async def store_report(
     await ensure_vector_indexes()
     node_id = f"reportchunk-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (c:ReportChunk {id: $id})
@@ -392,7 +388,7 @@ async def propose_relationships(
         f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
         for r in nodes
     ])
-    llm = ChatOpenAI(model=MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY"))
+    llm = llm_factory("knowledge", temperature=0.1, streaming=False)
     response = await llm.ainvoke([
         SystemMessage(content="""회의체 온톨로지 분석 전문가입니다.
 제공된 Neo4j 노드 목록을 보고 연결해야 할 관계를 제안하세요.
@@ -426,7 +422,7 @@ async def propose_relationships(
     _proposals[proposal_id] = {
         "meeting_id": meeting_id,
         "relationships": relationships,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     return {"proposal_id": proposal_id, "relationships": relationships}
@@ -473,7 +469,7 @@ async def confirm_relationships(
         reason_text = reject_reason or "사유 없음"
         node_id = f"humanjudgment-{uuid.uuid4().hex[:8]}"
         embedding = await _embed(reason_text)
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         try:
             await run_cypher(
                 """MERGE (hj:HumanJudgment {id: $id})
@@ -584,7 +580,7 @@ async def reconcile_graph(analysis: dict) -> dict:
              "session_agenda_links": 0,
              "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
              "pruned_links": 0}
-    ts = datetime.utcnow().isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
 
     # ⓪ 세션 시간순 '후속' 체인
     for chain in struct.get("session_chains", []):

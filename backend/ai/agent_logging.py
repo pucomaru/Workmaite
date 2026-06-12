@@ -30,6 +30,7 @@ from langchain_core.outputs import LLMResult
 from langchain_core.tracers.context import register_configure_hook
 
 import models
+from langchain_core.tracers.context import collect_runs
 from database import SessionLocal
 
 logger = logging.getLogger("agent_logging")
@@ -191,8 +192,19 @@ def _create_log(*, context_type, meeting_id, session_id, user_id, input_data) ->
         db.close()
 
 
+def _extract_trace_id(runs_cm, runs_cb) -> Optional[str]:
+    try:
+        runs_cm.__exit__(None, None, None)
+        if runs_cb.traced_runs:
+            return str(runs_cb.traced_runs[0].id)
+    except Exception:
+        pass
+    return None
+
+
 def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
-              error: Optional[BaseException], output_data: Optional[dict]) -> None:
+              error: Optional[BaseException], output_data: Optional[dict],
+              trace_id: Optional[str] = None) -> None:
     if log_id is None:
         return
     db = SessionLocal()
@@ -203,6 +215,8 @@ def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
         log.status = "failed" if error else "success"
         log.error_message = str(error)[:1000] if error else None
         log.ended_at = datetime.utcnow()
+        if trace_id:
+            log.trace_id = trace_id
         if output_data:
             log.output_data = output_data
 
@@ -250,6 +264,9 @@ def log_agent_run(
             bound.apply_defaults()
             collector = TokenUsageCollector()
             token = _token_collector_var.set(collector)
+            # 루트 run id 수집 — LangSmith 트레이스 연결 (P3A-3). 트레이싱 off여도 동작.
+            runs_cm = collect_runs()
+            runs_cb = runs_cm.__enter__()
             log_id = _create_log(
                 context_type=context_type,
                 meeting_id=_resolve(meeting_id, bound),
@@ -257,12 +274,12 @@ def log_agent_run(
                 user_id=_resolve(user_id, bound),
                 input_data=_safe_input(bound),
             )
-            return log_id, collector, token
+            return log_id, collector, token, runs_cm, runs_cb
 
         if inspect.isasyncgenfunction(func):
             @functools.wraps(func)
             async def agen_wrapper(*args, **kwargs):
-                log_id, collector, token = _start(args, kwargs)
+                log_id, collector, token, runs_cm, runs_cb = _start(args, kwargs)
                 error = None
                 captured: Optional[dict] = None
                 try:
@@ -280,21 +297,22 @@ def log_agent_run(
                     raise
                 finally:
                     _token_collector_var.reset(token)
+                    _trace_id = _extract_trace_id(runs_cm, runs_cb)
                     # call_soon으로 스케줄링: GeneratorExit/클라이언트 연결 끊김 시에도
                     # 이벤트 루프가 살아있는 한 _finalize가 반드시 실행된다.
                     _err = error
                     _out = _safe_output(captured)
                     try:
                         asyncio.get_running_loop().call_soon(
-                            functools.partial(_finalize, log_id, collector, _err, _out)
+                            functools.partial(_finalize, log_id, collector, _err, _out, _trace_id)
                         )
                     except RuntimeError:
-                        _finalize(log_id, collector, _err, _out)
+                        _finalize(log_id, collector, _err, _out, _trace_id)
             return agen_wrapper
 
         @functools.wraps(func)
         async def coro_wrapper(*args, **kwargs):
-            log_id, collector, token = _start(args, kwargs)
+            log_id, collector, token, runs_cm, runs_cb = _start(args, kwargs)
             error = None
             result = None
             try:
@@ -305,6 +323,7 @@ def log_agent_run(
                 raise
             finally:
                 _token_collector_var.reset(token)
+                trace_id = _extract_trace_id(runs_cm, runs_cb)
                 if capture_output:
                     try:
                         out = _safe_output(capture_output(result))
@@ -312,7 +331,7 @@ def log_agent_run(
                         out = None
                 else:
                     out = _safe_output(result)
-                _finalize(log_id, collector, error, out)
+                _finalize(log_id, collector, error, out, trace_id)
         return coro_wrapper
 
     return decorator

@@ -1,3 +1,8 @@
+"""SQLAlchemy 모델 — **읽기 전용 매핑** (P2-1).
+
+스키마의 단일 소스는 Spring의 Flyway 마이그레이션(backend/springboot/src/main/resources/db/migration)이다.
+이 파일로 스키마를 생성/변경하지 말 것 (Base.metadata.create_all 금지).
+"""
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean,
@@ -20,6 +25,13 @@ class User(Base):
     role          = Column(String(30), nullable=False, default="USER", server_default="USER")
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
+
+
+class ReportAgenda(Base):
+    """보고서-아젠다 연결 정규화 (P2-8) — reports.related_agenda_ids의 관계형 대체."""
+    __tablename__ = "report_agendas"
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
+    agenda_id = Column(Integer, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Meeting(Base):
@@ -176,6 +188,8 @@ class AgentLog(Base):
     reasoning_steps = Column(JSON, nullable=True)
     loop_count      = Column(Integer, default=0)
     error_message   = Column(Text, nullable=True)
+    # LangChain 루트 run id — LangSmith 트레이스 점프용 (P3A-3)
+    trace_id        = Column(String(64), nullable=True)
     ended_at        = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
 

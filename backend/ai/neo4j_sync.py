@@ -20,10 +20,11 @@ Neo4j 노드 유형:
 """
 
 from __future__ import annotations
+import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session as DBSession
@@ -48,6 +49,47 @@ _VECTOR_INDEXES: list[tuple[str, str, str]] = [
     ("ReportChunk",   "reportChunkEmbedding",   "embedding"),
     ("HumanJudgment", "humanJudgmentEmbedding", "embedding"),
 ]
+
+
+# ─── 유니크 제약 (P2-5) ───────────────────────────────────────────────────────
+# (라벨, 제약 이름, 키 프로퍼티). User만 pg_id, 나머지는 id 문자열 키.
+_UNIQUE_CONSTRAINTS: list[tuple[str, str, str]] = [
+    ("User",          "user_pg_id",   "pg_id"),
+    ("Meetings",      "meetings_id",  "id"),
+    ("Session",       "session_id",   "id"),
+    ("Agenda",        "agenda_id",    "id"),
+    ("Minutes",       "minutes_id",   "id"),
+    ("Report",        "report_id",    "id"),
+    ("HumanJudgment", "hj_id",        "id"),
+    ("Department",    "dept_name",    "name"),
+    ("Company",       "company_name", "name"),
+]
+
+
+async def ensure_constraints() -> None:
+    """중복 노드를 정리한 뒤 유니크 제약을 생성합니다 (P2-5, 시작 시 1회).
+
+    MERGE 기반 upsert는 제약이 없으면 동시 실행 시 중복 노드를 만들 수 있다.
+    중복 정리는 관계가 많은 노드를 남기고 나머지를 제거한다.
+    """
+    for label, name, prop in _UNIQUE_CONSTRAINTS:
+        try:
+            # 1) 중복 정리 — 차수(degree) 높은 노드를 보존
+            await run_cypher(
+                f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL "
+                f"WITH n, COUNT {{ (n)--() }} AS deg ORDER BY deg DESC "
+                f"WITH n.{prop} AS key, collect(n) AS nodes "
+                f"WHERE size(nodes) > 1 "
+                f"UNWIND nodes[1..] AS dup DETACH DELETE dup"
+            )
+            # 2) 제약 생성
+            await run_cypher(
+                f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+                f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
+            )
+            logger.info(f"[Neo4jSync] 유니크 제약 '{name}' 보장 완료")
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] 유니크 제약 '{name}' 생성 실패 (무시): {e}")
 
 
 async def init_vector_index() -> None:
@@ -75,6 +117,27 @@ async def _embed(text: str) -> list[float] | None:
     except Exception as e:
         logger.warning(f"[Neo4jSync] 임베딩 실패 (무시): {e}")
         return None
+
+
+async def _embed_if_changed(label: str, key_prop: str, key_value, text: str):
+    """content_hash 비교 후 변경 시에만 임베딩을 계산합니다 (P2-6 — OpenAI 호출 절감).
+
+    반환: (embedding | None, content_hash | None) — 임베딩이 None이면 SET 생략(기존 값 유지).
+    """
+    text = (text or "").strip()
+    if not text:
+        return None, None
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    try:
+        rows = await run_cypher(
+            f"MATCH (n:{label} {{{key_prop}: $k}}) RETURN n.content_hash AS h",
+            {"k": key_value},
+        )
+        if rows and rows[0].get("h") == content_hash:
+            return None, content_hash  # 내용 동일 — 임베딩 재계산 생략
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] content_hash 조회 실패 (임베딩 진행): {e}")
+    return await _embed(text), content_hash
 
 
 def _log_failure(operation: str, entity_type: str, entity_id: str,
@@ -107,7 +170,7 @@ async def sync_department(name: str) -> None:
     try:
         await run_cypher(
             "MERGE (d:Department {name: $name}) SET d.updated_at = $updated_at",
-            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+            {"name": name.strip(), "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_department 실패 ({name}): {e}")
@@ -120,7 +183,7 @@ async def sync_company(name: str) -> None:
     try:
         await run_cypher(
             "MERGE (c:Company {name: $name}) SET c.updated_at = $updated_at",
-            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+            {"name": name.strip(), "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_company 실패 ({name}): {e}")
@@ -138,7 +201,7 @@ async def sync_user(
     created_at: str | None = None,
 ) -> None:
     """User 노드를 upsert합니다."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     cypher = """
     MERGE (u:User {pg_id: $pg_id})
     SET u.name       = $name,
@@ -280,12 +343,13 @@ async def sync_meeting_group(
         "end_date": end_date or "",
         "created_by": created_by,
         "created_at": created_at or "",
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    embedding = await _embed(guidelines or "")
+    embedding, content_hash = await _embed_if_changed("Meetings", "id", mg_id, guidelines or "")
     if embedding:
-        cypher += "\n    WITH mg SET mg.embedding = $embedding"
+        cypher += "\n    WITH mg SET mg.embedding = $embedding, mg.content_hash = $content_hash"
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Meetings {meeting_id} 동기화 완료")
@@ -332,9 +396,9 @@ async def sync_session(
     MERGE (s)-[:소속]->(mg)
     """
     emb_text = " ".join(filter(None, [title, description, location]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Session", "id", s_id, emb_text)
     if embedding:
-        cypher += "\n    WITH s SET s.embedding = $embedding"
+        cypher += "\n    WITH s SET s.embedding = $embedding, s.content_hash = $content_hash"
     params = {
         "id": s_id, "pg_id": session_id,
         "title": title, "status": status,
@@ -345,10 +409,11 @@ async def sync_session(
         "session_type": session_type or "",
         "description": description or "",
         "mg_id": mg_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Session {session_id} 동기화 완료")
@@ -427,9 +492,9 @@ async def sync_agenda(
     if isinstance(ai_evidence, (dict, list)):
         ai_evidence = json.dumps(ai_evidence, ensure_ascii=False)
     emb_text = " ".join(filter(None, [title, ai_evidence]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Agenda", "id", ag_id, emb_text)
     if embedding:
-        cypher += "\n    WITH ag SET ag.embedding = $embedding"
+        cypher += "\n    WITH ag SET ag.embedding = $embedding, ag.content_hash = $content_hash"
     params = {
         "id": ag_id, "pg_id": agenda_id,
         "title": title,
@@ -441,10 +506,11 @@ async def sync_agenda(
         "ai_evidence": ai_evidence or "",
         "created_at": created_at or "",
         "mg_id": mg_id, "s_id": s_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Agenda {agenda_id} 동기화 완료")
@@ -500,9 +566,9 @@ async def sync_minutes(
     )
     """
     emb_text = " ".join(filter(None, [content_summary, file_name]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Minutes", "pg_id", minutes_id, emb_text)
     if embedding:
-        cypher += "\n    WITH mn SET mn.embedding = $embedding"
+        cypher += "\n    WITH mn SET mn.embedding = $embedding, mn.content_hash = $content_hash"
     params = {
         "pg_id": minutes_id, "session_id": session_id, "s_id": s_id,
         "content_summary": content_summary or "",
@@ -512,10 +578,11 @@ async def sync_minutes(
         "recorder_id": recorder_id,
         "status": status or "draft",
         "generated_at": generated_at or "",
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Minutes {minutes_id} 동기화 완료")
@@ -572,13 +639,14 @@ async def sync_report(
         "human_status": human_status,
         "created_at": created_at or "",
         "mg_id": mg_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     emb_text = " ".join(filter(None, [file_name, submitter_department]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("Report", "id", report_neo_id, emb_text)
     if embedding:
-        cypher += "\n    WITH r SET r.embedding = $embedding"
+        cypher += "\n    WITH r SET r.embedding = $embedding, r.content_hash = $content_hash"
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] Report {report_id} 동기화 완료")
@@ -628,9 +696,9 @@ async def sync_human_judgment(
     )
     """
     emb_text = " ".join(filter(None, [judgment, reason, ai_rationale]))
-    embedding = await _embed(emb_text)
+    embedding, content_hash = await _embed_if_changed("HumanJudgment", "id", hj_id, emb_text)
     if embedding:
-        cypher += "\n    WITH hj SET hj.embedding = $embedding"
+        cypher += "\n    WITH hj SET hj.embedding = $embedding, hj.content_hash = $content_hash"
     params = {
         "id": hj_id, "pg_id": review_id,
         "judgment": judgment,
@@ -643,10 +711,11 @@ async def sync_human_judgment(
         "created_at": created_at or "",
         "mg_id": f"mg-{meeting_id}" if meeting_id else "",
         "reviewer_id": reviewer_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
+        params["content_hash"] = content_hash
     try:
         await run_cypher(cypher, params)
         logger.debug(f"[Neo4jSync] HumanJudgment {review_id} 동기화 완료")
@@ -739,26 +808,19 @@ async def sync_meeting_relation(
 
 # ─── 삭제 동기화 ──────────────────────────────────────────────────────────────
 
+# 삭제 전파는 실패를 호출자에게 알려야 아웃박스가 재시도할 수 있다 (P2-4)
+# — 예외를 삼키지 않고 전파한다. fire-and-forget이 필요한 호출자는 스스로 감싼다.
 async def delete_meeting(meeting_id: int) -> None:
-    try:
-        await run_cypher("MATCH (mg:Meetings {id: $id}) DETACH DELETE mg",
-                         {"id": f"mg-{meeting_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Meetings 삭제 실패: {e}")
+    await run_cypher("MATCH (mg:Meetings {id: $id}) DETACH DELETE mg",
+                     {"id": f"mg-{meeting_id}"})
 
 async def delete_session(session_id: int) -> None:
-    try:
-        await run_cypher("MATCH (s:Session {id: $id}) DETACH DELETE s",
-                         {"id": f"session-{session_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Session 삭제 실패: {e}")
+    await run_cypher("MATCH (s:Session {id: $id}) DETACH DELETE s",
+                     {"id": f"session-{session_id}"})
 
 async def delete_agenda(agenda_id: int) -> None:
-    try:
-        await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
-                         {"id": f"agenda-{agenda_id}"})
-    except Exception as e:
-        logger.error(f"[Neo4jSync] Agenda 삭제 실패: {e}")
+    await run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag",
+                     {"id": f"agenda-{agenda_id}"})
 
 
 # ─── 실패 재시도 ──────────────────────────────────────────────────────────────

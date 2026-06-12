@@ -33,6 +33,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
+
+def _replace_report_agendas(db, report_id: int, raw_ids) -> None:
+    """report_agendas 조인 테이블 동기화 (P2-8 dual-write).
+
+    related_agenda_ids JSONB(["agenda-174", 174, ...])와 같은 내용을 정규화 테이블에 반영한다.
+    읽기 경로가 전환되면 JSONB 쪽 쓰기를 제거한다.
+    """
+    import re as _re
+    pg_ids = set()
+    for v in raw_ids or []:
+        s = str(v)
+        m = _re.search(r"\d+$", s)
+        if m:
+            pg_ids.add(int(m.group()))
+    db.query(models.ReportAgenda).filter(models.ReportAgenda.report_id == report_id).delete()
+    if pg_ids:
+        existing = {
+            row.id for row in db.query(models.Agenda.id).filter(models.Agenda.id.in_(pg_ids)).all()
+        }
+        for aid in pg_ids & existing:
+            db.add(models.ReportAgenda(report_id=report_id, agenda_id=aid))
+    db.commit()
+
+
 _MAX_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
@@ -173,6 +197,7 @@ async def upload_report(
     db.add(report)
     db.commit()
     db.refresh(report)
+    _replace_report_agendas(db, report.id, agenda_ids)  # 정규화 dual-write (P2-8)
 
     from file_embedder import embed_and_store as _embed_and_store
     background_tasks.add_task(
@@ -314,6 +339,7 @@ async def submit_report_review(
     # 최종 아젠다 연결 업데이트 (step 2에서 사용자가 선택/확정한 값)
     if "related_agenda_ids" in data:
         report.related_agenda_ids = data["related_agenda_ids"]
+        _replace_report_agendas(db, report.id, data["related_agenda_ids"])  # P2-8
 
     # approved 시 연결된 아젠다 자동 완료
     if action == "approved":
