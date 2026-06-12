@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session as DBSession
@@ -170,7 +170,7 @@ async def sync_department(name: str) -> None:
     try:
         await run_cypher(
             "MERGE (d:Department {name: $name}) SET d.updated_at = $updated_at",
-            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+            {"name": name.strip(), "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_department 실패 ({name}): {e}")
@@ -183,7 +183,7 @@ async def sync_company(name: str) -> None:
     try:
         await run_cypher(
             "MERGE (c:Company {name: $name}) SET c.updated_at = $updated_at",
-            {"name": name.strip(), "updated_at": datetime.utcnow().isoformat()},
+            {"name": name.strip(), "updated_at": datetime.now(timezone.utc).isoformat()},
         )
     except Exception as e:
         logger.error(f"[Neo4jSync] sync_company 실패 ({name}): {e}")
@@ -201,7 +201,7 @@ async def sync_user(
     created_at: str | None = None,
 ) -> None:
     """User 노드를 upsert합니다."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     cypher = """
     MERGE (u:User {pg_id: $pg_id})
     SET u.name       = $name,
@@ -343,7 +343,7 @@ async def sync_meeting_group(
         "end_date": end_date or "",
         "created_by": created_by,
         "created_at": created_at or "",
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     embedding, content_hash = await _embed_if_changed("Meetings", "id", mg_id, guidelines or "")
     if embedding:
@@ -409,7 +409,7 @@ async def sync_session(
         "session_type": session_type or "",
         "description": description or "",
         "mg_id": mg_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
@@ -506,7 +506,7 @@ async def sync_agenda(
         "ai_evidence": ai_evidence or "",
         "created_at": created_at or "",
         "mg_id": mg_id, "s_id": s_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
@@ -578,7 +578,7 @@ async def sync_minutes(
         "recorder_id": recorder_id,
         "status": status or "draft",
         "generated_at": generated_at or "",
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding
@@ -639,7 +639,7 @@ async def sync_report(
         "human_status": human_status,
         "created_at": created_at or "",
         "mg_id": mg_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     emb_text = " ".join(filter(None, [file_name, submitter_department]))
     embedding, content_hash = await _embed_if_changed("Report", "id", report_neo_id, emb_text)
@@ -711,7 +711,7 @@ async def sync_human_judgment(
         "created_at": created_at or "",
         "mg_id": f"mg-{meeting_id}" if meeting_id else "",
         "reviewer_id": reviewer_id,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if embedding:
         params["embedding"] = embedding

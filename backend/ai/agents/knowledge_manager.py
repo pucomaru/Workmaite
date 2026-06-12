@@ -1,6 +1,6 @@
 import logging
 import os, json, re, uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional, Annotated
 from typing_extensions import TypedDict
 
@@ -115,7 +115,7 @@ async def store_minutes(
     await ensure_vector_indexes()
     node_id = f"minutes-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (m:Minutes {id: $id})
@@ -163,7 +163,7 @@ async def store_task(
     await ensure_vector_indexes()
     node_id = f"agenda-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (t:Agenda {id: $id})
@@ -223,7 +223,7 @@ async def store_report(
     await ensure_vector_indexes()
     node_id = f"reportchunk-{uuid.uuid4().hex[:8]}"
     embedding = await _embed(content)
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     await run_cypher(
         """MERGE (c:ReportChunk {id: $id})
@@ -426,7 +426,7 @@ async def propose_relationships(
     _proposals[proposal_id] = {
         "meeting_id": meeting_id,
         "relationships": relationships,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     return {"proposal_id": proposal_id, "relationships": relationships}
@@ -473,7 +473,7 @@ async def confirm_relationships(
         reason_text = reject_reason or "사유 없음"
         node_id = f"humanjudgment-{uuid.uuid4().hex[:8]}"
         embedding = await _embed(reason_text)
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         try:
             await run_cypher(
                 """MERGE (hj:HumanJudgment {id: $id})
@@ -584,7 +584,7 @@ async def reconcile_graph(analysis: dict) -> dict:
              "session_agenda_links": 0,
              "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
              "pruned_links": 0}
-    ts = datetime.utcnow().isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
 
     # ⓪ 세션 시간순 '후속' 체인
     for chain in struct.get("session_chains", []):
