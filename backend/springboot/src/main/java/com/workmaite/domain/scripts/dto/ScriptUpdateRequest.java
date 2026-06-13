@@ -21,11 +21,11 @@ public class ScriptUpdateRequest {
 
     // 수정할 세그먼트 ID (필수)
     @NotNull(message = "세그먼트 ID는 필수입니다.")
-    private Integer id;
+    private Long id;
 
     // 부분 수정: 모든 필드 nullable
     private String speakerLabel;
-    private Integer speakerUserId;
+    private Long speakerUserId;
     private String content;
     private Double startSec;
     private Double endSec;

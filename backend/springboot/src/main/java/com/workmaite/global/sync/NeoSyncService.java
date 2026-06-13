@@ -20,46 +20,46 @@ public class NeoSyncService {
   private final SyncOutboxRepository outboxRepository;
   private final SyncOutboxDispatcher dispatcher;
 
-  public void syncMeeting(Integer meetingId) {
+  public void syncMeeting(Long meetingId) {
     enqueue("meeting", meetingId, "upsert", null);
   }
 
-  public void syncSession(Integer sessionId) {
+  public void syncSession(Long sessionId) {
     enqueue("session", sessionId, "upsert", null);
   }
 
-  public void syncAgenda(Integer agendaId) {
+  public void syncAgenda(Long agendaId) {
     enqueue("agenda", agendaId, "upsert", null);
   }
 
-  public void syncUser(Integer userId) {
+  public void syncUser(Long userId) {
     enqueue("user", userId, "upsert", null);
   }
 
-  public void syncMember(Integer meetingId, Integer userId, String role) {
+  public void syncMember(Long meetingId, Long userId, String role) {
     enqueue(
         "member", meetingId, "upsert", "{\"user_id\": " + userId + ", \"role\": \"" + role + "\"}");
   }
 
-  public void deleteMeeting(Integer meetingId) {
+  public void deleteMeeting(Long meetingId) {
     enqueue("meeting", meetingId, "delete", null);
   }
 
   /** 세션 삭제 전파 (DATA-4) */
-  public void deleteSession(Integer sessionId) {
+  public void deleteSession(Long sessionId) {
     enqueue("session", sessionId, "delete", null);
   }
 
   /** 아젠다 삭제 전파 (DATA-4) */
-  public void deleteAgenda(Integer agendaId) {
+  public void deleteAgenda(Long agendaId) {
     enqueue("agenda", agendaId, "delete", null);
   }
 
-  public void deleteMember(Integer meetingId, Integer userId) {
+  public void deleteMember(Long meetingId, Long userId) {
     enqueue("member", meetingId, "delete", "{\"user_id\": " + userId + "}");
   }
 
-  private void enqueue(String entityType, Integer entityId, String op, String payloadJson) {
+  private void enqueue(String entityType, Long entityId, String op, String payloadJson) {
     // 호출자 트랜잭션에 참여해 비즈니스 변경과 함께 커밋된다 (롤백 시 동기화도 취소)
     outboxRepository.save(
         SyncOutbox.builder()

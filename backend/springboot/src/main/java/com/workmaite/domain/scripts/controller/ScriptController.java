@@ -25,14 +25,14 @@ public class ScriptController {
 
   @PostMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> saveScripts(
-      @PathVariable Integer sessionId, @Valid @RequestBody ScriptSaveRequest request) {
+      @PathVariable Long sessionId, @Valid @RequestBody ScriptSaveRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.ok(scriptService.saveScripts(sessionId, request)));
   }
 
   @GetMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> getScripts(
-      @PathVariable Integer sessionId,
+      @PathVariable Long sessionId,
       @RequestParam(required = false) Double afterSec,
       @RequestParam(required = false) Integer limit) {
     return ResponseEntity.ok(ApiResponse.ok(scriptService.getScripts(sessionId, afterSec, limit)));
@@ -40,12 +40,12 @@ public class ScriptController {
 
   @PatchMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> updateScripts(
-      @PathVariable Integer sessionId, @Valid @RequestBody ScriptUpdateRequest request) {
+      @PathVariable Long sessionId, @Valid @RequestBody ScriptUpdateRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(scriptService.updateScripts(sessionId, request)));
   }
 
   @DeleteMapping
-  public ResponseEntity<ApiResponse<Void>> deleteScripts(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<Void>> deleteScripts(@PathVariable Long sessionId) {
     scriptService.deleteScripts(sessionId);
     return ResponseEntity.ok(ApiResponse.ok(null));
   }

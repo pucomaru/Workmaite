@@ -9,5 +9,5 @@ import lombok.NoArgsConstructor;
 public class AgendaAssignmentRequest {
 
   @NotNull(message = "담당자 ID는 필수입니다.")
-  private Integer assigneeId;
+  private Long assigneeId;
 }

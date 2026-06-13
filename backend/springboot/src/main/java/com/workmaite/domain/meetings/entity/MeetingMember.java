@@ -16,13 +16,13 @@ public class MeetingMember {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "meeting_id", nullable = false)
-  private Integer meetingId;
+  private Long meetingId;
 
   @Column(name = "user_id", nullable = false)
-  private Integer userId;
+  private Long userId;
 
   // SECRETARY(admin) | MEMBER(presenter)
   @Convert(converter = MeetingMemberRoleConverter.class)
@@ -33,7 +33,7 @@ public class MeetingMember {
   @Column(length = 20)
   private String priority = "medium";
 
-  public static MeetingMember create(Integer meetingId, Integer userId, MeetingMemberRole role) {
+  public static MeetingMember create(Long meetingId, Long userId, MeetingMemberRole role) {
     MeetingMember member = new MeetingMember();
     member.meetingId = meetingId;
     member.userId = userId;

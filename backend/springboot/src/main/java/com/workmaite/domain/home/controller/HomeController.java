@@ -23,7 +23,7 @@ public class HomeController {
   @GetMapping("/calendar")
   public ResponseEntity<ApiResponse<CalendarResponse>> getCalendar(
       @RequestParam String view, @RequestParam String date, Authentication authentication) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(homeService.getCalendar(userId, view, date)));
   }
 }

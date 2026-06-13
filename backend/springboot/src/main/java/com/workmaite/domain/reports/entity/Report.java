@@ -15,16 +15,16 @@ public class Report {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "meeting_id", nullable = false)
-  private Integer meetingId;
+  private Long meetingId;
 
   @Column(name = "parent_id")
-  private Integer parentId;
+  private Long parentId;
 
   @Column(name = "upload_id", nullable = false)
-  private Integer uploadId;
+  private Long uploadId;
 
   @Builder.Default
   @Column(name = "version", nullable = false)

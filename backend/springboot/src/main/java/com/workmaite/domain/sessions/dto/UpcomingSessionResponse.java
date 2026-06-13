@@ -11,8 +11,8 @@ import lombok.Getter;
 @Builder
 public class UpcomingSessionResponse {
 
-  private Integer sessionId;
-  private Integer meetingId;
+  private Long sessionId;
+  private Long meetingId;
   private String title;
   private String meetingTitle;
   private LocalDateTime scheduledAt;

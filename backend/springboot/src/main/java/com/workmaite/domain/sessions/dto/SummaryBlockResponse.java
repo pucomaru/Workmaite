@@ -10,7 +10,7 @@ import lombok.Getter;
 @Builder
 public class SummaryBlockResponse {
 
-  private Integer id;
+  private Long id;
 
   @JsonProperty("block_index")
   private Integer blockIndex;

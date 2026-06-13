@@ -22,7 +22,7 @@ public class AgendaService {
   private final NeoSyncService neoSyncService;
   private final MeetingAccessGuard meetingAccessGuard;
 
-  public List<AgendaResponse> getAgendas(Integer meetingId) {
+  public List<AgendaResponse> getAgendas(Long meetingId) {
     meetingAccessGuard.requireMember(meetingId);
     return agendaRepository.findByMeetingIdOrderByCreatedAt(meetingId).stream()
         .map(AgendaResponse::from)
@@ -31,7 +31,7 @@ public class AgendaService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "agenda")
-  public AgendaResponse createAgenda(Integer meetingId, AgendaCreateRequest request) {
+  public AgendaResponse createAgenda(Long meetingId, AgendaCreateRequest request) {
     meetingAccessGuard.requireMember(meetingId);
     Agenda agenda =
         Agenda.create(meetingId, request.getSessionId(), request.getTitle(), request.getPriority());
@@ -41,17 +41,17 @@ public class AgendaService {
   }
 
   @Transactional
-  public List<AgendaResponse> extractAgendas(Integer meetingId, AgendaExtractRequest request) {
+  public List<AgendaResponse> extractAgendas(Long meetingId, AgendaExtractRequest request) {
     return List.of();
   }
 
-  public AgendaResponse getAgenda(Integer agendaId) {
+  public AgendaResponse getAgenda(Long agendaId) {
     return AgendaResponse.from(findAgendaById(agendaId));
   }
 
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "agenda")
-  public AgendaResponse updateAgenda(Integer agendaId, AgendaUpdateRequest request) {
+  public AgendaResponse updateAgenda(Long agendaId, AgendaUpdateRequest request) {
     Agenda agenda = findAgendaById(agendaId);
     agenda.update(
         request.getTitle(),
@@ -65,14 +65,14 @@ public class AgendaService {
 
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "agenda")
-  public void deleteAgenda(Integer agendaId) {
+  public void deleteAgenda(Long agendaId) {
     agendaRepository.delete(findAgendaById(agendaId));
     neoSyncService.deleteAgenda(agendaId); // 삭제 전파 (DATA-4)
   }
 
   @Transactional
   @AuditLogged(action = "ASSIGN", entityType = "agenda")
-  public AgendaResponse assignAgenda(Integer agendaId, AgendaAssignmentRequest request) {
+  public AgendaResponse assignAgenda(Long agendaId, AgendaAssignmentRequest request) {
     Agenda agenda = findAgendaById(agendaId);
     agenda.assign(request.getAssigneeId());
     neoSyncService.syncAgenda(agendaId);
@@ -80,7 +80,7 @@ public class AgendaService {
   }
 
   // 모든 agendaId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
-  private Agenda findAgendaById(Integer agendaId) {
+  private Agenda findAgendaById(Long agendaId) {
     Agenda agenda =
         agendaRepository
             .findById(agendaId)

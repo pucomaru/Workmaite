@@ -8,11 +8,11 @@ import lombok.Getter;
 @Builder
 public class ReportReviewResultResponse {
 
-    private Long reportId;
-    private String aiStatus;
-    private Double totalScore;
-    private String detailScores;
-    private String feedback;
+  private Long reportId;
+  private String aiStatus;
+  private Double totalScore;
+  private String detailScores;
+  private String feedback;
 
   public static ReportReviewResultResponse of(ReportScore reportScore) {
     return ReportReviewResultResponse.builder()

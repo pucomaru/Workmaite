@@ -4,7 +4,7 @@ import com.workmaite.domain.agendas.entity.Agenda;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface AgendaRepository extends JpaRepository<Agenda, Integer> {
+public interface AgendaRepository extends JpaRepository<Agenda, Long> {
 
-  List<Agenda> findByMeetingIdOrderByCreatedAt(Integer meetingId);
+  List<Agenda> findByMeetingIdOrderByCreatedAt(Long meetingId);
 }

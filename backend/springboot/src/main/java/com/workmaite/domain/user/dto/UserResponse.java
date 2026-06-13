@@ -11,11 +11,11 @@ import lombok.Getter;
 @Builder
 public class UserResponse {
 
-  private Integer id;
+  private Long id;
   private String name;
   private String email;
   private String company;
-  private Integer companyId;
+  private Long companyId;
   private String department;
   private String position;
   private String role;

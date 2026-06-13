@@ -25,7 +25,7 @@ public class HomeService {
   private final MeetingRepository meetingRepository;
   private final SessionRepository sessionRepository;
 
-  public CalendarResponse getCalendar(Integer userId, String view, String dateStr) {
+  public CalendarResponse getCalendar(Long userId, String view, String dateStr) {
     LocalDate date = LocalDate.parse(dateStr);
     LocalDateTime start;
     LocalDateTime end;
@@ -49,8 +49,8 @@ public class HomeService {
     List<MeetingSession> sessions =
         sessionRepository.findByUserIdAndScheduledAtBetween(userId, start, end);
 
-    List<Integer> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
-    Map<Integer, String> meetingTitleMap =
+    List<Long> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
+    Map<Long, String> meetingTitleMap =
         meetingIds.isEmpty()
             ? Map.of()
             : meetingRepository.findAllById(meetingIds).stream()

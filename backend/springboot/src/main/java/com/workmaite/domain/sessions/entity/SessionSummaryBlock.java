@@ -16,10 +16,10 @@ public class SessionSummaryBlock {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "session_id", nullable = false)
-  private Integer sessionId;
+  private Long sessionId;
 
   @Column(name = "block_index", nullable = false)
   private Integer blockIndex;

@@ -29,7 +29,7 @@ public class UserController {
   // 내 정보 조회 - JWT에서 추출한 userId로 조회
   @GetMapping("/me")
   public ResponseEntity<ApiResponse<UserResponse>> getMe(Authentication authentication) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.getMe(userId)));
   }
 
@@ -37,7 +37,7 @@ public class UserController {
   @PatchMapping("/me")
   public ResponseEntity<ApiResponse<UserResponse>> updateMe(
       Authentication authentication, @Valid @RequestBody UpdateUserRequest request) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.updateMe(userId, request)));
   }
 
@@ -48,18 +48,18 @@ public class UserController {
       @RequestParam String q,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer size) {
-    Integer callerId = Integer.parseInt(authentication.getName());
+    Long callerId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(callerId, q, page, size)));
   }
 
   // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용
   @GetMapping("/by-ids")
   public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByIds(@RequestParam String ids) {
-    List<Integer> idList =
+    List<Long> idList =
         Arrays.stream(ids.split(","))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
-            .map(Integer::parseInt)
+            .map(Long::parseLong)
             .collect(Collectors.toList());
     return ResponseEntity.ok(ApiResponse.ok(userService.getUsersByIds(idList)));
   }
@@ -70,7 +70,7 @@ public class UserController {
       Authentication authentication,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer size) {
-    Integer callerId = Integer.parseInt(authentication.getName());
+    Long callerId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId, page, size)));
   }
 
@@ -78,9 +78,9 @@ public class UserController {
   @PatchMapping("/{userId}/role")
   public ResponseEntity<ApiResponse<UserResponse>> updateRole(
       Authentication authentication,
-      @PathVariable Integer userId,
+      @PathVariable Long userId,
       @RequestBody Map<String, String> body) {
-    Integer callerId = Integer.parseInt(authentication.getName());
+    Long callerId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(
         ApiResponse.ok(userService.updateRole(callerId, userId, body.getOrDefault("role", ""))));
   }
@@ -89,7 +89,7 @@ public class UserController {
   @PostMapping("/bulk")
   public ResponseEntity<ApiResponse<List<Map<String, Object>>>> createMembers(
       Authentication authentication, @RequestBody List<Map<String, String>> rows) {
-    Integer callerId = Integer.parseInt(authentication.getName());
+    Long callerId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.createMembers(callerId, rows)));
   }
 
@@ -97,9 +97,9 @@ public class UserController {
   @PatchMapping("/{userId}")
   public ResponseEntity<ApiResponse<UserResponse>> updateUser(
       Authentication authentication,
-      @PathVariable Integer userId,
+      @PathVariable Long userId,
       @RequestBody UpdateUserRequest request) {
-    Integer callerId = Integer.parseInt(authentication.getName());
+    Long callerId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(userService.updateUser(callerId, userId, request)));
   }
 }

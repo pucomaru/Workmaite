@@ -9,10 +9,10 @@ import lombok.Getter;
 @Builder
 public class ScriptResponse {
 
-  private Integer id;
-  private Integer sessionId;
+  private Long id;
+  private Long sessionId;
   private String speakerLabel;
-  private Integer speakerUserId;
+  private Long speakerUserId;
   private String content;
   private Double startSec;
   private Double endSec;

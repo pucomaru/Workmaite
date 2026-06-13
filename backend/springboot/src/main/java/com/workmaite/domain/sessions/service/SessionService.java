@@ -49,13 +49,13 @@ public class SessionService {
   private final MeetingAccessGuard meetingAccessGuard;
 
   // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
-  public List<UpcomingSessionResponse> getMyUpcomingSessions(Integer userId) {
+  public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
     List<MeetingSession> sessions =
         sessionRepository.findUpcomingByUserId(userId, SessionStatus.SCHEDULED);
     if (sessions.isEmpty()) return List.of();
 
-    List<Integer> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
-    Map<Integer, String> meetingTitleMap =
+    List<Long> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
+    Map<Long, String> meetingTitleMap =
         meetingRepository.findAllById(meetingIds).stream()
             .collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
 
@@ -65,7 +65,7 @@ public class SessionService {
         .toList();
   }
 
-  public List<SessionResponse> getSessions(Integer meetingId, SessionStatus status) {
+  public List<SessionResponse> getSessions(Long meetingId, SessionStatus status) {
     meetingAccessGuard.requireMember(meetingId);
     List<MeetingSession> sessions =
         (status != null)
@@ -78,7 +78,7 @@ public class SessionService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "session")
-  public SessionResponse createSession(Integer meetingId, SessionCreateRequest request) {
+  public SessionResponse createSession(Long meetingId, SessionCreateRequest request) {
     meetingAccessGuard.requireMember(meetingId);
     MeetingSession session =
         MeetingSession.create(
@@ -104,7 +104,7 @@ public class SessionService {
     return SessionResponse.from(session, members);
   }
 
-  public SessionResponse getSession(Integer sessionId) {
+  public SessionResponse getSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
     List<SummaryBlockResponse> blocks =
         summaryBlockRepository.findBySessionIdOrderByBlockIndexAsc(sessionId).stream()
@@ -116,7 +116,7 @@ public class SessionService {
 
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "session")
-  public SessionResponse updateSession(Integer sessionId, SessionUpdateRequest request) {
+  public SessionResponse updateSession(Long sessionId, SessionUpdateRequest request) {
     MeetingSession session = findSessionById(sessionId);
 
     session.update(
@@ -144,7 +144,7 @@ public class SessionService {
 
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "session")
-  public void deleteSession(Integer sessionId) {
+  public void deleteSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
     scriptRepository.deleteAllBySessionId(sessionId);
     summaryBlockRepository.deleteAllBySessionId(sessionId);
@@ -157,7 +157,7 @@ public class SessionService {
   // SCHEDULED 상태일 때만 시작 가능, 그 외 상태면 SESSION_ALREADY_STARTED 에러
   @Transactional
   @AuditLogged(action = "START", entityType = "session")
-  public SessionResponse startSession(Integer sessionId) {
+  public SessionResponse startSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
 
     if (session.getStatus() != SessionStatus.SCHEDULED) {
@@ -171,7 +171,7 @@ public class SessionService {
 
   // ONGOING 상태일 때만 일시정지 가능
   @Transactional
-  public SessionResponse pauseSession(Integer sessionId) {
+  public SessionResponse pauseSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
@@ -185,7 +185,7 @@ public class SessionService {
 
   // ONGOING 상태일 때만 재개 가능
   @Transactional
-  public SessionResponse resumeSession(Integer sessionId) {
+  public SessionResponse resumeSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
@@ -200,7 +200,7 @@ public class SessionService {
   // ONGOING 상태일 때만 종료 가능, 그 외 상태면 SESSION_ALREADY_ENDED 에러
   @Transactional
   @AuditLogged(action = "END", entityType = "session")
-  public SessionResponse endSession(Integer sessionId) {
+  public SessionResponse endSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
@@ -213,7 +213,7 @@ public class SessionService {
   }
 
   @Transactional
-  public SessionResponse archiveSession(Integer sessionId) {
+  public SessionResponse archiveSession(Long sessionId) {
     MeetingSession session = findSessionById(sessionId);
 
     if (session.getStatus() != SessionStatus.ENDED) {
@@ -225,14 +225,14 @@ public class SessionService {
   }
 
   @Transactional
-  public SessionResponse updateContext(Integer sessionId, String context) {
+  public SessionResponse updateContext(Long sessionId, String context) {
     MeetingSession session = findSessionById(sessionId);
     session.updateContext(context);
     return SessionResponse.from(session);
   }
 
   // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
-  private MeetingSession findSessionById(Integer sessionId) {
+  private MeetingSession findSessionById(Long sessionId) {
     MeetingSession session =
         sessionRepository
             .findById(sessionId)

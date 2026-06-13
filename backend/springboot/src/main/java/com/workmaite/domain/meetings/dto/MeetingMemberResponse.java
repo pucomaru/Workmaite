@@ -11,13 +11,13 @@ import lombok.Getter;
 @Builder
 public class MeetingMemberResponse {
 
-  private Integer id;
+  private Long id;
 
   @JsonProperty("meeting_id")
-  private Integer meetingId;
+  private Long meetingId;
 
   @JsonProperty("user_id")
-  private Integer userId;
+  private Long userId;
 
   private MeetingMemberRole role;
 
@@ -28,11 +28,11 @@ public class MeetingMemberResponse {
   @Getter
   @Builder
   public static class UserInfo {
-    private Integer id;
+    private Long id;
     private String name;
     private String email;
     private String company;
-    private Integer companyId;
+    private Long companyId;
     private String department;
     private String position;
   }

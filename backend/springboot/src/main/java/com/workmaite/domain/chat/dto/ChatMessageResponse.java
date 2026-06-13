@@ -8,11 +8,11 @@ import lombok.Getter;
 @Getter
 @Builder
 public class ChatMessageResponse {
-  private Integer id;
+  private Long id;
   private String threadId;
   private String role;
   private String content;
-  private Integer meetingId;
+  private Long meetingId;
   private LocalDateTime createdAt;
 
   public static ChatMessageResponse from(ChatMessage message) {

@@ -10,9 +10,9 @@ import lombok.Getter;
 @Builder
 public class MinutesResponse {
 
-  private Integer id;
-  private Integer sessionId;
-  private Integer recorderId;
+  private Long id;
+  private Long sessionId;
+  private Long recorderId;
   private String fileName;
   private String filePath;
   private String contentOriginal;

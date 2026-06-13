@@ -6,19 +6,19 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface MeetingMemberRepository extends JpaRepository<MeetingMember, Integer> {
+public interface MeetingMemberRepository extends JpaRepository<MeetingMember, Long> {
 
-  List<MeetingMember> findByMeetingId(Integer meetingId);
+  List<MeetingMember> findByMeetingId(Long meetingId);
 
-  Optional<MeetingMember> findByMeetingIdAndUserId(Integer meetingId, Integer userId);
+  Optional<MeetingMember> findByMeetingIdAndUserId(Long meetingId, Long userId);
 
-  boolean existsByMeetingIdAndUserId(Integer meetingId, Integer userId);
+  boolean existsByMeetingIdAndUserId(Long meetingId, Long userId);
 
-  boolean existsByMeetingIdAndUserIdAndRole(Integer meetingId, Integer userId, MeetingMemberRole role);
+  boolean existsByMeetingIdAndUserIdAndRole(Long meetingId, Long userId, MeetingMemberRole role);
 
-  List<MeetingMember> findByMeetingIdInAndRole(List<Integer> meetingIds, MeetingMemberRole role);
+  List<MeetingMember> findByMeetingIdInAndRole(List<Long> meetingIds, MeetingMemberRole role);
 
-  List<MeetingMember> findByMeetingIdIn(List<Integer> meetingIds);
+  List<MeetingMember> findByMeetingIdIn(List<Long> meetingIds);
 
-  List<MeetingMember> findByUserId(Integer userId);
+  List<MeetingMember> findByUserId(Long userId);
 }

@@ -24,22 +24,22 @@ public class MeetingAccessGuard {
   private final AgendaRepository agendaRepository;
 
   /** 현재 사용자가 회의체 멤버인지 검증 */
-  public void requireMember(Integer meetingId) {
+  public void requireMember(Long meetingId) {
     if (CurrentUser.isSystemAdmin()) {
       return;
     }
-    Integer userId = CurrentUser.id();
+    Long userId = CurrentUser.id();
     if (!meetingMemberRepository.existsByMeetingIdAndUserId(meetingId, userId)) {
       throw new BusinessException(ErrorCode.ACCESS_DENIED);
     }
   }
 
   /** 현재 사용자가 회의체 간사(admin)인지 검증 */
-  public void requireAdmin(Integer meetingId) {
+  public void requireAdmin(Long meetingId) {
     if (CurrentUser.isSystemAdmin()) {
       return;
     }
-    Integer userId = CurrentUser.id();
+    Long userId = CurrentUser.id();
     if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(
         meetingId, userId, MeetingMemberRole.ADMIN)) {
       throw new BusinessException(ErrorCode.MEETING_ACCESS_DENIED);
@@ -47,8 +47,8 @@ public class MeetingAccessGuard {
   }
 
   /** 세션 ID로 소속 회의체 멤버십 검증 */
-  public void requireMemberBySession(Integer sessionId) {
-    Integer meetingId =
+  public void requireMemberBySession(Long sessionId) {
+    Long meetingId =
         sessionRepository
             .findById(sessionId)
             .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND))
@@ -57,8 +57,8 @@ public class MeetingAccessGuard {
   }
 
   /** 보고서 ID로 소속 회의체 멤버십 검증 */
-  public void requireMemberByReport(Integer reportId) {
-    Integer meetingId =
+  public void requireMemberByReport(Long reportId) {
+    Long meetingId =
         reportRepository
             .findById(reportId)
             .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND))
@@ -67,8 +67,8 @@ public class MeetingAccessGuard {
   }
 
   /** 아젠다 ID로 소속 회의체 멤버십 검증 */
-  public void requireMemberByAgenda(Integer agendaId) {
-    Integer meetingId =
+  public void requireMemberByAgenda(Long agendaId) {
+    Long meetingId =
         agendaRepository
             .findById(agendaId)
             .orElseThrow(() -> new BusinessException(ErrorCode.AGENDA_NOT_FOUND))

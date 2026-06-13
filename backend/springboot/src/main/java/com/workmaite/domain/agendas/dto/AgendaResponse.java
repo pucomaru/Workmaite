@@ -10,12 +10,12 @@ import lombok.Getter;
 @Builder
 public class AgendaResponse {
 
-  private Integer id;
-  private Integer meetingId;
-  private Integer sessionId;
+  private Long id;
+  private Long meetingId;
+  private Long sessionId;
   private String title;
   private AgendaStatus status;
-  private Integer assigneeId;
+  private Long assigneeId;
   private String department;
   private LocalDateTime dueDate;
   private String priority;

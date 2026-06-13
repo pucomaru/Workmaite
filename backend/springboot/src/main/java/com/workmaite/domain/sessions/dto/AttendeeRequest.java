@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 public class AttendeeRequest {
 
   @JsonProperty("user_id")
-  private Integer userId;
+  private Long userId;
 
   private String role;
 }

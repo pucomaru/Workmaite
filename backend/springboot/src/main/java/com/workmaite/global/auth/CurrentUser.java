@@ -13,20 +13,20 @@ public final class CurrentUser {
 
   private CurrentUser() {}
 
-  public static Integer idOrNull() {
+  public static Long idOrNull() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || auth.getName() == null || "anonymousUser".equals(auth.getName())) {
       return null;
     }
     try {
-      return Integer.parseInt(auth.getName());
+      return Long.parseLong(auth.getName());
     } catch (NumberFormatException e) {
       return null;
     }
   }
 
-  public static Integer id() {
-    Integer id = idOrNull();
+  public static Long id() {
+    Long id = idOrNull();
     if (id == null) {
       throw new BusinessException(ErrorCode.UNAUTHORIZED);
     }

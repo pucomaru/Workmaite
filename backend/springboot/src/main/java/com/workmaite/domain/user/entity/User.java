@@ -16,7 +16,7 @@ public class User {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(nullable = false, length = 100)
   private String name;
@@ -90,7 +90,7 @@ public class User {
   }
 
   /** 호환용 — company_id 직접 접근 (관계 매핑 전환, P1-7②) */
-  public Integer getCompanyId() {
+  public Long getCompanyId() {
     return company != null ? company.getId() : null;
   }
 }

@@ -14,10 +14,10 @@ import lombok.Getter;
 @Builder
 public class SessionResponse {
 
-  private Integer id;
+  private Long id;
 
   @JsonProperty("meeting_id")
-  private Integer meetingId;
+  private Long meetingId;
 
   private String title;
   private String location;
@@ -34,7 +34,7 @@ public class SessionResponse {
   private LocalDateTime endedAt;
 
   @JsonProperty("attendee_ids")
-  private List<Integer> attendeeIds;
+  private List<Long> attendeeIds;
 
   private List<Map<String, Object>> attendees;
 
@@ -42,7 +42,7 @@ public class SessionResponse {
   private List<SummaryBlockResponse> summaryBlocks;
 
   @JsonProperty("recording_seconds")
-  private Integer recordingSeconds;
+  private Long recordingSeconds;
 
   @JsonProperty("last_resumed_at")
   private LocalDateTime lastResumedAt;
@@ -71,7 +71,7 @@ public class SessionResponse {
 
   public static SessionResponse from(
       MeetingSession session, List<SessionMember> members, List<SummaryBlockResponse> blocks) {
-    List<Integer> ids = members.stream().map(SessionMember::getUserId).toList();
+    List<Long> ids = members.stream().map(SessionMember::getUserId).toList();
     List<Map<String, Object>> attendees =
         members.stream()
             .map(

@@ -26,7 +26,7 @@ public class AgendaController {
   // AI가 회의체 자료를 분석해 안건을 자동 추출
   @PostMapping("/meetings/{meetingId}/agendas/extract")
   public ResponseEntity<ApiResponse<List<AgendaResponse>>> extractAgendas(
-      @PathVariable Integer meetingId, @RequestBody @Valid AgendaExtractRequest request) {
+      @PathVariable Long meetingId, @RequestBody @Valid AgendaExtractRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.ok(agendaService.extractAgendas(meetingId, request)));
   }
@@ -34,34 +34,34 @@ public class AgendaController {
   // 회의체의 안건 목록을 orderIndex 오름차순으로 반환
   @GetMapping("/meetings/{meetingId}/agendas")
   public ResponseEntity<ApiResponse<List<AgendaResponse>>> getAgendas(
-      @PathVariable Integer meetingId) {
+      @PathVariable Long meetingId) {
     return ResponseEntity.ok(ApiResponse.ok(agendaService.getAgendas(meetingId)));
   }
 
   // 안건 수동 생성
   @PostMapping("/meetings/{meetingId}/agendas")
   public ResponseEntity<ApiResponse<AgendaResponse>> createAgenda(
-      @PathVariable Integer meetingId, @RequestBody @Valid AgendaCreateRequest request) {
+      @PathVariable Long meetingId, @RequestBody @Valid AgendaCreateRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.ok(agendaService.createAgenda(meetingId, request)));
   }
 
   // 안건 단건 조회
   @GetMapping("/agendas/{agendaId}")
-  public ResponseEntity<ApiResponse<AgendaResponse>> getAgenda(@PathVariable Integer agendaId) {
+  public ResponseEntity<ApiResponse<AgendaResponse>> getAgenda(@PathVariable Long agendaId) {
     return ResponseEntity.ok(ApiResponse.ok(agendaService.getAgenda(agendaId)));
   }
 
   // 안건 수정 (title, content, orderIndex, status 부분 수정)
   @PatchMapping("/agendas/{agendaId}")
   public ResponseEntity<ApiResponse<AgendaResponse>> updateAgenda(
-      @PathVariable Integer agendaId, @RequestBody AgendaUpdateRequest request) {
+      @PathVariable Long agendaId, @RequestBody AgendaUpdateRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(agendaService.updateAgenda(agendaId, request)));
   }
 
   // 안건 삭제
   @DeleteMapping("/agendas/{agendaId}")
-  public ResponseEntity<ApiResponse<Void>> deleteAgenda(@PathVariable Integer agendaId) {
+  public ResponseEntity<ApiResponse<Void>> deleteAgenda(@PathVariable Long agendaId) {
     agendaService.deleteAgenda(agendaId);
     return ResponseEntity.ok(ApiResponse.ok(null));
   }
@@ -69,7 +69,7 @@ public class AgendaController {
   // 안건 담당자 배정
   @PatchMapping("/agendas/{agendaId}/assignment")
   public ResponseEntity<ApiResponse<AgendaResponse>> assignAgenda(
-      @PathVariable Integer agendaId, @RequestBody @Valid AgendaAssignmentRequest request) {
+      @PathVariable Long agendaId, @RequestBody @Valid AgendaAssignmentRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(agendaService.assignAgenda(agendaId, request)));
   }
 }
