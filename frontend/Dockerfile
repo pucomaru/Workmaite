@@ -2,7 +2,10 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci && npm install @rollup/rollup-linux-x64-musl
+# npm ci 대신 install — npm 크로스플랫폼 optional-dependency lock 버그 회피
+# (Windows 생성 lock이 alpine/musl의 @emnapi·@rollup 해석과 어긋나 npm ci 실패)
+# musl rollup 바이너리는 명시적으로 보강 설치
+RUN npm install --no-audit --no-fund && npm install @rollup/rollup-linux-x64-musl
 COPY . .
 ARG VITE_API_URL
 ARG VITE_AI_URL
