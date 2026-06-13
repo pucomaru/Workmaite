@@ -32,11 +32,13 @@ from auth import get_current_user
 # 서버 간 내부 호출 인증 (Spring Boot → FastAPI)
 _INTERNAL_SECRET = os.environ["INTERNAL_SECRET"]
 
+
 def verify_internal(x_internal_secret: Optional[str] = Header(None)):
     if x_internal_secret != _INTERNAL_SECRET:
         raise HTTPException(status_code=401, detail="Internal secret mismatch")
 
-from neo4j_sync import (
+
+from neo4j_sync import (  # noqa: E402
     sync_user,
     sync_department,
     sync_company,
@@ -53,13 +55,14 @@ from neo4j_sync import (
     retry_failed_syncs,
     sync_all_from_pg,
 )
-from neo4j_client import run_cypher
+from neo4j_client import run_cypher  # noqa: E402
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
 # ─── 재시도 트리거 ────────────────────────────────────────────────────────────
+
 
 @router.post("/retry")
 async def trigger_retry(
@@ -78,8 +81,8 @@ async def trigger_retry(
     }
 
 
-
 # ─── User 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────────────
+
 
 @router.post("/user/{user_id}")
 async def sync_user_manual(
@@ -98,7 +101,7 @@ async def sync_user_manual(
         company=user.company_name,
         department=user.department,
         position=user.position,
-        created_at=user.created_at.isoformat() + 'Z' if user.created_at else None,
+        created_at=user.created_at.isoformat() + "Z" if user.created_at else None,
     )
     return {"success": True, "user_id": user_id}
 
@@ -117,6 +120,7 @@ async def delete_user_sync(
 
 
 # ─── Department / Company 수동 동기화 ───────────────────────────────────
+
 
 @router.post("/department")
 async def sync_department_manual(
@@ -144,6 +148,7 @@ async def sync_company_manual(
 
 # ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
 
+
 @router.delete("/meeting/{meeting_id}/delete")
 async def delete_meeting_sync(
     meeting_id: int,
@@ -155,6 +160,7 @@ async def delete_meeting_sync(
 
 
 # ─── Meeting 수동 동기화 ──────────────────────────────────────────────────────
+
 
 @router.post("/meeting/{meeting_id}")
 async def sync_meeting_manual(
@@ -183,6 +189,7 @@ async def sync_meeting_manual(
 
 # ─── Session 수동 동기화 ──────────────────────────────────────────────────────
 
+
 @router.post("/session/{session_id}")
 async def sync_session_manual(
     session_id: int,
@@ -190,12 +197,18 @@ async def sync_session_manual(
     db: DBSession = Depends(get_db),
 ):
     """특정 Session을 Neo4j에 수동으로 동기화합니다."""
-    session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
+    session = (
+        db.query(models.MeetingSession)
+        .filter(models.MeetingSession.id == session_id)
+        .first()
+    )
     if not session:
         raise HTTPException(status_code=404, detail="Session을 찾을 수 없습니다.")
-    members = db.query(models.SessionMember).filter(
-        models.SessionMember.session_id == session_id
-    ).all()
+    members = (
+        db.query(models.SessionMember)
+        .filter(models.SessionMember.session_id == session_id)
+        .all()
+    )
     attendees = [{"user_id": m.user_id, "role": m.role or "member"} for m in members]
     await sync_session(
         session_id=session.id,
@@ -214,6 +227,7 @@ async def sync_session_manual(
 
 
 # ─── 전체 동기화 (부트스트랩 / 복구) ─────────────────────────────────────────
+
 
 @router.post("/all")
 async def sync_all(
@@ -242,6 +256,7 @@ async def _run_sync_all() -> None:
 
 # ─── Agenda 수동 동기화 ───────────────────────────────────────────────────────
 
+
 @router.post("/agenda/{agenda_id}")
 async def sync_agenda_manual(
     agenda_id: int,
@@ -253,6 +268,7 @@ async def sync_agenda_manual(
     if not agenda:
         raise HTTPException(status_code=404, detail="Agenda를 찾을 수 없습니다.")
     import json as _json
+
     dept_str = ""
     if agenda.department:
         dept_str = (
@@ -298,6 +314,7 @@ async def delete_session_sync(
 
 # ─── Minutes 수동 동기화 ──────────────────────────────────────────────────────
 
+
 @router.post("/minutes/{minutes_id}")
 async def sync_minutes_manual(
     minutes_id: int,
@@ -323,6 +340,7 @@ async def sync_minutes_manual(
 
 
 # ─── Member 동기화 (SpringBoot → FastAPI → Neo4j) ────────────────────────────
+
 
 @router.post("/member")
 async def sync_member_manual(
@@ -356,6 +374,7 @@ async def delete_member_manual(
 
 # ─── Report 수동 동기화 ───────────────────────────────────────────────────────
 
+
 @router.post("/report/{report_id}")
 async def sync_report_manual(
     report_id: int,
@@ -377,5 +396,3 @@ async def sync_report_manual(
         created_at=r.created_at.isoformat() if r.created_at else None,
     )
     return {"success": True, "report_id": report_id}
-
-

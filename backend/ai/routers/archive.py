@@ -1,17 +1,32 @@
 """아카이브 과제 추출·파일 검토·아젠다/보고서/회의록 편집 라우터 (P3A-4 — routers/supervisor.py에서 분리)."""
+
 import json
 import logging
 import os
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-import models, schemas
+import models
+import schemas
 from access_guard import require_meeting_member
 from sse import sse_done, sse_event
-from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
+from agent_logging import (
+    TokenUsageCollector,
+    _token_collector_var,
+    _create_log,
+    _finalize,
+)
 from agents import (
     report_reviewer as report_agent,
     task_extractor as task_agent,
@@ -29,6 +44,7 @@ from services.supervisor_helpers import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
 
 # ─── 아카이브 과제 추출 ───────────────────────────────────────────────────────
 @router.post("/archive/extract-agendas")
@@ -50,16 +66,25 @@ async def archive_extract_agendas(
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
 
-    current_agendas = db.query(models.Agenda).filter(
-        models.Agenda.meeting_id == meeting_id,
-        models.Agenda.status == "ongoing",
-    ).order_by(models.Agenda.created_at).all()
+    current_agendas = (
+        db.query(models.Agenda)
+        .filter(
+            models.Agenda.meeting_id == meeting_id,
+            models.Agenda.status == "ongoing",
+        )
+        .order_by(models.Agenda.created_at)
+        .all()
+    )
 
     pending_todos_text = ""
     if current_agendas:
         lines = []
         for a in current_agendas:
-            dept = (a.department[0] if isinstance(a.department, list) and a.department else a.department) or "미지정"
+            dept = (
+                a.department[0]
+                if isinstance(a.department, list) and a.department
+                else a.department
+            ) or "미지정"
             due = a.due_date.strftime("%Y-%m-%d") if a.due_date else "마감 미정"
             lines.append(f"- [{dept}] {a.title} (마감: {due})")
         pending_todos_text = "\n".join(lines)
@@ -67,10 +92,17 @@ async def archive_extract_agendas(
     file_texts = []
     for fid in selected_ids:
         try:
-            report = db.query(models.Report).filter(models.Report.id == int(fid)).first()
+            report = (
+                db.query(models.Report).filter(models.Report.id == int(fid)).first()
+            )
             raw = None
             if report and report.file_path:
-                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
+                from r2_storage import (
+                    is_r2_url as _is_r2,
+                    url_to_key as _r2_key,
+                    download_bytes as _r2_dl,
+                )
+
                 if _is_r2(report.file_path):
                     raw = _r2_dl(_r2_key(report.file_path))
                 elif os.path.exists(report.file_path):
@@ -110,7 +142,8 @@ async def archive_extract_agendas(
         context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
     if all_minutes:
         context_parts.append(
-            "[최근 회의록]\n" + "\n\n".join(f"[회의록 {i+1}]\n{m}" for i, m in enumerate(all_minutes))
+            "[최근 회의록]\n"
+            + "\n\n".join(f"[회의록 {i + 1}]\n{m}" for i, m in enumerate(all_minutes))
         )
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
@@ -119,17 +152,24 @@ async def archive_extract_agendas(
 
     org_dept_list = (
         "\n".join(
-            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}"
+            if p.get("company")
+            else f"- {p['department']}"
             for p in org_dept_pairs
-        ) if org_dept_pairs else "정보 없음"
+        )
+        if org_dept_pairs
+        else "정보 없음"
     )
 
     try:
-        parsed = await task_agent.extract_agendas_from_context(context_parts, org_dept_list, user_id=current_user.id)
+        parsed = await task_agent.extract_agendas_from_context(
+            context_parts, org_dept_list, user_id=current_user.id
+        )
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
         from datetime import datetime as _dt
+
         agendas_raw = parsed.get("agendas", [])
         draft_ids: list[int | None] = [None] * len(agendas_raw)
         agent_log_id: int | None = None
@@ -152,11 +192,14 @@ async def archive_extract_agendas(
                     status="draft",
                     department=dept_json,
                     due_date=due_val,
-                    ai_evidence=json.dumps({
-                        "reasoning": ag.get("reasoning") or "",
-                        "company": ag.get("company") or ag.get("organization"),
-                        "start_date": ag.get("start_date"),
-                    }, ensure_ascii=False),
+                    ai_evidence=json.dumps(
+                        {
+                            "reasoning": ag.get("reasoning") or "",
+                            "company": ag.get("company") or ag.get("organization"),
+                            "start_date": ag.get("start_date"),
+                        },
+                        ensure_ascii=False,
+                    ),
                 )
                 db.add(db_agenda)
                 db.flush()
@@ -187,14 +230,17 @@ async def archive_extract_agendas(
             try:
                 import asyncio as _asyncio
                 from neo4j_sync import sync_agenda as _sync_ag
+
                 for idx, ag_raw_id in enumerate(draft_ids):
                     if ag_raw_id:
-                        _asyncio.ensure_future(_sync_ag(
-                            agenda_id=ag_raw_id,
-                            meeting_id=meeting_id,
-                            title=agendas_raw[idx].get("title", ""),
-                            status="draft",
-                        ))
+                        _asyncio.ensure_future(
+                            _sync_ag(
+                                agenda_id=ag_raw_id,
+                                meeting_id=meeting_id,
+                                title=agendas_raw[idx].get("title", ""),
+                                status="draft",
+                            )
+                        )
             except Exception as _se:
                 logger.warning(f"[extract-agendas] Neo4j draft sync 실패: {_se}")
         except Exception as e:
@@ -204,10 +250,14 @@ async def archive_extract_agendas(
         # ── 컨텍스트 파일 pending → approved ─────────────────────────
         try:
             for fid in selected_ids:
-                report = db.query(models.Report).filter(
-                    models.Report.id == int(fid),
-                    models.Report.human_status == "pending",
-                ).first()
+                report = (
+                    db.query(models.Report)
+                    .filter(
+                        models.Report.id == int(fid),
+                        models.Report.human_status == "pending",
+                    )
+                    .first()
+                )
                 if report:
                     report.human_status = "approved"
             db.commit()
@@ -250,17 +300,27 @@ async def archive_chat_extract(
 ):
     meeting_id = data.meeting_id
     message = data.message or ""
-    current_agendas = data.chat_history[0].get("agendas", []) if data.chat_history else []
+    current_agendas = (
+        data.chat_history[0].get("agendas", []) if data.chat_history else []
+    )
 
     meeting_context = _get_meeting_context(db, meeting_id) if meeting_id else ""
     org_dept_pairs = _get_member_org_depts(db, meeting_id) if meeting_id else []
     org_dept_list = (
         "\n".join(
-            f"- {p['company']} / {p['department']}" if p.get("company") else f"- {p['department']}"
+            f"- {p['company']} / {p['department']}"
+            if p.get("company")
+            else f"- {p['department']}"
             for p in org_dept_pairs
-        ) if org_dept_pairs else "정보 없음"
+        )
+        if org_dept_pairs
+        else "정보 없음"
     )
-    current_agendas_text = json.dumps(current_agendas, ensure_ascii=False, indent=2) if current_agendas else "없음"
+    current_agendas_text = (
+        json.dumps(current_agendas, ensure_ascii=False, indent=2)
+        if current_agendas
+        else "없음"
+    )
 
     async def stream():
         _collector = TokenUsageCollector()
@@ -272,7 +332,7 @@ async def archive_chat_extract(
             user_id=current_user.id,
             input_data={"message": message[:300]},
         )
-        _stream_error = None
+        _stream_error: BaseException | None = None
         try:
             cnt = len(current_agendas)
             # LLM이 요청 내용을 보고 처리 계획을 스스로 서술
@@ -284,7 +344,9 @@ async def archive_chat_extract(
             async for _step in _stream_plan(_plan_sys, _plan_hmn):
                 yield sse_event("planning", f"{_step}")
 
-            parsed = await task_agent.chat_update_agendas(message, meeting_context, org_dept_list, current_agendas_text)
+            parsed = await task_agent.chat_update_agendas(
+                message, meeting_context, org_dept_list, current_agendas_text
+            )
             if not parsed:
                 parsed = {"agendas": current_agendas, "message": message}
 
@@ -348,7 +410,9 @@ async def analyze_archive_file(
     if file is not None:
         try:
             raw = await file.read()
-            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            extracted = _extract_text_from_file(
+                raw, (file.filename or file_name or "").lower()
+            )
             file_content = (extracted or "").strip()[:8000]
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
@@ -376,7 +440,9 @@ async def analyze_archive_file(
             "score": 70,
             "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
             "matched_agendas": [],
-            "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+            "agendas": [
+                {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
+            ],
             "related_depts": [],
         }
 
@@ -407,7 +473,9 @@ async def analyze_archive_file_stream_ep(
     if file is not None:
         try:
             raw = await file.read()
-            extracted = _extract_text_from_file(raw, (file.filename or file_name or "").lower())
+            extracted = _extract_text_from_file(
+                raw, (file.filename or file_name or "").lower()
+            )
             file_content = (extracted or "").strip()[:8000]
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
@@ -419,6 +487,7 @@ async def analyze_archive_file_stream_ep(
 
     async def stream():
         from service_guards import single_flight  # 사용자당 동시 1개 분석 (P3C-4)
+
         try:
             async with single_flight(current_user.id):
                 async for event in report_agent.analyze_archive_file_stream(
@@ -442,9 +511,17 @@ async def analyze_archive_file_stream_ep(
                 "type": "result",
                 "data": {
                     "score": 70,
-                    "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                    "feedback": [
+                        f"AI 분석 중 오류: {str(e)}",
+                        "수동으로 검토해 주세요.",
+                    ],
                     "matched_agendas": [],
-                    "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+                    "agendas": [
+                        {
+                            "content": f"{file_name} 관련 안건 검토",
+                            "department": dept_name,
+                        }
+                    ],
                     "related_depts": [],
                 },
             }
@@ -470,8 +547,11 @@ async def commit_draft_agendas(
         require_meeting_member(db, current_user, meeting_id)
     approved: list = data.get("approved", [])
     from service_guards import idempotency_guard
+
     _ids = sorted(str(a.get("db_id")) for a in approved if isinstance(a, dict))
-    idempotency_guard(f"agenda-commit:{meeting_id}:{','.join(_ids)}:{sorted(data.get('rejected_ids', []))}")  # P3C-2   # [{db_id, assignee_name, dept, due_date}]
+    idempotency_guard(
+        f"agenda-commit:{meeting_id}:{','.join(_ids)}:{sorted(data.get('rejected_ids', []))}"
+    )  # P3C-2   # [{db_id, assignee_name, dept, due_date}]
     rejected_ids: list = data.get("rejected_ids", [])  # [int]
 
     # 반려된 draft 삭제
@@ -485,7 +565,11 @@ async def commit_draft_agendas(
     updated_ids = []
     for item in approved:
         db_id = item.get("db_id")
-        agenda = db.query(models.Agenda).filter(models.Agenda.id == db_id).first() if db_id else None
+        agenda = (
+            db.query(models.Agenda).filter(models.Agenda.id == db_id).first()
+            if db_id
+            else None
+        )
 
         if agenda:
             # 기존 draft 업데이트
@@ -520,32 +604,44 @@ async def commit_draft_agendas(
         updated_ids.append(agenda.id)
 
     # AgentLog 기록
-    db.add(models.AgentLog(
-        task_id=str(_uuid.uuid4()),
-        context_type="agenda_commit",
-        meeting_id=meeting_id or None,
-        user_id=current_user.id,
-        status="success",
-        input_data={"approved_count": len(approved), "rejected_count": len(rejected_ids)},
-        output_data={"updated_ids": updated_ids, "deleted_ids": rejected_ids},
-        ended_at=_dt.utcnow(),
-    ))
+    db.add(
+        models.AgentLog(
+            task_id=str(_uuid.uuid4()),
+            context_type="agenda_commit",
+            meeting_id=meeting_id or None,
+            user_id=current_user.id,
+            status="success",
+            input_data={
+                "approved_count": len(approved),
+                "rejected_count": len(rejected_ids),
+            },
+            output_data={"updated_ids": updated_ids, "deleted_ids": rejected_ids},
+            ended_at=_dt.utcnow(),
+        )
+    )
     db.commit()
 
     # Neo4j 동기화: 승인된 건 그래프에 추가, 반려된 건 그래프에서 삭제
     from neo4j_sync import sync_agenda as _sync_ag, delete_agenda as _del_ag
     import json as _json
+
     for ag_id in updated_ids:
         ag = db.query(models.Agenda).filter(models.Agenda.id == ag_id).first()
         if ag:
-            dept_str = _json.dumps(ag.department, ensure_ascii=False) if isinstance(ag.department, (dict, list)) else (ag.department or "")
+            dept_str = (
+                _json.dumps(ag.department, ensure_ascii=False)
+                if isinstance(ag.department, (dict, list))
+                else (ag.department or "")
+            )
             try:
                 await _sync_ag(
-                    ag.id, ag.meeting_id,
-                    title=ag.title, status=ag.status,
+                    ag.id,
+                    ag.meeting_id,
+                    title=ag.title,
+                    status=ag.status,
                     assignee_id=ag.assignee_id,
                     priority=ag.priority or "medium",
-                    due_date=ag.due_date.isoformat() + 'Z' if ag.due_date else None,
+                    due_date=ag.due_date.isoformat() + "Z" if ag.due_date else None,
                     department=dept_str,
                 )
             except Exception as e:
@@ -573,10 +669,14 @@ async def get_draft_agendas(
         .order_by(models.Agenda.created_at.asc())
         .all()
     )
+
     def _parse_ev(ev):
-        if not ev: return {}
-        try: return json.loads(ev)
-        except: return {}
+        if not ev:
+            return {}
+        try:
+            return json.loads(ev)
+        except Exception:
+            return {}
 
     return [
         {
@@ -585,7 +685,8 @@ async def get_draft_agendas(
             "department": a.department,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
             "start_date": _parse_ev(a.ai_evidence).get("start_date"),
-            "company": _parse_ev(a.ai_evidence).get("company") or _parse_ev(a.ai_evidence).get("organization"),
+            "company": _parse_ev(a.ai_evidence).get("company")
+            or _parse_ev(a.ai_evidence).get("organization"),
         }
         for a in agendas
     ]
@@ -605,8 +706,10 @@ async def get_meeting_agendas(
         .order_by(models.Agenda.created_at.desc())
         .all()
     )
+
     def _dept_str(d):
-        if not d: return None
+        if not d:
+            return None
         return d[0] if isinstance(d, list) else str(d)
 
     return [
@@ -620,7 +723,7 @@ async def get_meeting_agendas(
             "assignee_id": a.assignee_id,
             "due_date": a.due_date.strftime("%Y-%m-%d") if a.due_date else None,
             "ai_evidence": a.ai_evidence,
-            "created_at": a.created_at.isoformat() + 'Z' if a.created_at else None,
+            "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
         }
         for a in agendas
     ]
@@ -638,6 +741,7 @@ async def update_agenda(
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Agenda not found")
     if "title" in data and data["title"] is not None:
         agenda.title = data["title"]
@@ -647,6 +751,7 @@ async def update_agenda(
     if "due_date" in data:
         if data["due_date"]:
             from datetime import datetime as _dt
+
             try:
                 agenda.due_date = _dt.strptime(data["due_date"][:10], "%Y-%m-%d")
             except Exception:
@@ -661,7 +766,12 @@ async def update_agenda(
     db.refresh(agenda)
     # Neo4j 동기화
     from neo4j_sync import sync_agenda as _sync_ag
-    dept_str = (agenda.department[0] if isinstance(agenda.department, list) and agenda.department else (agenda.department or ""))
+
+    dept_str = (
+        agenda.department[0]
+        if isinstance(agenda.department, list) and agenda.department
+        else (agenda.department or "")
+    )
     background_tasks.add_task(
         _sync_ag,
         agenda_id=agenda.id,
@@ -694,6 +804,7 @@ async def update_agenda_status(
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Agenda not found")
     new_status = data.get("status", "done")
     agenda.status = new_status
@@ -711,6 +822,7 @@ async def update_report(
     db: Session = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -723,6 +835,7 @@ async def update_report(
     db.commit()
     db.refresh(report)
     from neo4j_sync import sync_report as _sync_rp
+
     background_tasks.add_task(
         _sync_rp,
         report_id=report.id,
@@ -752,7 +865,10 @@ async def update_minutes_by_session(
     db: Session = Depends(get_db),
 ):
     from fastapi import HTTPException
-    minutes = db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+
+    minutes = (
+        db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
+    )
     if not minutes:
         raise HTTPException(status_code=404, detail="Minutes not found for session")
     if "file_name" in data and data["file_name"] is not None:
@@ -762,6 +878,7 @@ async def update_minutes_by_session(
     db.commit()
     db.refresh(minutes)
     from neo4j_sync import sync_minutes as _sync_mn
+
     background_tasks.add_task(
         _sync_mn,
         minutes_id=minutes.id,
@@ -791,6 +908,7 @@ async def update_minutes(
     db: Session = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     minutes = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="Minutes not found")
@@ -801,6 +919,7 @@ async def update_minutes(
     db.commit()
     db.refresh(minutes)
     from neo4j_sync import sync_minutes as _sync_mn
+
     background_tasks.add_task(
         _sync_mn,
         minutes_id=minutes.id,
@@ -827,13 +946,14 @@ async def delete_agenda_item(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    db.query(models.Agenda).filter(models.Agenda.id == agenda_id).delete(synchronize_session=False)
+    db.query(models.Agenda).filter(models.Agenda.id == agenda_id).delete(
+        synchronize_session=False
+    )
     db.commit()
     from neo4j_sync import delete_agenda as _del_ag
+
     try:
         await _del_ag(agenda_id)
     except Exception:
         pass
     return {"ok": True}
-
-

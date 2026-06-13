@@ -1,9 +1,8 @@
 import logging
-import os, uuid
-from typing import AsyncGenerator, List, Optional, Annotated
+import os
+import uuid
+from typing import AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
-
-logger = logging.getLogger(__name__)
 
 from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -13,8 +12,13 @@ from langgraph.graph.message import add_messages
 from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 
-from routers.prompts import MINUTES_SYSTEM, generate_minutes_system, generate_minutes_human
+from routers.prompts import (
+    MINUTES_SYSTEM,
+    generate_minutes_system,
+    generate_minutes_human,
+)
 
+logger = logging.getLogger(__name__)
 MODEL = os.environ["OPENAI_MODEL"]
 
 
@@ -36,11 +40,13 @@ def _make_llm(temperature: float = 0.3) -> ChatOpenAI:
 async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
     try:
         from neo4j_client import run_cypher
-        embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
+
+        embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])  # type: ignore[arg-type]
         query_vec = await embeddings.aembed_query(text[:500])
 
         # 인덱스명·레거시 폴백은 retrieval_registry가 단일 관리 (P3B-6)
         from retrieval_registry import REGISTRY
+
         _entry = REGISTRY["Minutes"]
         rows = []
         last_err = None
@@ -61,7 +67,8 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
             raise last_err
         return [
             f"[{r.get('title', '유사 회의록')}]\n{r.get('content', '')}"
-            for r in rows if r.get("content")
+            for r in rows
+            if r.get("content")
         ]
     except Exception as e:
         logger.warning(f"[_search_similar_minutes] 유사 회의록 검색 실패: {e}")
@@ -70,7 +77,7 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
-    result = []
+    result: List[BaseMessage] = []
     for m in messages:
         role, content = m.get("role", ""), m.get("content", "")
         if role == "user":
@@ -91,7 +98,7 @@ def _build_context_prompt(
     if previous_minutes:
         parts.append("[이전/유사 회의 요약]\n" + "\n".join(previous_minutes[:2]))
     if current_agendas:
-        agenda_text = "\n".join([f"- {a.get('content','')}" for a in current_agendas])
+        agenda_text = "\n".join([f"- {a.get('content', '')}" for a in current_agendas])
         parts.append(f"[현재 아젠다]\n{agenda_text}")
     return "\n\n".join(parts) if parts else None
 
@@ -105,9 +112,12 @@ async def search_similar_minutes_tool(query: str) -> str:
         query: 현재 회의 주제나 논의 내용 요약
     """
     from agents.knowledge_manager import search_knowledge
+
     results = await _search_similar_minutes(query, k=3)
     chunk_results = await search_knowledge(query, node_type="MinutesChunk", k=2)
-    all_results = results + [r.get("content", "") for r in chunk_results if r.get("content")]
+    all_results = results + [
+        r.get("content", "") for r in chunk_results if r.get("content")
+    ]
     if not all_results:
         return "유사한 이전 회의록을 찾지 못했습니다."
     return "\n\n---\n\n".join(all_results[:3])
@@ -121,12 +131,12 @@ async def get_agenda_status(query: str) -> str:
         query: 관련 안건 주제나 키워드
     """
     from agents.knowledge_manager import search_knowledge
+
     results = await search_knowledge(query, node_type="Agenda", k=5)
     if not results:
         return "관련 안건을 찾지 못했습니다."
     lines = [
-        f"- {r.get('title','?')}: {r.get('content','')[:150]}"
-        for r in results[:4]
+        f"- {r.get('title', '?')}: {r.get('content', '')[:150]}" for r in results[:4]
     ]
     return "\n".join(lines)
 
@@ -209,26 +219,32 @@ async def generate_minutes_stream(
     overdue_agendas: list = None,
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
+
     if not now:
         now = _dt.now().strftime("%Y년 %m월 %d일")
 
     llm = _make_llm(temperature=0.2)
-    async for chunk in llm.astream([
-        SystemMessage(content=generate_minutes_system(
-            meeting_context=meeting_context,
-            agenda_text=agenda_text,
-            session_info=session_info,
-            participants=participants,
-            prev_minutes=prev_minutes,
-            report_chunks=report_chunks,
-            overdue_agendas=overdue_agendas,
-        )),
-        HumanMessage(content=generate_minutes_human(
-            transcript=transcript,
-            now=now,
-            summary_blocks=summary_blocks,
-        )),
-    ]):
+    async for chunk in llm.astream(
+        [
+            SystemMessage(
+                content=generate_minutes_system(
+                    meeting_context=meeting_context,
+                    agenda_text=agenda_text,
+                    session_info=session_info,
+                    participants=participants,
+                    prev_minutes=prev_minutes,
+                    report_chunks=report_chunks,
+                    overdue_agendas=overdue_agendas,
+                )
+            ),
+            HumanMessage(
+                content=generate_minutes_human(
+                    transcript=transcript,
+                    now=now,
+                    summary_blocks=summary_blocks,
+                )
+            ),
+        ]
+    ):
         if chunk.content:
-            yield chunk.content
-
+            yield cast(str, chunk.content)

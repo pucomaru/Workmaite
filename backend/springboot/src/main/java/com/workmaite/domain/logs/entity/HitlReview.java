@@ -23,14 +23,8 @@ public class HitlReview {
   @Column(name = "target_type", length = 30, nullable = false)
   private String targetType;
 
-  @Column(name = "target_id", nullable = false)
-  private Integer targetId;
-
-  @Column(name = "review_prompt", columnDefinition = "jsonb")
-  private String reviewPrompt;
-
-  @Column(name = "ai_rationale", columnDefinition = "TEXT")
-  private String aiRationale;
+    @Column(name = "ai_rationale", columnDefinition = "TEXT")
+    private String aiRationale;
 
   @Builder.Default
   @Column(length = 20, nullable = false)
@@ -39,20 +33,26 @@ public class HitlReview {
   @Column(name = "reviewer_id")
   private Integer reviewerId;
 
-  @Column(name = "review_comment", columnDefinition = "jsonb")
-  private String reviewComment;
-
-  @Column(name = "reviewed_at")
-  private LocalDateTime reviewedAt;
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
 
   @CreationTimestamp
   @Column(name = "created_at", updatable = false)
   private LocalDateTime createdAt;
 
-  public void review(String status, Integer reviewerId, String reviewComment) {
-    this.status = status;
-    this.reviewerId = reviewerId;
-    this.reviewComment = reviewComment;
-    this.reviewedAt = LocalDateTime.now();
-  }
+    @Column(name = "agenda_id")
+    private Long agendaId;
+
+    @Column(name = "report_id")
+    private Long reportId;
+
+    @Column(name = "comment", columnDefinition = "TEXT")
+    private String comment;
+
+    public void review(String status, Long reviewerId, String comment) {
+        this.status = status;
+        this.reviewerId = reviewerId;
+        this.comment = comment;
+        this.reviewedAt = LocalDateTime.now();
+    }
 }

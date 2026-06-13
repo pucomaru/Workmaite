@@ -10,7 +10,12 @@ import models
 from auth import get_current_user
 from database import get_db
 from neo4j_ids import to_mg_id
-from rel_schema import ALLOWED_REL_TYPES, REL_MATRIX, REL_COLORS, DERIVED_REL_TYPES  # 관계 스키마 SSOT
+from rel_schema import (
+    ALLOWED_REL_TYPES,
+    REL_MATRIX,
+    REL_COLORS,
+    DERIVED_REL_TYPES,
+)  # 관계 스키마 SSOT
 
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
@@ -19,7 +24,16 @@ NEO4J_USER = os.environ["NEO4J_USER"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
-ALLOWED_LABELS = {"Meetings", "User", "Department", "Agenda", "Report", "Minutes", "Session", "Company"}
+ALLOWED_LABELS = {
+    "Meetings",
+    "User",
+    "Department",
+    "Agenda",
+    "Report",
+    "Minutes",
+    "Session",
+    "Company",
+}
 # ALLOWED_REL_TYPES는 rel_schema.py(SSOT)에서 파생 — 여기서 손으로 정의하지 말 것.
 
 
@@ -42,6 +56,7 @@ def _auth_header():
 
 # ── 공유 커넥션 풀 (요청마다 TCP 재연결 방지) ─────────────────
 _http_client: httpx.AsyncClient | None = None
+
 
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
@@ -79,14 +94,13 @@ async def get_archive(
 ):
     """인증된 사용자의 소속 회의체만 반환 — Neo4j 기반, Postgres는 meeting_id 보완에만 사용."""
     user_email = current_user.email or ""
-    user_name  = current_user.name  or ""
 
     # ── Postgres: 현재 유저의 소속 meeting_id 목록 (빠른 단순 조회) ──
     pg_meeting_ids = {
         to_mg_id(row.meeting_id)
         for row in db.query(models.MeetingMember.meeting_id)
-                     .filter(models.MeetingMember.user_id == current_user.id)
-                     .all()
+        .filter(models.MeetingMember.user_id == current_user.id)
+        .all()
     }
 
     # ── Step 1+2: User 조회 / company / dept — 동시에 시작 ──────
@@ -100,12 +114,8 @@ async def get_archive(
                 "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
                 {"pg_id": current_user.id},
             ),
-            _run_cypher(
-                "MATCH (o:Company) RETURN o.name AS name LIMIT 1"
-            ),
-            _run_cypher(
-                "MATCH (d:Department) RETURN d.name AS name ORDER BY d.name"
-            ),
+            _run_cypher("MATCH (o:Company) RETURN o.name AS name LIMIT 1"),
+            _run_cypher("MATCH (d:Department) RETURN d.name AS name ORDER BY d.name"),
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
@@ -141,7 +151,9 @@ async def get_archive(
             "department": current_user.department or "",
         }
         return {
-            "meetings": [], "minutes": [], "reports": [],
+            "meetings": [],
+            "minutes": [],
+            "reports": [],
             "departments": dept_rows,
             "company": company_rows[0] if company_rows else None,
             "current_person": current_person,
@@ -257,22 +269,31 @@ async def get_archive(
                 "context": row.get("context", ""),
                 "start_date": row.get("start_date"),
                 "end_date": row.get("end_date"),
-                "members": [], "tasks": [], "minutes": [], "reports": [],
-                "minutes_agendas": [], "session_agendas": [], "derivations": [],
+                "members": [],
+                "tasks": [],
+                "minutes": [],
+                "reports": [],
+                "minutes_agendas": [],
+                "session_agendas": [],
+                "derivations": [],
             }
         if row.get("person_id"):
             mg = meetings_map[mg_id]
             if not any(m["userId"] == row["person_id"] for m in mg["members"]):
-                mg["members"].append({
-                    "meetingId": mg_id,
-                    "userId": row["person_id"],
-                    "userName": row.get("person_name", "?"),
-                    "email": row.get("email", ""),
-                    "position": row.get("position", ""),
-                    "role": "admin" if row.get("role") == "간사" or row.get("rel_role") == "admin" else "member",
-                    "department": row.get("department") or "",
-                    "company": row.get("company") or "",
-                })
+                mg["members"].append(
+                    {
+                        "meetingId": mg_id,
+                        "userId": row["person_id"],
+                        "userName": row.get("person_name", "?"),
+                        "email": row.get("email", ""),
+                        "position": row.get("position", ""),
+                        "role": "admin"
+                        if row.get("role") == "간사" or row.get("rel_role") == "admin"
+                        else "member",
+                        "department": row.get("department") or "",
+                        "company": row.get("company") or "",
+                    }
+                )
 
     # 동일 Agenda에 담당 관계가 여러 개면 중복 row가 생기므로 id 기준으로 병합
     agenda_map: dict[str, dict] = {}
@@ -283,7 +304,8 @@ async def get_archive(
             continue
         if ag_id not in agenda_map:
             agenda_map[ag_id] = {
-                "id": ag_id, "meetingId": mg_id,
+                "id": ag_id,
+                "meetingId": mg_id,
                 "content": row.get("content", ""),
                 "description": row.get("description", ""),
                 "category": row.get("category"),
@@ -292,7 +314,7 @@ async def get_archive(
                 "due_date": row.get("due_date"),
                 "created_at": row.get("created_at"),
                 "ai_evidence": row.get("ai_evidence"),
-                "assignee_names": [],   # 담당자 여러 명 지원
+                "assignee_names": [],  # 담당자 여러 명 지원
                 "assignee_dept": row.get("assignee_dept", ""),
             }
         if row.get("assignee_name"):
@@ -308,32 +330,40 @@ async def get_archive(
     for row in session_rows:
         mg_id = row.get("meetingId")
         session_id = row.get("id")
-        if mg_id and mg_id in meetings_map and session_id not in seen_sessions:
+        if (
+            mg_id
+            and session_id
+            and mg_id in meetings_map
+            and session_id not in seen_sessions
+        ):
             seen_sessions.add(session_id)
-            meetings_map[mg_id]["minutes"].append({
-                "id": session_id, "meeting_id": mg_id,
-                "meeting_title": row.get("meetingTitle", ""),
-                "session_title": row.get("session_title", ""),
-                "session_number": row.get("session_number"),
-                "date": row.get("date"),
-                "started_at": row.get("started_at"),
-                "ended_at": row.get("ended_at"),
-                "session_type": row.get("session_type"),
-                "description": row.get("description"),
-                "location": row.get("location"),
-                "session_status": row.get("session_status"),
-                "file_name": row.get("file_name"),
-                "doc_title": row.get("doc_title"),
-                "doc_type": row.get("doc_type"),
-                "doc_author": row.get("doc_author"),
-                "doc_created_at": row.get("doc_created_at"),
-                "content_summary": row.get("content_summary"),
-                "minutes_file_name": row.get("minutes_file_name"),
-                "minutes_status": row.get("minutes_status"),
-                "minutes_pg_id": row.get("minutes_pg_id"),
-                "generated_at": row.get("generated_at"),
-                "participants": row.get("participants", []),
-            })
+            meetings_map[mg_id]["minutes"].append(
+                {
+                    "id": session_id,
+                    "meeting_id": mg_id,
+                    "meeting_title": row.get("meetingTitle", ""),
+                    "session_title": row.get("session_title", ""),
+                    "session_number": row.get("session_number"),
+                    "date": row.get("date"),
+                    "started_at": row.get("started_at"),
+                    "ended_at": row.get("ended_at"),
+                    "session_type": row.get("session_type"),
+                    "description": row.get("description"),
+                    "location": row.get("location"),
+                    "session_status": row.get("session_status"),
+                    "file_name": row.get("file_name"),
+                    "doc_title": row.get("doc_title"),
+                    "doc_type": row.get("doc_type"),
+                    "doc_author": row.get("doc_author"),
+                    "doc_created_at": row.get("doc_created_at"),
+                    "content_summary": row.get("content_summary"),
+                    "minutes_file_name": row.get("minutes_file_name"),
+                    "minutes_status": row.get("minutes_status"),
+                    "minutes_pg_id": row.get("minutes_pg_id"),
+                    "generated_at": row.get("generated_at"),
+                    "participants": row.get("participants", []),
+                }
+            )
 
     def _neo4j_report_pg_id(neo4j_id) -> int | None:
         """'report-N' 형태 Neo4j ID에서 PostgreSQL 정수 ID 추출."""
@@ -361,18 +391,21 @@ async def get_archive(
         if pg_id in seen_report_ids[mg_id]:
             continue
         seen_report_ids[mg_id].add(pg_id)
-        meetings_map[mg_id]["reports"].append({
-            "id": pg_id, "meeting_id": mg_id,
-            "meeting_title": row.get("meetingTitle", ""),
-            "title": row.get("title", ""),
-            "file_name": row.get("file_name", ""),
-            "doc_type": row.get("doc_type", ""),
-            "author": row.get("author"),
-            "file_url": row.get("file_url"),
-            "submitted_at": row.get("submitted_at"),
-            "department": row.get("department", ""),
-            "related_todo_id": row.get("related_todo_id"),
-        })
+        meetings_map[mg_id]["reports"].append(
+            {
+                "id": pg_id,
+                "meeting_id": mg_id,
+                "meeting_title": row.get("meetingTitle", ""),
+                "title": row.get("title", ""),
+                "file_name": row.get("file_name", ""),
+                "doc_type": row.get("doc_type", ""),
+                "author": row.get("author"),
+                "file_url": row.get("file_url"),
+                "submitted_at": row.get("submitted_at"),
+                "department": row.get("department", ""),
+                "related_todo_id": row.get("related_todo_id"),
+            }
+        )
 
     # ── 회의 생명주기: Agenda→Session(발제세션/다룸/도출) 조회 ──
     try:
@@ -411,29 +444,39 @@ async def get_archive(
         for row in mn_ag_rows:
             mg_id = row.get("meetingId")
             if mg_id in meetings_map:
-                meetings_map[mg_id]["minutes_agendas"].append({
-                    "session_id": row.get("session_id"),
-                    "agenda_id": row.get("agenda_id"),
-                })
+                meetings_map[mg_id]["minutes_agendas"].append(
+                    {
+                        "session_id": row.get("session_id"),
+                        "agenda_id": row.get("agenda_id"),
+                    }
+                )
         for row in sess_ag_rows:
             mg_id = row.get("meetingId")
             if mg_id in meetings_map:
-                meetings_map[mg_id]["session_agendas"].append({
-                    "session_id": row.get("session_id"),
-                    "agenda_id": row.get("agenda_id"),
-                })
+                meetings_map[mg_id]["session_agendas"].append(
+                    {
+                        "session_id": row.get("session_id"),
+                        "agenda_id": row.get("agenda_id"),
+                    }
+                )
         for row in deriv_rows:
             mg_id = row.get("meetingId")
             if mg_id in meetings_map:
-                meetings_map[mg_id]["derivations"].append({
-                    "session_id": row.get("session_id"),
-                    "agenda_id": row.get("agenda_id"),
-                })
+                meetings_map[mg_id]["derivations"].append(
+                    {
+                        "session_id": row.get("session_id"),
+                        "agenda_id": row.get("agenda_id"),
+                    }
+                )
     except Exception:
         pass  # 생명주기 데이터 없어도 메인 그래프는 정상 반환
 
     # ── Postgres 보완: 모든 회의체의 reports를 PostgreSQL에서 채움 ──
-    all_raw_ids = [int(mid.replace("mg-", "")) for mid in meetings_map.keys() if mid.replace("mg-", "").isdigit()]
+    all_raw_ids = [
+        int(mid.replace("mg-", ""))
+        for mid in meetings_map.keys()
+        if mid.replace("mg-", "").isdigit()
+    ]
     if all_raw_ids:
         rows = (
             db.query(models.Report, models.HitlReview, models.ReportScore)
@@ -455,25 +498,33 @@ async def get_archive(
             sid = to_mg_id(r.meeting_id)
             if sid not in meetings_map:
                 continue
-            meetings_map[sid]["reports"].append({
-                "id": r.id,
-                "meetingId": sid,
-                "file_name": r.file_name,
-                "file_path": r.file_path,
-                "human_status": r.human_status,
-                "version": r.version,
-                "parent_id": r.parent_id,
-                "submitter_department": r.submitter_department,
-                "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
-                "reviewed_at": hr.reviewed_at.isoformat() + 'Z' if hr and hr.reviewed_at else None,
-                "related_agenda_ids": r.related_agenda_ids or [],
-                "ai_status": rs.ai_status if rs else None,
-                "score": rs.total_score if rs else None,
-                "total_score": rs.total_score if rs else None,
-                "detail_scores": rs.detail_scores if rs else None,
-                "feedback": rs.feedback if rs else None,
-                "score_created_at": rs.created_at.isoformat() + 'Z' if rs and rs.created_at else None,
-            })
+            meetings_map[sid]["reports"].append(
+                {
+                    "id": r.id,
+                    "meetingId": sid,
+                    "file_name": r.file_name,
+                    "file_path": r.file_path,
+                    "human_status": r.human_status,
+                    "version": r.version,
+                    "parent_id": r.parent_id,
+                    "submitter_department": r.submitter_department,
+                    "created_at": r.created_at.isoformat() + "Z"
+                    if r.created_at
+                    else None,
+                    "reviewed_at": hr.reviewed_at.isoformat() + "Z"
+                    if hr and hr.reviewed_at
+                    else None,
+                    "related_agenda_ids": r.related_agenda_ids or [],
+                    "ai_status": rs.ai_status if rs else None,
+                    "score": rs.total_score if rs else None,
+                    "total_score": rs.total_score if rs else None,
+                    "detail_scores": rs.detail_scores if rs else None,
+                    "feedback": rs.feedback if rs else None,
+                    "score_created_at": rs.created_at.isoformat() + "Z"
+                    if rs and rs.created_at
+                    else None,
+                }
+            )
 
     # ── Postgres 보완: meeting_sessions + minutes 데이터로 session 정보 채움 ──
     if all_raw_ids:
@@ -489,18 +540,20 @@ async def get_archive(
         pg_session_map: dict[int, dict] = {}
         for s, mn in pg_sessions:
             pg_session_map[s.id] = {
-                "session_title":    s.title or "",
-                "description":      s.description or "",
-                "location":         s.location or "",
-                "session_type":     str(s.type) if s.type else "",
-                "date":             s.scheduled_at.isoformat() + 'Z' if s.scheduled_at else "",
-                "started_at":       s.started_at.isoformat() + 'Z' if s.started_at else "",
-                "ended_at":         s.ended_at.isoformat() + 'Z' if s.ended_at else "",
-                "session_status":   s.status or "",
-                "content_summary":  mn.content_summary if mn else "",
+                "session_title": s.title or "",
+                "description": s.description or "",
+                "location": s.location or "",
+                "session_type": str(s.type) if s.type else "",
+                "date": s.scheduled_at.isoformat() + "Z" if s.scheduled_at else "",
+                "started_at": s.started_at.isoformat() + "Z" if s.started_at else "",
+                "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else "",
+                "session_status": s.status or "",
+                "content_summary": mn.content_summary if mn else "",
                 "minutes_file_name": mn.file_name if mn else "",
-                "minutes_status":   mn.status if mn else "",
-                "generated_at":     mn.generated_at.isoformat() + 'Z' if mn and mn.generated_at else "",
+                "minutes_status": mn.status if mn else "",
+                "generated_at": mn.generated_at.isoformat() + "Z"
+                if mn and mn.generated_at
+                else "",
             }
         for mg_data in meetings_map.values():
             for sess in mg_data.get("minutes", []):
@@ -519,8 +572,14 @@ async def get_archive(
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
     if missing_pg_ids:
-        raw_ids = [int(mid.replace("mg-", "")) for mid in missing_pg_ids if mid.replace("mg-", "").isdigit()]
-        pg_meetings = db.query(models.Meeting).filter(models.Meeting.id.in_(raw_ids)).all()
+        raw_ids = [
+            int(mid.replace("mg-", ""))
+            for mid in missing_pg_ids
+            if mid.replace("mg-", "").isdigit()
+        ]
+        pg_meetings = (
+            db.query(models.Meeting).filter(models.Meeting.id.in_(raw_ids)).all()
+        )
         for m in pg_meetings:
             sid = to_mg_id(m.id)
             members_db = (
@@ -535,12 +594,14 @@ async def get_archive(
                 "meeting_type": str(m.type) if m.type else None,
                 "status": m.status or "active",
                 "description": m.description,
-                "start_date": m.start_date.isoformat() + 'Z' if m.start_date else None,
-                "end_date": m.end_date.isoformat() + 'Z' if m.end_date else None,
+                "start_date": m.start_date.isoformat() + "Z" if m.start_date else None,
+                "end_date": m.end_date.isoformat() + "Z" if m.end_date else None,
                 "members": [
                     {
-                        "meetingId": sid, "userId": f"user-{u.id}",
-                        "userName": u.name or "", "email": u.email or "",
+                        "meetingId": sid,
+                        "userId": f"user-{u.id}",
+                        "userName": u.name or "",
+                        "email": u.email or "",
                         "position": u.position or "",
                         "role": "admin" if str(mb.role) == "admin" else "member",
                         "department": u.department or "",
@@ -548,7 +609,8 @@ async def get_archive(
                     }
                     for mb, u in members_db
                 ],
-                "tasks": [], "minutes": [],
+                "tasks": [],
+                "minutes": [],
                 "reports": [
                     {
                         "id": r.id,
@@ -557,12 +619,16 @@ async def get_archive(
                         "file_path": r.file_path,
                         "human_status": r.human_status,
                         "submitter_department": r.submitter_department,
-                        "created_at": r.created_at.isoformat() + 'Z' if r.created_at else None,
+                        "created_at": r.created_at.isoformat() + "Z"
+                        if r.created_at
+                        else None,
                         "related_agenda_ids": r.related_agenda_ids or [],
                     }
-                    for r in db.query(models.Report).filter(
+                    for r in db.query(models.Report)
+                    .filter(
                         models.Report.meeting_id == m.id,
-                    ).all()
+                    )
+                    .all()
                 ],
             }
 
@@ -581,33 +647,38 @@ async def get_archive(
             {"derived": list(DERIVED_REL_TYPES)},
         )
         manual_relations = [
-            {"from_id": row.get("from_id"), "to_id": row.get("to_id"), "rel": row.get("rel")}
+            {
+                "from_id": row.get("from_id"),
+                "to_id": row.get("to_id"),
+                "rel": row.get("rel"),
+            }
             for row in rel_rows
         ]
     except Exception:
         pass  # 수동 관계 없거나 조회 실패해도 메인 그래프는 정상
 
     meetings = list(meetings_map.values())
-    minutes  = [mn for mg in meetings for mn in mg["minutes"]]
-    reports  = [r  for mg in meetings for r  in mg["reports"]]
+    minutes = [mn for mg in meetings for mn in mg["minutes"]]
+    reports = [r for mg in meetings for r in mg["reports"]]
 
     current_person = {
-        "id":         person_rows[0]["pid"]   if person_rows else f"user-{current_user.id}",
-        "name":       person_rows[0]["pname"] if person_rows else current_user.name,
-        "email":      user_email,
-        "position":   current_user.position   or "",
+        "id": person_rows[0]["pid"] if person_rows else f"user-{current_user.id}",
+        "name": person_rows[0]["pname"] if person_rows else current_user.name,
+        "email": user_email,
+        "position": current_user.position or "",
         "department": current_user.department or "",
     }
 
     return {
         "meetings": meetings,
-        "minutes":  minutes,
-        "reports":  reports,
+        "minutes": minutes,
+        "reports": reports,
         "departments": dept_rows,
-        "company":     company_rows[0] if company_rows else None,
+        "company": company_rows[0] if company_rows else None,
         "current_person": current_person,
         "manual_relations": manual_relations,
     }
+
 
 @router.get("/rel-schema")
 async def get_rel_schema(current_user: models.User = Depends(get_current_user)):
@@ -616,7 +687,9 @@ async def get_rel_schema(current_user: models.User = Depends(get_current_user)):
 
 
 @router.post("/relationships")
-async def create_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
+async def create_relationship(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
     to_id = data.get("to_id", "")
@@ -624,11 +697,14 @@ async def create_relationship(data: dict, current_user: models.User = Depends(ge
         raise HTTPException(status_code=400, detail="rel_type 필수")
     # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸기)
     import re
-    safe_rel = rel_type if re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', rel_type) else None
+
+    safe_rel = rel_type if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", rel_type) else None
     if not safe_rel:
         # 한국어 등 특수문자 관계명은 ALLOWED_REL_TYPES 내에 있어야 함
         if rel_type not in ALLOWED_REL_TYPES:
-            raise HTTPException(status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}")
+            raise HTTPException(
+                status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}"
+            )
         safe_rel = rel_type
     try:
         await _run_cypher(
@@ -643,7 +719,9 @@ async def create_relationship(data: dict, current_user: models.User = Depends(ge
 
 
 @router.delete("/relationships")
-async def delete_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
+async def delete_relationship(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     """두 노드 사이의 특정 관계 삭제"""
     from_id = data.get("from_id", "")
     rel_type = data.get("rel_type", "")
@@ -653,7 +731,7 @@ async def delete_relationship(data: dict, current_user: models.User = Depends(ge
     def normalize_id(raw: str) -> str:
         for p in ["mg-", "session-", "agenda-", "doc-", "dept-", "p-", "company-"]:
             if raw.startswith(p + p):
-                return raw[len(p):]
+                return raw[len(p) :]
         return raw
 
     from_id = normalize_id(from_id)
@@ -679,7 +757,9 @@ async def delete_relationship(data: dict, current_user: models.User = Depends(ge
 
 
 @router.put("/relationships")
-async def update_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
+async def update_relationship(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     """관계 유형 변경 (old → new)"""
     from_id = data.get("from_id", "")
     old_rel = data.get("old_rel", "")
@@ -704,7 +784,9 @@ async def update_relationship(data: dict, current_user: models.User = Depends(ge
 
 
 @router.post("/meeting-groups")
-async def create_meeting_group(data: dict, current_user: models.User = Depends(get_current_user)):
+async def create_meeting_group(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     """Meetings 노드 생성 및 Company에 연결"""
     mg_id = data.get("id", "")
     title = data.get("title", "")
@@ -719,7 +801,12 @@ async def create_meeting_group(data: dict, current_user: models.User = Depends(g
             SET mg.title = $title, mg.meeting_type = $meeting_type,
                 mg.description = $description, mg.status = 'active'
             """,
-            {"id": mg_id, "title": title, "meeting_type": meeting_type, "description": description},
+            {
+                "id": mg_id,
+                "title": title,
+                "meeting_type": meeting_type,
+                "description": description,
+            },
         )
         if org_id:
             await _run_cypher(
@@ -742,9 +829,15 @@ async def create_meeting_group(data: dict, current_user: models.User = Depends(g
 
 
 @router.put("/meeting-groups/{mg_id}")
-async def update_meeting_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
+async def update_meeting_group(
+    mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
+):
     """Meetings 노드 속성 수정"""
-    fields = {k: v for k, v in data.items() if k in ("title", "purpose", "guidelines", "status", "meeting_type")}
+    fields = {
+        k: v
+        for k, v in data.items()
+        if k in ("title", "purpose", "guidelines", "status", "meeting_type")
+    }
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"mg.{k} = ${k}" for k in fields)
@@ -761,7 +854,9 @@ async def update_meeting_group(mg_id: str, data: dict, current_user: models.User
 
 
 @router.delete("/meeting-groups/{mg_id}")
-async def delete_meeting_group(mg_id: str, current_user: models.User = Depends(get_current_user)):
+async def delete_meeting_group(
+    mg_id: str, current_user: models.User = Depends(get_current_user)
+):
     """Meetings 노드 및 연결 관계 삭제"""
     try:
         await _run_cypher(
@@ -776,7 +871,9 @@ async def delete_meeting_group(mg_id: str, current_user: models.User = Depends(g
 
 
 @router.post("/meeting-groups/{mg_id}/members")
-async def add_member_to_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
+async def add_member_to_group(
+    mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
+):
     """User → Meetings 멤버 관계 추가"""
     user_id = data.get("user_id")
     if not user_id:
@@ -800,7 +897,9 @@ async def add_member_to_group(mg_id: str, data: dict, current_user: models.User 
 
 
 @router.delete("/meeting-groups/{mg_id}/members")
-async def remove_member_from_group(mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
+async def remove_member_from_group(
+    mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
+):
     """User → Meetings 멤버 관계 삭제"""
     user_id = data.get("user_id")
     if not user_id:
@@ -821,7 +920,9 @@ async def remove_member_from_group(mg_id: str, data: dict, current_user: models.
 
 
 @router.post("/sessions")
-async def create_session_node(data: dict, current_user: models.User = Depends(get_current_user)):
+async def create_session_node(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     """Session 노드 생성 및 Meetings에 연결"""
     s_id = data.get("id", "")
     title = data.get("title", "")
@@ -838,8 +939,14 @@ async def create_session_node(data: dict, current_user: models.User = Depends(ge
                 s.session_type = $session_type, s.description = $description,
                 s.date = $date
             """,
-            {"id": s_id, "title": title, "session_number": session_number,
-             "session_type": session_type, "description": description, "date": date},
+            {
+                "id": s_id,
+                "title": title,
+                "session_number": session_number,
+                "session_type": session_type,
+                "description": description,
+                "date": date,
+            },
         )
         if mg_id:
             await _run_cypher(
@@ -854,7 +961,9 @@ async def create_session_node(data: dict, current_user: models.User = Depends(ge
 
 
 @router.post("/agendas")
-async def create_agenda_node(data: dict, current_user: models.User = Depends(get_current_user)):
+async def create_agenda_node(
+    data: dict, current_user: models.User = Depends(get_current_user)
+):
     """Agenda 노드 생성 및 Meetings에 연결"""
     ag_id = data.get("id", "")
     content = data.get("content", "")
@@ -873,8 +982,14 @@ async def create_agenda_node(data: dict, current_user: models.User = Depends(get
                 ag.due_date = $due_date,
                 ag.created_at = datetime()
             """,
-            {"id": ag_id, "content": content, "category": category,
-             "priority": priority, "status": status, "due_date": due_date},
+            {
+                "id": ag_id,
+                "content": content,
+                "category": category,
+                "priority": priority,
+                "status": status,
+                "due_date": due_date,
+            },
         )
         if mg_id:
             await _run_cypher(
@@ -894,7 +1009,9 @@ async def create_agenda_node(data: dict, current_user: models.User = Depends(get
 
 
 @router.patch("/agendas/{ag_id}")
-async def update_agenda_node(ag_id: str, data: dict, current_user: models.User = Depends(get_current_user)):
+async def update_agenda_node(
+    ag_id: str, data: dict, current_user: models.User = Depends(get_current_user)
+):
     """Agenda 노드 속성 수정"""
     allowed = ("content", "category", "priority", "status", "due_date", "description")
     fields = {k: v for k, v in data.items() if k in allowed}
@@ -914,4 +1031,3 @@ async def update_agenda_node(ag_id: str, data: dict, current_user: models.User =
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
     return {"ok": True}
-

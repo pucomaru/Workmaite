@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "agent_logs")
@@ -36,14 +38,17 @@ public class AgentLog {
   @Column(length = 20, nullable = false)
   private String status = "pending";
 
-  @Column(name = "input_data", columnDefinition = "jsonb")
-  private String inputData;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "input_data", columnDefinition = "jsonb")
+    private String inputData;
 
-  @Column(name = "output_data", columnDefinition = "jsonb")
-  private String outputData;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "output_data", columnDefinition = "jsonb")
+    private String outputData;
 
-  @Column(name = "reasoning_steps", columnDefinition = "jsonb")
-  private String reasoningSteps;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "reasoning_steps", columnDefinition = "jsonb")
+    private String reasoningSteps;
 
   @Builder.Default
   @Column(name = "loop_count")
