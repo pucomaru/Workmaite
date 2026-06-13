@@ -7,11 +7,20 @@
 
 Ingress: /api/upload → FastAPI (workmaite-ai:8000)
 """
+
 import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -23,7 +32,12 @@ from access_guard import (
     require_meeting_member_by_session,
 )
 from database import get_db
-from r2_storage import generate_presigned_url, get_content_type, upload_bytes, url_to_key
+from r2_storage import (
+    generate_presigned_url,
+    get_content_type,
+    upload_bytes,
+    url_to_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +51,22 @@ def _replace_report_agendas(db, report_id: int, raw_ids) -> None:
     읽기 경로가 전환되면 JSONB 쪽 쓰기를 제거한다.
     """
     import re as _re
+
     pg_ids = set()
     for v in raw_ids or []:
         s = str(v)
         m = _re.search(r"\d+$", s)
         if m:
             pg_ids.add(int(m.group()))
-    db.query(models.ReportAgenda).filter(models.ReportAgenda.report_id == report_id).delete()
+    db.query(models.ReportAgenda).filter(
+        models.ReportAgenda.report_id == report_id
+    ).delete()
     if pg_ids:
         existing = {
-            row.id for row in db.query(models.Agenda.id).filter(models.Agenda.id.in_(pg_ids)).all()
+            row.id
+            for row in db.query(models.Agenda.id)
+            .filter(models.Agenda.id.in_(pg_ids))
+            .all()
         }
         for aid in pg_ids & existing:
             db.add(models.ReportAgenda(report_id=report_id, agenda_id=aid))
@@ -89,12 +109,13 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }
 def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
     """HTML 문자열을 WeasyPrint로 PDF bytes로 변환합니다."""
     from weasyprint import HTML
+
     logger.info(f"[PDF변환] 시작 — title={title!r}, HTML 길이={len(html_content)}자")
     full_html = (
-        f'<!DOCTYPE html><html><head>'
+        f"<!DOCTYPE html><html><head>"
         f'<meta charset="utf-8"><title>{title}</title>'
-        f'<style>{_PDF_CSS}</style>'
-        f'</head><body>{html_content}</body></html>'
+        f"<style>{_PDF_CSS}</style>"
+        f"</head><body>{html_content}</body></html>"
     )
     pdf_bytes = HTML(string=full_html).write_pdf()
     logger.info(f"[PDF변환] 완료 — PDF 크기={len(pdf_bytes)} bytes")
@@ -105,6 +126,7 @@ def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
 
 # ── 보고자료 업로드 ────────────────────────────────────────────────────────────
 
+
 @router.get("/reports/rejected")
 async def get_rejected_reports(
     current_user: models.User = Depends(get_current_user),
@@ -112,9 +134,11 @@ async def get_rejected_reports(
 ):
     """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다."""
     # 재제출된 항목(자식 버전이 있는 항목) 제외
-    resubmitted_ids = db.query(models.Report.parent_id).filter(
-        models.Report.parent_id.isnot(None)
-    ).subquery()
+    resubmitted_ids = (
+        db.query(models.Report.parent_id)
+        .filter(models.Report.parent_id.isnot(None))
+        .subquery()
+    )
 
     rows = (
         db.query(models.Report, models.ReportScore)
@@ -122,7 +146,7 @@ async def get_rejected_reports(
         .filter(
             models.Report.upload_id == current_user.id,
             models.Report.human_status == "rejected",
-            ~models.Report.id.in_(resubmitted_ids),
+            ~models.Report.id.in_(resubmitted_ids),  # type: ignore[arg-type]
         )
         .order_by(models.Report.created_at.desc())
         .all()
@@ -155,7 +179,9 @@ async def upload_report(
     require_meeting_member(db, current_user, meeting_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
-        raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
+        raise HTTPException(
+            status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다."
+        )
 
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
@@ -167,11 +193,14 @@ async def upload_report(
 
     version = 1
     if parent_report_id:
-        parent = db.query(models.Report).filter(models.Report.id == parent_report_id).first()
+        parent = (
+            db.query(models.Report).filter(models.Report.id == parent_report_id).first()
+        )
         if parent:
             version = parent.version + 1
 
     import json as _json
+
     try:
         agenda_ids = _json.loads(related_agenda_ids or "[]")
     except Exception:
@@ -194,23 +223,32 @@ async def upload_report(
     _replace_report_agendas(db, report.id, agenda_ids)  # 정규화 dual-write (P2-8)
 
     from file_embedder import embed_and_store as _embed_and_store
+
     background_tasks.add_task(
-        _embed_and_store, r2_url, original_name, "report", meeting_id, f"report-{report.id}"
+        _embed_and_store,
+        r2_url,
+        original_name,
+        "report",
+        meeting_id,
+        f"report-{report.id}",
     )
 
     try:
         from neo4j_sync import sync_report as _sync_report
         import asyncio
-        asyncio.create_task(_sync_report(
-            report_id=report.id,
-            meeting_id=meeting_id,
-            file_name=original_name,
-            file_path=r2_url,
-            submitter_department=report.submitter_department,
-            human_status="pending",
-            related_agenda_ids=agenda_ids,
-            created_at=report.created_at.isoformat() if report.created_at else None,
-        ))
+
+        asyncio.create_task(
+            _sync_report(
+                report_id=report.id,
+                meeting_id=meeting_id,
+                file_name=original_name,
+                file_path=r2_url,
+                submitter_department=report.submitter_department,
+                human_status="pending",
+                related_agenda_ids=agenda_ids,
+                created_at=report.created_at.isoformat() if report.created_at else None,
+            )
+        )
     except Exception:
         pass
 
@@ -234,7 +272,11 @@ async def get_report_score(
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
 
-    rs = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+    rs = (
+        db.query(models.ReportScore)
+        .filter(models.ReportScore.report_id == report_id)
+        .first()
+    )
 
     report_info = {
         "id": report.id,
@@ -281,26 +323,34 @@ async def save_report_score(
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
 
     feedback = data.get("feedback", [])
-    feedback_text = "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
+    feedback_text = (
+        "\n".join(feedback) if isinstance(feedback, list) else (feedback or "")
+    )
     detail_scores = dict(data.get("detail_scores") or {})
     top_improvements = data.get("top_improvements") or []
     if top_improvements:
         detail_scores["_top_improvements"] = top_improvements
 
-    existing = db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).first()
+    existing = (
+        db.query(models.ReportScore)
+        .filter(models.ReportScore.report_id == report_id)
+        .first()
+    )
     if existing:
         existing.ai_status = "success"
         existing.total_score = data.get("score")
         existing.detail_scores = detail_scores
         existing.feedback = feedback_text
     else:
-        db.add(models.ReportScore(
-            report_id=report_id,
-            ai_status="success",
-            total_score=data.get("score"),
-            detail_scores=detail_scores,
-            feedback=feedback_text,
-        ))
+        db.add(
+            models.ReportScore(
+                report_id=report_id,
+                ai_status="success",
+                total_score=data.get("score"),
+                detail_scores=detail_scores,
+                feedback=feedback_text,
+            )
+        )
 
     db.commit()
     return {"status": "ok"}
@@ -324,7 +374,9 @@ async def submit_report_review(
 
     action = data.get("action")  # "approved" or "rejected"
     if action not in ("approved", "rejected"):
-        raise HTTPException(status_code=400, detail="action은 approved 또는 rejected여야 합니다.")
+        raise HTTPException(
+            status_code=400, detail="action은 approved 또는 rejected여야 합니다."
+        )
 
     report.human_status = action
 
@@ -336,15 +388,19 @@ async def submit_report_review(
     # approved 시 연결된 아젠다 자동 완료
     if action == "approved":
         import re as _re
+
         def _parse_agenda_pg_id(v):
             s = str(v)
             if s.isdigit():
                 return int(s)
-            m = _re.search(r'\d+$', s)  # "agenda-5" → 5
+            m = _re.search(r"\d+$", s)  # "agenda-5" → 5
             return int(m.group()) if m else None
 
-        pg_ids = [pid for i in (report.related_agenda_ids or [])
-                  if (pid := _parse_agenda_pg_id(i)) is not None]
+        pg_ids = [
+            pid
+            for i in (report.related_agenda_ids or [])
+            if (pid := _parse_agenda_pg_id(i)) is not None
+        ]
         if pg_ids:
             db.query(models.Agenda).filter(
                 models.Agenda.id.in_(pg_ids),
@@ -362,16 +418,18 @@ async def submit_report_review(
         .first()
     )
 
-    db.add(models.HitlReview(
-        agent_log_id=agent_log.id if agent_log else None,
-        target_type="report",
-        report_id=report_id,
-        ai_rationale=data.get("ai_rationale", ""),
-        status=action,
-        reviewer_id=current_user.id,
-        comment=data.get("feedback", "") or None,
-        reviewed_at=_dt.utcnow(),
-    ))
+    db.add(
+        models.HitlReview(
+            agent_log_id=agent_log.id if agent_log else None,
+            target_type="report",
+            report_id=report_id,
+            ai_rationale=data.get("ai_rationale", ""),
+            status=action,
+            reviewer_id=current_user.id,
+            comment=data.get("feedback", "") or None,
+            reviewed_at=_dt.utcnow(),
+        )
+    )
 
     db.commit()
     return {"status": "ok", "action": action}
@@ -393,7 +451,9 @@ async def delete_report(
     if report.file_path:
         try:
             from r2_storage import url_to_key
-            import boto3, os
+            import boto3
+            import os
+
             key = url_to_key(report.file_path)
             s3 = boto3.client(
                 "s3",
@@ -402,7 +462,7 @@ async def delete_report(
                 aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
             )
             s3.delete_object(Bucket="workmaite-bucket", Key=key)
-        except Exception as e:
+        except Exception:
             pass  # R2 삭제 실패해도 DB는 삭제
 
     # approved 보고서 삭제 시 연결 아젠다 되돌리기 준비
@@ -410,18 +470,28 @@ async def delete_report(
     agenda_ids_to_check = []
     if was_approved:
         import re as _re
+
         def _to_pg_id(v):
             s = str(v)
-            if s.isdigit(): return int(s)
-            m = _re.search(r'\d+$', s)
+            if s.isdigit():
+                return int(s)
+            m = _re.search(r"\d+$", s)
             return int(m.group()) if m else None
-        agenda_ids_to_check = [pid for i in (report.related_agenda_ids or [])
-                               if (pid := _to_pg_id(i)) is not None]
+
+        agenda_ids_to_check = [
+            pid
+            for i in (report.related_agenda_ids or [])
+            if (pid := _to_pg_id(i)) is not None
+        ]
 
     # DB 삭제 (report_scores, hitl_reviews는 FK cascade 없으므로 직접 삭제)
     # 자식 버전들의 parent_id를 삭제 대상의 parent로 재연결 (체인 유지, FK 제약 위반 방지)
-    db.query(models.Report).filter(models.Report.parent_id == report_id).update({"parent_id": report.parent_id})
-    db.query(models.ReportScore).filter(models.ReportScore.report_id == report_id).delete()
+    db.query(models.Report).filter(models.Report.parent_id == report_id).update(
+        {"parent_id": report.parent_id}
+    )
+    db.query(models.ReportScore).filter(
+        models.ReportScore.report_id == report_id
+    ).delete()
     db.query(models.HitlReview).filter(
         models.HitlReview.report_id == report_id,
     ).delete()
@@ -431,12 +501,19 @@ async def delete_report(
     # 삭제 후 approved 보고서가 없는 아젠다를 ongoing으로 되돌리기
     from sqlalchemy import cast as _cast
     from sqlalchemy.dialects.postgresql import JSONB as _JSONB
+
     for ag_id in agenda_ids_to_check:
-        still_approved = db.query(models.Report).filter(
-            models.Report.id != report_id,
-            models.Report.human_status == "approved",
-            _cast(models.Report.related_agenda_ids, _JSONB).op('@>')(_cast([ag_id], _JSONB)),
-        ).first()
+        still_approved = (
+            db.query(models.Report)
+            .filter(
+                models.Report.id != report_id,
+                models.Report.human_status == "approved",
+                _cast(models.Report.related_agenda_ids, _JSONB).op("@>")(
+                    _cast([ag_id], _JSONB)
+                ),
+            )
+            .first()
+        )
         if not still_approved:
             db.query(models.Agenda).filter(
                 models.Agenda.id == ag_id,
@@ -449,6 +526,7 @@ async def delete_report(
 
 # ── 회의록 HTML → PDF 변환 후 R2 저장 ───────────────────────────────────────
 
+
 @router.post("/minutes/{session_id}")
 async def upload_minutes(
     session_id: int,
@@ -459,19 +537,30 @@ async def upload_minutes(
 ):
     """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
     require_meeting_member_by_session(db, current_user, session_id)
-    logger.info(f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}")
+    logger.info(
+        f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}"
+    )
 
-    session = db.query(models.MeetingSession).filter(models.MeetingSession.id == session_id).first()
+    session = (
+        db.query(models.MeetingSession)
+        .filter(models.MeetingSession.id == session_id)
+        .first()
+    )
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
     try:
         pdf_bytes = _html_to_pdf(content, session.title or f"회의록_{session_id}")
     except Exception as e:
-        logger.error(f"[minutes] PDF 변환 실패 — session_id={session_id}, error={e}", exc_info=True)
+        logger.error(
+            f"[minutes] PDF 변환 실패 — session_id={session_id}, error={e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
 
-    safe_title = (session.title or f"회의_{session_id}").replace("/", "_").replace(" ", "_")
+    safe_title = (
+        (session.title or f"회의_{session_id}").replace("/", "_").replace(" ", "_")
+    )
     clean_name = f"{safe_title}_회의록.pdf"
     key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{clean_name}"
     stored_name = clean_name
@@ -480,10 +569,10 @@ async def upload_minutes(
 
     # ── 파라미터 사전 확인 ──────────────────────────────────────────
     params = {
-        "session_id":      session_id,
-        "file_name":       stored_name,
-        "file_path":       r2_url,
-        "recorder_id":     current_user.id,
+        "session_id": session_id,
+        "file_name": stored_name,
+        "file_path": r2_url,
+        "recorder_id": current_user.id,
         "content_summary": content[:80] + "..." if len(content) > 80 else content,
     }
     logger.info(
@@ -496,7 +585,8 @@ async def upload_minutes(
 
     # PostgreSQL native UPSERT — 원자적으로 INSERT or UPDATE
     try:
-        result = db.execute(text("""
+        result = db.execute(
+            text("""
             INSERT INTO minutes (session_id, file_name, file_path, recorder_id, content_summary, status, generated_at)
             VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, 'DRAFT', NOW())
             ON CONFLICT (session_id) DO UPDATE SET
@@ -506,33 +596,48 @@ async def upload_minutes(
                 content_summary  = EXCLUDED.content_summary,
                 generated_at     = NOW()
             RETURNING id
-        """), {
-            "session_id":      session_id,
-            "file_name":       stored_name,
-            "file_path":       r2_url,
-            "recorder_id":     current_user.id,
-            "content_summary": content,
-        })
+        """),
+            {
+                "session_id": session_id,
+                "file_name": stored_name,
+                "file_path": r2_url,
+                "recorder_id": current_user.id,
+                "content_summary": content,
+            },
+        )
 
         row = result.fetchone()
         logger.info(f"[minutes] RETURNING 결과 — row={row!r} (None이면 UPSERT 미실행)")
         if row is None:
             db.rollback()
-            raise HTTPException(status_code=500, detail="회의록 UPSERT 결과 없음 — RETURNING id가 None")
+            raise HTTPException(
+                status_code=500, detail="회의록 UPSERT 결과 없음 — RETURNING id가 None"
+            )
 
         minutes_id = row[0]
         db.commit()
         logger.info(f"[minutes] commit 완료 — minutes_id={minutes_id}")
         from neo4j_sync import sync_minutes
-        background_tasks.add_task(sync_minutes, minutes_id=minutes_id, session_id=session_id, content_summary=content[:500])
+
+        background_tasks.add_task(
+            sync_minutes,
+            minutes_id=minutes_id,
+            session_id=session_id,
+            content_summary=content[:500],
+        )
 
         # ── commit 후 SELECT로 실제 저장 값 검증 ──────────────────
-        verify = db.execute(text(
-            "SELECT id, session_id, file_name, file_path FROM minutes WHERE id = :id"
-        ), {"id": minutes_id}).fetchone()
+        verify = db.execute(
+            text(
+                "SELECT id, session_id, file_name, file_path FROM minutes WHERE id = :id"
+            ),
+            {"id": minutes_id},
+        ).fetchone()
 
         if verify is None:
-            logger.error(f"[minutes] 저장 검증 실패 — id={minutes_id} 가 SELECT에서 조회되지 않음")
+            logger.error(
+                f"[minutes] 저장 검증 실패 — id={minutes_id} 가 SELECT에서 조회되지 않음"
+            )
             raise HTTPException(status_code=500, detail="회의록 저장 검증 실패")
 
         logger.info(
@@ -553,7 +658,10 @@ async def upload_minutes(
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"[minutes] DB 저장 실패 — session_id={session_id}, error={e}", exc_info=True)
+        logger.error(
+            f"[minutes] DB 저장 실패 — session_id={session_id}, error={e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=f"회의록 DB 저장 실패: {e}")
 
     return {
@@ -565,6 +673,7 @@ async def upload_minutes(
 
 
 # ── 채팅 첨부파일 업로드 ───────────────────────────────────────────────────────
+
 
 @router.post("/chat")
 async def upload_chat_file(
@@ -584,7 +693,9 @@ async def upload_chat_file(
         require_meeting_member_by_session(db, current_user, session_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
-        raise HTTPException(status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다.")
+        raise HTTPException(
+            status_code=413, detail="파일 크기는 50MB를 초과할 수 없습니다."
+        )
 
     key, stored_name = _unique_key(f"chat/{thread_id}", file.filename or "file")
     r2_url = upload_bytes(content, key, get_content_type(file.filename or ""))
@@ -605,8 +716,14 @@ async def upload_chat_file(
     db.refresh(msg)
 
     from file_embedder import embed_and_store as _embed_and_store
+
     background_tasks.add_task(
-        _embed_and_store, r2_url, stored_name, context_type or "document", meeting_id, f"chat-{msg.id}"
+        _embed_and_store,
+        r2_url,
+        stored_name,
+        context_type or "document",
+        meeting_id,
+        f"chat-{msg.id}",
     )
 
     return {
@@ -618,6 +735,7 @@ async def upload_chat_file(
 
 
 # ── Presigned URL 다운로드 ────────────────────────────────────────────────────
+
 
 @router.get("/presigned")
 def get_presigned_url(
@@ -632,7 +750,9 @@ def get_presigned_url(
       expires_in : 유효 시간(초), 기본 1시간
     """
     if expires_in < 60 or expires_in > 86400:
-        raise HTTPException(status_code=400, detail="expires_in은 60~86400 사이여야 합니다.")
+        raise HTTPException(
+            status_code=400, detail="expires_in은 60~86400 사이여야 합니다."
+        )
 
     key = url_to_key(file_path)
     try:

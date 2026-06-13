@@ -1,10 +1,10 @@
 import logging
-import os, json, uuid
+import os
+import json
+import uuid
 from datetime import datetime, timezone
-from typing import AsyncGenerator, List, Optional, Annotated
+from typing import AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
-
-logger = logging.getLogger(__name__)
 
 from llm_factory import llm_factory
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -22,6 +22,7 @@ from routers.prompts import (
     relationship_summary_human,
 )
 
+logger = logging.getLogger(__name__)
 MODEL = os.environ["OPENAI_MODEL"]
 
 
@@ -89,7 +90,7 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])
+    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])  # type: ignore[arg-type]
     return await embeddings.aembed_query(text[:2000])
 
 
@@ -251,7 +252,6 @@ async def store_report(
     return {"id": node_id, "status": "stored", "node_type": "ReportChunk"}
 
 
-
 async def search_knowledge(
     query: str,
     node_type: str = "Minutes",
@@ -284,8 +284,11 @@ async def search_knowledge(
             )
             if not rows:
                 from retrieval_registry import RETRIEVAL_ZERO_RESULTS
+
                 RETRIEVAL_ZERO_RESULTS.labels(entry_label).inc()
-                logger.warning(f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}")
+                logger.warning(
+                    f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}"
+                )
             return rows
         except Exception as e:
             last_err = e
@@ -314,12 +317,14 @@ async def search_knowledge_graph(query: str, node_type: str = "Minutes") -> str:
         title = r.get("title") or ""
         content = r.get("content", "")[:250]
         score = float(r.get("score") or 0)
-        parts.append(f"[{node_type}] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+        parts.append(f"[{node_type}] {title}\n{content}\n(유사도 {score * 100:.0f}%)")
     for r in extra[:2]:
         title = r.get("title") or ""
         content = r.get("content", "")[:250]
         score = float(r.get("score") or 0)
-        parts.append(f"[KnowledgeChunk] {title}\n{content}\n(유사도 {score*100:.0f}%)")
+        parts.append(
+            f"[KnowledgeChunk] {title}\n{content}\n(유사도 {score * 100:.0f}%)"
+        )
 
     if not parts:
         return "관련 자료를 찾지 못했습니다."
@@ -334,6 +339,7 @@ async def fetch_meeting_graph_context(meeting_id: int) -> str:
         meeting_id: 조회할 회의체 ID (PostgreSQL PK)
     """
     from neo4j_client import get_meeting_graph_context, graph_context_to_str
+
     ctx = await get_meeting_graph_context(meeting_id)
     return graph_context_to_str(ctx) or "(회의체 정보 없음)"
 
@@ -360,7 +366,7 @@ async def propose_relationships(
     # 해당 회의체의 노드 수집
     nodes: List[dict] = []
     queries = {
-        "Agenda":  "MATCH (n:Agenda {meeting_id: $mid}) RETURN n.id AS id, n.content AS content, 'Agenda' AS type",
+        "Agenda": "MATCH (n:Agenda {meeting_id: $mid}) RETURN n.id AS id, n.content AS content, 'Agenda' AS type",
         "Minutes": "MATCH (n:Minutes {meeting_id: $mid}) RETURN n.id AS id, n.title AS content, 'Minutes' AS type",
     }
     for ntype in node_types:
@@ -372,16 +378,24 @@ async def propose_relationships(
                 pass
 
     if not nodes:
-        return {"proposal_id": None, "relationships": [], "message": "분석할 노드가 없습니다."}
+        return {
+            "proposal_id": None,
+            "relationships": [],
+            "message": "분석할 노드가 없습니다.",
+        }
 
     # LLM에게 노드 목록 전달 → 연결 관계 제안
-    node_list_text = "\n".join([
-        f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
-        for r in nodes
-    ])
+    node_list_text = "\n".join(
+        [
+            f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
+            for r in nodes
+        ]
+    )
     llm = llm_factory("knowledge", temperature=0.1, streaming=False)
-    response = await llm.ainvoke([
-        SystemMessage(content="""회의체 온톨로지 분석 전문가입니다.
+    response = await llm.ainvoke(
+        [
+            SystemMessage(
+                content="""회의체 온톨로지 분석 전문가입니다.
 제공된 Neo4j 노드 목록을 보고 연결해야 할 관계를 제안하세요.
 반드시 아래 JSON 형식으로만 응답하세요:
 {
@@ -395,13 +409,18 @@ async def propose_relationships(
       "reason": "연결 이유 한 줄"
     }
   ]
-}"""),
-        HumanMessage(content=f"회의체 ID: {meeting_id}\n\n노드 목록:\n{node_list_text}\n\n위 노드들 간에 연결해야 할 관계를 분석해 주세요."),
-    ])
+}"""
+            ),
+            HumanMessage(
+                content=f"회의체 ID: {meeting_id}\n\n노드 목록:\n{node_list_text}\n\n위 노드들 간에 연결해야 할 관계를 분석해 주세요."
+            ),
+        ]
+    )
 
     try:
         import re as _re2
-        _m = _re2.search(r'\{[\s\S]*\}', response.content)
+
+        _m = _re2.search(r"\{[\s\S]*\}", cast(str, response.content))
         parsed = json.loads(_m.group(0)) if _m else {"relationships": []}
     except Exception:
         parsed = {"relationships": []}
@@ -435,7 +454,6 @@ async def confirm_relationships(
         return {"status": "error", "message": "존재하지 않는 proposal_id입니다."}
 
     relationships = proposal["relationships"]
-    meeting_id = proposal["meeting_id"]
 
     if approved:
         # 승인: 제안된 관계를 Neo4j에 MERGE
@@ -445,7 +463,7 @@ async def confirm_relationships(
                 await run_cypher(
                     f"""MATCH (a {{id: $from_id}})
                         MATCH (b {{id: $to_id}})
-                        MERGE (a)-[:{rel['rel_type']}]->(b)""",
+                        MERGE (a)-[:{rel["rel_type"]}]->(b)""",
                     {"from_id": rel["from_id"], "to_id": rel["to_id"]},
                 )
                 merged.append(rel)
@@ -462,7 +480,7 @@ async def confirm_relationships(
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
-    result = []
+    result: List[BaseMessage] = []
     for m in messages:
         role, content = m.get("role", ""), m.get("content", "")
         if role == "user":
@@ -481,10 +499,12 @@ def _knowledge_state_modifier(state: KnowledgeState) -> List[BaseMessage]:
     if meeting_context:
         system += f"\n\n[회의체 맥락]\n{meeting_context}"
     if knowledge:
-        kb_text = "\n".join([
-            f"- [{k.get('category','')}] {k.get('title','')}: {k.get('content','')[:100]}"
-            for k in knowledge[:10]
-        ])
+        kb_text = "\n".join(
+            [
+                f"- [{k.get('category', '')}] {k.get('title', '')}: {k.get('content', '')[:100]}"
+                for k in knowledge[:10]
+            ]
+        )
         system += f"\n\n[Knowledge Base 현황]\n{kb_text}"
     return [SystemMessage(content=system)] + list(state.get("messages", []))
 
@@ -497,6 +517,7 @@ def _build_graph():
         state_schema=KnowledgeState,
         prompt=_knowledge_state_modifier,
     )
+
 
 _graph = _build_graph()
 
@@ -535,15 +556,22 @@ _ORPHAN_ATTACH_THRESHOLD = 0.78
 async def reconcile_graph(analysis: dict) -> dict:
     from neo4j_client import run_cypher
 
-    sem    = analysis.get("semantic", {})
+    sem = analysis.get("semantic", {})
     struct = analysis.get("structural", {})
     member = analysis.get("membership", {})
 
     actions: List[dict] = []
-    stats = {"session_links": 0, "lifecycle_links": 0, "carry_links": 0,
-             "session_agenda_links": 0,
-             "related_agendas": 0, "doc_refs": 0, "doc_attached": 0, "membership_fixed": 0,
-             "pruned_links": 0}
+    stats = {
+        "session_links": 0,
+        "lifecycle_links": 0,
+        "carry_links": 0,
+        "session_agenda_links": 0,
+        "related_agendas": 0,
+        "doc_refs": 0,
+        "doc_attached": 0,
+        "membership_fixed": 0,
+        "pruned_links": 0,
+    }
     ts = datetime.now(timezone.utc).isoformat()
 
     # ⓪ 세션 시간순 '후속' 체인
@@ -562,12 +590,15 @@ async def reconcile_graph(analysis: dict) -> dict:
                 )
                 a_t = pair.get("a_title") or "이전 회차"
                 b_t = pair.get("b_title") or "다음 회차"
-                actions.append({
-                    "kind": "session_chain",
-                    "detail": f"[{a_t}] → [{b_t}]" + (f" · {mg_title}" if mg_title else ""),
-                    "evidence": "같은 회의체의 연속된 회차를 시간순으로 이어 회의의 흐름(맥락)을 복원했습니다.",
-                    "highlight": pair.get("b_title") or None,
-                })
+                actions.append(
+                    {
+                        "kind": "session_chain",
+                        "detail": f"[{a_t}] → [{b_t}]"
+                        + (f" · {mg_title}" if mg_title else ""),
+                        "evidence": "같은 회의체의 연속된 회차를 시간순으로 이어 회의의 흐름(맥락)을 복원했습니다.",
+                        "highlight": pair.get("b_title") or None,
+                    }
+                )
                 stats["session_links"] += 1
             except Exception:
                 pass
@@ -599,12 +630,14 @@ async def reconcile_graph(analysis: dict) -> dict:
             )
             if rows:
                 linked = [r.get("title", "?") for r in rows]
-                actions.append({
-                    "kind": "lifecycle",
-                    "detail": f"〔{session_title}〕 → 안건 {len(linked)}개: {', '.join(f'[{t}]' for t in linked[:3])}",
-                    "evidence": "회의록 내용과 안건을 임베딩으로 연결, 회의→회의록→안건 생명주기를 이었습니다.",
-                    "highlight": session_title,
-                })
+                actions.append(
+                    {
+                        "kind": "lifecycle",
+                        "detail": f"〔{session_title}〕 → 안건 {len(linked)}개: {', '.join(f'[{t}]' for t in linked[:3])}",
+                        "evidence": "회의록 내용과 안건을 임베딩으로 연결, 회의→회의록→안건 생명주기를 이었습니다.",
+                        "highlight": session_title,
+                    }
+                )
                 stats["lifecycle_links"] += len(rows)
         except Exception:
             pass
@@ -624,12 +657,14 @@ async def reconcile_graph(analysis: dict) -> dict:
         n = cf[0].get("n", 0) if cf else 0
         if n:
             stats["carry_links"] = n
-            actions.append({
-                "kind": "lifecycle",
-                "detail": f"미해결 안건 {n}건을 다음 회차로 이월",
-                "evidence": "아직 끝나지 않은 안건을 가장 최근 회차와 연결해 생명주기를 다음 회의로 이어줬습니다(안건→회의).",
-                "highlight": None,
-            })
+            actions.append(
+                {
+                    "kind": "lifecycle",
+                    "detail": f"미해결 안건 {n}건을 다음 회차로 이월",
+                    "evidence": "아직 끝나지 않은 안건을 가장 최근 회차와 연결해 생명주기를 다음 회의로 이어줬습니다(안건→회의).",
+                    "highlight": None,
+                }
+            )
     except Exception:
         pass
 
@@ -663,12 +698,14 @@ async def reconcile_graph(analysis: dict) -> dict:
         total_n = direct_n + floating_n
         if total_n:
             stats["session_agenda_links"] = total_n
-            actions.append({
-                "kind": "session_agenda",
-                "detail": f"세션→안건 연결 {total_n}건 (직접 {direct_n}건 + 그룹 {floating_n}건)",
-                "evidence": "회의(세션)는 아젠다와 연결되어야 한다는 원칙에 따라 미연결 세션-안건 쌍을 이어줬습니다.",
-                "highlight": None,
-            })
+            actions.append(
+                {
+                    "kind": "session_agenda",
+                    "detail": f"세션→안건 연결 {total_n}건 (직접 {direct_n}건 + 그룹 {floating_n}건)",
+                    "evidence": "회의(세션)는 아젠다와 연결되어야 한다는 원칙에 따라 미연결 세션-안건 쌍을 이어줬습니다.",
+                    "highlight": None,
+                }
+            )
     except Exception:
         pass
 
@@ -682,16 +719,25 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "MATCH (a:Agenda {id:$a}), (b:Agenda {id:$b}) "
                 "MERGE (a)-[r:`관련`]-(b) "
                 "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
-                {"a": a_id, "b": b_id, "score": round(link.get("score", 0.0), 4), "ts": ts},
+                {
+                    "a": a_id,
+                    "b": b_id,
+                    "score": round(link.get("score", 0.0), 4),
+                    "ts": ts,
+                },
             )
             pct = link.get("score", 0.0) * 100
-            actions.append({
-                "kind": "related",
-                "detail": f"[{link.get('a_title','?')}] ↔ [{link.get('b_title','?')}]",
-                "evidence": (f"'{link.get('a_mg','')}' 회의의 안건과 '{link.get('b_mg','')}' 회의의 안건이 "
-                             f"의미상 {pct:.0f}% 유사 — 회의 경계를 넘는 지식 연결을 생성했습니다."),
-                "highlight": link.get("a_title"),
-            })
+            actions.append(
+                {
+                    "kind": "related",
+                    "detail": f"[{link.get('a_title', '?')}] ↔ [{link.get('b_title', '?')}]",
+                    "evidence": (
+                        f"'{link.get('a_mg', '')}' 회의의 안건과 '{link.get('b_mg', '')}' 회의의 안건이 "
+                        f"의미상 {pct:.0f}% 유사 — 회의 경계를 넘는 지식 연결을 생성했습니다."
+                    ),
+                    "highlight": link.get("a_title"),
+                }
+            )
             stats["related_agendas"] += 1
         except Exception:
             pass
@@ -706,15 +752,22 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "MATCH (d {id:$d}), (a:Agenda {id:$a}) WHERE d:Report OR d:Minutes "
                 "MERGE (d)-[r:`참조`]->(a) "
                 "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
-                {"d": d_id, "a": ag_id, "score": round(link.get("score", 0.0), 4), "ts": ts},
+                {
+                    "d": d_id,
+                    "a": ag_id,
+                    "score": round(link.get("score", 0.0), 4),
+                    "ts": ts,
+                },
             )
             pct = link.get("score", 0.0) * 100
-            actions.append({
-                "kind": "doc_ref",
-                "detail": f"문서 [{link.get('doc_title','?')}] → 안건 [{link.get('ag_title','?')}]",
-                "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — '참조' 관계로 연결했습니다.",
-                "highlight": link.get("ag_title"),
-            })
+            actions.append(
+                {
+                    "kind": "doc_ref",
+                    "detail": f"문서 [{link.get('doc_title', '?')}] → 안건 [{link.get('ag_title', '?')}]",
+                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — '참조' 관계로 연결했습니다.",
+                    "highlight": link.get("ag_title"),
+                }
+            )
             stats["doc_refs"] += 1
         except Exception:
             pass
@@ -737,13 +790,17 @@ async def reconcile_graph(analysis: dict) -> dict:
             if rows:
                 title = rows[0].get("title", "?")
                 score = float(rows[0].get("score") or 0.0)
-                actions.append({
-                    "kind": "doc_attach",
-                    "detail": f"고아 문서 [{doc.get('title','?')}] → 안건 [{title}]",
-                    "evidence": (f"어디에도 연결되지 않던 문서를 의미상 가장 가까운 안건"
-                                 f"(유사도 {score*100:.0f}%)에 자동 편입했습니다."),
-                    "highlight": title,
-                })
+                actions.append(
+                    {
+                        "kind": "doc_attach",
+                        "detail": f"고아 문서 [{doc.get('title', '?')}] → 안건 [{title}]",
+                        "evidence": (
+                            f"어디에도 연결되지 않던 문서를 의미상 가장 가까운 안건"
+                            f"(유사도 {score * 100:.0f}%)에 자동 편입했습니다."
+                        ),
+                        "highlight": title,
+                    }
+                )
                 stats["doc_attached"] += 1
         except Exception:
             pass
@@ -759,37 +816,60 @@ async def reconcile_graph(analysis: dict) -> dict:
             if itype == "legacy":
                 await run_cypher(
                     "MATCH (p:User {id:$pid})-[r:`소속부서`]->(d:Department) "
-                    "MERGE (p)-[:`소속`]->(d) DELETE r", {"pid": pid})
-                actions.append({"kind": "membership", "detail": f"{name} → {dept}",
-                                "evidence": "구버전 소속 관계를 표준 형식으로 정리했습니다.",
-                                "highlight": name})
+                    "MERGE (p)-[:`소속`]->(d) DELETE r",
+                    {"pid": pid},
+                )
+                actions.append(
+                    {
+                        "kind": "membership",
+                        "detail": f"{name} → {dept}",
+                        "evidence": "구버전 소속 관계를 표준 형식으로 정리했습니다.",
+                        "highlight": name,
+                    }
+                )
             elif itype == "missing":
                 await run_cypher(
                     "MATCH (p:User {id:$pid}) MERGE (d:Department {name:$dept}) "
-                    "MERGE (p)-[:`소속`]->(d)", {"pid": pid, "dept": dept})
-                actions.append({"kind": "membership", "detail": f"{name} → {dept}",
-                                "evidence": f"누락된 '{dept}' 소속 연결을 복구했습니다('미지정' 해소).",
-                                "highlight": name})
+                    "MERGE (p)-[:`소속`]->(d)",
+                    {"pid": pid, "dept": dept},
+                )
+                actions.append(
+                    {
+                        "kind": "membership",
+                        "detail": f"{name} → {dept}",
+                        "evidence": f"누락된 '{dept}' 소속 연결을 복구했습니다('미지정' 해소).",
+                        "highlight": name,
+                    }
+                )
             elif itype == "mismatch":
                 await run_cypher(
                     "MATCH (p:User {id:$pid})-[r:`소속`]->(d:Department) "
-                    "WHERE d.name <> $dept DELETE r", {"pid": pid, "dept": dept})
+                    "WHERE d.name <> $dept DELETE r",
+                    {"pid": pid, "dept": dept},
+                )
                 await run_cypher(
                     "MATCH (p:User {id:$pid}) MERGE (d:Department {name:$dept}) "
-                    "MERGE (p)-[:`소속`]->(d)", {"pid": pid, "dept": dept})
-                actions.append({"kind": "membership", "detail": f"{name} → {dept}",
-                                "evidence": f"프로필과 다르게 '{current}'로 연결됐던 소속을 '{dept}'로 교정했습니다.",
-                                "highlight": name})
+                    "MERGE (p)-[:`소속`]->(d)",
+                    {"pid": pid, "dept": dept},
+                )
+                actions.append(
+                    {
+                        "kind": "membership",
+                        "detail": f"{name} → {dept}",
+                        "evidence": f"프로필과 다르게 '{current}'로 연결됐던 소속을 '{dept}'로 교정했습니다.",
+                        "highlight": name,
+                    }
+                )
             stats["membership_fixed"] += 1
         except Exception:
             pass
 
     # ① 불필요한 연결 정제 — stale/weak 자동 생성 관계 제거
     for link in struct.get("stale_links", []):
-        kind    = link.get("kind")
+        kind = link.get("kind")
         from_id = link.get("from_id")
-        to_id   = link.get("to_id")
-        rel     = link.get("rel", "")
+        to_id = link.get("to_id")
+        rel = link.get("rel", "")
         if not from_id or not to_id or not rel:
             continue
         try:
@@ -826,18 +906,20 @@ async def reconcile_graph(analysis: dict) -> dict:
                     {"fid": from_id, "tid": to_id},
                 )
             evidence = {
-                "stale_carry":     "완료된 안건에 달린 이월 관계를 정리했습니다.",
+                "stale_carry": "완료된 안건에 달린 이월 관계를 정리했습니다.",
                 "stale_lifecycle": "완료된 안건과 연결된 회의록 도출 관계를 정리했습니다.",
-                "weak_related":    f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '관련' 링크를 지웠습니다.",
-                "weak_ref":        f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '참조' 링크를 지웠습니다.",
-                "weak_attach":     f"임계값 미달({link.get('score',0)*100:.0f}%) 자동 '첨부' 링크를 지웠습니다.",
+                "weak_related": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '관련' 링크를 지웠습니다.",
+                "weak_ref": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '참조' 링크를 지웠습니다.",
+                "weak_attach": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '첨부' 링크를 지웠습니다.",
             }.get(kind, "불필요한 연결을 제거했습니다.")
-            actions.append({
-                "kind": "pruned",
-                "detail": link.get("label", "?"),
-                "evidence": evidence,
-                "highlight": None,
-            })
+            actions.append(
+                {
+                    "kind": "pruned",
+                    "detail": link.get("label", "?"),
+                    "evidence": evidence,
+                    "highlight": None,
+                }
+            )
             stats["pruned_links"] += 1
         except Exception:
             pass
@@ -854,38 +936,53 @@ async def reconcile_graph(analysis: dict) -> dict:
 
 
 async def summarize_relationship_analysis(report: dict) -> AsyncGenerator[str, None]:
-    stats     = report.get("stats", {})
-    actions   = report.get("actions", [])
+    stats = report.get("stats", {})
+    actions = report.get("actions", [])
     advisories = report.get("advisories", {})
-    counts    = report.get("counts", {})
-    findings  = report.get("findings", {})
+    counts = report.get("counts", {})
+    findings = report.get("findings", {})
 
     act_lines = []
     for a in actions[:40]:
-        tag = {"session_chain": "🧵 회차 연결", "lifecycle": "🔄 생명주기", "related": "🔗 회의 간 연결",
-               "doc_ref": "📎 문서 참조", "doc_attach": "🧩 고아 문서 편입",
-               "membership": "👤 소속 보정"}.get(a.get("kind"), "•")
-        act_lines.append(f"- {tag} | {a.get('detail','')} — {a.get('evidence','')}")
+        tag = {
+            "session_chain": "🧵 회차 연결",
+            "lifecycle": "🔄 생명주기",
+            "related": "🔗 회의 간 연결",
+            "doc_ref": "📎 문서 참조",
+            "doc_attach": "🧩 고아 문서 편입",
+            "membership": "👤 소속 보정",
+        }.get(a.get("kind"), "•")
+        act_lines.append(f"- {tag} | {a.get('detail', '')} — {a.get('evidence', '')}")
     act_block = "\n".join(act_lines) if act_lines else "(이번에 새로 만든 연결 없음)"
 
     adv_lines = []
     own = advisories.get("ownerless_agendas", [])
     if own:
-        sample = ", ".join(f"[{o.get('title','?')}]" for o in own[:5])
-        adv_lines.append(f"- 담당자 미지정 안건 {len(own)}건: {sample}{' 외' if len(own) > 5 else ''}")
+        sample = ", ".join(f"[{o.get('title', '?')}]" for o in own[:5])
+        adv_lines.append(
+            f"- 담당자 미지정 안건 {len(own)}건: {sample}{' 외' if len(own) > 5 else ''}"
+        )
     mls = advisories.get("minuteless_sessions", [])
     if mls:
         adv_lines.append(f"- 회의록이 없는 세션 {len(mls)}건")
     iso = advisories.get("isolated_persons", [])
     if iso:
         sample = ", ".join(p.get("name", "?") for p in iso[:5])
-        adv_lines.append(f"- 어떤 활동에도 연결되지 않은 구성원 {len(iso)}명: {sample}{' 외' if len(iso) > 5 else ''}")
+        adv_lines.append(
+            f"- 어떤 활동에도 연결되지 않은 구성원 {len(iso)}명: {sample}{' 외' if len(iso) > 5 else ''}"
+        )
     adv_block = "\n".join(adv_lines) if adv_lines else "(없음)"
 
     llm = _make_llm(temperature=0.2)
-    async for chunk in llm.astream([
-        SystemMessage(content=RELATIONSHIP_SUMMARY_SYSTEM),
-        HumanMessage(content=relationship_summary_human(counts, findings, stats, act_block, adv_block)),
-    ]):
+    async for chunk in llm.astream(
+        [
+            SystemMessage(content=RELATIONSHIP_SUMMARY_SYSTEM),
+            HumanMessage(
+                content=relationship_summary_human(
+                    counts, findings, stats, act_block, adv_block
+                )
+            ),
+        ]
+    ):
         if chunk.content:
-            yield chunk.content
+            yield cast(str, chunk.content)

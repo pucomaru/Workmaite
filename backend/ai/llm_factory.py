@@ -4,6 +4,7 @@ ChatOpenAI 생성이 에이전트마다 중복(4곳의 _make_llm + 직접 생성
 단일 팩토리로 통합한다. 모든 클라이언트에 timeout/retry가 일관 적용되고,
 작업 프로파일별 모델을 env로 분리할 수 있다 (예: OPENAI_MODEL_ROUTING=gpt-4o-mini).
 """
+
 import logging
 import os
 from contextvars import ContextVar
@@ -18,12 +19,12 @@ model_override_var: ContextVar[str | None] = ContextVar("model_override", defaul
 
 # 작업 프로파일 → 기본값. 모델은 OPENAI_MODEL_{PROFILE} env가 있으면 그것을, 없으면 OPENAI_MODEL.
 _PROFILES: dict[str, dict] = {
-    "chat":      {"temperature": 0.2, "streaming": True},   # 대화/스트리밍
-    "routing":   {"temperature": 0.0, "streaming": False},  # intent 분류 등 결정적 작업
-    "extract":   {"temperature": 0.0, "streaming": False},  # 구조화 추출
-    "minutes":   {"temperature": 0.3, "streaming": True},   # 회의록 생성
-    "review":    {"temperature": 0.1, "streaming": True},   # 보고서 검토
-    "knowledge": {"temperature": 0.2, "streaming": True},   # 지식 관리
+    "chat": {"temperature": 0.2, "streaming": True},  # 대화/스트리밍
+    "routing": {"temperature": 0.0, "streaming": False},  # intent 분류 등 결정적 작업
+    "extract": {"temperature": 0.0, "streaming": False},  # 구조화 추출
+    "minutes": {"temperature": 0.3, "streaming": True},  # 회의록 생성
+    "review": {"temperature": 0.1, "streaming": True},  # 보고서 검토
+    "knowledge": {"temperature": 0.2, "streaming": True},  # 지식 관리
 }
 
 

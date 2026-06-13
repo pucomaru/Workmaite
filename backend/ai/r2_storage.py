@@ -1,14 +1,15 @@
 """r2_storage.py — Cloudflare R2 파일 저장소 유틸리티 (S3 호환 API / boto3)"""
+
 import mimetypes
 import os
 
 import boto3
 from botocore.config import Config
 
-R2_ACCESS_KEY_ID     = os.environ["R2_ACCESS_KEY_ID"]
+R2_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]
 R2_SECRET_ACCESS_KEY = os.environ["R2_SECRET_ACCESS_KEY"]
-R2_ENDPOINT          = os.environ["R2_ENDPOINT"]
-R2_BUCKET            = "workmaite-bucket"
+R2_ENDPOINT = os.environ["R2_ENDPOINT"]
+R2_BUCKET = "workmaite-bucket"
 
 
 def _client():
@@ -22,7 +23,9 @@ def _client():
     )
 
 
-def upload_bytes(data: bytes, key: str, content_type: str = "application/octet-stream") -> str:
+def upload_bytes(
+    data: bytes, key: str, content_type: str = "application/octet-stream"
+) -> str:
     """바이트 데이터를 R2에 업로드하고 공개 URL을 반환합니다."""
     _client().put_object(
         Bucket=R2_BUCKET,
@@ -55,10 +58,11 @@ def url_to_key(url: str) -> str:
     if not url.startswith("http"):
         return url  # 이미 key
     from urllib.parse import urlparse, unquote
+
     path = unquote(urlparse(url).path).lstrip("/")  # 쿼리스트링(presigned 서명) 제거
     # path가 "<bucket>/<key>" 또는 "<key>" — 버킷 세그먼트가 있으면 제거
     if path.startswith(f"{R2_BUCKET}/"):
-        return path[len(R2_BUCKET) + 1:]
+        return path[len(R2_BUCKET) + 1 :]
     return path
 
 

@@ -5,6 +5,7 @@ Spring의 MeetingAccessGuard와 동일한 규칙:
 - 그 외에는 meeting_members 멤버십 필요
 라우트 핸들러 시작 지점에서 호출한다.
 """
+
 import logging
 
 from fastapi import HTTPException
@@ -36,7 +37,9 @@ def require_meeting_member(db: Session, user: models.User, meeting_id: int) -> N
         raise HTTPException(status_code=403, detail="회의체 접근 권한이 없습니다.")
 
 
-def require_meeting_member_by_session(db: Session, user: models.User, session_id: int) -> None:
+def require_meeting_member_by_session(
+    db: Session, user: models.User, session_id: int
+) -> None:
     row = (
         db.query(models.MeetingSession.meeting_id)
         .filter(models.MeetingSession.id == session_id)
@@ -47,7 +50,9 @@ def require_meeting_member_by_session(db: Session, user: models.User, session_id
     require_meeting_member(db, user, row.meeting_id)
 
 
-def require_user_update_permission(current_user: models.User, target: models.User) -> None:
+def require_user_update_permission(
+    current_user: models.User, target: models.User
+) -> None:
     """사용자 정보 수정 권한 (MT-1): 본인, SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만."""
     if target.id == current_user.id or is_system_admin(current_user):
         return
@@ -88,11 +93,11 @@ def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
     return ids
 
 
-def require_meeting_member_by_report(db: Session, user: models.User, report_id: int) -> None:
+def require_meeting_member_by_report(
+    db: Session, user: models.User, report_id: int
+) -> None:
     row = (
-        db.query(models.Report.meeting_id)
-        .filter(models.Report.id == report_id)
-        .first()
+        db.query(models.Report.meeting_id).filter(models.Report.id == report_id).first()
     )
     if not row:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")

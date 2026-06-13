@@ -14,7 +14,7 @@ VALID_CONTEXT_TYPES = {"agenda", "prepare", "todo", "room", "hyean", "sessions"}
 
 
 class MessageIn(BaseModel):
-    role: str   # user | agent
+    role: str  # user | agent
     content: str
 
 
@@ -39,7 +39,9 @@ def get_chat_history(
     db: Session = Depends(get_db),
 ):
     if context_type not in VALID_CONTEXT_TYPES:
-        raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
+        raise HTTPException(
+            status_code=400, detail=f"유효하지 않은 context_type: {context_type}"
+        )
 
     thread_id = f"{context_type}-{context_id}"
     q = db.query(models.ChatMessage).filter(
@@ -66,10 +68,14 @@ def save_message(
     db: Session = Depends(get_db),
 ):
     if context_type not in VALID_CONTEXT_TYPES:
-        raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
+        raise HTTPException(
+            status_code=400, detail=f"유효하지 않은 context_type: {context_type}"
+        )
     # assistant/agent 메시지는 서버가 스트림 종료 시 직접 저장한다 (H-5) — 클라이언트는 user만.
     if body.role != "user":
-        raise HTTPException(status_code=403, detail="사용자 메시지만 저장할 수 있습니다.")
+        raise HTTPException(
+            status_code=403, detail="사용자 메시지만 저장할 수 있습니다."
+        )
 
     msg = models.ChatMessage(
         thread_id=f"{context_type}-{context_id}",
@@ -93,7 +99,9 @@ def clear_chat_history(
     db: Session = Depends(get_db),
 ):
     if context_type not in VALID_CONTEXT_TYPES:
-        raise HTTPException(status_code=400, detail=f"유효하지 않은 context_type: {context_type}")
+        raise HTTPException(
+            status_code=400, detail=f"유효하지 않은 context_type: {context_type}"
+        )
 
     thread_id = f"{context_type}-{context_id}"
     deleted = (
