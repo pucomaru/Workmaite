@@ -32,7 +32,7 @@ jobs:
 
       # 4. 이미지 빌드 & Harbor에 push
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend   # frontend 폴더의 Dockerfile 사용
           push: true
