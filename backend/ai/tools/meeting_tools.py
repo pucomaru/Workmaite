@@ -7,7 +7,9 @@
 출력은 토큰 효율을 위해 필요한 필드만 + 상한(기본 20건)으로 자른다.
 에러/거부는 모델이 복구할 수 있는 한국어 문장으로 반환한다.
 """
+
 import logging
+from typing import cast
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -43,7 +45,7 @@ def _check(meeting_id: int, allowed: set[int], is_admin: bool) -> bool:
 @tool
 def list_my_meetings(config: RunnableConfig) -> str:
     """현재 사용자가 접근 가능한 회의체 목록(id, 제목, 상태)을 반환한다."""
-    user_id, allowed, is_admin = _scope(config)
+    user_id, allowed, is_admin = _scope(cast(RunnableConfig, config))
     db = SessionLocal()
     try:
         q = db.query(models.Meeting)
@@ -52,7 +54,10 @@ def list_my_meetings(config: RunnableConfig) -> str:
                 return "소속된 회의체가 없습니다."
             q = q.filter(models.Meeting.id.in_(allowed))
         rows = q.order_by(models.Meeting.created_at.desc()).limit(_LIMIT).all()
-        return "\n".join(f"- [{m.id}] {m.title} ({m.status})" for m in rows) or "회의체가 없습니다."
+        return (
+            "\n".join(f"- [{m.id}] {m.title} ({m.status})" for m in rows)
+            or "회의체가 없습니다."
+        )
     finally:
         db.close()
 
@@ -60,7 +65,7 @@ def list_my_meetings(config: RunnableConfig) -> str:
 @tool
 def get_meeting_status(meeting_id: int, config: RunnableConfig) -> str:
     """회의체 현황 요약: 세션 수(상태별), 아젠다 수(상태별), 보고서 수(검토 상태별)."""
-    _, allowed, is_admin = _scope(config)
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
     if not _check(meeting_id, allowed, is_admin):
         return _denied(meeting_id)
     db = SessionLocal()
@@ -71,23 +76,31 @@ def get_meeting_status(meeting_id: int, config: RunnableConfig) -> str:
         from sqlalchemy import func
 
         def _counts(model, status_col):
-            rows = (db.query(status_col, func.count())
-                    .filter(model.meeting_id == meeting_id)
-                    .group_by(status_col).all())
+            rows = (
+                db.query(status_col, func.count())
+                .filter(model.meeting_id == meeting_id)
+                .group_by(status_col)
+                .all()
+            )
             return ", ".join(f"{s or '?'} {c}건" for s, c in rows) or "없음"
+
         sessions = _counts(models.MeetingSession, models.MeetingSession.status)
         agendas = _counts(models.Agenda, models.Agenda.status)
         reports = _counts(models.Report, models.Report.human_status)
-        return (f"[{m.title}] 상태: {m.status}\n"
-                f"- 세션: {sessions}\n- 아젠다: {agendas}\n- 보고서: {reports}")
+        return (
+            f"[{m.title}] 상태: {m.status}\n"
+            f"- 세션: {sessions}\n- 아젠다: {agendas}\n- 보고서: {reports}"
+        )
     finally:
         db.close()
 
 
 @tool
-def list_agendas(meeting_id: int, status: str | None = None, config: RunnableConfig = None) -> str:
+def list_agendas(
+    meeting_id: int, status: str | None = None, config: RunnableConfig = None
+) -> str:
     """회의체의 아젠다 목록(제목, 담당부서, 상태, 마감일). status로 필터 가능(draft/ongoing/done)."""
-    _, allowed, is_admin = _scope(config)
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
     if not _check(meeting_id, allowed, is_admin):
         return _denied(meeting_id)
     db = SessionLocal()
@@ -110,14 +123,18 @@ def list_agendas(meeting_id: int, status: str | None = None, config: RunnableCon
 @tool
 def report_submission_status(meeting_id: int, config: RunnableConfig) -> str:
     """회의체의 보고서 제출 현황(파일명, 제출 부서, 검토 상태)."""
-    _, allowed, is_admin = _scope(config)
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
     if not _check(meeting_id, allowed, is_admin):
         return _denied(meeting_id)
     db = SessionLocal()
     try:
-        rows = (db.query(models.Report)
-                .filter(models.Report.meeting_id == meeting_id)
-                .order_by(models.Report.created_at.desc()).limit(_LIMIT).all())
+        rows = (
+            db.query(models.Report)
+            .filter(models.Report.meeting_id == meeting_id)
+            .order_by(models.Report.created_at.desc())
+            .limit(_LIMIT)
+            .all()
+        )
         if not rows:
             return "제출된 보고서가 없습니다."
         return "\n".join(
@@ -131,11 +148,14 @@ def report_submission_status(meeting_id: int, config: RunnableConfig) -> str:
 @tool
 async def search_minutes(query: str, config: RunnableConfig) -> str:
     """과거 회의록을 의미 검색한다. 접근 가능한 회의체의 회의록만 대상."""
-    _, allowed, is_admin = _scope(config)
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
     try:
         from retrieval_registry import hybrid_search  # 벡터+풀텍스트 RRF (P3B-6 2단계)
+
         rows = await hybrid_search(
-            "Minutes", query, k=3,
+            "Minutes",
+            query,
+            k=3,
             meeting_ids=None if is_admin else list(allowed),
         )
         if not rows:
@@ -155,10 +175,13 @@ async def search_with_context(query: str, config: RunnableConfig) -> str:
 
     "이 아젠다가 어느 회의/보고서와 연결됐나" 같은 맥락 질문에 적합하다.
     """
-    _, allowed, is_admin = _scope(config)
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
     try:
         from retrieval_registry import graph_expanded_search
-        rows = await graph_expanded_search(query, meeting_ids=None if is_admin else list(allowed), k=3)
+
+        rows = await graph_expanded_search(
+            query, meeting_ids=None if is_admin else list(allowed), k=3
+        )
         if not rows:
             return "관련 아젠다를 찾지 못했습니다."
         return "\n".join(f"- {r['path']}" for r in rows)

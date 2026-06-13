@@ -8,6 +8,7 @@
     python3 eval/run_eval.py routing    # 라우팅만
     python3 eval/run_eval.py extraction # 추출만
 """
+
 import asyncio
 import difflib
 import json
@@ -45,12 +46,24 @@ async def eval_routing() -> dict:
         agent, _thinking, _steps = await classify_intent(c["message"], c.get("history"))
         ok = agent in c["expected"]
         correct += ok
-        rows.append({"id": c["id"], "message": c["message"], "expected": c["expected"],
-                     "predicted": agent, "ok": ok})
-        print(f"  [{ '✓' if ok else '✗' }] {c['id']} {c['message'][:30]} → {agent}")
+        rows.append(
+            {
+                "id": c["id"],
+                "message": c["message"],
+                "expected": c["expected"],
+                "predicted": agent,
+                "ok": ok,
+            }
+        )
+        print(f"  [{'✓' if ok else '✗'}] {c['id']} {c['message'][:30]} → {agent}")
     acc = correct / len(cases)
     print(f"라우팅 정확도: {correct}/{len(cases)} = {acc:.2%}")
-    return {"metric": "routing_accuracy", "accuracy": acc, "n": len(cases), "rows": rows}
+    return {
+        "metric": "routing_accuracy",
+        "accuracy": acc,
+        "n": len(cases),
+        "rows": rows,
+    }
 
 
 async def eval_extraction() -> dict:
@@ -61,7 +74,8 @@ async def eval_extraction() -> dict:
     rows = []
     for c in cases:
         result = await extract_agendas_and_todos(
-            content=c["content"], org_dept_list=c["org_dept_list"])
+            content=c["content"], org_dept_list=c["org_dept_list"]
+        )
         predicted = result.get("agendas", [])
         matched_pred_idx: set[int] = set()
         case_tp = 0
@@ -77,28 +91,51 @@ async def eval_extraction() -> dict:
                 matched_pred_idx.add(hit)
                 case_tp += 1
                 dept_total += 1
-                if str(predicted[hit].get("department", "")).strip() == exp["department"]:
+                if (
+                    str(predicted[hit].get("department", "")).strip()
+                    == exp["department"]
+                ):
                     dept_ok += 1
             else:
                 fn += 1
         tp += case_tp
         fp += len(predicted) - len(matched_pred_idx)
-        rows.append({"id": c["id"], "expected": c["expected_agendas"],
-                     "predicted": [{"title": p.get("title"), "department": p.get("department")} for p in predicted]})
-        print(f"  {c['id']}: 기대 {len(c['expected_agendas'])} / 예측 {len(predicted)} / 일치 {case_tp}")
+        rows.append(
+            {
+                "id": c["id"],
+                "expected": c["expected_agendas"],
+                "predicted": [
+                    {"title": p.get("title"), "department": p.get("department")}
+                    for p in predicted
+                ],
+            }
+        )
+        print(
+            f"  {c['id']}: 기대 {len(c['expected_agendas'])} / 예측 {len(predicted)} / 일치 {case_tp}"
+        )
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     dept_acc = dept_ok / dept_total if dept_total else 0.0
-    print(f"추출 P={precision:.2f} R={recall:.2f} F1={f1:.2f} | 부서 정확도={dept_acc:.2%}")
-    return {"metric": "extraction", "precision": precision, "recall": recall, "f1": f1,
-            "dept_accuracy": dept_acc, "rows": rows}
+    print(
+        f"추출 P={precision:.2f} R={recall:.2f} F1={f1:.2f} | 부서 정확도={dept_acc:.2%}"
+    )
+    return {
+        "metric": "extraction",
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "dept_accuracy": dept_acc,
+        "rows": rows,
+    }
 
 
 async def main() -> None:
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
-    out: dict = {"ran_at": datetime.now(timezone.utc).isoformat(),
-                 "model": os.environ.get("OPENAI_MODEL", "?")}
+    out: dict = {
+        "ran_at": datetime.now(timezone.utc).isoformat(),
+        "model": os.environ.get("OPENAI_MODEL", "?"),
+    }
     if which in ("all", "routing"):
         print("== 라우팅 ==")
         out["routing"] = await eval_routing()

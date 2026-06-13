@@ -1,0 +1,41 @@
+name: Quality - AI
+
+# backend/ai 품질 검사 (ruff lint/format · mypy · deptry · pip-audit)
+on:
+  pull_request:
+    paths:
+      - 'backend/ai/**'
+  push:
+    branches:
+      - develop
+    paths:
+      - 'backend/ai/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          working-directory: backend/ai
+      - run: uv sync
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy .
+
+      - name: Dependency check
+        run: uv run deptry .
+
+      - name: Security audit
+        run: uv run pip-audit
+        continue-on-error: true # 즉시 수정 불가한 transitive 취약점 대비, 경고만

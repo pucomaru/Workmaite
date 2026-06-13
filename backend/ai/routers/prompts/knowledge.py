@@ -1,6 +1,3 @@
-
-
-
 KNOWLEDGE_SYSTEM = """\
 당신은 조직 지식 관리 전문 AI KnowledgeAgent입니다.
 - 승인된 회의록·과제·보고서를 Neo4j Knowledge Base에 정제·저장합니다
@@ -30,26 +27,26 @@ def relationship_summary_human(
 ) -> str:
     return (
         f"[Supervisor 분석 범위]\n"
-        f"- 회의 {counts.get('meetings',0)}개 · 세션 {counts.get('sessions',0)}개 · "
-        f"안건 {counts.get('agendas',0)}개 · 문서 {counts.get('documents',0)}개 · 구성원 {counts.get('persons',0)}명\n\n"
+        f"- 회의 {counts.get('meetings', 0)}개 · 세션 {counts.get('sessions', 0)}개 · "
+        f"안건 {counts.get('agendas', 0)}개 · 문서 {counts.get('documents', 0)}개 · 구성원 {counts.get('persons', 0)}명\n\n"
         f"[Supervisor 발굴 결과]\n"
-        f"- 끊긴 회의 흐름(세션 미연결): {findings.get('session_missing',0)}건 "
-        f"(회의체 {findings.get('session_groups',0)}곳)\n"
-        f"- 회의록→안건 미연결: {findings.get('lifecycle_gaps',0)}건\n"
-        f"- 불필요 연결(정제 대상): {findings.get('stale_links',0)}건\n"
-        f"- 회의 간 잠재 연관 안건: {findings.get('agenda_links',0)}쌍\n"
-        f"- 미연결 문서-안건 적합쌍: {findings.get('doc_links',0)}건\n"
-        f"- 담당자 없는 안건: {findings.get('ownerless',0)}건 / 고아 문서: {findings.get('orphans',0)}건\n\n"
+        f"- 끊긴 회의 흐름(세션 미연결): {findings.get('session_missing', 0)}건 "
+        f"(회의체 {findings.get('session_groups', 0)}곳)\n"
+        f"- 회의록→안건 미연결: {findings.get('lifecycle_gaps', 0)}건\n"
+        f"- 불필요 연결(정제 대상): {findings.get('stale_links', 0)}건\n"
+        f"- 회의 간 잠재 연관 안건: {findings.get('agenda_links', 0)}쌍\n"
+        f"- 미연결 문서-안건 적합쌍: {findings.get('doc_links', 0)}건\n"
+        f"- 담당자 없는 안건: {findings.get('ownerless', 0)}건 / 고아 문서: {findings.get('orphans', 0)}건\n\n"
         f"[KnowledgeAgent 재구성 통계]\n"
-        f"- 회의 흐름(세션) '후속' 연결: {stats.get('session_links',0)}건\n"
-        f"- 세션→안건 직접 연결: {stats.get('session_agenda_links',0)}건\n"
-        f"- 회의록→안건 연결(생명주기): {stats.get('lifecycle_links',0)}건\n"
-        f"- 미해결 안건 다음 회차 이월: {stats.get('carry_links',0)}건\n"
-        f"- 회의 간 '관련' 링크 생성: {stats.get('related_agendas',0)}건\n"
-        f"- 문서 '참조' 링크 생성: {stats.get('doc_refs',0)}건\n"
-        f"- 고아 문서 자동 편입: {stats.get('doc_attached',0)}건\n"
-        f"- 소속 무결성 보정: {stats.get('membership_fixed',0)}건\n"
-        f"- 불필요 연결 정제: {stats.get('pruned_links',0)}건\n\n"
+        f"- 회의 흐름(세션) '후속' 연결: {stats.get('session_links', 0)}건\n"
+        f"- 세션→안건 직접 연결: {stats.get('session_agenda_links', 0)}건\n"
+        f"- 회의록→안건 연결(생명주기): {stats.get('lifecycle_links', 0)}건\n"
+        f"- 미해결 안건 다음 회차 이월: {stats.get('carry_links', 0)}건\n"
+        f"- 회의 간 '관련' 링크 생성: {stats.get('related_agendas', 0)}건\n"
+        f"- 문서 '참조' 링크 생성: {stats.get('doc_refs', 0)}건\n"
+        f"- 고아 문서 자동 편입: {stats.get('doc_attached', 0)}건\n"
+        f"- 소속 무결성 보정: {stats.get('membership_fixed', 0)}건\n"
+        f"- 불필요 연결 정제: {stats.get('pruned_links', 0)}건\n\n"
         f"[재구성 상세 내역 및 근거]\n{act_block}\n\n"
         f"[사용자 확인 필요 — 자동 보완 불가]\n{adv_block}\n\n"
         "위 결과를 사용자에게 보고해 주세요."

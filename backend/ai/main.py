@@ -11,7 +11,9 @@ _base = os.path.dirname(__file__)
 load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 
 # LangSmith 트레이싱: API 키가 있고 LANGSMITH_TRACING=true일 때만 활성화 (키 없이 켜면 403 스팸)
-_tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool(os.environ.get("LANGSMITH_API_KEY"))
+_tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool(
+    os.environ.get("LANGSMITH_API_KEY")
+)
 os.environ["LANGCHAIN_TRACING_V2"] = "true" if _tracing_on else "false"
 os.environ["LANGSMITH_TRACING"] = "true" if _tracing_on else "false"
 
@@ -27,7 +29,12 @@ from routers import sessions as sessions_router
 from routers import stt as stt_router
 from routers import upload as upload_router
 from routers import usage as usage_router
-from neo4j_sync import ensure_constraints, init_vector_index, retry_failed_syncs, sync_all_from_pg
+from neo4j_sync import (
+    ensure_constraints,
+    init_vector_index,
+    retry_failed_syncs,
+    sync_all_from_pg,
+)
 from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,7 @@ async def _cleanup_stale_neo4j_nodes() -> None:
     재시작 시점 일괄 삭제는 데이터 유실로 이어진다 (Plan.md P0-7).
     """
     from neo4j_client import run_cypher as _run
+
     try:
         await _run(
             "MATCH (n) WHERE n:Todo "
@@ -89,10 +97,12 @@ async def _periodic_retry_task() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from graph_runtime import init_checkpointer, close_checkpointer
+
     await init_checkpointer()  # HITL 영속화 (P3A-1) — 그래프 compile 전에 준비
     await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
     from retrieval_registry import ensure_fulltext_indexes
+
     await ensure_fulltext_indexes()  # 하이브리드 검색용 (P3B-6)
 
     asyncio.create_task(_startup_sync_task())
@@ -116,7 +126,11 @@ _default_origins = [
     "http://localhost:5173",
     "http://localhost:4173",
 ]
-_extra_origins = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+_extra_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(dict.fromkeys(_default_origins + _extra_origins)),
@@ -129,6 +143,7 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # 감사 로그 — 변경성 요청을 audit_logs에 기록 (P1-6)
 from audit_middleware import AuditLogMiddleware  # noqa: E402
+
 app.add_middleware(AuditLogMiddleware)
 
 # 라우터 — 인증(가입/로그인/토큰 발급)은 Spring 단일 주체, FastAPI는 검증만 (P1-1)
@@ -154,6 +169,7 @@ def _ws_user_id(websocket: WebSocket) -> int | None:
     """쿼리 파라미터 token의 JWT를 검증해 user id를 반환합니다 (실패 시 None)."""
     from jose import jwt as _jwt, JWTError as _JWTError
     from auth import SECRET_KEY, ALGORITHM
+
     token = websocket.query_params.get("token", "")
     if not token:
         return None

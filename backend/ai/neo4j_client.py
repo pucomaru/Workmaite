@@ -1,14 +1,17 @@
 """Neo4j HTTP REST 클라이언트 — 모든 에이전트/라우터가 공유합니다."""
+
 import asyncio
-import os, base64, re
+import os
+import base64
+import re
 import httpx
 from fastapi import HTTPException
 from neo4j_ids import to_mg_id
 
-NEO4J_URL      = os.environ["NEO4J_URL"]
-NEO4J_USER     = os.environ["NEO4J_USER"]
+NEO4J_URL = os.environ["NEO4J_URL"]
+NEO4J_USER = os.environ["NEO4J_USER"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
-NEO4J_DB       = os.environ["NEO4J_DATABASE"]
+NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
 
 def _cypher_endpoint() -> str:
@@ -45,7 +48,9 @@ async def run_cypher(statement: str, parameters: dict | None = None) -> list[dic
         body = resp.json()
         if body.get("errors"):
             raise HTTPException(status_code=500, detail=body["errors"])
-        result = body["results"][0] if body.get("results") else {"columns": [], "data": []}
+        result = (
+            body["results"][0] if body.get("results") else {"columns": [], "data": []}
+        )
         columns = result["columns"]
         return [dict(zip(columns, row["row"])) for row in result["data"]]
 
@@ -144,7 +149,9 @@ def graph_context_to_str(ctx: dict) -> str:
             )
             lines.append(f"[간사] {sec_str}")
         if regulars:
-            depts = list(dict.fromkeys(m.get("dept", "") for m in regulars if m.get("dept")))
+            depts = list(
+                dict.fromkeys(m.get("dept", "") for m in regulars if m.get("dept"))
+            )
             if depts:
                 lines.append(f"[참여부서] {', '.join(depts)}")
             mem_str = ", ".join(
@@ -158,13 +165,15 @@ def graph_context_to_str(ctx: dict) -> str:
         lines.append(f"[아젠다 {len(agendas)}건]")
         for a in agendas[:8]:
             assignee = f" → {a['assignee']}" if a.get("assignee") else ""
-            lines.append(f"  - {a.get('title','')} ({a.get('status','')}){assignee}")
+            lines.append(f"  - {a.get('title', '')} ({a.get('status', '')}){assignee}")
 
     sessions = ctx.get("recent_sessions", [])
     if sessions:
         lines.append("[최근 세션]")
         for s in sessions:
-            lines.append(f"  - {s.get('num', s.get('session_number','?'))}회차: {s.get('title','')} ({s.get('ended_at','?')})")
+            lines.append(
+                f"  - {s.get('num', s.get('session_number', '?'))}회차: {s.get('title', '')} ({s.get('ended_at', '?')})"
+            )
 
     reports = ctx.get("reports", [])
     if reports:

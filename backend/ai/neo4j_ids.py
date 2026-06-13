@@ -8,28 +8,29 @@ PG id ↔ Neo4j 문자열 id 변환이 f-string으로 6개 파일에 산재해 �
 규약: Meetings="mg-{pg}", Session="session-{pg}", Agenda="agenda-{pg}",
 Report="report-{pg}", Minutes="minutes-{pg}". User는 pg_id 숫자 키.
 """
+
 import re
 
 _RE_TRAILING_NUM = re.compile(r"(\d+)$")
 
 
-def to_mg_id(pg_id: int) -> str:
+def to_mg_id(pg_id: int | str) -> str:
     return f"mg-{pg_id}"
 
 
-def to_session_id(pg_id: int) -> str:
+def to_session_id(pg_id: int | str) -> str:
     return f"session-{pg_id}"
 
 
-def to_agenda_id(pg_id: int) -> str:
+def to_agenda_id(pg_id: int | str) -> str:
     return f"agenda-{pg_id}"
 
 
-def to_report_id(pg_id: int) -> str:
+def to_report_id(pg_id: int | str) -> str:
     return f"report-{pg_id}"
 
 
-def to_minutes_id(pg_id: int) -> str:
+def to_minutes_id(pg_id: int | str) -> str:
     return f"minutes-{pg_id}"
 
 

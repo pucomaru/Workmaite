@@ -4,15 +4,18 @@
 G-1(인덱스명 불일치 → 전면 0건) 류의 회귀를 데이터 라벨링 없이 탐지하는 최소 안전망.
 사용법: python3 eval/retrieval_eval.py
 """
+
 import asyncio
 import json
 import os
 import sys
+from typing import Any
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 os.environ.setdefault("NEO4J_RETRY_INTERVAL_SEC", "300")
 
@@ -25,7 +28,7 @@ async def main() -> None:
     from neo4j_client import run_cypher
     from retrieval_registry import hybrid_search
 
-    out = {"ran_at": datetime.now().isoformat(), "k": K, "labels": {}}
+    out: dict[str, Any] = {"ran_at": datetime.now().isoformat(), "k": K, "labels": {}}
     for label in LABELS:
         title_field = "title" if label != "Report" else "file_name"
         rows = await run_cypher(
@@ -42,7 +45,11 @@ async def main() -> None:
         recall = hit / len(rows) if rows else None
         out["labels"][label] = {"n": len(rows), "recall_at_k": recall}
         print(f"{label}: self-retrieval recall@{K} = {hit}/{len(rows)}")
-    path = Path(__file__).parent / "results" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_retrieval.json"
+    path = (
+        Path(__file__).parent
+        / "results"
+        / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_retrieval.json"
+    )
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2))
     print("저장:", path)
