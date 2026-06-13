@@ -1175,7 +1175,7 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             await sync_meeting_member(
                 meeting_id=mm.meeting_id,
                 user_id=mm.user_id,
-                role=mm.role,
+                role=mm.meeting_role,
             )
             stats["meeting_members"] += 1
 

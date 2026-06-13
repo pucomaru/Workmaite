@@ -19,7 +19,9 @@ public class MeetingMemberResponse {
   @JsonProperty("user_id")
   private Long userId;
 
-  private MeetingMemberRole role;
+  // 회의체 권한 — 조직 권한(companyRole)과 구분. API 키는 기존대로 role 유지.
+  @JsonProperty("role")
+  private MeetingMemberRole meetingRole;
 
   private String priority;
 
@@ -58,7 +60,7 @@ public class MeetingMemberResponse {
         .id(member.getId())
         .meetingId(member.getMeetingId())
         .userId(member.getUserId())
-        .role(member.getRole())
+        .meetingRole(member.getMeetingRole())
         .priority(member.getPriority())
         .user(userInfo)
         .build();

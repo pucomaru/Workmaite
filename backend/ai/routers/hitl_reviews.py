@@ -17,6 +17,12 @@ from agents import (
     task_extractor as task_agent,
 )
 from auth import get_current_user
+from access_guard import (
+    require_meeting_edit,
+    require_view,
+    meeting_id_of_report,
+    meeting_id_of_agenda,
+)
 from database import get_db
 from services.supervisor_helpers import (
     _get_meeting_context,
@@ -44,6 +50,11 @@ async def create_hitl_review(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # 검토 작성은 회의체 운영 행위 — 대상 보고서/아젠다의 회의체 편집 권한 필요
+    if data.report_id is not None:
+        require_meeting_edit(db, current_user, meeting_id_of_report(db, data.report_id))
+    elif data.agenda_id is not None:
+        require_meeting_edit(db, current_user, meeting_id_of_agenda(db, data.agenda_id))
     review = models.HitlReview(
         agent_log_id=data.agent_log_id,
         target_type=data.target_type,
@@ -87,6 +98,10 @@ async def update_hitl_review(
     review = db.query(models.HitlReview).filter(models.HitlReview.id == hj_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="HitlReview not found")
+    if review.report_id is not None:
+        require_meeting_edit(db, current_user, meeting_id_of_report(db, review.report_id))
+    elif review.agenda_id is not None:
+        require_meeting_edit(db, current_user, meeting_id_of_agenda(db, review.agenda_id))
     if data.status is not None:
         review.status = data.status
     if data.comment is not None:
@@ -124,6 +139,7 @@ async def global_review_stream_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    require_view(db, current_user, data.meeting_id)
     meeting_context = _get_meeting_context(db, data.meeting_id)
 
     async def stream():
@@ -201,7 +217,10 @@ class ConfirmReportReviewRequest(BaseModel):
 async def confirm_report_review_ep(
     data: ConfirmReportReviewRequest,
     current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    if data.meeting_id is not None:
+        require_meeting_edit(db, current_user, data.meeting_id)
     from service_guards import idempotency_guard, release_idempotency
 
     _idem_key = f"report-confirm:{data.thread_id}"
@@ -255,7 +274,10 @@ class ConfirmExtractionRequest(BaseModel):
 async def confirm_extraction_review_ep(
     data: ConfirmExtractionRequest,
     current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    if data.meeting_id is not None:
+        require_meeting_edit(db, current_user, data.meeting_id)
     from service_guards import idempotency_guard, release_idempotency
 
     _idem_key = f"extract-confirm:{data.thread_id}"

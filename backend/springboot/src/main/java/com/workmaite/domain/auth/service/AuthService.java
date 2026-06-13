@@ -65,9 +65,10 @@ public class AuthService {
 
   public LoginResponse login(LoginRequest request) {
     // 이메일/비밀번호 둘 다 틀려도 동일한 에러 반환 (보안상 구분하지 않음)
+    // 활성 계정만 조회 — 탈퇴(소프트 삭제) 계정은 로그인 차단 (MT-6)
     User user =
         userRepository
-            .findByEmail(request.getEmail())
+            .findActiveByEmail(request.getEmail())
             .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS));
 
     if (LegacyPbkdf2Verifier.isLegacy(user.getPasswordHash())) {

@@ -34,11 +34,12 @@ public class User {
   @Column(length = 100)
   private String position;
 
-  // 시스템 수준 역할 (P1-3) — position 문자열로 권한을 판별하던 것을 대체
+  // 조직(회사) 수준 역할 (P1-3) — 회의체 권한(meeting_members.role=meetingRole)과 구분.
+  // DB 컬럼명은 role 유지(매핑만 company_role 의미로 명명).
   @Enumerated(EnumType.STRING)
-  @Column(nullable = false, length = 30)
+  @Column(name = "role", nullable = false, length = 30)
   @Builder.Default
-  private UserRole role = UserRole.USER;
+  private UserRole companyRole = UserRole.USER;
 
   // 회사 정규화 (P1-7②, MT-4) — users.company 문자열을 대체
   @ManyToOne(fetch = FetchType.EAGER)
@@ -81,8 +82,8 @@ public class User {
     this.mustChangePassword = false; // 변경 완료 — 강제 플래그 해제 (P1-7②)
   }
 
-  public void changeRole(UserRole role) {
-    this.role = role;
+  public void changeCompanyRole(UserRole companyRole) {
+    this.companyRole = companyRole;
   }
 
   public void assignCompany(Company company) {

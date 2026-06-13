@@ -12,6 +12,7 @@ import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
 import com.workmaite.global.sync.NeoSyncService;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -56,43 +57,62 @@ public class MeetingService {
 
   private static final int MAX_PAGE_SIZE = 100;
 
-  /** 회의체 목록/검색 (P8-4). size 미지정 시 기존 전체 반환(호환 모드). */
+  /**
+   * 회의체 목록/검색 (P8-4). 조회 스코프는 company_role 기준: SYSTEM_ADMIN=전체, COMPANY_ADMIN=자사가 참여한 회의체,
+   * USER=내가 멤버인 회의체. size 미지정 시 기존 전체 반환(호환 모드).
+   */
   public List<MeetingResponse> getMeetings(
       Long userId, String keyword, Integer page, Integer size) {
-    boolean paged = size != null;
-    var pageable =
-        paged
-            ? org.springframework.data.domain.PageRequest.of(
-                page == null ? 0 : Math.max(page, 0),
-                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
-                org.springframework.data.domain.Sort.by("createdAt").descending())
-            : null;
-    List<Meeting> all =
-        (keyword != null && !keyword.isBlank())
-            ? (paged
-                ? meetingRepository
-                    .findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                        keyword, keyword, pageable)
-                : meetingRepository
-                    .findByTitleContainingIgnoreCaseOrDescriptionContainingIgnoreCase(
-                        keyword, keyword))
-            : (paged
-                ? meetingRepository.findByUserId(userId, pageable)
-                : meetingRepository.findByUserId(userId));
+    User caller =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-    // Build role map for this user
-    List<Long> meetingIds = all.stream().map(Meeting::getId).toList();
+    // 1) 역할별 가시 회의체
+    List<Meeting> visible;
+    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
+      visible = meetingRepository.findAll();
+    } else if (caller.getCompanyRole() == UserRole.COMPANY_ADMIN && caller.getCompanyId() != null) {
+      visible = meetingRepository.findByParticipatingCompany(caller.getCompanyId());
+    } else {
+      visible = meetingRepository.findByUserId(userId);
+    }
+
+    // 2) 키워드 필터 (제목·설명)
+    if (keyword != null && !keyword.isBlank()) {
+      String kw = keyword.toLowerCase();
+      visible =
+          visible.stream()
+              .filter(
+                  m ->
+                      (m.getTitle() != null && m.getTitle().toLowerCase().contains(kw))
+                          || (m.getDescription() != null
+                              && m.getDescription().toLowerCase().contains(kw)))
+              .toList();
+    }
+
+    // 3) 최신순 정렬 + 페이지네이션 (size 미지정 시 전체)
+    visible =
+        visible.stream()
+            .sorted(
+                Comparator.comparing(
+                    Meeting::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+            .toList();
+    if (size != null) {
+      int s = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+      int from = Math.min(Math.max(page == null ? 0 : page, 0) * s, visible.size());
+      visible = visible.subList(from, Math.min(from + s, visible.size()));
+    }
+
+    // 4) 내 회의체 권한(my_role) 매핑 — 멤버가 아닌(회사관리자/시스템관리자) 회의체는 null
     Map<Long, String> roleMap =
         meetingMemberRepository.findByUserId(userId).stream()
-            .filter(mm -> meetingIds.contains(mm.getMeetingId()))
             .collect(
                 Collectors.toMap(
                     MeetingMember::getMeetingId,
-                    mm -> mm.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
+                    mm -> mm.getMeetingRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
                     (a, b) -> a));
-
-    return all.stream()
-        .filter(m -> roleMap.containsKey(m.getId()))
+    return visible.stream()
         .map(m -> MeetingResponse.from(m, roleMap.get(m.getId())))
         .toList();
   }
@@ -104,7 +124,8 @@ public class MeetingService {
 
     List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
     List<MeetingMember> admins =
-        meetingMemberRepository.findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.ADMIN);
+        meetingMemberRepository.findByMeetingIdInAndMeetingRole(
+            meetingIds, MeetingMemberRole.ADMIN);
 
     List<Long> adminUserIds = admins.stream().map(MeetingMember::getUserId).distinct().toList();
     Map<Long, String> userNameMap =
@@ -135,7 +156,7 @@ public class MeetingService {
   }
 
   public MeetingDetailResponse getMeeting(Long meetingId) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     Meeting meeting = findMeetingOrThrow(meetingId);
     List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
     Map<Long, User> userMap = buildUserMap(members);
@@ -143,7 +164,7 @@ public class MeetingService {
   }
 
   public List<MeetingMemberResponse> findMembers(Long meetingId) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
     Map<Long, User> userMap = buildUserMap(members);
     return members.stream()
@@ -178,10 +199,11 @@ public class MeetingService {
     if (meetingMemberRepository.existsByMeetingIdAndUserId(meetingId, request.getUserId())) {
       throw new BusinessException(ErrorCode.MEETING_MEMBER_ALREADY_EXISTS);
     }
-    MeetingMember member = MeetingMember.create(meetingId, request.getUserId(), request.getRole());
+    MeetingMember member =
+        MeetingMember.create(meetingId, request.getUserId(), request.getMeetingRole());
     MeetingMember saved = meetingMemberRepository.save(member);
     User user = userRepository.findById(saved.getUserId()).orElse(null);
-    String roleStr = (request.getRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
+    String roleStr = (request.getMeetingRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
     neoSyncService.syncMember(meetingId, request.getUserId(), roleStr);
     return MeetingMemberResponse.from(saved, user);
   }
@@ -208,18 +230,18 @@ public class MeetingService {
         meetingMemberRepository
             .findById(memberId)
             .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
-    member.updateRole(request.getRole());
+    member.updateMeetingRole(request.getMeetingRole());
     User user = userRepository.findById(member.getUserId()).orElse(null);
-    String roleStr = (request.getRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
+    String roleStr = (request.getMeetingRole() == MeetingMemberRole.ADMIN) ? "admin" : "member";
     neoSyncService.syncMember(meetingId, member.getUserId(), roleStr);
     return MeetingMemberResponse.from(member, user);
   }
 
-  /** 현재 사용자의 특정 회의체 내 역할 반환 (없으면 null) */
-  public String getMyRole(Long meetingId, Long userId) {
+  /** 현재 사용자의 특정 회의체 내 권한 반환 (없으면 null) */
+  public String getMyMeetingRole(Long meetingId, Long userId) {
     return meetingMemberRepository
         .findByMeetingIdAndUserId(meetingId, userId)
-        .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
+        .map(m -> m.getMeetingRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
         .orElse(null);
   }
 
@@ -235,18 +257,8 @@ public class MeetingService {
         .collect(Collectors.toMap(User::getId, u -> u));
   }
 
-  // secretary 권한이 없으면 403 예외 발생
+  // 회의체 운영 권한 검증: 간사 | 회사관리자(자사 소유 회의체) | 시스템관리자 (requireMeetingEdit에 위임)
   private void checkSecretaryPermission(Long meetingId, Long requesterId) {
-    // 시스템관리자는 간사가 아니어도 회의체 설정/종료/멤버 편집 가능
-    boolean isSystemAdmin =
-        userRepository
-            .findById(requesterId)
-            .map(u -> u.getRole() == UserRole.SYSTEM_ADMIN)
-            .orElse(false);
-    if (isSystemAdmin) return;
-    if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(
-        meetingId, requesterId, MeetingMemberRole.ADMIN)) {
-      throw new BusinessException(ErrorCode.MEETING_ACCESS_DENIED);
-    }
+    meetingAccessGuard.requireMeetingEdit(meetingId);
   }
 }

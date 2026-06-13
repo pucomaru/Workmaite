@@ -27,11 +27,12 @@ public class MeetingController {
   private final MeetingService meetingService;
 
   @GetMapping("/meetings/{meetingId}/my-role")
-  public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getMyRole(
+  public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getMyMeetingRole(
       @PathVariable Long meetingId, Authentication authentication) {
     Long userId = Long.parseLong(authentication.getName());
-    String role = meetingService.getMyRole(meetingId, userId);
-    return ResponseEntity.ok(ApiResponse.ok(java.util.Map.of("role", role != null ? role : "")));
+    String meetingRole = meetingService.getMyMeetingRole(meetingId, userId);
+    return ResponseEntity.ok(
+        ApiResponse.ok(java.util.Map.of("role", meetingRole != null ? meetingRole : "")));
   }
 
   @GetMapping("/me/meetings")

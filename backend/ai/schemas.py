@@ -50,14 +50,16 @@ class MeetingOut(BaseModel):
 class MeetingMemberAdd(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     user_id: int = Field(alias="userId")
-    role: str  # admin | member
+    # 회의체 권한 admin|member. 입력 키 meeting_role(구 role 하위호환).
+    meeting_role: str = Field(validation_alias=AliasChoices("meeting_role", "role"))
 
 
 class MeetingMemberOut(BaseModel):
     id: int
     meeting_id: int
     user_id: int
-    role: str
+    # ORM 속성 meeting_role를 읽되, API 응답 키는 기존대로 role 유지(프런트 호환)
+    meeting_role: str = Field(serialization_alias="role")
     priority: Optional[str] = None
     user: Optional[UserOut] = None
 

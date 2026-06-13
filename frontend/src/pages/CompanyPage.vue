@@ -646,11 +646,7 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>회사명</label>
-                <input
-                  v-model="addForm.company"
-                  class="app-modal-input"
-                  placeholder="예: SK AX"
-                />
+                <input v-model="addForm.company" class="app-modal-input" placeholder="예: SK AX" />
               </div>
               <div class="app-modal-field">
                 <label>부서명</label>

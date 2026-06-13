@@ -1,15 +1,17 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 import models
 import schemas
 from database import get_db
 from auth import get_current_user
 from access_guard import (
-    require_meeting_member,
+    require_view,
+    require_meeting_edit,
     require_user_update_permission,
     visible_user_ids,
+    viewable_meeting_ids,
     is_system_admin,
 )
 from neo4j_sync import (
@@ -43,15 +45,6 @@ def _get_or_create_company_id(db: Session, name) -> int | None:
     return c.id
 
 
-def _is_strategic(user: models.User) -> bool:
-    """관리자 판별 — RBAC role 기반 (P1-3).
-
-    과거 부서 문자열('전략기획팀') 판별은 가입 시 자유 입력이라 권한 상승 벡터였다(SEC-10).
-    기존 전략기획팀 사용자는 V3 마이그레이션에서 SYSTEM_ADMIN을 1회 부여받았다.
-    """
-    return user.role == "SYSTEM_ADMIN"
-
-
 def _my_role_in(user_id: int, meeting_id: int, db: Session):
     m = (
         db.query(models.MeetingMember)
@@ -61,7 +54,7 @@ def _my_role_in(user_id: int, meeting_id: int, db: Session):
         )
         .first()
     )
-    return m.role if m else None
+    return m.meeting_role if m else None
 
 
 @router.get("/meetings")
@@ -69,20 +62,13 @@ def list_meetings(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if _is_strategic(current_user):
-        meetings = (
-            db.query(models.Meeting).order_by(models.Meeting.created_at.desc()).all()
-        )
-    else:
-        member_rows = (
-            db.query(models.MeetingMember)
-            .filter(models.MeetingMember.user_id == current_user.id)
-            .all()
-        )
-        meeting_ids = [r.meeting_id for r in member_rows]
-        meetings = (
-            db.query(models.Meeting).filter(models.Meeting.id.in_(meeting_ids)).all()
-        )
+    vids = viewable_meeting_ids(db, current_user)  # None이면 전체(SYSTEM_ADMIN)
+    mq = db.query(models.Meeting)
+    if vids is not None:
+        if not vids:
+            return []
+        mq = mq.filter(models.Meeting.id.in_(vids))
+    meetings = mq.order_by(models.Meeting.created_at.desc()).all()
 
     result = []
     for m in meetings:
@@ -125,7 +111,7 @@ async def create_meeting(
     db.add(meeting)
     db.flush()
     member = models.MeetingMember(
-        meeting_id=meeting.id, user_id=current_user.id, role="admin"
+        meeting_id=meeting.id, user_id=current_user.id, meeting_role="admin"
     )
     db.add(member)
     db.commit()
@@ -159,9 +145,7 @@ def get_meeting(
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
-    if not _is_strategic(current_user):
-        if _my_role_in(current_user.id, meeting_id, db) is None:
-            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    require_view(db, current_user, meeting_id)
     role = _my_role_in(current_user.id, meeting_id, db)
     return {
         "id": meeting.id,
@@ -185,21 +169,11 @@ async def update_meeting(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member(db, current_user, meeting_id)
+    # 회의체 수정은 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id)
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
-    if "title" in data or "status" in data:
-        member = (
-            db.query(models.MeetingMember)
-            .filter(
-                models.MeetingMember.meeting_id == meeting_id,
-                models.MeetingMember.user_id == current_user.id,
-            )
-            .first()
-        )
-        if not member or member.role != "admin":
-            raise HTTPException(status_code=403, detail="관리자만 수정할 수 있습니다.")
     if "title" in data:
         meeting.title = data["title"]
     if "status" in data:
@@ -248,7 +222,7 @@ def get_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member(db, current_user, meeting_id)
+    require_view(db, current_user, meeting_id)
     return (
         db.query(models.MeetingMember)
         .options(joinedload(models.MeetingMember.user))
@@ -265,11 +239,7 @@ async def add_member(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    my_role = _my_role_in(current_user.id, meeting_id, db)
-    if my_role != "admin":
-        raise HTTPException(
-            status_code=403, detail="간사만 구성원을 추가할 수 있습니다."
-        )
+    require_meeting_edit(db, current_user, meeting_id)
     existing = (
         db.query(models.MeetingMember)
         .filter(
@@ -279,15 +249,15 @@ async def add_member(
         .first()
     )
     if existing:
-        existing.role = data.role
+        existing.meeting_role = data.meeting_role
         db.commit()
         background_tasks.add_task(
-            update_meeting_member_role, meeting_id, data.user_id, data.role
+            update_meeting_member_role, meeting_id, data.user_id, data.meeting_role
         )
         return existing
 
     member = models.MeetingMember(
-        meeting_id=meeting_id, user_id=data.user_id, role=data.role
+        meeting_id=meeting_id, user_id=data.user_id, meeting_role=data.meeting_role
     )
     db.add(member)
     db.flush()
@@ -307,7 +277,7 @@ async def add_member(
                 position=added_user.position,
             )
             await sync_meeting_member(
-                meeting_id=meeting_id, user_id=added_user.id, role=data.role
+                meeting_id=meeting_id, user_id=added_user.id, role=data.meeting_role
             )
 
         background_tasks.add_task(_sync_member)
@@ -324,9 +294,7 @@ async def update_member_role(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    my_role = _my_role_in(current_user.id, meeting_id, db)
-    if my_role != "admin":
-        raise HTTPException(status_code=403, detail="간사만 역할을 변경할 수 있습니다.")
+    require_meeting_edit(db, current_user, meeting_id)
     member = (
         db.query(models.MeetingMember)
         .filter(
@@ -337,12 +305,13 @@ async def update_member_role(
     )
     if not member:
         raise HTTPException(status_code=404, detail="Not found")
-    if "role" in data:
-        member.role = data["role"]
+    new_role = data.get("meeting_role", data.get("role"))  # 구 키 role 하위호환
+    if new_role is not None:
+        member.meeting_role = new_role
     db.commit()
-    if "role" in data:
+    if new_role is not None:
         background_tasks.add_task(
-            update_meeting_member_role, meeting_id, member.user_id, data["role"]
+            update_meeting_member_role, meeting_id, member.user_id, new_role
         )
     return member
 
@@ -355,7 +324,6 @@ async def remove_member(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    my_role = _my_role_in(current_user.id, meeting_id, db)
     target = (
         db.query(models.MeetingMember)
         .filter(
@@ -366,10 +334,9 @@ async def remove_member(
     )
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
-    if target.user_id != current_user.id and my_role != "admin":
-        raise HTTPException(
-            status_code=403, detail="간사만 구성원을 제거할 수 있습니다."
-        )
+    # 본인 탈퇴는 허용, 타인 제거는 간사/회사관리자/시스템관리자만
+    if target.user_id != current_user.id:
+        require_meeting_edit(db, current_user, meeting_id)
 
     removed_user_id = target.user_id
     db.delete(target)
@@ -388,17 +355,8 @@ async def delete_meeting(
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
-    member = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.meeting_id == meeting_id,
-            models.MeetingMember.user_id == current_user.id,
-        )
-        .first()
-    )
-    # 시스템관리자는 간사가 아니어도 삭제 가능
-    if not is_system_admin(current_user) and (not member or member.role != "admin"):
-        raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
+    # 회의체 삭제는 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id)
 
     # ── 1. ID 선수집 ──────────────────────────────────────────────
     session_ids = [
@@ -493,7 +451,9 @@ def search_users(
     db: Session = Depends(get_db),
 ):
     visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
-    query = db.query(models.User).filter(models.User.name.contains(q))
+    query = db.query(models.User).filter(
+        models.User.name.contains(q), models.User.is_active.is_(True)  # 탈퇴 계정 제외(MT-6)
+    )
     if visible is not None:
         query = query.filter(models.User.id.in_(visible))
     users = query.limit(20).all()
@@ -518,7 +478,11 @@ def all_users(
     db: Session = Depends(get_db),
 ):
     visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
-    users_query = db.query(models.User).order_by(models.User.name)
+    users_query = (
+        db.query(models.User)
+        .filter(models.User.is_active.is_(True))  # 탈퇴 계정 제외(MT-6)
+        .order_by(models.User.name)
+    )
     if visible is not None:
         users_query = users_query.filter(models.User.id.in_(visible))
     users = users_query.offset(offset).limit(limit).all()  # P8-5 페이지네이션
@@ -556,7 +520,7 @@ def all_users(
                 "id": mm.meeting_id,
                 "member_id": mm.id,
                 "title": titles.get(mm.meeting_id, ""),
-                "role": mm.role,
+                "role": mm.meeting_role,
             }
             for mm in members_by_user.get(u.id, [])
         ]
@@ -569,7 +533,7 @@ def all_users(
                 "company": u.company_name,
                 "company_id": u.company_id,
                 "position": u.position,
-                "role": u.role,  # 역할 변경 UI용 (P1-7②)
+                "role": u.company_role,  # 역할 변경 UI용 (P1-7②)
                 "meetings": meetings,
             }
         )
@@ -623,7 +587,7 @@ def my_role(
     )
     if not member:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
-    return {"role": member.role}
+    return {"role": member.meeting_role}
 
 
 # ── /api/ai prefix 라우터 (Ingress: /api/ai → FastAPI) ───────────────────────
@@ -651,7 +615,7 @@ async def rename_company_endpoint(
         raise HTTPException(status_code=404, detail="회사를 찾을 수 없습니다.")
     # 권한: SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN
     is_co_admin = (
-        current_user.role == "COMPANY_ADMIN" and current_user.company_id == company.id
+        current_user.company_role == "COMPANY_ADMIN" and current_user.company_id == company.id
     )
     if not is_system_admin(current_user) and not is_co_admin:
         raise HTTPException(status_code=403, detail="회사명을 변경할 권한이 없습니다.")
@@ -699,7 +663,7 @@ async def rename_department_endpoint(
     # 권한: SYSTEM_ADMIN(전체) 또는 COMPANY_ADMIN(자기 회사에 한해)
     if not is_system_admin(current_user):
         is_co_admin = (
-            current_user.role == "COMPANY_ADMIN"
+            current_user.company_role == "COMPANY_ADMIN"
             and company is not None
             and current_user.company_id == company.id
         )
@@ -735,7 +699,7 @@ def company_members(
     # 1) 역할별 가시 사용자 집합
     if is_system_admin(current_user):
         visible_users = db.query(models.User).all()
-    elif current_user.role == "COMPANY_ADMIN" and current_user.company_id is not None:
+    elif current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
         visible_users = (
             db.query(models.User)
             .filter(models.User.company_id == current_user.company_id)
@@ -789,7 +753,7 @@ def company_members(
                 "id": mm.meeting_id,
                 "member_id": mm.id,
                 "title": meeting.title if meeting else "",
-                "role": mm.role,
+                "role": mm.meeting_role,
             }
         )
 
@@ -799,7 +763,7 @@ def company_members(
         .filter(models.MeetingMember.user_id == current_user.id)
         .all()
     )
-    my_role_map = {mm.meeting_id: mm.role for mm in my_membership}
+    my_role_map = {mm.meeting_id: mm.meeting_role for mm in my_membership}
     meetings_list = [
         {"id": m.id, "title": m.title, "my_role": my_role_map.get(m.id)}
         for m in sorted(
@@ -822,7 +786,7 @@ def company_members(
             "company": u.company_name,
             "company_id": u.company_id,
             "position": u.position,
-            "role": u.role,
+            "role": u.company_role,
             "meetings": user_meetings.get(u.id, []),
         }
         for u in visible_users
@@ -854,7 +818,7 @@ async def ai_remove_member(
     # 제거 권한: 본인 / 회의체 간사 / SYSTEM_ADMIN / 같은 회사 COMPANY_ADMIN
     target_user = db.query(models.User).filter(models.User.id == target.user_id).first()
     is_company_admin = (
-        current_user.role == "COMPANY_ADMIN"
+        current_user.company_role == "COMPANY_ADMIN"
         and current_user.company_id is not None
         and target_user is not None
         and current_user.company_id == target_user.company_id
@@ -884,9 +848,13 @@ async def ai_delete_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """사용자 계정 삭제 — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만 (MT-6).
+    """사용자 계정 삭제(소프트 삭제) — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만 (MT-6).
 
-    회의체 멤버 제거와 별개로, 참여 회의체가 없는 계정도 제거할 수 있어야 한다.
+    하드 삭제는 작성한 회의록·보고서·감사 로그 등 users(id)를 RESTRICT로 참조하는
+    행이 하나라도 있으면 불가능했다(사실상 활동한 모든 사용자 삭제 불가). 대신 행은
+    남기고 is_active=False로 비활성화한다.
+    - 표시용 이름(name)은 보존 → 과거 작성물의 작성자 표기 유지
+    - 로그인 자격(email)은 익명화 → ① 재로그인 차단 ② 같은 이메일로 재가입 허용
     """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -894,7 +862,7 @@ async def ai_delete_user(
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="본인 계정은 삭제할 수 없습니다.")
     is_company_admin = (
-        current_user.role == "COMPANY_ADMIN"
+        current_user.company_role == "COMPANY_ADMIN"
         and current_user.company_id is not None
         and current_user.company_id == user.company_id
     )
@@ -902,19 +870,20 @@ async def ai_delete_user(
         raise HTTPException(
             status_code=403, detail="계정을 삭제할 권한이 없습니다. (관리자만 가능)"
         )
+    if not user.is_active:
+        return {"ok": True}  # 이미 탈퇴 처리됨 (멱등)
 
+    # 소프트 삭제 + 자격 익명화
+    user.is_active = False
+    user.email = f"deleted+{user.id}@deleted.invalid"  # 원래 이메일 슬롯 해제(재가입 허용)
+    user.password_hash = "!"  # BCrypt와 절대 매칭되지 않는 불용 해시
+    # 활성 세션(refresh token) 폐기 — 행이 남으므로 명시적으로 정리
+    db.execute(text("DELETE FROM refresh_tokens WHERE user_id = :uid"), {"uid": user_id})
+    # 활성 회의체 명단에서 제거 (참석 이력·발화 등은 별도 테이블에 보존됨)
     db.query(models.MeetingMember).filter(
         models.MeetingMember.user_id == user_id
     ).delete()
-    db.delete(user)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="해당 사용자가 작성한 회의록·보고서 등 데이터가 남아 있어 삭제할 수 없습니다.",
-        )
+    db.commit()
     background_tasks.add_task(neo4j_delete_user, user_id)
     return {"ok": True}
 
@@ -970,17 +939,8 @@ async def ai_delete_meeting(
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Not found")
-    member = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.meeting_id == meeting_id,
-            models.MeetingMember.user_id == current_user.id,
-        )
-        .first()
-    )
-    # 시스템관리자는 간사가 아니어도 삭제 가능
-    if not is_system_admin(current_user) and (not member or member.role != "admin"):
-        raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
+    # 회의체 삭제는 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id)
 
     # ── 1. ID 선수집 ──────────────────────────────────────────────
     session_ids = [

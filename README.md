@@ -55,7 +55,7 @@ uv run uvicorn main:app --reload --port 8000
 
 ```bash
 cd frontend
-npm install   # 최초 1회
+npm install --os=linux --cpu=x64 --libc=musl --os=linux --cpu=x64 --libc=glibc --os=darwin --cpu=arm64 --os=win32 --cpu=x64
 npm run dev
 ```
 

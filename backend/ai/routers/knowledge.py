@@ -14,6 +14,7 @@ from agents import (
     knowledge_manager as knowledge_agent,
 )
 from auth import get_current_user
+from access_guard import require_meeting_edit, require_view
 from database import get_db
 from services.supervisor_helpers import (
     _get_meeting_context,
@@ -65,8 +66,10 @@ class _ConfirmRelationshipsReq(BaseModel):
 @router.post("/knowledge/store-minutes")
 async def knowledge_store_minutes(
     data: _StoreMinutesReq,
-    _: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    require_meeting_edit(db, current_user, data.meeting_id)
     try:
         return await knowledge_agent.store_minutes(
             title=data.title,
@@ -81,8 +84,11 @@ async def knowledge_store_minutes(
 @router.post("/knowledge/store-task")
 async def knowledge_store_task(
     data: _StoreTaskReq,
-    _: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    if data.meeting_id is not None:
+        require_meeting_edit(db, current_user, data.meeting_id)
     try:
         return await knowledge_agent.store_task(
             content=data.content,
@@ -97,8 +103,11 @@ async def knowledge_store_task(
 @router.post("/knowledge/store-report")
 async def knowledge_store_report(
     data: _StoreReportReq,
-    _: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    if data.meeting_id is not None:
+        require_meeting_edit(db, current_user, data.meeting_id)
     try:
         return await knowledge_agent.store_report(
             title=data.title,
@@ -115,9 +124,12 @@ async def knowledge_store_report(
 )
 async def knowledge_propose_relationships(
     data: _ProposeRelationshipsReq,
-    _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Neo4j 노드 간 연결 관계를 LLM이 분석해 제안. proposal_id를 반환."""
+    # 그래프 편집 준비 — 간사/회사관리자/시스템관리자만. confirm은 서버발급 proposal_id로 간접 보호.
+    require_meeting_edit(db, current_user, data.meeting_id)
     try:
         result = await knowledge_agent.propose_relationships(
             meeting_id=data.meeting_id,
@@ -160,6 +172,8 @@ async def knowledge_chat_stream_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if data.meeting_id:
+        require_view(db, current_user, data.meeting_id)
     meeting_context = (
         _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     )

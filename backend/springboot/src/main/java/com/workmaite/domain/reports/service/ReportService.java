@@ -26,7 +26,7 @@ public class ReportService {
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "report")
   public ReportResponse submitReport(Long meetingId, ReportSubmitRequest request) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     Report report =
         Report.builder()
             .meetingId(meetingId)
@@ -41,7 +41,7 @@ public class ReportService {
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "report")
   public ReportResponse submitReportForSession(Long sessionId, ReportSessionSubmitRequest request) {
-    meetingAccessGuard.requireMember(request.getMeetingId());
+    meetingAccessGuard.requireView(request.getMeetingId());
     Report report =
         Report.builder()
             .meetingId(request.getMeetingId())
@@ -56,7 +56,9 @@ public class ReportService {
   @Transactional
   @AuditLogged(action = "RESUBMIT", entityType = "report")
   public ReportResponse resubmitReport(Long reportId, ReportResubmitRequest request) {
-    Report original = findByIdOrThrow(reportId);
+    Report original = fetchOrThrow(reportId);
+    // 재제출은 편집 — 소유자(업로더) 또는 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireOwnedEdit(original.getMeetingId(), original.getUploadId());
 
     Report resubmitted =
         Report.builder()
@@ -73,8 +75,13 @@ public class ReportService {
   }
 
   public List<ReportResponse> getReportsByMeeting(Long meetingId) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     return reportRepository.findAllByMeetingId(meetingId).stream().map(ReportResponse::of).toList();
+  }
+
+  /** 세션 소속 회의체의 자료 목록 (이전엔 sessionId를 meetingId로 오용 — IDOR/버그 수정). */
+  public List<ReportResponse> getReportsBySession(Long sessionId) {
+    return getReportsByMeeting(meetingAccessGuard.meetingIdOfSession(sessionId));
   }
 
   public ReportResponse getReport(Long reportId) {
@@ -84,13 +91,15 @@ public class ReportService {
   @Transactional
   @AuditLogged(action = "REVIEW", entityType = "report")
   public ReportResponse updateHumanStatus(Long reportId, ReportStatusUpdateRequest request) {
-    Report report = findByIdOrThrow(reportId);
+    Report report = fetchOrThrow(reportId);
+    // 보고서 승인/반려는 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireMeetingEdit(report.getMeetingId());
     report.updateHumanStatus(request.getStatus());
     return ReportResponse.of(report);
   }
 
   public ReportReviewResultResponse getReviewResult(Long reportId) {
-    meetingAccessGuard.requireMemberByReport(reportId);
+    meetingAccessGuard.requireViewByReport(reportId);
     ReportScore reportScore =
         reportScoreRepository
             .findByReportId(reportId)
@@ -101,17 +110,23 @@ public class ReportService {
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "report")
   public void deleteReport(Long reportId) {
-    meetingAccessGuard.requireMemberByReport(reportId);
+    Report report = fetchOrThrow(reportId);
+    // 삭제는 편집 — 소유자(업로더) 또는 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireOwnedEdit(report.getMeetingId(), report.getUploadId());
     reportRepository.deleteById(reportId);
   }
 
-  // 모든 reportId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
+  // 조회 단일 진입점 — 조회 권한 검증 포함 (IDOR 차단)
   private Report findByIdOrThrow(Long reportId) {
-    Report report =
-        reportRepository
-            .findById(reportId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
-    meetingAccessGuard.requireMember(report.getMeetingId());
+    Report report = fetchOrThrow(reportId);
+    meetingAccessGuard.requireView(report.getMeetingId());
     return report;
+  }
+
+  // 가드 없는 원본 조회 — 호출부에서 view/edit 권한을 명시적으로 검증한다
+  private Report fetchOrThrow(Long reportId) {
+    return reportRepository
+        .findById(reportId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.REPORT_NOT_FOUND));
   }
 }

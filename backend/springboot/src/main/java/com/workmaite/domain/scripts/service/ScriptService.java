@@ -26,7 +26,8 @@ public class ScriptService {
   // STT 세그먼트 일괄 저장 - 한 세션에 여러 세그먼트를 한 번에 저장
   @Transactional
   public List<ScriptResponse> saveScripts(Long sessionId, ScriptSaveRequest request) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    // STT 전사본은 회의체 운영물 — 간사/회사관리자/시스템관리자만 기록·수정
+    meetingAccessGuard.requireMeetingEdit(meetingAccessGuard.meetingIdOfSession(sessionId));
     List<SttSegment> segments =
         request.getSegments().stream()
             .map(
@@ -53,7 +54,7 @@ public class ScriptService {
    * 로드용.
    */
   public List<ScriptResponse> getScripts(Long sessionId, Double afterSec, Integer limit) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    meetingAccessGuard.requireViewBySession(sessionId);
     if (limit == null && afterSec == null) {
       return scriptRepository.findBySessionIdOrderByStartSecAsc(sessionId).stream()
           .map(ScriptResponse::from)
@@ -71,7 +72,7 @@ public class ScriptService {
   // 세그먼트 부분 수정 - 세그먼트 ID 목록을 받아 각각 업데이트
   @Transactional
   public List<ScriptResponse> updateScripts(Long sessionId, ScriptUpdateRequest request) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    meetingAccessGuard.requireMeetingEdit(meetingAccessGuard.meetingIdOfSession(sessionId));
     return request.getSegments().stream()
         .map(
             seg -> {
@@ -100,7 +101,7 @@ public class ScriptService {
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "script")
   public void deleteScripts(Long sessionId) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    meetingAccessGuard.requireMeetingEdit(meetingAccessGuard.meetingIdOfSession(sessionId));
     scriptRepository.deleteAllBySessionId(sessionId);
   }
 }

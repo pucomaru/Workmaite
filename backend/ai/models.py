@@ -16,6 +16,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    Boolean,
     DateTime,
     ForeignKey,
     JSON,
@@ -49,9 +50,15 @@ class User(Base):
     )
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
     position: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # 시스템 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN
-    role: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="USER", server_default="USER"
+    # 조직(회사) 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN.
+    # 회의체 권한(meeting_members.role=meeting_role)과 구분. DB 컬럼명은 role 유지.
+    company_role: Mapped[str] = mapped_column(
+        "role", String(30), nullable=False, default="USER", server_default="USER"
+    )
+    # 소프트 삭제 플래그 (MT-6 개정) — False면 탈퇴 계정. 작성한 회의록·보고서 등 참조
+    # 무결성을 보존하기 위해 행은 남기고 비활성화한다. 로그인·디렉터리에서 제외된다.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -103,7 +110,8 @@ class MeetingMember(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=False
     )
-    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 회의체 수준 권한 admin|member — 조직 권한(users.role=company_role)과 구분. DB 컬럼명은 role 유지.
+    meeting_role: Mapped[str] = mapped_column("role", String(20), nullable=False)
     priority: Mapped[str] = mapped_column(String(20), default="medium")
 
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])

@@ -66,7 +66,7 @@ public class SessionService {
   }
 
   public List<SessionResponse> getSessions(Long meetingId, SessionStatus status) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     List<MeetingSession> sessions =
         (status != null)
             ? sessionRepository.findByMeetingIdAndStatus(meetingId, status)
@@ -79,7 +79,8 @@ public class SessionService {
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "session")
   public SessionResponse createSession(Long meetingId, SessionCreateRequest request) {
-    meetingAccessGuard.requireMember(meetingId);
+    // 세션 생성은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireMeetingEdit(meetingId);
     MeetingSession session =
         MeetingSession.create(
             meetingId,
@@ -117,7 +118,7 @@ public class SessionService {
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "session")
   public SessionResponse updateSession(Long sessionId, SessionUpdateRequest request) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     session.update(
         request.getTitle(),
@@ -145,7 +146,7 @@ public class SessionService {
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "session")
   public void deleteSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
     scriptRepository.deleteAllBySessionId(sessionId);
     summaryBlockRepository.deleteAllBySessionId(sessionId);
     sessionMemberRepository.deleteBySessionId(sessionId);
@@ -158,7 +159,7 @@ public class SessionService {
   @Transactional
   @AuditLogged(action = "START", entityType = "session")
   public SessionResponse startSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     if (session.getStatus() != SessionStatus.SCHEDULED) {
       throw new BusinessException(ErrorCode.SESSION_ALREADY_STARTED);
@@ -172,7 +173,7 @@ public class SessionService {
   // ONGOING 상태일 때만 일시정지 가능
   @Transactional
   public SessionResponse pauseSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
       throw new BusinessException(ErrorCode.SESSION_NOT_STARTED);
@@ -186,7 +187,7 @@ public class SessionService {
   // ONGOING 상태일 때만 재개 가능
   @Transactional
   public SessionResponse resumeSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
       throw new BusinessException(ErrorCode.SESSION_NOT_STARTED);
@@ -201,7 +202,7 @@ public class SessionService {
   @Transactional
   @AuditLogged(action = "END", entityType = "session")
   public SessionResponse endSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     if (session.getStatus() != SessionStatus.ONGOING) {
       throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
@@ -214,7 +215,7 @@ public class SessionService {
 
   @Transactional
   public SessionResponse archiveSession(Long sessionId) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
 
     if (session.getStatus() != SessionStatus.ENDED) {
       throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
@@ -226,18 +227,28 @@ public class SessionService {
 
   @Transactional
   public SessionResponse updateContext(Long sessionId, String context) {
-    MeetingSession session = findSessionById(sessionId);
+    MeetingSession session = findSessionForEdit(sessionId);
     session.updateContext(context);
     return SessionResponse.from(session);
   }
 
-  // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
+  // 조회 단일 진입점 — 조회 권한 검증 포함 (IDOR 차단)
   private MeetingSession findSessionById(Long sessionId) {
-    MeetingSession session =
-        sessionRepository
-            .findById(sessionId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
-    meetingAccessGuard.requireMember(session.getMeetingId());
+    MeetingSession session = fetchSession(sessionId);
+    meetingAccessGuard.requireView(session.getMeetingId());
     return session;
+  }
+
+  // 편집 단일 진입점 — 세션은 회의체 운영물이라 간사/회사관리자/시스템관리자만 변경 가능
+  private MeetingSession findSessionForEdit(Long sessionId) {
+    MeetingSession session = fetchSession(sessionId);
+    meetingAccessGuard.requireMeetingEdit(session.getMeetingId());
+    return session;
+  }
+
+  private MeetingSession fetchSession(Long sessionId) {
+    return sessionRepository
+        .findById(sessionId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
   }
 }

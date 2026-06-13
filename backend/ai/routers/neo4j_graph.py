@@ -95,13 +95,23 @@ async def get_archive(
     """인증된 사용자의 소속 회의체만 반환 — Neo4j 기반, Postgres는 meeting_id 보완에만 사용."""
     user_email = current_user.email or ""
 
-    # ── Postgres: 현재 유저의 소속 meeting_id 목록 (빠른 단순 조회) ──
-    pg_meeting_ids = {
-        to_mg_id(row.meeting_id)
+    # ── Postgres: 그래프에 포함할 meeting_id 범위 (조회 스코프) ──
+    _raw_ids = {
+        row.meeting_id
         for row in db.query(models.MeetingMember.meeting_id)
         .filter(models.MeetingMember.user_id == current_user.id)
         .all()
     }
+    # 회사 관리자는 자사 구성원이 참여한 회의체까지 그래프에 포함 (SEC-5/MT)
+    if current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
+        _raw_ids |= {
+            row.meeting_id
+            for row in db.query(models.MeetingMember.meeting_id)
+            .join(models.User, models.User.id == models.MeetingMember.user_id)
+            .filter(models.User.company_id == current_user.company_id)
+            .all()
+        }
+    pg_meeting_ids = {to_mg_id(mid) for mid in _raw_ids}
 
     # ── Step 1+2: User 조회 / company / dept — 동시에 시작 ──────
     # User 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
@@ -603,7 +613,7 @@ async def get_archive(
                         "userName": u.name or "",
                         "email": u.email or "",
                         "position": u.position or "",
-                        "role": "admin" if str(mb.role) == "admin" else "member",
+                        "role": "admin" if str(mb.meeting_role) == "admin" else "member",
                         "department": u.department or "",
                         "company": u.company_name or "",
                     }

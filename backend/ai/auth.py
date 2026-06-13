@@ -63,4 +63,10 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
+    if not user.is_active:
+        # 탈퇴(소프트 삭제) 계정은 잔여 액세스 토큰으로도 인증 불가 (MT-6)
+        logger.warning(f"[Auth] 비활성 계정 접근 차단: sub={sub}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
     return user
