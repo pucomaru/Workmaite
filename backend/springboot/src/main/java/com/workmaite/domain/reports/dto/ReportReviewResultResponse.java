@@ -10,7 +10,7 @@ public class ReportReviewResultResponse {
 
     private Long reportId;
     private String aiStatus;
-    private Float totalScore;
+    private Double totalScore;
     private String detailScores;
     private String feedback;
 

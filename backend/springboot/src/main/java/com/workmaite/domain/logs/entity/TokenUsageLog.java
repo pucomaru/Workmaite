@@ -30,8 +30,8 @@ public class TokenUsageLog {
     @Column(name = "completion_tokens", nullable = false)
     private Integer completionTokens;
 
-    @Column(name = "cost")
-    private Float cost;
+    @Column(name = "estimated_cost_usd")
+    private Double estimatedCostUsd;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
