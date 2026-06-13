@@ -6,7 +6,7 @@ import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +29,7 @@ public class JwtTokenProvider {
   @Value("${jwt.refresh-token-expiration}")
   private long refreshTokenExpiration;
 
-  private Key key;
+  private SecretKey key;
 
   // Bean 생성 후 secret key 초기화
   // FastAPI(python-jose)와 동일한 키 방식: 시크릿 문자열을 직접 바이트로 사용
@@ -109,6 +109,6 @@ public class JwtTokenProvider {
 
   // 토큰 파싱
   private Claims getClaims(String token) {
-    return Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token).getBody();
+    return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
   }
 }
