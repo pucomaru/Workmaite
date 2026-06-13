@@ -230,12 +230,12 @@ function startResize(e, colIndex) {
 }
 /* ── Dark variant ── */
 .app-table-dark {
-  border-color: rgba(255,255,255,.09);
+  border-color: var(--white-09);
   background: var(--dark-card);
 }
 .app-table-dark .app-table thead tr {
-  border-bottom-color: rgba(255,255,255,.09);
-  background: rgba(255,255,255,.03);
+  border-bottom-color: var(--white-09);
+  background: var(--white-03);
 }
 .app-table-dark .app-table th {
   background: transparent;
@@ -243,7 +243,7 @@ function startResize(e, colIndex) {
 }
 .app-table-dark .sortable-th:hover {
   color: var(--dark-muted);
-  background: rgba(255,255,255,.05);
+  background: var(--white-05);
 }
 .app-table-dark .sort-icon {
   color: var(--text-dim);
@@ -253,13 +253,13 @@ function startResize(e, colIndex) {
 }
 .app-table-dark .app-table td {
   color: var(--dark-text);
-  border-right-color: rgba(255,255,255,.05);
+  border-right-color: var(--white-05);
 }
 .app-table-dark .app-table td:last-child {
   background: var(--dark-card);
 }
 .app-table-dark .col-resize-handle {
-  background: rgba(255,255,255,.12);
+  background: var(--white-12);
 }
 .app-table-dark .col-resize-handle:hover,
 .app-table-dark .col-resize-handle:active {

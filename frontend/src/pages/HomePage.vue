@@ -1,23 +1,21 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMeetingsStore } from '../stores/meetings'
-import { useAuthStore } from '../stores/auth'
 import api from '../api'
 
 import AppTable from '../components/AppTable.vue'
 import AppPagination from '../components/AppPagination.vue'
+import { useTableSort } from '../composables/useTableSort'
+import { usePagination } from '../composables/usePagination'
+import { fmtISO, getDday, formatDateShort as formatDate } from '../utils/date'
 
 const router = useRouter()
-const auth = useAuthStore()
 const meetingsStore = useMeetingsStore()
 
 const calendarEvents = ref([])
 const upcomingSessionsList = ref([])
 
-const meetingRoles = ref({})   // { [meetingId]: 'admin' | 'member' | null }
-const endingMeeting = ref(null)
-const deletingMeeting = ref(null)
 const meetingMeta = ref({}) // { [meetingId]: { owner_name, due_date, priority } }
 
 // ── Calendar state ──────────────────────────────────────────
@@ -66,9 +64,6 @@ function isToday(d) { return isSameDay(d, today) }
 function eventsOn(date) {
   const ds = fmtISO(date)
   return calendarEvents.value.filter(e => e.date?.startsWith(ds))
-}
-function fmtISO(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
 const monthCells = computed(() => {
@@ -130,7 +125,10 @@ function clickMiniDay(d) {
 }
 
 // ── Data loading ─────────────────────────────────────────────
+const initialLoading = ref(true) // 초기 로딩 동안 빈 테이블 노출 방지 (PLAN Phase 2)
+
 onMounted(async () => {
+  try {
   await meetingsStore.fetchMeetings()
 
   // 캘린더·담당자 메타·역할을 모두 병렬 실행
@@ -157,18 +155,9 @@ onMounted(async () => {
       }).catch(() => {}),
 
     hydrateMeetingMeta(),
-
-    Promise.all(
-      meetingsStore.meetings.map(async (m) => {
-        try {
-          const { data } = await api.get(`/api/v1/meetings/${m.id}/my-role`)
-          meetingRoles.value[m.id] = data.role
-        } catch {
-          meetingRoles.value[m.id] = null
-        }
-      })
-    ),
+    // 역할은 fetchMeetings 응답(my_role)으로 meetingsStore.meetingRoles에 이미 채워짐 — 개별 /my-role N+1 호출 제거 (PLAN Phase 1)
   ])
+  } finally { initialLoading.value = false }
 })
 
 async function hydrateMeetingMeta() {
@@ -193,49 +182,8 @@ async function hydrateMeetingMeta() {
 
 }
 
-// ── 회의체 종료 / 삭제 ─────────────────────────────────────────
-async function endMeeting(m, e) {
-  e.stopPropagation()
-  if (!confirm(`"${m.title}" 회의체를 종료하시겠습니까?\n종료 후에는 새 회의를 추가할 수 없습니다.`)) return
-  endingMeeting.value = m.id
-  try {
-    await meetingsStore.terminateMeeting(m.id)
-  } finally {
-    endingMeeting.value = null
-  }
-}
-
-async function deleteMeeting(m, e) {
-  e.stopPropagation()
-  if (!confirm(`"${m.title}" 회의체를 삭제하시겠습니까?\n모든 회의록과 데이터가 함께 삭제됩니다.`)) return
-  deletingMeeting.value = m.id
-  try {
-    await meetingsStore.deleteMeeting(m.id)
-  } finally {
-    deletingMeeting.value = null
-  }
-}
-
-
-// ── Utils ────────────────────────────────────────────────────
-function getDday(due) {
-  if (!due) return null
-  const diff = Math.ceil((new Date(due) - new Date()) / 86400000)
-  return diff
-}
-function formatDate(ds) {
-  if (!ds) return ''
-  return new Date(ds).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
-}
-function statusLabel(s) {
-  return { active: '진행중', ended: '종료' }[s] || s
-}
-
 const activeMeetings = computed(() =>
   meetingsStore.meetings.filter(m => m.status === 'active')
-)
-const endedMeetings = computed(() =>
-  meetingsStore.meetings.filter(m => m.status === 'ended')
 )
 
 const displayActiveMeetings = computed(() =>
@@ -243,7 +191,7 @@ const displayActiveMeetings = computed(() =>
     ...m,
     owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '-',
     member_count: meetingMeta.value[m.id]?.member_count ?? 0,
-    role: meetingRoles.value[m.id] ?? null,
+    role: meetingsStore.meetingRoles[m.id] ?? null,
   }))
 )
 
@@ -268,52 +216,15 @@ const upcomingSessions = computed(() =>
   [...upcomingSessionsList.value].sort((a, b) => new Date(a.date) - new Date(b.date))
 )
 
-// ── 정렬 ──────────────────────────────────────────
-const sessionSortKey = ref(null)
-const sessionSortDir = ref(null)
-const meetingSortKey = ref(null)
-const meetingSortDir = ref(null)
+// ── 정렬 (공통 컴포저블) ──────────────────────────
+const { sortKey: sessionSortKey, sortDir: sessionSortDir, handleSort: handleSessionSort, sorted: sortedSessions } = useTableSort(upcomingSessions)
+const { sortKey: meetingSortKey, sortDir: meetingSortDir, handleSort: handleMeetingSort, sorted: sortedMeetings } = useTableSort(displayActiveMeetings)
 
-function applySortStr(list, key, dir) {
-  if (!key || !dir) return list
-  const d = dir === 'asc' ? 1 : -1
-  return [...list].sort((a, b) => {
-    const av = (a[key] ?? '').toString().toLowerCase()
-    const bv = (b[key] ?? '').toString().toLowerCase()
-    return av < bv ? -d : av > bv ? d : 0
-  })
-}
-
-const sortedSessions = computed(() => applySortStr(upcomingSessions.value, sessionSortKey.value, sessionSortDir.value))
-const sortedMeetings = computed(() => applySortStr(displayActiveMeetings.value, meetingSortKey.value, meetingSortDir.value))
-
-function handleSessionSort({ key, dir }) { sessionSortKey.value = key; sessionSortDir.value = dir }
-function handleMeetingSort({ key, dir }) { meetingSortKey.value = key; meetingSortDir.value = dir }
-
-// ── 페이지네이션 ──────────────────────────────────
+// ── 페이지네이션 (공통 컴포저블, 빈 목록도 빈 행으로 높이 유지) ──
 const SESSION_PAGE_SIZE = 7
 const MEETING_PAGE_SIZE = 15
-const sessionPage = ref(1)
-const meetingPage = ref(1)
-
-const pagedSessions = computed(() =>
-  sortedSessions.value.slice((sessionPage.value - 1) * SESSION_PAGE_SIZE, sessionPage.value * SESSION_PAGE_SIZE)
-)
-const pagedMeetings = computed(() =>
-  sortedMeetings.value.slice((meetingPage.value - 1) * MEETING_PAGE_SIZE, meetingPage.value * MEETING_PAGE_SIZE)
-)
-
-const sessionFillerCount = computed(() => SESSION_PAGE_SIZE - pagedSessions.value.length)
-const meetingFillerCount = computed(() => MEETING_PAGE_SIZE - pagedMeetings.value.length)
-
-watch(() => sortedSessions.value.length, (len) => {
-  const tp = Math.max(1, Math.ceil(len / SESSION_PAGE_SIZE))
-  if (sessionPage.value > tp) sessionPage.value = tp
-})
-watch(() => sortedMeetings.value.length, (len) => {
-  const tp = Math.max(1, Math.ceil(len / MEETING_PAGE_SIZE))
-  if (meetingPage.value > tp) meetingPage.value = tp
-})
+const { page: sessionPage, paged: pagedSessions, fillerCount: sessionFillerCount } = usePagination(sortedSessions, SESSION_PAGE_SIZE, { fillEmpty: true })
+const { page: meetingPage, paged: pagedMeetings, fillerCount: meetingFillerCount } = usePagination(sortedMeetings, MEETING_PAGE_SIZE, { fillEmpty: true })
 </script>
 
 <template>
@@ -327,6 +238,11 @@ watch(() => sortedMeetings.value.length, (len) => {
         
         <h6 class="section-title mb-0" style="color:var(--primary)"><svg class="me-2" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align:-2px"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span></h6>
       </div>
+      <div v-if="initialLoading" class="table-loading">
+        <span class="spinner-border spinner-border-sm text-primary"></span>
+        <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
+      </div>
+      <template v-else>
       <AppTable :columns="sessionColumns" :sortKey="sessionSortKey" :sortDir="sessionSortDir" @sort="handleSessionSort">
         <tr v-for="s in pagedSessions" :key="s.id" style="cursor:pointer">
           <td><div class="fw-semibold">{{ s.title }}</div></td>
@@ -345,6 +261,7 @@ watch(() => sortedMeetings.value.length, (len) => {
         </tr>
       </AppTable>
       <AppPagination v-model="sessionPage" :totalItems="sortedSessions.length" :pageSize="SESSION_PAGE_SIZE" />
+      </template>
     </div>
 
     <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
@@ -358,6 +275,11 @@ watch(() => sortedMeetings.value.length, (len) => {
       </div>
 
       <!-- 회의체 테이블 -->
+      <div v-if="initialLoading" class="table-loading">
+        <span class="spinner-border spinner-border-sm text-primary"></span>
+        <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
+      </div>
+      <template v-else>
       <AppTable :columns="meetingColumns" :sortKey="meetingSortKey" :sortDir="meetingSortDir" @sort="handleMeetingSort">
         <tr v-for="m in pagedMeetings" :key="m.id"
           style="cursor:pointer" @click="router.push('/meetings')">
@@ -368,7 +290,7 @@ watch(() => sortedMeetings.value.length, (len) => {
             <span class="text-muted" style="font-size:12px;">{{ m.meeting_type || '-' }}</span>
           </td>
           <td>
-            <span class="text-muted" style="font-size:12px;">{{ m.role === 'admin' ? '간사' : '참여자' }}</span>
+            <span class="text-muted" style="font-size:12px;">{{ m.role === 'admin' ? '간사' : m.role ? '참여자' : '-' }}</span>
           </td>
           <td class="text-muted">{{ m.owner_name || '-' }}</td>
           <td class="text-muted">{{ m.member_count }}명</td>
@@ -378,6 +300,7 @@ watch(() => sortedMeetings.value.length, (len) => {
         </tr>
       </AppTable>
       <AppPagination v-model="meetingPage" :totalItems="sortedMeetings.length" :pageSize="MEETING_PAGE_SIZE" />
+      </template>
     </div>
 
     <!-- ③ 달력 -->
@@ -518,16 +441,8 @@ watch(() => sortedMeetings.value.length, (len) => {
 .agenda-circle { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); }
 .agenda-content { flex: 1; font-size: 13px; }
 .agenda-dday { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-.agenda-dday.urgent { background: #fef3c7; color: #d97706; }
-.agenda-dday.overdue { background: #fee2e2; color: var(--danger); }
-.agenda-meeting { font-size: 11px; color: var(--text-muted); background: #eff6ff; border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
-.agenda-row.pinned { background: #fffbeb; border-color: #fde68a; }
-.agenda-row.pinned:hover { background: #fef3c7; }
-.pin-fixed-icon { font-size: 13px; flex-shrink: 0; opacity: 0.8; }
-.pin-btn { background: none; border: none; cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0.3; flex-shrink: 0; }
-.pin-btn:hover { opacity: 0.8; }
-.pin-btn.active { opacity: 1; transform: rotate(-30deg); }
-
+.agenda-dday.urgent { background: var(--warning-bg); color: var(--warning-text); }
+.agenda-meeting { font-size: 11px; color: var(--text-muted); background: var(--accent-bg); border-radius: 99px; padding: 2px 7px; flex-shrink: 0; }
 
 /* ── ②③ 메인 2열 그리드 ─────────────────────────────────────── */
 .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
@@ -576,8 +491,6 @@ watch(() => sortedMeetings.value.length, (len) => {
 .cal-nav { display: flex; align-items: center; gap: 4px; }
 .nav-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 13px; color: var(--text-muted); cursor: pointer;  line-height: 1; }
 .nav-btn:hover { background: var(--bg); color: var(--text); }
-.today-btn { padding: 4px 10px; border-radius: 6px; background: none; border: 1px solid var(--border); font-size: 13px; font-weight: 500; color: var(--text-muted); cursor: pointer;  }
-.today-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 .view-switch { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .view-btn { padding: 0px; font-size: 13px; font-weight: 500; background: none; border: none; color: var(--text-muted); cursor: pointer; width: 18px; height: 18px; }
 .view-btn:hover { background: var(--bg); color: var(--text); width: 18px; height: 18px;}
@@ -621,29 +534,28 @@ watch(() => sortedMeetings.value.length, (len) => {
 .mini-cell.today { background: var(--primary); color: #fff; border-radius: 50%; }
 .mini-cell.has-evt { font-weight: 700; color: var(--accent); }
 .evt-pill { font-size: 13px; font-weight: 500; border-radius: 3px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.evt-pill.evt-session { background: #dbeafe; color: #1d4ed8; }
+.evt-pill.evt-session { background: var(--accent-bg-2); color: var(--accent-strong); }
 
 /* 우선순위 배지 */
 .section-count { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 .upcoming-dday { font-size: 12px; font-weight: 700; }
-.upcoming-dday.dday-urgent { color: #d97706; }
+.upcoming-dday.dday-urgent { color: var(--warning-text); }
 .upcoming-dday.dday-normal { color: var(--text-muted); }
 /* 유형 텍스트 (배지 없음) */
 .type-badge { font-size: 11px; font-weight: 600; }
-.type-badge-weekly    { color: #3b82f6; }
+.type-badge-weekly    { color: var(--accent); }
 .type-badge-monthly   { color: #8b5cf6; }
-.type-badge-quarterly { color: #f59e0b; }
+.type-badge-quarterly { color: var(--warning); }
 .type-badge-default   { color: var(--accent); }
 .role-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
-.role-admin  { background: rgba(59,130,246,.15); color: #3b82f6; }
+.role-admin  { background: rgba(59,130,246,.15); color: var(--accent); }
 .role-member { background: rgba(100,116,139,.12); color: var(--text-muted); }
-.evt-pill.evt-agenda   { background: #fef3c7; color: #92400e; }
+.evt-pill.evt-agenda   { background: var(--warning-bg); color: #92400e; }
 .evt-more { font-size: 13px; color: var(--text-muted); padding-left: 2px; }
 .cal-legend { display: flex; gap: 14px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
 .cal-legend span { display: flex; align-items: center; gap: 5px; }
 .dot-session, .dot-agenda { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 .dot-session { background: var(--accent); }
 .dot-agenda { background: var(--warning); }
-
 
 </style>

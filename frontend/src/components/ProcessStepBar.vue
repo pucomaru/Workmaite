@@ -42,7 +42,7 @@ function click(i) { if (canNav(i)) emit('stepClick', i) }
 .psb-step.psb-active .psb-dot { background:var(--accent);border-color:var(--accent);color:#fff; }
 .psb-step.psb-done .psb-dot { background:rgba(59,130,246,.15);border-color:var(--accent);color:var(--accent-light); }
 .psb-label { font-size:10px;color:var(--text-dim);font-weight:500;white-space:nowrap; }
-.psb-step.psb-active .psb-label { color:#93c5fd;font-weight:700; }
+.psb-step.psb-active .psb-label { color:var(--accent-soft);font-weight:700; }
 .psb-step.psb-done .psb-label { color:var(--accent); }
 .psb-line { flex:1;height:1.5px;background:var(--dark-card);margin-top:10px;transition:background .2s;min-width:12px; }
 .psb-line.psb-line-done { background:var(--accent); }

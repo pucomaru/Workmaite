@@ -15,16 +15,23 @@ import { useAgentMention } from '../composables/useAgentMention'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
+import { useMeetingsStore } from '../stores/meetings'
+import { useSessionsStore } from '../stores/sessions'
 import { selectedModel } from '../stores/llmModel'
+import { formatDateTimeShort } from '../utils/date'
+import { toast } from '../composables/useToast'
+import { confirmDialog, promptDialog } from '../composables/useConfirm'
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
+const meetingsStore = useMeetingsStore()
+const sessionsStore = useSessionsStore()
 
 import { renderMd } from '../composables/useMarkdown'
 
 // ─── State ────────────────────────────────────────────────────
-const meetings = ref([])          // [{ id, title, sessions: [] }]
+const meetings = ref([])          // [{ id, title, sessions: [] }] — 사이드바 트리 표시용 (원본은 스토어)
 const loadingMeetings = ref(false)
-const sessionsCache = ref({})     // { [meetingId]: SessionResponse[] }
+const sessionsCache = computed(() => sessionsStore.sessionsByMeeting) // 단일 캐시 (PLAN Phase 1)
 
 const selectedMeetingId = ref(null)
 const expandedMeetingIds = ref(new Set())
@@ -81,23 +88,18 @@ const filteredMeetings = computed(() => {
 const selectedMeeting = computed(() => meetings.value.find(m => m.id === selectedMeetingId.value))
 
 async function loadSessions(meetingId) {
-  if (sessionsCache.value[meetingId]) return sessionsCache.value[meetingId]
-  try {
-    const res = await api.get(`/api/v1/meetings/${meetingId}/sessions`)
-    sessionsCache.value[meetingId] = res.data ?? []
-  } catch {
-    sessionsCache.value[meetingId] = []
-  }
+  const list = await sessionsStore.loadSessions(meetingId)
   const m = meetings.value.find(m => m.id === meetingId)
-  if (m) m.sessions = sessionsCache.value[meetingId]
-  return sessionsCache.value[meetingId]
+  if (m) m.sessions = list
+  return list
 }
 
 async function fetchMeetings() {
   loadingMeetings.value = true
   try {
-    const res = await api.get('/api/v1/meetings')
-    meetings.value = (res.data ?? []).map(m => ({ ...m, sessions: null }))
+    // 회의체 목록은 스토어 단일 fetch — 페이지별 중복 HTTP 호출 제거 (PLAN Phase 1)
+    await meetingsStore.fetchMeetings()
+    meetings.value = meetingsStore.meetings.map(m => ({ ...m, sessions: null }))
     meetings.value.forEach(m => loadSessions(m.id))
   } catch (e) {
     console.error('meetings fetch error', e)
@@ -537,13 +539,13 @@ function downloadPDF() {
   w.document.write(`<!DOCTYPE html><html><head>
     <meta charset="utf-8"><title>${title}</title>
     <style>
-      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:#1e293b;padding:40px;max-width:820px;margin:0 auto}
+      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
       h1{font-size:20px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       h2{font-size:16px;font-weight:700;color:#1e40af;margin-top:20px;margin-bottom:6px}
-      h3{font-size:14px;font-weight:700;color:#475569;margin-top:12px;margin-bottom:4px}
+      h3{font-size:14px;font-weight:700;color:var(--text-dim);margin-top:12px;margin-bottom:4px}
       p{margin:0 0 6px}ul,ol{padding-left:20px;margin:4px 0}li{margin-bottom:2px}
       table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
-      th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:#f1f5f9;font-weight:600}
+      th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:var(--surface-2);font-weight:600}
       hr{border:none;border-top:1px solid #e2e8f0;margin:14px 0}
       @media print{body{padding:20px}}
     
@@ -554,7 +556,7 @@ function downloadPDF() {
   font-size:12px; padding:4px 10px; border:1px solid var(--border,#3a3a3a);
   border-radius:14px; background:transparent; color:var(--dark-muted,#aaa); cursor:pointer;
 }
-.wm-suggested-btn:hover:not(:disabled) { border-color:var(--primary,#6366f1); color:var(--dark-text,#eee); }
+.wm-suggested-btn:hover:not(:disabled) { border-color:var(--primary,var(--indigo)); color:var(--dark-text,#eee); }
 .wm-suggested-btn:disabled { opacity:.4; cursor:default; }
 </style>
   </head><body>${html}</body></html>`)
@@ -698,7 +700,7 @@ async function saveApprovedNextAgendas() {
     || activeSession.value?.meetingId
     || selectedMeeting.value?.id
     || 0
-  if (!meetingId) { alert('회의체 정보를 찾을 수 없습니다.'); return }
+  if (!meetingId) { toast.error('회의체 정보를 찾을 수 없습니다.'); return }
 
   try {
     await apiAI.post('/api/agent/archive/agendas/commit', {
@@ -724,7 +726,7 @@ async function saveApprovedNextAgendas() {
     }
   } catch (e) {
     console.error('[saveApprovedNextAgendas]', e)
-    alert('저장에 실패했습니다: ' + (e?.response?.data?.detail || e?.message || '알 수 없는 오류'))
+    toast.error('저장에 실패했습니다: ' + (e?.response?.data?.detail || e?.message || '알 수 없는 오류'))
   }
 }
 
@@ -750,14 +752,14 @@ async function saveMinutesToDB() {
     }
   } catch (e) {
     const msg = e?.response?.data?.detail || e?.message || '알 수 없는 오류'
-    alert(`저장에 실패했습니다: ${msg}`)
+    toast.error(`저장에 실패했습니다: ${msg}`)
   } finally {
     savingMinutes.value = false
   }
 }
 
 async function deleteMinutes() {
-  if (!confirm('작성된 회의록을 삭제하시겠습니까?')) return
+  if (!(await confirmDialog('작성된 회의록을 삭제하시겠습니까?', { danger: true }))) return
   generatedMinutes.value = null
   showMinutesTab.value = false
   editor.value?.commands.clearContent()
@@ -774,10 +776,10 @@ async function deleteMinutes() {
 async function endMeeting() {
   // UX-26: 녹음을 시작한 적 없으면(대기 상태+0초) 잘못 누른 것 — 안내 후 중단
   if (recordingState.value === 'idle' && recordingSecs.value === 0) {
-    alert('아직 녹음을 시작하지 않았습니다. 먼저 녹음을 시작해주세요.')
+    toast.info('아직 녹음을 시작하지 않았습니다. 먼저 녹음을 시작해주세요.')
     return
   }
-  if (!confirm('기록을 종료하시겠습니까?')) return
+  if (!(await confirmDialog('기록을 종료하시겠습니까?'))) return
   const sessionId = activeSession.value?.id
   const meetingId = activeSession.value?.meeting_id
   stopRecording()
@@ -864,7 +866,7 @@ function fbBtnStyle(active, color) {
 async function sendWmFeedback(msg, rating) {
   if (msg._fb === rating) return
   let reason = null
-  if (rating === -1) reason = window.prompt('어떤 점이 아쉬웠나요? (선택)') || null
+  if (rating === -1) reason = (await promptDialog('어떤 점이 아쉬웠나요? (선택)')) || null
   msg._fb = rating
   try {
     await apiAI.post('/api/agent/feedback', {
@@ -988,10 +990,7 @@ function onWmKeydown(e) {
   if (e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); sendAra() }
 }
 
-function formatDate(d) {
-  if (!d) return '일정 미정'
-  return new Date(d).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+const formatDate = (d) => formatDateTimeShort(d, '일정 미정')
 
 const STATUS_LABEL = { scheduled: '예정', ongoing: '진행중', ended: '회의록 미생성', archived: '완료' }
 const STATUS_CLS = { scheduled: '#3b82f6', ongoing: '#f59e0b', ended: '#ef4444', archived: '#94a3b8' }
@@ -1008,7 +1007,7 @@ function openEditSession(s, e) {
 
 async function onSessionEditSaved({ meetingId }) {
   if (meetingId) {
-    delete sessionsCache.value[meetingId]
+    sessionsStore.invalidate(meetingId)
     await loadSessions(meetingId)
   }
 }
@@ -1018,7 +1017,7 @@ async function onSessionDeleted({ meetingId }) {
     activeSession.value = null
   }
   if (meetingId) {
-    delete sessionsCache.value[meetingId]
+    sessionsStore.invalidate(meetingId)
     await loadSessions(meetingId)
   }
   showEditSession.value = false
@@ -1029,7 +1028,7 @@ const showCreateSession = ref(false)
 
 function openCreateSession() { showCreateSession.value = true }
 async function onSessionCreated({ meetingId }) {
-  delete sessionsCache.value[meetingId]
+  sessionsStore.invalidate(meetingId)
   await loadSessions(meetingId)
 }
 
@@ -1071,7 +1070,7 @@ async function sendChatFile(file) {
     await nextTick()
     if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
   } catch {
-    alert('파일 업로드에 실패했습니다.')
+    toast.error('파일 업로드에 실패했습니다.')
   } finally {
     chatFileUploading.value = false
     if (wmComposerRef.value?.fileInput) wmComposerRef.value.fileInput.value = ''
@@ -1083,7 +1082,7 @@ async function downloadChatFile(filePath) {
     const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
     window.open(data.url, '_blank')
   } catch {
-    alert('다운로드 링크 생성에 실패했습니다.')
+    toast.error('다운로드 링크 생성에 실패했습니다.')
   }
 }
 
@@ -1670,7 +1669,7 @@ async function downloadChatFile(filePath) {
 /* REC 타이머 */
 .rec-timer { font-family:'Pretendard',inherit;font-size:11px;font-weight:600;color:var(--danger);letter-spacing:.02em; }
 .rec-live.paused .rec-timer { color:var(--text-muted); }
-.mic-error-msg { font-size:11px;color:#f87171;display:flex;align-items:center;gap:4px; }
+.mic-error-msg { font-size:11px;color:var(--danger-soft);display:flex;align-items:center;gap:4px; }
 
 /* AI summary box */
 .ts-summary-box { background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden; }
@@ -1682,7 +1681,7 @@ async function downloadChatFile(filePath) {
 .tiptap-toolbar { display:flex;align-items:center;gap:2px;padding:6px 4px;border-bottom:1px solid var(--border);background:transparent;flex-wrap:wrap;margin-bottom:8px; }
 .tt-btn { display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 5px;border:1px solid transparent;border-radius:4px;background:none;color:var(--text-dim);font-size:12px;cursor:pointer;transition:all .1s;user-select:none; }
 .tt-btn:hover { background:var(--border); }
-.tt-btn.active { background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }
+.tt-btn.active { background:var(--accent-bg-2);color:var(--accent-strong);border-color:#bfdbfe; }
 .tt-delete { color:var(--danger) !important; }
 .tt-delete:hover { background:#fef2f2 !important; }
 .tt-delete:disabled { opacity:.4;cursor:not-allowed;pointer-events:none; }

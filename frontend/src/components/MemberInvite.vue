@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import api from '../api'
+import { avatarColor, initials } from '../utils/avatar'
 
 const props = defineProps({
   modelValue:   { type: Array,   default: () => [] },
@@ -11,9 +12,6 @@ const emit = defineEmits(['update:modelValue'])
 
 const ROLE_MAP = { admin: '간사', member: '참여자' }
 
-const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899']
-function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length; return AVATAR_COLORS[h] }
-function initials(name) { return (name || '?')[0] }
 
 const searchQ = ref('')
 const results = ref([])
@@ -104,8 +102,8 @@ function updateRole(idx, role) {
 <style scoped>
 .mi-section { display: flex; flex-direction: column; gap: 10px; }
 
-.mi-title { font-size: 12px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
-.mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: #93c5fd; border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; line-height: 1.6; }
+.mi-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 8px; }
+.mi-cnt-badge { font-size: 11px; font-weight: 700; background: rgba(96,165,250,.15); color: var(--accent-soft); border-radius: 99px; padding: 1px 7px; text-transform: none; letter-spacing: 0; line-height: 1.6; }
 
 .mi-search-wrap { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .mi-search-wrap svg { color: var(--dark-muted); flex-shrink: 0; }
@@ -126,21 +124,21 @@ function updateRole(idx, role) {
 .mi-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .mi-name { font-size: 13px; font-weight: 600; color: var(--dark-card); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mi-email { font-size: 11px; color: var(--dark-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mi-me-badge { margin-left: 5px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #dbeafe; color: #1d4ed8; vertical-align: baseline; line-height: 1.6; }
+.mi-me-badge { margin-left: 5px; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--accent-bg-2); color: var(--accent-strong); vertical-align: baseline; line-height: 1.6; }
 
-.mi-remove { width: 22px; height: 22px; border-radius: 5px; border: none; background: rgba(239,68,68,.08); color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s; }
+.mi-remove { width: 22px; height: 22px; border-radius: 5px; border: none; background: rgba(239,68,68,.08); color: var(--danger-soft); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s; }
 .mi-remove:hover { background: rgba(239,68,68,.2); }
 .mi-remove-ph { width: 22px; flex-shrink: 0; }
 
 /* Dark */
-.mi-section.dark .mi-title { color: #64748b; }
-.mi-section.dark .mi-search-wrap { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.05); }
+.mi-section.dark .mi-title { color: var(--text-muted); }
+.mi-section.dark .mi-search-wrap { border-color: var(--white-12); background: var(--white-05); }
 .mi-section.dark .mi-search-wrap svg { color: var(--text-dim); }
 .mi-section.dark .mi-search-input { color: var(--surface-2); }
 .mi-section.dark .mi-search-input::placeholder { color: var(--dark-border); }
-.mi-section.dark .mi-search-results { border-color: rgba(255,255,255,.1); background: var(--dark-bg); }
-.mi-section.dark .mi-search-item:hover { background: rgba(255,255,255,.06); }
+.mi-section.dark .mi-search-results { border-color: var(--white-10); background: var(--dark-bg); }
+.mi-section.dark .mi-search-item:hover { background: var(--white-06); }
 .mi-section.dark .mi-name { color: var(--surface-2); }
 .mi-section.dark .mi-email, .mi-section.dark .mi-empty { color: var(--text-dim); }
-.mi-section.dark .mi-member-row:hover { background: rgba(255,255,255,.04); }
+.mi-section.dark .mi-member-row:hover { background: var(--white-04); }
 </style>

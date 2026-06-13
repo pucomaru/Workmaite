@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { markNetworkDown, markNetworkUp } from './stores/network'
 
 // SpringBoot (8080) — 인증/CRUD 전담
 // 로컬: VITE_API_URL=http://localhost:8080, k8s: 미설정(상대경로, Ingress가 /api 라우팅)
@@ -76,6 +77,7 @@ api.interceptors.request.use(config => {
 
 api.interceptors.response.use(
   res => {
+    markNetworkUp()
     // SpringBoot ApiResponse { success, message, data } 자동 언랩
     if (res.data && typeof res.data === 'object' && 'success' in res.data && 'data' in res.data) {
       res.data = res.data.data
@@ -84,6 +86,7 @@ api.interceptors.response.use(
   },
   async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
+      markNetworkDown() // 전역 배너 표시 — 스토어 캐시가 최신 아님을 사용자에게 인지시킴 (PLAN Phase 2)
       return Promise.reject(new Error('서버에 연결할 수 없습니다.'))
     }
     const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
@@ -113,9 +116,10 @@ apiAI.interceptors.request.use(config => {
 })
 
 apiAI.interceptors.response.use(
-  res => res,
+  res => { markNetworkUp(); return res },
   async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
+      markNetworkDown()
       return Promise.reject(new Error('AI 서버에 연결할 수 없습니다.'))
     }
     if (err.response?.status === 401 && !err.config._retry) {

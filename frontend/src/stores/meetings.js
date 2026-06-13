@@ -9,6 +9,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const currentMembers = ref([])
   const currentLoopIdx = ref(0)   // MeetingNav ↔ SessionsPage 공유
   const meetingRoles = ref({})    // { [meetingId]: 'admin' | 'member' | null }
+  const membersByMeeting = ref({}) // { [meetingId]: MemberResponse[] } — 페이지 로컬 캐시 대신 단일 캐시 (PLAN Phase 1)
 
   async function fetchMeetings() {
     const { data } = await api.get('/api/v1/meetings')
@@ -31,11 +32,29 @@ export const useMeetingsStore = defineStore('meetings', () => {
     try {
       const { data } = await api.get(`/api/v1/meetings/${meetingId}/members`)
       currentMembers.value = data
+      membersByMeeting.value[meetingId] = data
       return data
     } catch {
       currentMembers.value = []
       return []
     }
+  }
+
+  /** 캐시 우선 멤버 조회 — 이미 받아온 회의체는 재요청하지 않는다. force로 무효화 가능 */
+  async function fetchMembersOnce(meetingId, { force = false } = {}) {
+    if (!force && membersByMeeting.value[meetingId]) return membersByMeeting.value[meetingId]
+    try {
+      const { data } = await api.get(`/api/v1/meetings/${meetingId}/members`)
+      membersByMeeting.value[meetingId] = data
+      return data
+    } catch {
+      membersByMeeting.value[meetingId] = []
+      return []
+    }
+  }
+
+  function invalidateMembers(meetingId) {
+    delete membersByMeeting.value[meetingId]
   }
 
   async function fetchRole(meetingId) {
@@ -94,6 +113,9 @@ export const useMeetingsStore = defineStore('meetings', () => {
   async function removeMember(meetingId, memberId) {
     await api.delete(`/api/v1/meetings/${meetingId}/members/${memberId}`)
     currentMembers.value = currentMembers.value.filter(m => m.id !== memberId)
+    if (membersByMeeting.value[meetingId]) {
+      membersByMeeting.value[meetingId] = membersByMeeting.value[meetingId].filter(m => m.id !== memberId)
+    }
   }
 
   async function leaveMeeting(meetingId, currentUserId) {
@@ -105,8 +127,8 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   return {
-    meetings, currentMeeting, myRole, currentMembers, currentLoopIdx, meetingRoles,
-    fetchMeetings, fetchMeeting, fetchMembers, fetchRole,
+    meetings, currentMeeting, myRole, currentMembers, currentLoopIdx, meetingRoles, membersByMeeting,
+    fetchMeetings, fetchMeeting, fetchMembers, fetchMembersOnce, invalidateMembers, fetchRole,
     createMeeting, updateTitle, terminateMeeting, deleteMeeting,
     addMember, updateMemberRole, removeMember, leaveMeeting,
   }

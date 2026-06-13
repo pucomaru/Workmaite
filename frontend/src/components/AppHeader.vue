@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useMeetingsStore } from '../stores/meetings'
+import { confirmDialog } from '../composables/useConfirm'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
 import TokenUsageModal from './TokenUsageModal.vue'
@@ -90,7 +91,7 @@ async function changeRole(member) {
 }
 
 async function removeMember(member) {
-  if (!confirm(`${member.user?.name}님을 구성원에서 제거하시겠습니까?`)) return
+  if (!(await confirmDialog(`${member.user?.name}님을 구성원에서 제거하시겠습니까?`, { danger: true }))) return
   await meetingsStore.removeMember(Number(meetingId.value), member.id)
 }
 
@@ -441,7 +442,7 @@ async function saveProfileSettings() {
   flex-shrink: 0;
 }
 .btn-icon { padding: 6px; border-radius: 6px; color: rgba(255,255,255,.7); display: flex; align-items: center; justify-content: center; }
-.btn-icon:hover { background: rgba(255,255,255,.1); color: #fff; }
+.btn-icon:hover { background: var(--white-10); color: #fff; }
 .header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow: hidden; padding: 0;}
 
 /* ── 중앙 네비게이션 ── */
@@ -465,8 +466,8 @@ async function saveProfileSettings() {
   white-space: nowrap;
   text-decoration: none;
 }
-.center-nav-item:hover { background: rgba(255,255,255,.12); color: #fff; }
-.center-nav-item.active { background: rgba(255,255,255,.18); color: #fff; font-weight: 600; }
+.center-nav-item:hover { background: var(--white-12); color: #fff; }
+.center-nav-item.active { background: var(--white-18); color: #fff; font-weight: 600; }
 .logo { display: flex; align-items: center; color: #fff; margin-left: 0px; flex-shrink: 0; }
 .logo-img { height: 15px; width: auto; }
 .header-divider { width: 1px; height: 18px; background: rgba(255,255,255,.25); margin: 0 4px; flex-shrink: 0; }
@@ -488,7 +489,7 @@ async function saveProfileSettings() {
   padding: 2px 6px; border-radius: 99px; flex-shrink: 0;
 }
 .title-input {
-  background: rgba(255,255,255,.15);
+  background: var(--white-15);
   border: 1px solid rgba(255,255,255,.5);
   border-radius: 4px;
   color: #fff;
@@ -502,17 +503,15 @@ async function saveProfileSettings() {
 
 /* 구성원 아바타 */
 .member-avatars-wrap { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 2px; cursor: pointer; padding: 3px 6px; border-radius: 99px; transition: background .15s; }
-.member-avatars-wrap:hover { background: rgba(255,255,255,.12); }
+.member-avatars-wrap:hover { background: var(--white-12); }
 .member-avatars { display: flex; align-items: center; }
 .member-avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); border: 2px solid var(--primary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; margin-left: -6px; }
 .member-avatar:first-child { margin-left: 0; }
 .member-count { height: 20px; padding: 0 6px; border-radius: 99px; background: rgba(255,255,255,.2); border: 1.5px solid rgba(255,255,255,.4); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; margin-left: 4px; flex-shrink: 0; }
 
-
-
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .theme-toggle-btn { color: rgba(255,255,255,.7) !important; }
-.theme-toggle-btn:hover { background: rgba(255,255,255,.12) !important; color: #fff !important; }
+.theme-toggle-btn:hover { background: var(--white-12) !important; color: #fff !important; }
 
 /* 구성원 관리 팝업 */
 .member-mgmt-popup {
@@ -546,26 +545,12 @@ async function saveProfileSettings() {
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; cursor: pointer;
   border: 1px solid;
 }
-.role-badge.admin { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.role-badge.admin { background: var(--accent-bg); color: var(--accent-strong); border-color: #bfdbfe; }
 .role-badge.member { background: var(--surface); color: var(--text-muted); border-color: var(--border); }
 .mgmt-del { color: var(--danger) !important; font-size: 12px !important; }
-
-/* 알림/프로필 (기존과 동일) */
-.notif-wrap { position: relative; }
-.notif-badge { position: absolute; top: -2px; right: -2px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; border-radius: 99px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
-.notif-dropdown { position: absolute; top: calc(100% + 8px); right: 0; width: 320px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: 200; overflow: hidden; }
-.notif-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 13px; }
-.notif-list { max-height: 360px; overflow-y: auto; }
-.notif-empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
-.notif-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
-.notif-item:last-child { border-bottom: none; }
-.notif-item:hover { background: var(--surface); }
-.notif-item.unread { background: #eff6ff; }
-.notif-msg { font-size: 13px; line-height: 1.4; }
-.notif-time { font-size: 11px; color: var(--text-muted); }
 .profile-wrap { position: relative; }
 .profile-btn { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.9) !important; padding: 4px 8px; border-radius: 6px; }
-.profile-btn:hover { background: rgba(255,255,255,.12) !important; color: rgba(255,255,255,.9) !important; }
+.profile-btn:hover { background: var(--white-12) !important; color: rgba(255,255,255,.9) !important; }
 .avatar { width: 26px; height: 26px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; }
 .avatar-lg { width: 36px; height: 36px; background: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: #fff; flex-shrink: 0; }
 .profile-dropdown { position: absolute; top: calc(100% + 8px); right: 0; width: 220px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: 200; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
