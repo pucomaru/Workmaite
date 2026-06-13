@@ -1,6 +1,6 @@
 """SQLAlchemy 모델 — **읽기 전용 매핑** (P2-1).
 
-스키마의 단일 소스는 Spring의 Flyway 마이그레이션(backend/springboot/src/main/resources/db/migration)이다.
+스키마는 운영 PostgreSQL에서 외부 관리된다(자동 마이그레이션 미사용).
 이 파일로 스키마를 생성/변경하지 말 것 (Base.metadata.create_all 금지).
 
 타입 표기는 SQLAlchemy 2.0 `Mapped[]`/`mapped_column()` 스타일 — 컬럼 정의(타입·nullable·FK·

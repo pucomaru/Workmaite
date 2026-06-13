@@ -57,8 +57,6 @@ dependencies {
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.8")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("io.micrometer:micrometer-registry-prometheus")
-	implementation("org.flywaydb:flyway-core")
-	runtimeOnly("org.flywaydb:flyway-database-postgresql")
 	implementation("org.springframework.boot:spring-boot-starter-aop")
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("org.postgresql:postgresql")
@@ -73,21 +71,7 @@ dependencies {
 }
 
 tasks.withType<Test> {
-	// schema 태그는 실 DB가 필요하므로 일반 test에서 제외
-	useJUnitPlatform {
-		excludeTags("schema")
-	}
-}
-
-// 스키마 검증: 빈 DB에 Flyway V1 baseline으로 스키마를 만든 뒤 JPA 엔티티가 일치하는지 validate.
-// 데이터/스키마를 변경하지 않으며(read-only validate), CI에서 postgres 서비스를 대상으로 실행한다.
-// 예: DB_URL=jdbc:postgresql://localhost:5432/workmaite_ci DB_USER=wm DB_PASSWORD=wm ./gradlew schemaValidate
-tasks.register<Test>("schemaValidate") {
-	group = "verification"
-	description = "Flyway V1으로 빈 DB에 스키마 생성 후 JPA 엔티티 일치 검증"
-	useJUnitPlatform { includeTags("schema") }
-	testClassesDirs = sourceSets["test"].output.classesDirs
-	classpath = sourceSets["test"].runtimeClasspath
+	useJUnitPlatform()
 }
 
 // 로컬 개발 편의: 리포 루트 .env를 bootRun 환경변수로 자동 주입.
