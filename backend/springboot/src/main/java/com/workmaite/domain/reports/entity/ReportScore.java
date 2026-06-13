@@ -26,7 +26,7 @@ public class ReportScore {
     private String aiStatus = "pending";
 
     @Column(name = "total_score")
-    private Float totalScore;
+    private Double totalScore;
 
     @Column(name = "detail_scores", columnDefinition = "jsonb")
     private String detailScores;
@@ -38,7 +38,7 @@ public class ReportScore {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    public void saveResult(String aiStatus, Float totalScore, String detailScores, String feedback) {
+    public void saveResult(String aiStatus, Double totalScore, String detailScores, String feedback) {
         this.aiStatus = aiStatus;
         this.totalScore = totalScore;
         this.detailScores = detailScores;

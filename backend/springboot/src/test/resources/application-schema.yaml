@@ -1,0 +1,20 @@
+# schemaValidate 전용 프로파일.
+# 빈 DB에 Flyway V1 baseline으로 스키마를 만든 뒤, JPA 엔티티를 validate(read-only)로 대조한다.
+# datasource 기본값은 운영(sk-team-9)이 아니라 CI/로컬 테스트 DB로 고정 — 운영 오염 방지.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/workmaite_ci}
+    username: ${DB_USER:wm}
+    password: ${DB_PASSWORD:wm}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+  jpa:
+    hibernate:
+      # validate: 엔티티 매핑이 실제 스키마와 다르면 컨텍스트 로드 실패 (스키마 변경 없음)
+      ddl-auto: validate
+
+jwt:
+  # HS256 최소 키 길이 충족용 CI 전용 더미 시크릿 (운영 미사용)
+  secret: ${JWT_SECRET:ci-only-schema-validation-secret-do-not-use-in-prod-0123456789}

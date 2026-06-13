@@ -1,0 +1,76 @@
+name: Schema Validation
+
+# 빈 postgres에 Flyway V1 baseline으로 스키마를 만든 뒤,
+# SpringBoot(JPA) 와 FastAPI(SQLAlchemy) 양쪽 모델이 그 스키마와 일치하는지 검증한다.
+# 운영 DB는 건드리지 않는다(CI 전용 일회성 컨테이너 대상).
+
+on:
+  pull_request:
+    paths:
+      - 'backend/springboot/**'
+      - 'backend/ai/**'
+      - '.github/workflows/schema-validate.yml'
+  push:
+    branches: [develop, dev/minhyuk]
+    paths:
+      - 'backend/springboot/**'
+      - 'backend/ai/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wm
+          POSTGRES_PASSWORD: wm
+          POSTGRES_DB: workmaite_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 1) SpringBoot: Flyway V1 적용(빈 DB→스키마 생성) + JPA 엔티티 validate.
+      #    Flyway DDL은 커밋되므로, 이후 단계에서 같은 스키마를 재사용한다.
+      - name: SpringBoot schema validate (Flyway V1 + Hibernate validate)
+        working-directory: backend/springboot
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/workmaite_ci
+          DB_USER: wm
+          DB_PASSWORD: wm
+        run: ./gradlew schemaValidate --no-daemon
+
+      # 2) FastAPI: 위에서 만든 스키마를 reflect 하여 SQLAlchemy 모델과 대조.
+      #    SpringBoot validate 가 실패해도(엔티티 드리프트) 스키마는 이미 만들어졌으므로 함께 보고.
+      - name: FastAPI schema validate (SQLAlchemy reflect)
+        if: always()
+        working-directory: backend/ai
+        env:
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_NAME: workmaite_ci
+          DB_USER: wm
+          DB_PASSWORD: wm
+        run: |
+          python -m pip install -q "sqlalchemy>=2" psycopg2-binary python-dotenv
+          python scripts/validate_schema.py

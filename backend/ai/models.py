@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, UniqueConstraint,
+    Column, Integer, BigInteger, SmallInteger, String, Text, DateTime, ForeignKey, JSON, Float, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -14,19 +14,19 @@ from database import Base
 class Company(Base):
     """회사(테넌트) — companies 테이블 (P1-7② 정규화, MT-4)."""
     __tablename__ = "companies"
-    id         = Column(Integer, primary_key=True, index=True)
+    id         = Column(BigInteger, primary_key=True, index=True)
     name       = Column(String(100), unique=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class User(Base):
     __tablename__ = "users"
-    id            = Column(Integer, primary_key=True, index=True)
+    id            = Column(BigInteger, primary_key=True, index=True)
     name          = Column(String(100), nullable=False)
     email         = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     # 회사 정규화 (P1-7②) — users.company 문자열 폐기, companies FK
-    company_id    = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    company_id    = Column(BigInteger, ForeignKey("companies.id"), nullable=True)
     department    = Column(String(100), nullable=True)
     position      = Column(String(100), nullable=True)
     # 시스템 수준 역할 (P1-3 RBAC): USER / SYSTEM_ADMIN / COMPANY_ADMIN
@@ -44,13 +44,13 @@ class User(Base):
 class ReportAgenda(Base):
     """보고서-아젠다 연결 정규화 (P2-8) — reports.related_agenda_ids의 관계형 대체."""
     __tablename__ = "report_agendas"
-    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
-    agenda_id = Column(Integer, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True)
+    report_id = Column(BigInteger, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
+    agenda_id = Column(BigInteger, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Meeting(Base):
     __tablename__ = "meetings"
-    id          = Column(Integer, primary_key=True, index=True)
+    id          = Column(BigInteger, primary_key=True, index=True)
     title       = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     guidelines  = Column(Text, nullable=True)
@@ -59,7 +59,7 @@ class Meeting(Base):
     start_date  = Column(DateTime, nullable=True)
     end_date    = Column(DateTime, nullable=True)
     status      = Column(String(20), default="active")
-    created_by  = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by  = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow)
 
@@ -67,9 +67,9 @@ class Meeting(Base):
 class MeetingMember(Base):
     __tablename__ = "meeting_members"
     __table_args__ = (UniqueConstraint("meeting_id", "user_id"),)
-    id         = Column(Integer, primary_key=True, index=True)
-    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id         = Column(BigInteger, primary_key=True, index=True)
+    meeting_id = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
+    user_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     role       = Column(String(20), nullable=False)
     priority   = Column(String(20), default="medium")
 
@@ -78,8 +78,8 @@ class MeetingMember(Base):
 
 class MeetingSession(Base):
     __tablename__ = "meeting_sessions"
-    id                = Column(Integer, primary_key=True, index=True)
-    meeting_id        = Column(Integer, ForeignKey("meetings.id"), nullable=False)
+    id                = Column(BigInteger, primary_key=True, index=True)
+    meeting_id        = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
     title             = Column(String(255), nullable=True)
     description       = Column(String(255), nullable=True)
     location          = Column(String(255), nullable=True)
@@ -88,7 +88,7 @@ class MeetingSession(Base):
     started_at        = Column(DateTime, nullable=True)
     ended_at          = Column(DateTime, nullable=True)
     status            = Column(String(20), default="scheduled")
-    recording_seconds = Column(Integer, default=0, nullable=False)
+    recording_seconds = Column(BigInteger, default=0, nullable=False)
     last_resumed_at   = Column(DateTime, nullable=True)
 
     minutes = relationship("Minutes", back_populates="session", uselist=False)
@@ -96,12 +96,12 @@ class MeetingSession(Base):
 
 class Agenda(Base):
     __tablename__ = "agenda"
-    id          = Column(Integer, primary_key=True, index=True)
-    meeting_id  = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    session_id  = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=True)
+    id          = Column(BigInteger, primary_key=True, index=True)
+    meeting_id  = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
+    session_id  = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=True)
     title       = Column(String(255), nullable=False)
     status      = Column(String(20), default="draft")
-    assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assignee_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     department  = Column(JSON, nullable=True)
     due_date    = Column(DateTime, nullable=True)
     priority    = Column(String(20), default="medium")
@@ -111,10 +111,10 @@ class Agenda(Base):
 
 class Report(Base):
     __tablename__ = "reports"
-    id                   = Column(Integer, primary_key=True, index=True)
-    meeting_id           = Column(Integer, ForeignKey("meetings.id"), nullable=False)
-    parent_id            = Column(Integer, ForeignKey("reports.id"), nullable=True)
-    upload_id            = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id                   = Column(BigInteger, primary_key=True, index=True)
+    meeting_id           = Column(BigInteger, ForeignKey("meetings.id"), nullable=False)
+    parent_id            = Column(BigInteger, ForeignKey("reports.id"), nullable=True)
+    upload_id            = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     version              = Column(Integer, nullable=False, default=1)
     submitter_department = Column(String(255), nullable=False, default="")
     file_name            = Column(String(255), nullable=True)
@@ -126,8 +126,8 @@ class Report(Base):
 
 class ReportScore(Base):
     __tablename__ = "report_scores"
-    id            = Column(Integer, primary_key=True, index=True)
-    report_id     = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    id            = Column(BigInteger, primary_key=True, index=True)
+    report_id     = Column(BigInteger, ForeignKey("reports.id"), nullable=False)
     ai_status     = Column(String(20), nullable=False, default="pending")
     total_score   = Column(Float, nullable=True)
     detail_scores = Column(JSON, nullable=True)
@@ -138,10 +138,10 @@ class ReportScore(Base):
 
 class SttSegment(Base):
     __tablename__ = "stt_segments"
-    id              = Column(Integer, primary_key=True, index=True)
-    session_id      = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    id              = Column(BigInteger, primary_key=True, index=True)
+    session_id      = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=False)
     speaker_label   = Column(String(50), nullable=False)
-    speaker_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    speaker_user_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     content         = Column(Text, nullable=False)
     start_sec       = Column(Float, nullable=False)
     end_sec         = Column(Float, nullable=False)
@@ -152,11 +152,11 @@ class SttSegment(Base):
 
 class Minutes(Base):
     __tablename__ = "minutes"
-    id               = Column(Integer, primary_key=True, index=True)
-    session_id       = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False, unique=True)
+    id               = Column(BigInteger, primary_key=True, index=True)
+    session_id       = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=False, unique=True)
     file_name        = Column(String(255), nullable=True)
     file_path        = Column(String(500), nullable=True)
-    recorder_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    recorder_id      = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     content_original = Column(Text, nullable=True)
     content_summary  = Column(Text, nullable=True)
     status           = Column(String(20), default="DRAFT")
@@ -167,36 +167,36 @@ class Minutes(Base):
 
 class SessionMember(Base):
     __tablename__ = "session_members"
-    id         = Column(Integer, primary_key=True)
-    session_id = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id         = Column(BigInteger, primary_key=True)
+    session_id = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=False)
+    user_id    = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     role       = Column(String, default="member")
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
-    id           = Column(Integer, primary_key=True, index=True)
+    id           = Column(BigInteger, primary_key=True, index=True)
     thread_id    = Column(String(100), nullable=False)
-    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id      = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     role         = Column(String(10), nullable=False)
     content      = Column(Text, nullable=True)
     file_path    = Column(String(500), nullable=True)
     file_name    = Column(String(255), nullable=True)
     context_type = Column(String(20), nullable=True)
-    meeting_id   = Column(Integer, ForeignKey("meetings.id"), nullable=True)
-    session_id   = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=True)
+    meeting_id   = Column(BigInteger, ForeignKey("meetings.id"), nullable=True)
+    session_id   = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
 class ChatFeedback(Base):
     """응답 피드백 (P3C-3, H-9) — eval 데이터셋 환류용."""
     __tablename__ = "chat_feedback"
-    id              = Column(Integer, primary_key=True, index=True)
-    user_id         = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id              = Column(BigInteger, primary_key=True, index=True)
+    user_id         = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     thread_id       = Column(String(100), nullable=False)
-    message_id      = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
-    agent_log_id    = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
-    rating          = Column(Integer, nullable=False)  # 1=up / -1=down
+    message_id      = Column(BigInteger, ForeignKey("chat_messages.id"), nullable=True)
+    agent_log_id    = Column(BigInteger, ForeignKey("agent_logs.id"), nullable=True)
+    rating          = Column(SmallInteger, nullable=False)  # 1=up / -1=down
     reason          = Column(Text, nullable=True)
     content_snippet = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
@@ -204,12 +204,12 @@ class ChatFeedback(Base):
 
 class AgentLog(Base):
     __tablename__ = "agent_logs"
-    id              = Column(Integer, primary_key=True, index=True)
+    id              = Column(BigInteger, primary_key=True, index=True)
     task_id         = Column(String(100), nullable=False, unique=True)
     context_type    = Column(String(30), nullable=False)
-    meeting_id      = Column(Integer, ForeignKey("meetings.id"), nullable=True)
-    session_id      = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=True)
-    user_id         = Column(Integer, ForeignKey("users.id"), nullable=True)
+    meeting_id      = Column(BigInteger, ForeignKey("meetings.id"), nullable=True)
+    session_id      = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=True)
+    user_id         = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     status          = Column(String(20), default="pending")
     input_data      = Column(JSON, nullable=True)
     output_data     = Column(JSON, nullable=True)
@@ -224,8 +224,8 @@ class AgentLog(Base):
 
 class TokenUsageLog(Base):
     __tablename__ = "token_usage_logs"
-    id                 = Column(Integer, primary_key=True, index=True)
-    agent_log_id       = Column(Integer, ForeignKey("agent_logs.id"), nullable=False)
+    id                 = Column(BigInteger, primary_key=True, index=True)
+    agent_log_id       = Column(BigInteger, ForeignKey("agent_logs.id"), nullable=False)
     model_name         = Column(String(50), nullable=False)
     prompt_tokens      = Column(Integer, nullable=False)
     completion_tokens  = Column(Integer, nullable=False)
@@ -235,8 +235,8 @@ class TokenUsageLog(Base):
 
 class SessionSummaryBlock(Base):
     __tablename__ = "session_summary_blocks"
-    id                  = Column(Integer, primary_key=True, index=True)
-    session_id          = Column(Integer, ForeignKey("meeting_sessions.id"), nullable=False)
+    id                  = Column(BigInteger, primary_key=True, index=True)
+    session_id          = Column(BigInteger, ForeignKey("meeting_sessions.id"), nullable=False)
     block_index         = Column(Integer, nullable=False)
     title               = Column(String(500), nullable=True)
     bullets             = Column(JSON, nullable=True)
@@ -247,14 +247,14 @@ class SessionSummaryBlock(Base):
 
 class HitlReview(Base):
     __tablename__ = "hitl_reviews"
-    id            = Column(Integer, primary_key=True, index=True)
-    agent_log_id  = Column(Integer, ForeignKey("agent_logs.id"), nullable=True)
+    id            = Column(BigInteger, primary_key=True, index=True)
+    agent_log_id  = Column(BigInteger, ForeignKey("agent_logs.id"), nullable=True)
     target_type   = Column(String(30), nullable=False)
-    agenda_id     = Column(Integer, ForeignKey("agenda.id"), nullable=True)
-    report_id     = Column(Integer, ForeignKey("reports.id"), nullable=True)
+    agenda_id     = Column(BigInteger, ForeignKey("agenda.id"), nullable=True)
+    report_id     = Column(BigInteger, ForeignKey("reports.id"), nullable=True)
     ai_rationale  = Column(Text, nullable=True)
     status        = Column(Text, default="검토중")
-    reviewer_id   = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewer_id   = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     comment       = Column(Text, nullable=True)
     reviewed_at   = Column(DateTime, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
