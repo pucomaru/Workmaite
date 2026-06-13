@@ -41,6 +41,7 @@ const {
   runExtract,
   addExtractItem,
   finishExtract,
+  addDirectAgenda,
   detailMemberDepts,
   detailMemberCompanies,
   NODE_TYPE_COLORS,
@@ -55,6 +56,51 @@ const {
   nodeReviewing,
   startNodeReview,
 } = inject('archiveSidebar')
+
+// ── 아젠다 직접 추가 ─────────────────────────────────────────────
+const directAddItems = ref([])
+
+function pushDirectAddItem() {
+  directAddItems.value.push({
+    title: '',
+    company: '',
+    dept: '',
+    start_date: '',
+    end_date: '',
+    db_id: null,
+    _state: null,
+    _editing: true,
+    _editTitle: '',
+    _editCompany: '',
+    _editDept: '',
+    _editStartDate: '',
+    _editEndDate: '',
+    _agentLogId: null,
+    _showReason: false,
+    _feedbackAction: '',
+    _reason: '',
+  })
+}
+
+async function approveDirectAdd(i) {
+  const ag = directAddItems.value[i]
+  try {
+    await addDirectAgenda({
+      title: ag.title,
+      company: ag.company || '',
+      dept: ag.dept || '',
+      start_date: ag.start_date || '',
+      end_date: ag.end_date || '',
+    })
+    directAddItems.value.splice(i, 1)
+  } catch (e) {
+    console.error('[approveDirectAdd] 실패:', e)
+  }
+}
+
+function removeDirectAdd(i) {
+  directAddItems.value.splice(i, 1)
+}
 
 // ── 완료 과제 더보기 / 팀 필터 ─────────────────────────────────────
 const doneExpanded = ref(false)
@@ -420,7 +466,7 @@ function parseAiEvidence(val) {
                   >전체 {{ logAllItems.length }}건</span
                 >
               </div>
-              <div v-if="logExpanded" class="detail-log-filters">
+              <div class="detail-log-filters">
                 <button
                   class="log-chip"
                   :class="{ active: logTypeFilter === '' }"
@@ -460,7 +506,9 @@ function parseAiEvidence(val) {
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">
-                        {{ item.manager }} · {{ formatDate(item.date) }}
+                        <template v-if="item.manager && item.date">{{ item.manager }} · {{ formatDate(item.date) }}</template>
+                        <template v-else-if="item.date">{{ formatDate(item.date) }}</template>
+                        <template v-else-if="item.manager">{{ item.manager }}</template>
                       </div>
                     </div>
                   </div>
@@ -487,24 +535,30 @@ function parseAiEvidence(val) {
 
           <!-- ── 과제 탭 ── -->
           <template v-if="detailTab === 'task'">
-            <!-- AI 아젠다 추출 실행 버튼 -->
+            <!-- 아젠다 직접 추가 버튼 (항상 표시) -->
             <!-- prettier-ignore -->
-            <button
-              class="ctx-run-btn"
-              @click="showExtractFlow = true; detailTab = 'extract'"
-            >
-              <svg
-                width="12"
-                height="12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path d="M4 4l16 8-16 8V4z" />
+            <button class="gm-add-btn" style="margin-bottom: 8px" @click="pushDirectAddItem">
+              <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path d="M12 5v14M5 12h14" />
               </svg>
-              AI 아젠다 추출 실행
+              아젠다 직접 추가
             </button>
+
+            <!-- 직접 추가 인라인 (AI 추출 탭과 동일한 AgendaReviewList) -->
+            <AgendaReviewList
+              v-if="directAddItems.length"
+              :items="directAddItems"
+              :memberCompanies="detailMemberCompanies"
+              :memberDepts="detailMemberDepts"
+              :removeOnApprove="true"
+              :showFooter="false"
+              :showFeedback="false"
+              style="margin-bottom: 10px"
+              @approved="approveDirectAdd"
+              @rejected="removeDirectAdd"
+              @remove="removeDirectAdd"
+              @save="() => {}"
+            />
 
             <!-- 진행중 아젠다 목록 -->
             <div class="detail-section" style="margin-top: 12px">
@@ -869,19 +923,7 @@ function parseAiEvidence(val) {
                 </svg>
                 아젠다 추출하기
               </button>
-              <button class="gm-add-btn" style="margin-top: 6px" @click="addExtractItem">
-                <svg
-                  width="10"
-                  height="10"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                항목 직접 추가
-              </button> </template
+              </template
             ><!-- /자료선정 단계 -->
 
             <!-- 추출 결과: 로딩 중이거나 초안이 있을 때 -->
@@ -1796,6 +1838,7 @@ function parseAiEvidence(val) {
       />
     </svg>
   </button>
+
 </template>
 
 <style scoped>

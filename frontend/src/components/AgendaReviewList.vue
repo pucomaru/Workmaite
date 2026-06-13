@@ -9,6 +9,7 @@ const props = defineProps({
   memberDepts: { type: Array, default: () => [] },
   removeOnApprove: { type: Boolean, default: true },
   showFooter: { type: Boolean, default: false },
+  showFeedback: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['approved', 'rejected', 'remove', 'save'])
@@ -76,8 +77,10 @@ function saveEdit(i) {
   ag.start_date = ag._editStartDate
   ag.end_date = ag._editEndDate
   ag._editing = false
-  ag._feedbackAction = 'edited'
-  ag._showReason = true
+  if (props.showFeedback) {
+    ag._feedbackAction = 'edited'
+    ag._showReason = true
+  }
 }
 
 function cancelEdit(i) {
@@ -303,7 +306,7 @@ function deptList(dept) {
       </div>
 
       <div
-        v-if="ag._showReason && !ag._editing"
+        v-if="showFeedback && ag._showReason && !ag._editing"
         class="arl-reason-below"
         :ref="
           el => {

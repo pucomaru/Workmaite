@@ -1053,6 +1053,29 @@ async function finishExtract() {
   }
 }
 
+async function addDirectAgenda(form) {
+  const meeting_id = toNumericId(detailMeeting.value.id)
+  await apiAI.post('/api/agent/archive/agendas/commit', {
+    meeting_id,
+    approved: [
+      {
+        db_id: null,
+        title: form.title,
+        dept: form.dept || null,
+        start_date: form.start_date || null,
+        due_date: form.end_date || null,
+      },
+    ],
+    rejected_ids: [],
+  })
+  // 아젠다 목록 즉시 갱신 (과제 탭)
+  detailAgendas.value =
+    (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
+  // 관계도 + 기본탭 로그: Neo4j 동기화 완료 후 두 번 갱신 (빠른 표시 + 확실한 반영)
+  setTimeout(refreshArchive, 600)
+  setTimeout(refreshArchive, 2500)
+}
+
 const PRIORITY_LABEL = {
   urgent_important: '긴급·중요',
   important: '중요',
@@ -2191,7 +2214,7 @@ const groupHistoryMap = computed(() => {
         type: 'minutes',
         desc: `${m.session_title || '회의'} 진행`,
         manager: managerName,
-        date: m.ended_at,
+        date: m.ended_at || m.started_at || m.date,
       })
     })
     g.reports.forEach(r => {
@@ -2212,14 +2235,37 @@ const groupHistoryMap = computed(() => {
     })
     const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
     if (ongoingTasks.length > 0) {
-      const oldest = ongoingTasks.reduce((a, b) =>
-        (a.created_at || '') < (b.created_at || '') ? a : b,
-      )
-      items.push({
-        type: 'agenda',
-        desc: `아젠다 ${ongoingTasks.length}개 등록`,
-        manager: managerName,
-        date: oldest.created_at || null,
+      // created_at 기준 오래된순 정렬 후 2분 간격으로 배치 묶기
+      const sorted = [...ongoingTasks].sort((a, b) => {
+        const da = a.created_at ? new Date(a.created_at) : new Date(0)
+        const db = b.created_at ? new Date(b.created_at) : new Date(0)
+        return da - db
+      })
+      const BATCH_GAP_MS = 2 * 60 * 1000
+      const batches = []
+      let batch = [sorted[0]]
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = batch[batch.length - 1]
+        const curr = sorted[i]
+        const gap = (curr.created_at ? new Date(curr.created_at) : new Date(0))
+          - (prev.created_at ? new Date(prev.created_at) : new Date(0))
+        if (gap <= BATCH_GAP_MS) {
+          batch.push(curr)
+        } else {
+          batches.push(batch)
+          batch = [curr]
+        }
+      }
+      batches.push(batch)
+      batches.forEach(batchTasks => {
+        const count = batchTasks.length
+        const first = batchTasks[0]
+        items.push({
+          type: 'agenda',
+          desc: count === 1 ? '아젠다 1개 추가' : `아젠다 ${count}개 등록`,
+          manager: managerName,
+          date: first.created_at || first.due_date || null,
+        })
       })
     }
     items.sort(
@@ -3135,6 +3181,7 @@ provide('archiveSidebar', {
   setExtractState,
   addExtractItem,
   finishExtract,
+  addDirectAgenda,
   approveItem,
   rejectItem,
   detailMemberDepts,
