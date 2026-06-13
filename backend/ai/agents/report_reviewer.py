@@ -1,5 +1,8 @@
-import os, json, re, uuid
-from typing import AsyncGenerator, List, Optional, Annotated
+import os
+import json
+import re
+import uuid
+from typing import Any, AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
 
 from llm_factory import StructuredOutputError, ainvoke_structured, llm_factory
@@ -49,11 +52,14 @@ class ReviewFeedbackItem(BaseModel):
 
 class ReviewResult(BaseModel):
     score: int = Field(..., ge=0, le=100, description="보고서 점수 (0-100)")
-    feedback: List[str] = Field(default_factory=list, description="구체적인 피드백 항목들")
+    feedback: List[str] = Field(
+        default_factory=list, description="구체적인 피드백 항목들"
+    )
 
 
 class ElementScore(BaseModel):
     """12대 필수요소 개별 평가 (P3A-2)."""
+
     id: int = Field(0, description="요소 번호 1-12")
     name: str = Field("", description="요소 이름")
     present: bool = Field(False, description="요소 존재 여부")
@@ -63,6 +69,7 @@ class ElementScore(BaseModel):
 
 class ReviewPrinciples(BaseModel):
     """5대 보고 원칙 충족 여부."""
+
     so_what: bool = False
     one_page_one_message: bool = False
     data_based: bool = False
@@ -72,6 +79,7 @@ class ReviewPrinciples(BaseModel):
 
 class ProposedReview(BaseModel):
     """HITL 검토 제안 (review_propose_prompt의 JSON 스펙)."""
+
     score: int = Field(..., ge=0, le=100)
     feedback: List[str] = Field(default_factory=list)
     element_scores: List[ElementScore] = Field(default_factory=list)
@@ -81,6 +89,7 @@ class ProposedReview(BaseModel):
 
 class DirectReview(BaseModel):
     """직접 검토 (review_direct_prompt의 JSON 스펙)."""
+
     score: int = Field(..., ge=0, le=100)
     feedback: List[str] = Field(default_factory=list)
     element_scores: List[ElementScore] = Field(default_factory=list)
@@ -93,18 +102,22 @@ def _make_llm(temperature: float = 0.2) -> ChatOpenAI:
     return llm_factory("review", temperature=temperature)
 
 
-def _build_system_with_knowledge(knowledge: List[dict], meeting_context: str = "") -> str:
+def _build_system_with_knowledge(
+    knowledge: List[dict], meeting_context: str = ""
+) -> str:
     system = REPORT_REVIEW_SYSTEM
     if meeting_context:
         system += f"\n\n[회의체 맥락 — 이 정보를 항상 참고하세요]\n{meeting_context}"
     if knowledge:
-        criteria = "\n".join([f"- {k.get('title','')}: {k.get('content','')[:100]}" for k in knowledge])
+        criteria = "\n".join(
+            [f"- {k.get('title', '')}: {k.get('content', '')[:100]}" for k in knowledge]
+        )
         system += f"\n\n[보고서 검토 기준]\n{criteria}"
     return system
 
 
 def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
-    result = []
+    result: List[BaseMessage] = []
     for m in messages:
         role, content = m.get("role", ""), m.get("content", "")
         if role == "user":
@@ -123,12 +136,13 @@ async def search_review_references(query: str) -> str:
         query: 검색할 내용 (보고서 주제, 검토 기준 등)
     """
     from agents.knowledge_manager import search_knowledge
+
     minutes_results = await search_knowledge(query, node_type="Minutes", k=3)
     all_results = minutes_results
     if not all_results:
         return "관련 참고 자료를 찾지 못했습니다."
     lines = [
-        f"[{r.get('title','?')}]: {r.get('content','')[:200]}"
+        f"[{r.get('title', '?')}]: {r.get('content', '')[:200]}"
         for r in all_results[:5]
     ]
     return "\n\n".join(lines)
@@ -142,11 +156,12 @@ async def get_report_agenda_context(query: str) -> str:
         query: 검색할 내용 (보고서의 주제나 관련 안건)
     """
     from agents.knowledge_manager import search_knowledge
+
     results = await search_knowledge(query, node_type="Agenda", k=3)
     if not results:
         return "관련 안건을 찾지 못했습니다."
     lines = [
-        f"[안건] {r.get('title','?')}: {r.get('content','')[:150]}"
+        f"[안건] {r.get('title', '?')}: {r.get('content', '')[:150]}"
         for r in results[:3]
     ]
     return "\n".join(lines)
@@ -158,15 +173,21 @@ REPORT_TOOLS: list = [search_review_references, get_report_agenda_context]
 # ── Chat graph ─────────────────────────────────────────────────────────────────
 def _report_state_modifier(state: ReportState) -> List[BaseMessage]:
     """런타임 컨텍스트(knowledge·meeting_context·reports_info)를 시스템 메시지로 주입합니다."""
-    system = _build_system_with_knowledge(state.get("knowledge", []), state.get("meeting_context", ""))
+    system = _build_system_with_knowledge(
+        state.get("knowledge", []), state.get("meeting_context", "")
+    )
     messages = list(state.get("messages", []))
     reports_info = state.get("reports_info", [])
     if reports_info:
-        reports_text = "\n\n".join([
-            f"[{r.get('presenter_name','')} - {r.get('file_name','')}]\n상태: {r.get('status','')}"
-            for r in reports_info
-        ])
-        messages = [HumanMessage(content=f"다음 보고서 목록을 검토해주세요:\n{reports_text}")] + messages
+        reports_text = "\n\n".join(
+            [
+                f"[{r.get('presenter_name', '')} - {r.get('file_name', '')}]\n상태: {r.get('status', '')}"
+                for r in reports_info
+            ]
+        )
+        messages = [
+            HumanMessage(content=f"다음 보고서 목록을 검토해주세요:\n{reports_text}")
+        ] + messages
     return [SystemMessage(content=system)] + messages
 
 
@@ -189,12 +210,18 @@ async def _review_propose_node(state: ReportReviewState) -> dict:
     system = _build_system_with_knowledge(state.get("knowledge", []))
 
     # structured output — 파싱 실패 시 가짜 score=50로 위장하지 않고 명시적으로 실패한다 (P3A-2, H-2)
-    result = await ainvoke_structured(llm, ProposedReview, [
-        SystemMessage(content=system),
-        HumanMessage(content=review_propose_prompt(
-            state.get("agenda") or "", state.get("report_content", "")
-        )),
-    ])
+    result = await ainvoke_structured(
+        llm,
+        ProposedReview,
+        [
+            SystemMessage(content=system),
+            HumanMessage(
+                content=review_propose_prompt(
+                    state.get("agenda") or "", state.get("report_content", "")
+                )
+            ),
+        ],
+    )
     proposed = result.model_dump()
 
     feedback = interrupt(proposed)
@@ -211,6 +238,7 @@ def _build_review_graph():
     builder.add_edge("review", END)
     # 체크포인터 필수 — interrupt/resume은 영속 상태 위에서만 동작 (P3A-1, H-1)
     from graph_runtime import get_checkpointer
+
     return builder.compile(checkpointer=get_checkpointer())
 
 
@@ -261,10 +289,12 @@ async def global_review_stream(
     meeting_id: int = 0,
     meeting_context: str = "",
 ) -> AsyncGenerator[str, None]:
-    reports_text = "\n\n".join([
-        f"[{r.get('presenter_name','')} - {r.get('file_name','')}]\n상태: {r.get('status','')}"
-        for r in reports_info
-    ])
+    reports_text = "\n\n".join(
+        [
+            f"[{r.get('presenter_name', '')} - {r.get('file_name', '')}]\n상태: {r.get('status', '')}"
+            for r in reports_info
+        ]
+    )
     user_msg = f"다음 보고서 목록을 종합 검토해주세요:\n{reports_text}"
 
     history = _to_base_messages(chat_history[-8:])
@@ -295,10 +325,14 @@ async def review_report(
     system = _build_system_with_knowledge(knowledge or [])
     llm = llm_factory("review", temperature=0.1, streaming=False)
     # structured output — 실패 시 StructuredOutputError 전파 (가짜 score=50 fabrication 제거, P3A-2)
-    result = await ainvoke_structured(llm, DirectReview, [
-        SystemMessage(content=system),
-        HumanMessage(content=review_direct_prompt(agenda, report_content)),
-    ])
+    result = await ainvoke_structured(
+        llm,
+        DirectReview,
+        [
+            SystemMessage(content=system),
+            HumanMessage(content=review_direct_prompt(agenda, report_content)),
+        ],
+    )
     return result.model_dump()
 
 
@@ -348,6 +382,7 @@ async def confirm_report_review(
         if review and content:
             try:
                 from agents import knowledge_manager as _ka
+
                 await _ka.store_report(
                     title=title or "보고서",
                     content=content,
@@ -389,10 +424,15 @@ def _candidate_agendas_to_str(candidate_agendas: List[dict]) -> str:
 async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
     from agents.knowledge_manager import search_knowledge
 
-    query = " ".join(filter(None, [
-        state.get("file_name", ""),
-        (state.get("file_content", "") or "")[:500],
-    ])).strip()
+    query = " ".join(
+        filter(
+            None,
+            [
+                state.get("file_name", ""),
+                (state.get("file_content", "") or "")[:500],
+            ],
+        )
+    ).strip()
     if not query:
         return {"retrieved_context": ""}
 
@@ -404,9 +444,9 @@ async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
 
     lines = []
     for r in agendas:
-        lines.append(f"[안건] {r.get('title','?')}: {r.get('content','')[:150]}")
+        lines.append(f"[안건] {r.get('title', '?')}: {r.get('content', '')[:150]}")
     for r in minutes:
-        lines.append(f"[회의록] {r.get('title','?')}: {r.get('content','')[:150]}")
+        lines.append(f"[회의록] {r.get('title', '?')}: {r.get('content', '')[:150]}")
     return {"retrieved_context": "\n".join(lines)}
 
 
@@ -419,28 +459,47 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
     if retrieved:
         graph_context = f"{graph_context}\n\n[관련 지식 검색 결과]\n{retrieved}".strip()
 
-    response = await llm.ainvoke([
-        SystemMessage(content=ANALYZE_FILE_SYSTEM),
-        HumanMessage(content=analyze_file_human(
-            state.get("file_name", ""),
-            state.get("file_type", ""),
-            state.get("dept_name", ""),
-            state.get("file_content", ""),
-            graph_context,
-            candidate_str,
-        )),
-    ])
+    response = await llm.ainvoke(
+        [
+            SystemMessage(content=ANALYZE_FILE_SYSTEM),
+            HumanMessage(
+                content=analyze_file_human(
+                    state.get("file_name", ""),
+                    state.get("file_type", ""),
+                    state.get("dept_name", ""),
+                    state.get("file_content", ""),
+                    graph_context,
+                    candidate_str,
+                )
+            ),
+        ]
+    )
 
-    text = (response.content or "").strip()
+    text = cast(str, response.content or "").strip()
     return {"result": _parse_archive_result(text, state.get("candidate_agendas", []))}
 
 
-_DETAIL_SCORE_SCHEMA = {
-    "목적및배경":   {"max": 15, "subs": {"목적명확성": 5, "배경논리성": 5, "보고범위대상": 5}},
-    "현황분석":     {"max": 20, "subs": {"데이터신뢰성": 7, "문제핵심도출": 7, "내외부환경균형": 6}},
-    "핵심내용":     {"max": 20, "subs": {"논리구조": 7, "MECE충족도": 7, "핵심메시지전달": 6}},
-    "실행계획":     {"max": 20, "subs": {"SMART충족": 7, "일정자원계획": 7, "우선순위의존관계": 6}},
-    "기대효과":     {"max": 15, "subs": {"정량적효과": 5, "정성적효과": 5, "목적과연결성": 5}},
+_DETAIL_SCORE_SCHEMA: dict[str, dict[str, Any]] = {
+    "목적및배경": {
+        "max": 15,
+        "subs": {"목적명확성": 5, "배경논리성": 5, "보고범위대상": 5},
+    },
+    "현황분석": {
+        "max": 20,
+        "subs": {"데이터신뢰성": 7, "문제핵심도출": 7, "내외부환경균형": 6},
+    },
+    "핵심내용": {
+        "max": 20,
+        "subs": {"논리구조": 7, "MECE충족도": 7, "핵심메시지전달": 6},
+    },
+    "실행계획": {
+        "max": 20,
+        "subs": {"SMART충족": 7, "일정자원계획": 7, "우선순위의존관계": 6},
+    },
+    "기대효과": {
+        "max": 15,
+        "subs": {"정량적효과": 5, "정성적효과": 5, "목적과연결성": 5},
+    },
     "리스크및대안": {"max": 10, "subs": {"리스크식별": 5, "대응방식대안": 5}},
 }
 
@@ -460,24 +519,41 @@ def _validate_detail_scores(raw: dict) -> dict:
         for sub_key, sub_max in schema["subs"].items():
             sub_item = raw_subs.get(sub_key, {})
             sub_score = sub_item.get("score", 0) if isinstance(sub_item, dict) else 0
-            sub_scores[sub_key] = {"score": max(0, min(int(sub_score), sub_max)), "max": sub_max}
+            sub_scores[sub_key] = {
+                "score": max(0, min(int(sub_score), sub_max)),
+                "max": sub_max,
+            }
 
         computed = sum(v["score"] for v in sub_scores.values())
         raw_score = item.get("score", 0)
-        score = computed if raw_subs else max(0, min(int(raw_score if isinstance(raw_score, (int, float)) else 0), max_score))
+        score = (
+            computed
+            if raw_subs
+            else max(
+                0,
+                min(
+                    int(raw_score if isinstance(raw_score, (int, float)) else 0),
+                    max_score,
+                ),
+            )
+        )
 
         result[key] = {
             "score": score,
             "max": max_score,
             "sub_scores": sub_scores,
-            "strengths": item.get("strengths", []) if isinstance(item.get("strengths"), list) else [],
-            "improvements": item.get("improvements", []) if isinstance(item.get("improvements"), list) else [],
+            "strengths": item.get("strengths", [])
+            if isinstance(item.get("strengths"), list)
+            else [],
+            "improvements": item.get("improvements", [])
+            if isinstance(item.get("improvements"), list)
+            else [],
         }
     return result
 
 
 def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
-    match = re.search(r'\{[\s\S]*\}', text or "")
+    match = re.search(r"\{[\s\S]*\}", text or "")
     parsed = {}
     if match:
         try:
@@ -507,15 +583,16 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
         mid = str(m.get("id"))
         if mid in valid_ids and mid not in seen_ids:
             seen_ids.add(mid)
-            matched_agendas.append({
-                "id": mid,
-                "content": m.get("content"),
-                "reason": m.get("reason", ""),
-            })
+            matched_agendas.append(
+                {
+                    "id": mid,
+                    "content": m.get("content"),
+                    "reason": m.get("reason", ""),
+                }
+            )
 
     top_improvements = [
-        t for t in parsed.get("top_improvements", [])
-        if isinstance(t, dict)
+        t for t in parsed.get("top_improvements", []) if isinstance(t, dict)
     ]
 
     return {
@@ -585,7 +662,9 @@ async def analyze_archive_file(
     "archive_analyze_stream",
     user_id="user_id",
     meeting_id="meeting_id",
-    capture_output=lambda ev: ev.get("data") if isinstance(ev, dict) and ev.get("type") == "result" else None,
+    capture_output=lambda ev: (
+        ev.get("data") if isinstance(ev, dict) and ev.get("type") == "result" else None
+    ),
 )
 async def analyze_archive_file_stream(
     file_name: str,
@@ -599,7 +678,11 @@ async def analyze_archive_file_stream(
 ) -> AsyncGenerator[dict, None]:
     candidate_agendas = candidate_agendas or []
 
-    yield {"type": "status", "stage": "retrieve", "message": "관련 회의록·안건을 검색하고 있습니다…"}
+    yield {
+        "type": "status",
+        "stage": "retrieve",
+        "message": "관련 회의록·안건을 검색하고 있습니다…",
+    }
     state = {
         "file_name": file_name,
         "file_type": file_type,
@@ -610,7 +693,7 @@ async def analyze_archive_file_stream(
         "retrieved_context": "",
     }
     try:
-        retrieved = await _archive_retrieve_node(state)
+        retrieved = await _archive_retrieve_node(cast(ArchiveFileState, state))
         state.update(retrieved)
     except Exception as e:
         state["retrieved_context"] = f"[지식 검색 실패: {e}]"
@@ -618,7 +701,7 @@ async def analyze_archive_file_stream(
     yield {"type": "status", "stage": "analyze", "message": "자료를 분석하고 있습니다…"}
 
     candidate_str = _candidate_agendas_to_str(candidate_agendas)
-    ctx = state.get("graph_context", "") or ""
+    ctx = cast(str, state.get("graph_context", "") or "")
     retrieved_ctx = state.get("retrieved_context", "")
     if retrieved_ctx:
         ctx = f"{ctx}\n\n[관련 지식 검색 결과]\n{retrieved_ctx}".strip()
@@ -626,15 +709,22 @@ async def analyze_archive_file_stream(
     llm = _make_llm(temperature=0.2)
     messages = [
         SystemMessage(content=ANALYZE_FILE_SYSTEM),
-        HumanMessage(content=analyze_file_human(
-            file_name, file_type, dept_name, file_content, ctx, candidate_str,
-        )),
+        HumanMessage(
+            content=analyze_file_human(
+                file_name,
+                file_type,
+                dept_name,
+                file_content,
+                ctx,
+                candidate_str,
+            )
+        ),
     ]
 
     full_text = ""
     try:
         async for chunk in llm.astream(messages):
-            token = chunk.content or ""
+            token = cast(str, chunk.content or "")
             if token:
                 full_text += token
                 yield {"type": "token", "content": token}
@@ -645,7 +735,9 @@ async def analyze_archive_file_stream(
                 "score": 70,
                 "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
                 "matched_agendas": [],
-                "agendas": [{"content": f"{file_name} 관련 안건 검토", "department": dept_name}],
+                "agendas": [
+                    {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
+                ],
                 "related_depts": [],
             },
         }
@@ -653,4 +745,3 @@ async def analyze_archive_file_stream(
 
     result = _parse_archive_result(full_text, candidate_agendas)
     yield {"type": "result", "data": result}
-

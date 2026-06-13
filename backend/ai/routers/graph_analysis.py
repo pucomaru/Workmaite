@@ -1,5 +1,7 @@
 """그래프 분석·관계 정규화 라우터 (P3A-4 — routers/supervisor.py에서 분리)."""
+
 import logging
+from typing import cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
@@ -7,7 +9,12 @@ from sqlalchemy.orm import Session
 
 import models
 from sse import sse_done, sse_error, sse_event, sse_token
-from agent_logging import TokenUsageCollector, _token_collector_var, _create_log, _finalize
+from agent_logging import (
+    TokenUsageCollector,
+    _token_collector_var,
+    _create_log,
+    _finalize,
+)
 from agents import (
     knowledge_manager as knowledge_agent,
 )
@@ -25,7 +32,7 @@ router = APIRouter(prefix="/api/agent", tags=["agents"])
 
 # ─── Supervisor 그래프 분석 ───────────────────────────────────────────────────
 _AGENDA_LINK_THRESHOLD = 0.80
-_DOC_LINK_THRESHOLD    = 0.78
+_DOC_LINK_THRESHOLD = 0.78
 
 
 async def _count_nodes(label: str) -> int:
@@ -37,17 +44,24 @@ async def _count_nodes(label: str) -> int:
 
 
 async def _analyze_graph() -> dict:
-    semantic   = {"agenda_links": [], "doc_links": []}
-    structural = {"session_chains": [], "lifecycle_gaps": [], "stale_links": [], "ownerless_agendas": [],
-                  "orphan_documents": [], "minuteless_sessions": [], "isolated_persons": []}
-    membership = {"issues": []}
+    semantic: dict[str, list] = {"agenda_links": [], "doc_links": []}
+    structural: dict[str, list] = {
+        "session_chains": [],
+        "lifecycle_gaps": [],
+        "stale_links": [],
+        "ownerless_agendas": [],
+        "orphan_documents": [],
+        "minuteless_sessions": [],
+        "isolated_persons": [],
+    }
+    membership: dict[str, list] = {"issues": []}
 
     counts = {
-        "agendas":   await _count_nodes("Agenda"),
+        "agendas": await _count_nodes("Agenda"),
         "documents": (await _count_nodes("Report")) + (await _count_nodes("Minutes")),
-        "meetings":  await _count_nodes("Meetings"),
-        "persons":   await _count_nodes("User"),
-        "sessions":  await _count_nodes("Session"),
+        "meetings": await _count_nodes("Meetings"),
+        "persons": await _count_nodes("User"),
+        "sessions": await _count_nodes("Session"),
     }
 
     # ⓪ 세션 시간순 체인 점검
@@ -71,14 +85,23 @@ async def _analyze_graph() -> dict:
         for r in ch_rows:
             ordered = r.get("ordered", []) or []
             missing = [
-                {"a_id": ordered[i].get("id"), "a_title": ordered[i].get("title", ""),
-                 "b_id": ordered[i+1].get("id"), "b_title": ordered[i+1].get("title", "")}
+                {
+                    "a_id": ordered[i].get("id"),
+                    "a_title": ordered[i].get("title", ""),
+                    "b_id": ordered[i + 1].get("id"),
+                    "b_title": ordered[i + 1].get("title", ""),
+                }
                 for i in range(len(ordered) - 1)
-                if (ordered[i].get("id"), ordered[i+1].get("id")) not in existing_followups
+                if (ordered[i].get("id"), ordered[i + 1].get("id"))
+                not in existing_followups
             ]
             if missing:
                 structural["session_chains"].append(
-                    {"mg": r.get("mg_title", ""), "count": len(ordered), "missing": missing}
+                    {
+                        "mg": r.get("mg_title", ""),
+                        "count": len(ordered),
+                        "missing": missing,
+                    }
                 )
     except Exception as e:
         logger.warning(f"[Supervisor] 세션 체인 분석 실패(무시): {e}")
@@ -95,14 +118,16 @@ async def _analyze_graph() -> dict:
             "LIMIT 10"
         )
         for r in lg_rows:
-            structural["lifecycle_gaps"].append({
-                "minutes_pg_id": r.get("minutes_pg_id"),
-                "session_id": r.get("session_id"),
-                "session_title": r.get("session_title", ""),
-                "mg": r.get("mg", ""),
-                "content": r.get("content", ""),
-                "agendas": [a for a in (r.get("agendas") or []) if a.get("title")],
-            })
+            structural["lifecycle_gaps"].append(
+                {
+                    "minutes_pg_id": r.get("minutes_pg_id"),
+                    "session_id": r.get("session_id"),
+                    "session_title": r.get("session_title", ""),
+                    "mg": r.get("mg", ""),
+                    "content": r.get("content", ""),
+                    "agendas": [a for a in (r.get("agendas") or []) if a.get("title")],
+                }
+            )
     except Exception as e:
         logger.warning(f"[Supervisor] 생명주기 공백 분석 실패(무시): {e}")
 
@@ -123,11 +148,17 @@ async def _analyze_graph() -> dict:
             {"th": _AGENDA_LINK_THRESHOLD},
         )
         for r in rows:
-            semantic["agenda_links"].append({
-                "a_id": r.get("a_id"), "a_title": r.get("a_title", "?"), "a_mg": r.get("a_mg", ""),
-                "b_id": r.get("b_id"), "b_title": r.get("b_title", "?"), "b_mg": r.get("b_mg", ""),
-                "score": float(r.get("score") or 0.0),
-            })
+            semantic["agenda_links"].append(
+                {
+                    "a_id": r.get("a_id"),
+                    "a_title": r.get("a_title", "?"),
+                    "a_mg": r.get("a_mg", ""),
+                    "b_id": r.get("b_id"),
+                    "b_title": r.get("b_title", "?"),
+                    "b_mg": r.get("b_mg", ""),
+                    "score": float(r.get("score") or 0.0),
+                }
+            )
     except Exception as e:
         logger.warning(f"[Supervisor] 안건 유사도 분석 실패(무시): {e}")
 
@@ -145,11 +176,15 @@ async def _analyze_graph() -> dict:
             {"th": _DOC_LINK_THRESHOLD},
         )
         for r in rows:
-            semantic["doc_links"].append({
-                "doc_id": r.get("doc_id"), "doc_title": r.get("doc_title", "?"),
-                "ag_id": r.get("ag_id"), "ag_title": r.get("ag_title", "?"),
-                "score": float(r.get("score") or 0.0),
-            })
+            semantic["doc_links"].append(
+                {
+                    "doc_id": r.get("doc_id"),
+                    "doc_title": r.get("doc_title", "?"),
+                    "ag_id": r.get("ag_id"),
+                    "ag_title": r.get("ag_title", "?"),
+                    "score": float(r.get("score") or 0.0),
+                }
+            )
     except Exception as e:
         logger.warning(f"[Supervisor] 문서-안건 적합도 분석 실패(무시): {e}")
 
@@ -161,7 +196,8 @@ async def _analyze_graph() -> dict:
             "RETURN ag.id AS id, ag.title AS title, mg.title AS mg LIMIT 50"
         )
         structural["ownerless_agendas"] = [
-            {"id": r.get("id"), "title": r.get("title", "?"), "mg": r.get("mg", "")} for r in rows
+            {"id": r.get("id"), "title": r.get("title", "?"), "mg": r.get("mg", "")}
+            for r in rows
         ]
     except Exception:
         pass
@@ -174,7 +210,8 @@ async def _analyze_graph() -> dict:
             "       (d.embedding IS NOT NULL) AS emb LIMIT 50"
         )
         structural["orphan_documents"] = [
-            {"id": r.get("id"), "title": r.get("title", "?"), "emb": bool(r.get("emb"))} for r in rows
+            {"id": r.get("id"), "title": r.get("title", "?"), "emb": bool(r.get("emb"))}
+            for r in rows
         ]
     except Exception:
         pass
@@ -208,25 +245,33 @@ async def _analyze_graph() -> dict:
         (
             "MATCH (p:User)-[:`소속부서`]->(d:Department) "
             "RETURN p.id AS pid, p.name AS name, d.name AS dept",
-            "legacy", None,
+            "legacy",
+            None,
         ),
         (
             "MATCH (p:User) WHERE coalesce(p.department, '') <> '' "
             "  AND NOT (p)-[:`소속`]->(:Department) "
             "RETURN p.id AS pid, p.name AS name, p.department AS dept",
-            "missing", None,
+            "missing",
+            None,
         ),
         (
             "MATCH (p:User)-[:`소속`]->(d:Department) "
             "WHERE coalesce(p.department, '') <> '' AND d.name <> p.department "
             "RETURN p.id AS pid, p.name AS name, p.department AS dept, d.name AS wrong",
-            "mismatch", "wrong",
+            "mismatch",
+            "wrong",
         ),
     ]:
         try:
             for r in await run_cypher(cypher):
-                entry = {"type": issue_type, "pid": r.get("pid"), "person": r.get("name", "?"),
-                         "dept": r.get("dept", ""), "current": r.get(extra_key) if extra_key else None}
+                entry = {
+                    "type": issue_type,
+                    "pid": r.get("pid"),
+                    "person": r.get("name", "?"),
+                    "dept": r.get("dept", ""),
+                    "current": r.get(extra_key) if extra_key else None,
+                }
                 membership["issues"].append(entry)
         except Exception:
             pass
@@ -243,13 +288,15 @@ async def _analyze_graph() -> dict:
             "RETURN s.id AS session_id, ag.id AS agenda_id, ag.title AS agenda_title"
         )
         for r in rows:
-            structural["stale_links"].append({
-                "kind": "stale_carry",
-                "from_id": r.get("session_id"),
-                "to_id": r.get("agenda_id"),
-                "label": f"이월 → [{r.get('agenda_title','?')}] (완료된 안건)",
-                "rel": "도출",
-            })
+            structural["stale_links"].append(
+                {
+                    "kind": "stale_carry",
+                    "from_id": r.get("session_id"),
+                    "to_id": r.get("agenda_id"),
+                    "label": f"이월 → [{r.get('agenda_title', '?')}] (완료된 안건)",
+                    "rel": "도출",
+                }
+            )
     except Exception:
         pass
 
@@ -262,13 +309,15 @@ async def _analyze_graph() -> dict:
             "RETURN mn.pg_id AS mn_id, ag.id AS agenda_id, ag.title AS agenda_title"
         )
         for r in rows:
-            structural["stale_links"].append({
-                "kind": "stale_lifecycle",
-                "from_id": str(r.get("mn_id", "")),
-                "to_id": r.get("agenda_id"),
-                "label": f"회의록도출 → [{r.get('agenda_title','?')}] (완료된 안건)",
-                "rel": "도출",
-            })
+            structural["stale_links"].append(
+                {
+                    "kind": "stale_lifecycle",
+                    "from_id": str(r.get("mn_id", "")),
+                    "to_id": r.get("agenda_id"),
+                    "label": f"회의록도출 → [{r.get('agenda_title', '?')}] (완료된 안건)",
+                    "rel": "도출",
+                }
+            )
     except Exception:
         pass
 
@@ -282,14 +331,16 @@ async def _analyze_graph() -> dict:
             {"th": _PRUNE_THRESHOLD},
         )
         for r in rows:
-            structural["stale_links"].append({
-                "kind": "weak_related",
-                "from_id": r.get("from_id"),
-                "to_id": r.get("to_id"),
-                "label": f"[{r.get('a_title','?')}]↔[{r.get('b_title','?')}] ({float(r.get('score') or 0)*100:.0f}%)",
-                "rel": "관련",
-                "score": float(r.get("score") or 0),
-            })
+            structural["stale_links"].append(
+                {
+                    "kind": "weak_related",
+                    "from_id": r.get("from_id"),
+                    "to_id": r.get("to_id"),
+                    "label": f"[{r.get('a_title', '?')}]↔[{r.get('b_title', '?')}] ({float(r.get('score') or 0) * 100:.0f}%)",
+                    "rel": "관련",
+                    "score": float(r.get("score") or 0),
+                }
+            )
     except Exception:
         pass
 
@@ -304,14 +355,16 @@ async def _analyze_graph() -> dict:
             {"th": _PRUNE_THRESHOLD},
         )
         for r in rows:
-            structural["stale_links"].append({
-                "kind": "weak_ref",
-                "from_id": r.get("from_id"),
-                "to_id": r.get("to_id"),
-                "label": f"문서[{r.get('doc_title','?')}]→안건[{r.get('ag_title','?')}] ({float(r.get('score') or 0)*100:.0f}%)",
-                "rel": "참조",
-                "score": float(r.get("score") or 0),
-            })
+            structural["stale_links"].append(
+                {
+                    "kind": "weak_ref",
+                    "from_id": r.get("from_id"),
+                    "to_id": r.get("to_id"),
+                    "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] ({float(r.get('score') or 0) * 100:.0f}%)",
+                    "rel": "참조",
+                    "score": float(r.get("score") or 0),
+                }
+            )
     except Exception:
         pass
 
@@ -326,19 +379,25 @@ async def _analyze_graph() -> dict:
             {"th": _PRUNE_THRESHOLD},
         )
         for r in rows:
-            structural["stale_links"].append({
-                "kind": "weak_attach",
-                "from_id": r.get("from_id"),
-                "to_id": r.get("to_id"),
-                "label": f"문서[{r.get('doc_title','?')}]→안건[{r.get('ag_title','?')}] 첨부 ({float(r.get('score') or 0)*100:.0f}%)",
-                "rel": "첨부",
-                "score": float(r.get("score") or 0),
-            })
+            structural["stale_links"].append(
+                {
+                    "kind": "weak_attach",
+                    "from_id": r.get("from_id"),
+                    "to_id": r.get("to_id"),
+                    "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] 첨부 ({float(r.get('score') or 0) * 100:.0f}%)",
+                    "rel": "첨부",
+                    "score": float(r.get("score") or 0),
+                }
+            )
     except Exception:
         pass
 
-    return {"semantic": semantic, "structural": structural,
-            "membership": membership, "counts": counts}
+    return {
+        "semantic": semantic,
+        "structural": structural,
+        "membership": membership,
+        "counts": counts,
+    }
 
 
 async def _normalize_rel_directions() -> dict:
@@ -349,37 +408,44 @@ async def _normalize_rel_directions() -> dict:
     # 라이프사이클(agenda→session→minutes)은 흐름 방향 유지
     steps = [
         # (설명, 카운트 쿼리, 수정 쿼리)
-
         # ── 포함 관계: 잘못된 big→small 복구 ──────────────────────────
-        ("회의체→회사 방향 복구 (포함, 작은→큰)",
-         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) RETURN count(r) AS cnt",
-         "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) MERGE (mg)-[:`포함`]->(co) DELETE r"),
-
-        ("부서→회사 방향 복구 (소속, 작은→큰)",
-         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) RETURN count(r) AS cnt",
-         "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) MERGE (d)-[:`소속`]->(co) DELETE r"),
-
-        ("사람→부서 방향 복구 (소속, 작은→큰)",
-         "MATCH (d:Department)-[r:`소속`]->(u:User) RETURN count(r) AS cnt",
-         "MATCH (d:Department)-[r:`소속`]->(u:User) MERGE (u)-[:`소속`]->(d) DELETE r"),
-
-        ("아젠다→회의체 방향 복구 (관할, 작은→큰)",
-         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
-         "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r"),
-
+        (
+            "회의체→회사 방향 복구 (포함, 작은→큰)",
+            "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) RETURN count(r) AS cnt",
+            "MATCH (co:Company)-[r:`포함`]->(mg:Meetings) MERGE (mg)-[:`포함`]->(co) DELETE r",
+        ),
+        (
+            "부서→회사 방향 복구 (소속, 작은→큰)",
+            "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) RETURN count(r) AS cnt",
+            "MATCH (co:Company)-[r:`소속`|`포함`]->(d:Department) MERGE (d)-[:`소속`]->(co) DELETE r",
+        ),
+        (
+            "사람→부서 방향 복구 (소속, 작은→큰)",
+            "MATCH (d:Department)-[r:`소속`]->(u:User) RETURN count(r) AS cnt",
+            "MATCH (d:Department)-[r:`소속`]->(u:User) MERGE (u)-[:`소속`]->(d) DELETE r",
+        ),
+        (
+            "아젠다→회의체 방향 복구 (관할, 작은→큰)",
+            "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
+            "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r",
+        ),
         # ── 라이프사이클 방향 정규화 ───────────────────────────────────
-        ("'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
-         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
-         "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
-
-        ("회의→아젠다 '다룸' 방향 정규화",
-         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) RETURN count(r) AS cnt",
-         "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r"),
-
+        (
+            "'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
+            "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
+            "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r",
+        ),
+        (
+            "회의→아젠다 '다룸' 방향 정규화",
+            "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) RETURN count(r) AS cnt",
+            "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r",
+        ),
         # ── 누락 연결 보완 ─────────────────────────────────────────────
-        ("부서-회사 누락 연결 보완 (소속, 작은→큰)",
-         "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) RETURN count(d) AS cnt",
-         "MATCH (d:Department), (co:Company) WHERE NOT (d)-[:`소속`]->(co) MERGE (d)-[:`소속`]->(co)"),
+        (
+            "부서-회사 누락 연결 보완 (소속, 작은→큰)",
+            "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) RETURN count(d) AS cnt",
+            "MATCH (d:Department), (co:Company) WHERE NOT (d)-[:`소속`]->(co) MERGE (d)-[:`소속`]->(co)",
+        ),
     ]
 
     total = 0
@@ -406,8 +472,11 @@ async def analyze_relationships_stream(
     db: Session = Depends(get_db),
 ):
     background_tasks.add_task(
-        _log_activity, 0, "워크메이트[supervisor→knowledge]",
-        "관계도 분석·재구성", f"요청자: {current_user.name}"
+        _log_activity,
+        0,
+        "워크메이트[supervisor→knowledge]",
+        "관계도 분석·재구성",
+        f"요청자: {current_user.name}",
     )
 
     async def stream():
@@ -420,9 +489,10 @@ async def analyze_relationships_stream(
             user_id=current_user.id,
             input_data=None,
         )
-        _stream_error = None
+        _stream_error: BaseException | None = None
         try:
             import asyncio as _asyncio
+
             # 그래프 분석과 병렬로 LLM이 작업 계획을 서술
             analysis_task = _asyncio.create_task(_analyze_graph())
             _pre_sys = (
@@ -434,22 +504,22 @@ async def analyze_relationships_stream(
                 yield sse_event("planning", f"{_step}")
             analysis = await analysis_task
 
-            sem    = analysis["semantic"]
+            sem = analysis["semantic"]
             struct = analysis["structural"]
             member = analysis["membership"]
             counts = analysis["counts"]
 
-            chains    = struct.get("session_chains", [])
+            chains = struct.get("session_chains", [])
             lifecycle = struct.get("lifecycle_gaps", [])
-            stale     = struct.get("stale_links", [])
-            ag_links  = sem["agenda_links"]
+            stale = struct.get("stale_links", [])
+            ag_links = sem["agenda_links"]
             doc_links = sem["doc_links"]
             ownerless = struct["ownerless_agendas"]
-            orphans   = struct["orphan_documents"]
+            orphans = struct["orphan_documents"]
             embeddable_orphans = [d for d in orphans if d.get("emb")]
             missing_seq = sum(len(c["missing"]) for c in chains)
             lifecycle_n = len(lifecycle)
-            stale_n     = len(stale)
+            stale_n = len(stale)
 
             # 세션→안건 미연결 건수 (원칙: 회의는 아젠다와 연결되어야 한다)
             try:
@@ -474,8 +544,12 @@ async def analyze_relationships_stream(
                 f"회의록→안건 미연결: {lifecycle_n}건, "
                 f"불필요 연결(이월·저유사도): {stale_n}건.\n"
                 f"회의 간 유사 안건: {len(ag_links)}쌍"
-                + (f" (상위: [{ag_links[0]['a_title']}] ↔ [{ag_links[0]['b_title']}], "
-                   f"{ag_links[0]['score']*100:.0f}%)" if ag_links else "")
+                + (
+                    f" (상위: [{ag_links[0]['a_title']}] ↔ [{ag_links[0]['b_title']}], "
+                    f"{ag_links[0]['score'] * 100:.0f}%)"
+                    if ag_links
+                    else ""
+                )
                 + f"\n미연결 문서: {len(doc_links)}건, "
                 f"담당자 없는 안건: {len(ownerless)}건, "
                 f"고아 문서: {len(orphans)}건, "
@@ -483,7 +557,9 @@ async def analyze_relationships_stream(
             )
             if chains:
                 c0 = chains[0]
-                findings_text += f"\n예시: '{c0['mg']}' 회의체에서 {c0['count']}개 회차 미연결."
+                findings_text += (
+                    f"\n예시: '{c0['mg']}' 회의체에서 {c0['count']}개 회차 미연결."
+                )
 
             system_findings = (
                 "당신은 업무 지식 그래프를 관리하는 AI입니다. "
@@ -495,23 +571,39 @@ async def analyze_relationships_stream(
                 yield sse_event("planning", f"{step}")
 
             # ── 실제 그래프 재구성 수행 ──────────────────────────────────
-            actionable = (missing_seq + session_no_agenda_n + lifecycle_n + stale_n +
-                          len(ag_links) + len(doc_links) +
-                          len(embeddable_orphans) + len(member.get("issues", [])))
+            actionable = (
+                missing_seq
+                + session_no_agenda_n
+                + lifecycle_n
+                + stale_n
+                + len(ag_links)
+                + len(doc_links)
+                + len(embeddable_orphans)
+                + len(member.get("issues", []))
+            )
 
             if actionable == 0:
-                result = {"actions": [], "stats": {
-                    "session_links": 0, "lifecycle_links": 0, "carry_links": 0,
-                    "related_agendas": 0, "doc_refs": 0, "doc_attached": 0,
-                    "membership_fixed": 0, "pruned_links": 0,
-                }, "advisories": {
-                    "ownerless_agendas": ownerless,
-                    "minuteless_sessions": struct["minuteless_sessions"],
-                    "isolated_persons": struct["isolated_persons"],
-                }}
+                result = {
+                    "actions": [],
+                    "stats": {
+                        "session_links": 0,
+                        "lifecycle_links": 0,
+                        "carry_links": 0,
+                        "related_agendas": 0,
+                        "doc_refs": 0,
+                        "doc_attached": 0,
+                        "membership_fixed": 0,
+                        "pruned_links": 0,
+                    },
+                    "advisories": {
+                        "ownerless_agendas": ownerless,
+                        "minuteless_sessions": struct["minuteless_sessions"],
+                        "isolated_persons": struct["isolated_persons"],
+                    },
+                }
             else:
                 result = await knowledge_agent.reconcile_graph(analysis)
-                stats = result["stats"]
+                stats = cast(dict, result["stats"])
 
                 # LLM이 수행 결과를 보고 planning 단계를 서술
                 done_items = [
@@ -530,7 +622,9 @@ async def analyze_relationships_stream(
                     if stats.get(k)
                 ]
                 if done_items:
-                    actions_text = "수행한 작업 목록:\n" + "\n".join(f"- {d}" for d in done_items)
+                    actions_text = "수행한 작업 목록:\n" + "\n".join(
+                        f"- {d}" for d in done_items
+                    )
                     system_actions = (
                         "당신은 업무 지식 그래프 관리 AI입니다. "
                         "방금 그래프에 적용한 작업들을 바탕으로, 어떤 개선이 이루어졌는지 "
@@ -544,31 +638,45 @@ async def analyze_relationships_stream(
             try:
                 norm = await _normalize_rel_directions()
                 if norm["total"]:
-                    yield sse_event("planning", f"관계 방향·명칭 정규화 {norm['total']}건 완료")
+                    yield sse_event(
+                        "planning", f"관계 방향·명칭 정규화 {norm['total']}건 완료"
+                    )
             except Exception:
                 pass
 
             _hl = set()
-            for l in ag_links:
-                _hl.add(l.get("a_title")); _hl.add(l.get("b_title"))
-            for l in doc_links:
-                _hl.add(l.get("ag_title"))
+            for lk in ag_links:
+                _hl.add(lk.get("a_title"))
+                _hl.add(lk.get("b_title"))
+            for lk in doc_links:
+                _hl.add(lk.get("ag_title"))
             for g in lifecycle:
                 _hl.add(g.get("session_title"))
-            for a in result.get("actions", []):
+            for a in cast(list, result.get("actions", [])):
                 if a.get("highlight"):
                     _hl.add(a["highlight"])
-            _hl.discard(None); _hl.discard("")
+            _hl.discard(None)
+            _hl.discard("")
             if _hl:
                 yield sse_event("highlight", list(_hl))
 
-            report = {**result, "counts": counts,
-                      "findings": {"session_missing": missing_seq, "session_groups": len(chains),
-                                   "lifecycle_gaps": lifecycle_n, "stale_links": stale_n,
-                                   "agenda_links": len(ag_links), "doc_links": len(doc_links),
-                                   "ownerless": len(ownerless), "orphans": len(orphans),
-                                   "examples": ag_links[:5], "doc_examples": doc_links[:5],
-                                   "chain_examples": chains[:3]}}
+            report = {
+                **result,
+                "counts": counts,
+                "findings": {
+                    "session_missing": missing_seq,
+                    "session_groups": len(chains),
+                    "lifecycle_gaps": lifecycle_n,
+                    "stale_links": stale_n,
+                    "agenda_links": len(ag_links),
+                    "doc_links": len(doc_links),
+                    "ownerless": len(ownerless),
+                    "orphans": len(orphans),
+                    "examples": ag_links[:5],
+                    "doc_examples": doc_links[:5],
+                    "chain_examples": chains[:3],
+                },
+            }
             async for chunk in knowledge_agent.summarize_relationship_analysis(report):
                 yield sse_token(chunk)
 
@@ -584,5 +692,3 @@ async def analyze_relationships_stream(
         yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
-
-

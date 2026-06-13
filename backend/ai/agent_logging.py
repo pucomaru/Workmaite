@@ -15,6 +15,7 @@ LangChain의 register_configure_hook + ContextVar 메커니즘을 사용해, 데
     async def generate_minutes_stream(...):   # async generator 도 지원
         ...
 """
+
 import asyncio
 import functools
 import inspect
@@ -37,7 +38,7 @@ logger = logging.getLogger("agent_logging")
 
 # ── 모델별 1M 토큰당 단가 (USD): (prompt, completion) ─────────────────────────
 # 단가표는 pricing.yaml로 외출 (P5-3/HC-7)
-from pricing import estimate_cost as _estimate_cost
+from pricing import estimate_cost as _estimate_cost  # noqa: E402
 
 
 class TokenUsageCollector(BaseCallbackHandler):
@@ -149,7 +150,9 @@ def _safe_output(result: Any) -> Optional[dict]:
 
 
 # ── DB 기록 ────────────────────────────────────────────────────────────────
-def _create_log(*, context_type, meeting_id, session_id, user_id, input_data) -> Optional[int]:
+def _create_log(
+    *, context_type, meeting_id, session_id, user_id, input_data
+) -> Optional[int]:
     db = SessionLocal()
     try:
         log = models.AgentLog(
@@ -183,9 +186,13 @@ def _extract_trace_id(runs_cm, runs_cb) -> Optional[str]:
     return None
 
 
-def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
-              error: Optional[BaseException], output_data: Optional[dict],
-              trace_id: Optional[str] = None) -> None:
+def _finalize(
+    log_id: Optional[int],
+    collector: TokenUsageCollector,
+    error: Optional[BaseException],
+    output_data: Optional[dict],
+    trace_id: Optional[str] = None,
+) -> None:
     if log_id is None:
         return
     db = SessionLocal()
@@ -203,13 +210,15 @@ def _finalize(log_id: Optional[int], collector: TokenUsageCollector,
 
         for model_name, u in collector.usage.items():
             pt, ct = u["prompt"], u["completion"]
-            db.add(models.TokenUsageLog(
-                agent_log_id=log.id,
-                model_name=model_name,
-                prompt_tokens=pt,
-                completion_tokens=ct,
-                estimated_cost_usd=_estimate_cost(model_name, pt, ct),
-            ))
+            db.add(
+                models.TokenUsageLog(
+                    agent_log_id=log.id,
+                    model_name=model_name,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    estimated_cost_usd=_estimate_cost(model_name, pt, ct),
+                )
+            )
         db.commit()
     except Exception as e:
         db.rollback()
@@ -237,6 +246,7 @@ def log_agent_run(
             async generator 의 경우, 각 yield 항목에 대해 호출되어 마지막 non-None
             반환값이 output_data 로 기록된다.
     """
+
     def decorator(func):
         sig = inspect.signature(func)
 
@@ -258,6 +268,7 @@ def log_agent_run(
             return log_id, collector, token, runs_cm, runs_cb
 
         if inspect.isasyncgenfunction(func):
+
             @functools.wraps(func)
             async def agen_wrapper(*args, **kwargs):
                 log_id, collector, token, runs_cm, runs_cb = _start(args, kwargs)
@@ -285,10 +296,13 @@ def log_agent_run(
                     _out = _safe_output(captured)
                     try:
                         asyncio.get_running_loop().call_soon(
-                            functools.partial(_finalize, log_id, collector, _err, _out, _trace_id)
+                            functools.partial(
+                                _finalize, log_id, collector, _err, _out, _trace_id
+                            )
                         )
                     except RuntimeError:
                         _finalize(log_id, collector, _err, _out, _trace_id)
+
             return agen_wrapper
 
         @functools.wraps(func)
@@ -313,6 +327,7 @@ def log_agent_run(
                 else:
                     out = _safe_output(result)
                 _finalize(log_id, collector, error, out, trace_id)
+
         return coro_wrapper
 
     return decorator
