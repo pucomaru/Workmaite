@@ -44,9 +44,5 @@
     "prettier": "^3.8.4",
     "vite": "^8.0.10",
     "vitest": "^4.1.8"
-  },
-  "overrides": {
-    "@emnapi/core": "1.11.0",
-    "@emnapi/runtime": "1.11.0"
   }
 }
