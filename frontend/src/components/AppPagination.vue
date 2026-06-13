@@ -4,11 +4,14 @@
       <i class="bi bi-chevron-left"></i>
     </button>
     <button
-      v-for="p in visiblePages" :key="p"
+      v-for="p in visiblePages"
+      :key="p"
       class="page-btn page-num"
       :class="{ active: p === modelValue }"
       @click="go(p)"
-    >{{ p }}</button>
+    >
+      {{ p }}
+    </button>
     <button class="page-btn" :disabled="modelValue >= totalPages" @click="go(modelValue + 1)">
       <i class="bi bi-chevron-right"></i>
     </button>
@@ -71,7 +74,7 @@ function go(p) {
   color: var(--text);
 }
 .app-pagination .page-btn:disabled {
-  opacity: .4;
+  opacity: 0.4;
   cursor: default;
 }
 .app-pagination .page-btn.active {

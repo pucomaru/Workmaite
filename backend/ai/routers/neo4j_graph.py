@@ -10,6 +10,7 @@ import models
 from auth import get_current_user
 from database import get_db
 from neo4j_ids import to_mg_id
+from rel_schema import ALLOWED_REL_TYPES, REL_MATRIX, REL_COLORS, DERIVED_REL_TYPES  # 관계 스키마 SSOT
 
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
@@ -19,22 +20,7 @@ NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 NEO4J_DB = os.environ["NEO4J_DATABASE"]
 
 ALLOWED_LABELS = {"Meetings", "User", "Department", "Agenda", "Report", "Minutes", "Session", "Company"}
-ALLOWED_REL_TYPES = {
-    # User 관계
-    "소속", "소속회사", "구성원", "간사", "참석", "작성",
-    # Meetings/Session 관계
-    "소속", "기록",
-    # Agenda 관계
-    "관할", "담당", "담당부서", "발제세션",
-    # Report 관계
-    "첨부",
-    # 회의체 간 관계
-    "상위", "관련", "후속회의",
-    # Chunk 관계
-    "청크", "BELONGS_TO",
-    # 프론트 자유 관계 타입
-    "연결", "협업", "공유", "지원", "검토", "출처", "포함",
-}
+# ALLOWED_REL_TYPES는 rel_schema.py(SSOT)에서 파생 — 여기서 손으로 정의하지 말 것.
 
 
 def _cypher_endpoint():
@@ -237,8 +223,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (doc:Report)-[:`체부`]->(mg:Meetings) WHERE mg.id IN $ids
-                OPTIONAL MATCH (doc)-[:`체부`]->(ag:Agenda)
+                MATCH (doc:Report)-[:`첨부`]->(mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -580,6 +566,27 @@ async def get_archive(
                 ],
             }
 
+    # ── 사용자가 수동으로 만든 자유 관계 — 구조 파생이 아니므로 별도로 읽어 반환 ──
+    # (buildGraphNodes는 PG 엔티티에서 엣지를 파생하므로 수동 관계는 이 경로로만 그래프에 복원된다)
+    manual_relations: list[dict] = []
+    try:
+        rel_rows = await _run_cypher(
+            """
+            MATCH (a)-[r]->(b)
+            WHERE a.id IS NOT NULL AND b.id IS NOT NULL
+              AND NOT type(r) IN $derived
+            RETURN a.id AS from_id, b.id AS to_id, type(r) AS rel
+            LIMIT 2000
+            """,
+            {"derived": list(DERIVED_REL_TYPES)},
+        )
+        manual_relations = [
+            {"from_id": row.get("from_id"), "to_id": row.get("to_id"), "rel": row.get("rel")}
+            for row in rel_rows
+        ]
+    except Exception:
+        pass  # 수동 관계 없거나 조회 실패해도 메인 그래프는 정상
+
     meetings = list(meetings_map.values())
     minutes  = [mn for mg in meetings for mn in mg["minutes"]]
     reports  = [r  for mg in meetings for r  in mg["reports"]]
@@ -597,9 +604,16 @@ async def get_archive(
         "minutes":  minutes,
         "reports":  reports,
         "departments": dept_rows,
-        "org":         company_rows[0] if company_rows else None,
+        "company":     company_rows[0] if company_rows else None,
         "current_person": current_person,
+        "manual_relations": manual_relations,
     }
+
+@router.get("/rel-schema")
+async def get_rel_schema(current_user: models.User = Depends(get_current_user)):
+    """관계 스키마 SSOT — 프런트가 번들 기본값을 이 값으로 덮어쓴다."""
+    return {"matrix": REL_MATRIX, "colors": REL_COLORS}
+
 
 @router.post("/relationships")
 async def create_relationship(data: dict, current_user: models.User = Depends(get_current_user)):
@@ -637,7 +651,7 @@ async def delete_relationship(data: dict, current_user: models.User = Depends(ge
 
     # ID 이중 prefix 정규화: "mg-mg-001" → "mg-001"
     def normalize_id(raw: str) -> str:
-        for p in ["mg-", "session-", "agenda-", "doc-", "dept-", "p-", "org-"]:
+        for p in ["mg-", "session-", "agenda-", "doc-", "dept-", "p-", "company-"]:
             if raw.startswith(p + p):
                 return raw[len(p):]
         return raw

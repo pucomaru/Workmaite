@@ -1,6 +1,6 @@
 name: Quality - Frontend
 
-# 배포(ci-frontend.yml)와 분리된 품질 게이트 — lint / test / build
+# 배포(ci-frontend.yml) lint / test / build
 on:
   pull_request:
     paths:
@@ -30,6 +30,9 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint

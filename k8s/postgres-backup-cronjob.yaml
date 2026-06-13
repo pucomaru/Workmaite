@@ -1,4 +1,5 @@
-# # P5-4: PostgreSQL 일일 백업 → R2 (pg_dump custom 포맷)
+# 사용하지 않기로 결정. 주석으로만 놔둠
+# # PostgreSQL 일일 백업 → R2 (pg_dump custom 포맷)
 # # 매일 KST 03:00 (UTC 18:00). 복구: aws s3 cp로 내려받아 pg_restore -d <db> <file>
 
 # apiVersion: batch/v1

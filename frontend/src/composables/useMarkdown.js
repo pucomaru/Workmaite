@@ -7,9 +7,7 @@ import DOMPurify from 'dompurify'
  */
 export function renderMd(text) {
   if (!text) return ''
-  const normalized = text
-    .replace(/\r\n/g, '\n')
-    .replace(/([^\n])\n(#{1,6} )/g, '$1\n\n$2')
+  const normalized = text.replace(/\r\n/g, '\n').replace(/([^\n])\n(#{1,6} )/g, '$1\n\n$2')
   const raw = marked.parse(normalized, { breaks: true })
   return DOMPurify.sanitize(raw)
 }

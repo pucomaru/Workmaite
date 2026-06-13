@@ -5,6 +5,7 @@ import com.workmaite.domain.meetings.entity.*;
 import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.entity.User;
+import com.workmaite.domain.user.entity.UserRole;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
@@ -207,6 +208,11 @@ public class MeetingService {
 
     // secretary 권한이 없으면 403 예외 발생
     private void checkSecretaryPermission(Long meetingId, Long requesterId) {
+        // 시스템관리자는 간사가 아니어도 회의체 설정/종료/멤버 편집 가능
+        boolean isSystemAdmin = userRepository.findById(requesterId)
+                .map(u -> u.getRole() == UserRole.SYSTEM_ADMIN)
+                .orElse(false);
+        if (isSystemAdmin) return;
         if (!meetingMemberRepository.existsByMeetingIdAndUserIdAndRole(meetingId, requesterId, MeetingMemberRole.ADMIN)) {
             throw new BusinessException(ErrorCode.MEETING_ACCESS_DENIED);
         }

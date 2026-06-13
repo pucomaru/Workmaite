@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { fmtISO, getDday, formatDateShort, formatDateTimeFull, formatDateTimeShort, formatDateLong } from '../src/utils/date'
+import {
+  fmtISO,
+  getDday,
+  formatDateShort,
+  formatDateTimeFull,
+  formatDateTimeShort,
+  formatDateLong,
+} from '../src/utils/date'
 
 describe('fmtISO', () => {
   it('로컬 기준 YYYY-MM-DD로 포맷한다', () => {

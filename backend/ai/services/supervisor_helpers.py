@@ -45,7 +45,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         return ""
-    lines = [f"회의체 이름: {meeting.title}"]
+    lines = [f"회의체명: {meeting.title}"]
     if meeting.description:
         lines.append(f"회의 목적: {meeting.description}")
     members = db.query(models.MeetingMember).filter(

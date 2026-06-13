@@ -11,15 +11,9 @@ export default defineConfig({
     },
   },
   server: {
+    // dev 프록시는 프로덕션 Ingress(k8s/ingress.yaml)와 일치시킬 것:
+    //   /api/v1 → SpringBoot(8080), 그 외 /api/* (ai·agent·neo4j·chats·stt·upload·usage) → FastAPI(8000)
     proxy: {
-      '/api/v1/sessions/refine-chunk': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '^/api/v1/sessions/[^/]+/minutes': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
       '/api/v1': {
         target: 'http://localhost:8080',
         changeOrigin: true,
