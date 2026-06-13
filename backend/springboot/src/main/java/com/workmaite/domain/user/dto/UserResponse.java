@@ -1,5 +1,6 @@
 package com.workmaite.domain.user.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.workmaite.domain.user.entity.User;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,7 +19,11 @@ public class UserResponse {
   private Long companyId;
   private String department;
   private String position;
-  private String role;
+
+  // 조직(회사) 권한 — 회의체 권한(meetingRole)과 구분. API 키는 기존대로 role 유지.
+  @JsonProperty("role")
+  private String companyRole;
+
   private boolean mustChangePassword; // 최초 로그인 시 비밀번호 변경 안내 (P1-7②)
   private LocalDateTime createdAt;
   private List<Map<String, Object>> meetings;
@@ -36,7 +41,7 @@ public class UserResponse {
         .companyId(user.getCompanyId())
         .department(user.getDepartment())
         .position(user.getPosition())
-        .role(user.getRole() != null ? user.getRole().name() : null)
+        .companyRole(user.getCompanyRole() != null ? user.getCompanyRole().name() : null)
         .mustChangePassword(user.isMustChangePassword())
         .createdAt(user.getCreatedAt())
         .meetings(meetings)

@@ -11,7 +11,7 @@ import models
 import schemas
 from database import get_db, SessionLocal
 from auth import get_current_user
-from access_guard import require_meeting_member
+from access_guard import require_view
 from sse import sse_done, sse_event, sse_token
 from metrics import instrument_stream
 from agents import (
@@ -180,7 +180,7 @@ async def minutes_sessions_chat(
     db: Session = Depends(get_db),
 ):
     if data.meeting_id:
-        require_meeting_member(db, current_user, data.meeting_id)
+        require_view(db, current_user, data.meeting_id)
     sessions = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.meeting_id == data.meeting_id)
@@ -262,7 +262,7 @@ async def minutes_generate_minutes(
     db: Session = Depends(get_db),
 ):
     if data.meeting_id:
-        require_meeting_member(db, current_user, data.meeting_id)
+        require_view(db, current_user, data.meeting_id)
     transcript = data.message or ""
     meeting_context = (
         _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
@@ -336,7 +336,7 @@ async def minutes_generate_minutes(
             .all()
         )
         participants = [
-            {"name": mm.user.name, "dept": mm.user.department or "", "role": mm.role}
+            {"name": mm.user.name, "dept": mm.user.department or "", "role": mm.meeting_role}
             for mm in mm_rows
             if mm.user
         ]
@@ -552,7 +552,7 @@ async def supervisor_chat(
     user_person_id: str | None = None
     user_allowed_mg_ids: set[str] = set()
     is_admin = (
-        current_user.role == "SYSTEM_ADMIN"
+        current_user.company_role == "SYSTEM_ADMIN"
     )  # RBAC (P1-3) — position 자가신고 판별 제거
     pg_meeting_ids: set[int] = {
         row.meeting_id
@@ -560,6 +560,15 @@ async def supervisor_chat(
         .filter(models.MeetingMember.user_id == current_user.id)
         .all()
     }
+    # 회사 관리자는 자사 구성원이 참여한 회의체까지 AI 조회 범위에 포함 (SEC-5/MT)
+    if current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
+        pg_meeting_ids |= {
+            row.meeting_id
+            for row in db.query(models.MeetingMember.meeting_id)
+            .join(models.User, models.User.id == models.MeetingMember.user_id)
+            .filter(models.User.company_id == current_user.company_id)
+            .all()
+        }
     try:
         p_rows = await run_cypher(
             # 사용자 매칭은 pg_id 단일 키 (email/name 매칭은 동명이인·개명 시 오인 — SEC-12)
@@ -831,7 +840,7 @@ async def supervisor_chat(
                                     .all()
                                 }
                                 _admin_mem = next(
-                                    (m for m in _mems if m.role == "admin"), None
+                                    (m for m in _mems if m.meeting_role == "admin"), None
                                 )
                                 _sec = (
                                     _users.get(_admin_mem.user_id)
@@ -1098,7 +1107,7 @@ async def supervisor_chat_history(
     db: Session = Depends(get_db),
 ):
     is_admin = (
-        current_user.role == "SYSTEM_ADMIN"
+        current_user.company_role == "SYSTEM_ADMIN"
     )  # RBAC (P1-3) — position 자가신고 판별 제거
     if not is_admin:
         member = (

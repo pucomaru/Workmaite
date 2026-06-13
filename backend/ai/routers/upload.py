@@ -27,9 +27,13 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from access_guard import (
-    require_meeting_member,
-    require_meeting_member_by_report,
-    require_meeting_member_by_session,
+    is_system_admin,
+    require_view,
+    require_view_by_report,
+    require_view_by_session,
+    require_meeting_edit,
+    require_owned_edit,
+    meeting_id_of_report,
 )
 from database import get_db
 from r2_storage import (
@@ -176,7 +180,7 @@ async def upload_report(
     db: Session = Depends(get_db),
 ):
     """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다."""
-    require_meeting_member(db, current_user, meeting_id)
+    require_view(db, current_user, meeting_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(
@@ -267,7 +271,7 @@ async def get_report_score(
     db: Session = Depends(get_db),
 ):
     """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
-    require_meeting_member_by_report(db, current_user, report_id)
+    require_view_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
@@ -316,7 +320,8 @@ async def save_report_score(
     db: Session = Depends(get_db),
 ):
     """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
-    require_meeting_member_by_report(db, current_user, report_id)
+    # 점수 저장은 검토(운영) 행위 — 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
@@ -364,7 +369,8 @@ async def submit_report_review(
     db: Session = Depends(get_db),
 ):
     """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
-    require_meeting_member_by_report(db, current_user, report_id)
+    # 보고서 검토 결정은 운영 행위 — 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
     from datetime import datetime as _dt
     from sqlalchemy import desc as _desc
 
@@ -442,10 +448,12 @@ async def delete_report(
     db: Session = Depends(get_db),
 ):
     """보고서를 R2, report_scores, hitl_reviews, reports 테이블에서 삭제합니다."""
-    require_meeting_member_by_report(db, current_user, report_id)
+    require_view_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
+    # 삭제는 업로더 본인 또는 간사/회사관리자/시스템관리자만
+    require_owned_edit(db, current_user, report.meeting_id, report.upload_id)
 
     # R2에서 파일 삭제
     if report.file_path:
@@ -536,7 +544,7 @@ async def upload_minutes(
     db: Session = Depends(get_db),
 ):
     """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
-    require_meeting_member_by_session(db, current_user, session_id)
+    require_view_by_session(db, current_user, session_id)
     logger.info(
         f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}"
     )
@@ -688,9 +696,9 @@ async def upload_chat_file(
 ):
     """채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다."""
     if meeting_id:
-        require_meeting_member(db, current_user, meeting_id)
+        require_view(db, current_user, meeting_id)
     if session_id:
-        require_meeting_member_by_session(db, current_user, session_id)
+        require_view_by_session(db, current_user, session_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
         raise HTTPException(
@@ -737,11 +745,45 @@ async def upload_chat_file(
 # ── Presigned URL 다운로드 ────────────────────────────────────────────────────
 
 
+def _authorize_presigned_access(db, current_user, file_path: str, key: str) -> None:
+    """presigned 발급 전 파일 접근 권한 검증 (SEC-5).
+
+    R2 키 프리픽스(reports/{meeting_id}, minutes/{session_id})로 소속 회의체를 해석해 조회 권한을
+    확인한다. 그 외(채팅 첨부 등)는 해당 file_path를 가진 메시지의 소유자 본인 또는 회의체 조회 권한자만.
+    """
+    if is_system_admin(current_user):
+        return
+    parts = (key or "").split("/")
+    if len(parts) >= 2 and parts[1].isdigit():
+        if parts[0] == "reports":
+            require_view(db, current_user, int(parts[1]))
+            return
+        if parts[0] == "minutes":
+            require_view_by_session(db, current_user, int(parts[1]))
+            return
+    msg = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.file_path == file_path)
+        .first()
+    )
+    if msg:
+        if msg.user_id == current_user.id:
+            return
+        if msg.meeting_id:
+            require_view(db, current_user, msg.meeting_id)
+            return
+        if msg.session_id:
+            require_view_by_session(db, current_user, msg.session_id)
+            return
+    raise HTTPException(status_code=403, detail="파일 접근 권한이 없습니다.")
+
+
 @router.get("/presigned")
 def get_presigned_url(
     file_path: str,
     expires_in: int = 3600,
     current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """R2 file_path로 시간 제한 presigned URL을 생성합니다.
 
@@ -755,6 +797,7 @@ def get_presigned_url(
         )
 
     key = url_to_key(file_path)
+    _authorize_presigned_access(db, current_user, file_path, key)
     try:
         url = generate_presigned_url(key, expires_in)
     except Exception as e:

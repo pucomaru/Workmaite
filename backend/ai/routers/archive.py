@@ -19,7 +19,12 @@ from sqlalchemy.orm import Session
 
 import models
 import schemas
-from access_guard import require_meeting_member
+from access_guard import (
+    require_meeting_member,
+    require_meeting_edit,
+    require_owned_edit,
+    meeting_id_of_session,
+)
 from sse import sse_done, sse_event
 from agent_logging import (
     TokenUsageCollector,
@@ -62,6 +67,7 @@ async def archive_extract_agendas(
     if not meeting:
         return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
 
+    require_meeting_edit(db, current_user, meeting_id)  # 아젠다 추출은 간사/회사관리자/시스템관리자만
     meeting_context = _get_meeting_context(db, meeting_id)
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
@@ -544,7 +550,7 @@ async def commit_draft_agendas(
 
     meeting_id: int = data.get("meeting_id", 0)
     if meeting_id:
-        require_meeting_member(db, current_user, meeting_id)
+        require_meeting_edit(db, current_user, meeting_id)
     approved: list = data.get("approved", [])
     from service_guards import idempotency_guard
 
@@ -743,6 +749,7 @@ async def update_agenda(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="Agenda not found")
+    require_owned_edit(db, current_user, agenda.meeting_id, agenda.assignee_id)
     if "title" in data and data["title"] is not None:
         agenda.title = data["title"]
     if "department" in data:
@@ -806,6 +813,7 @@ async def update_agenda_status(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="Agenda not found")
+    require_owned_edit(db, current_user, agenda.meeting_id, agenda.assignee_id)
     new_status = data.get("status", "done")
     agenda.status = new_status
     db.commit()
@@ -826,6 +834,7 @@ async def update_report(
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+    require_owned_edit(db, current_user, report.meeting_id, report.upload_id)
     if "file_name" in data and data["file_name"] is not None:
         report.file_name = data["file_name"]
     if "submitter_department" in data and data["submitter_department"] is not None:
@@ -871,6 +880,9 @@ async def update_minutes_by_session(
     )
     if not minutes:
         raise HTTPException(status_code=404, detail="Minutes not found for session")
+    require_owned_edit(
+        db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
+    )
     if "file_name" in data and data["file_name"] is not None:
         minutes.file_name = data["file_name"]
     if "status" in data and data["status"] is not None:
@@ -912,6 +924,9 @@ async def update_minutes(
     minutes = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
     if not minutes:
         raise HTTPException(status_code=404, detail="Minutes not found")
+    require_owned_edit(
+        db, current_user, meeting_id_of_session(db, minutes.session_id), minutes.recorder_id
+    )
     if "file_name" in data and data["file_name"] is not None:
         minutes.file_name = data["file_name"]
     if "status" in data and data["status"] is not None:
@@ -946,9 +961,11 @@ async def delete_agenda_item(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    db.query(models.Agenda).filter(models.Agenda.id == agenda_id).delete(
-        synchronize_session=False
-    )
+    agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
+    if agenda is None:
+        return {"ok": True}
+    require_owned_edit(db, current_user, agenda.meeting_id, agenda.assignee_id)
+    db.delete(agenda)
     db.commit()
     from neo4j_sync import delete_agenda as _del_ag
 

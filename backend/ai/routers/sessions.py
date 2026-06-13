@@ -10,7 +10,12 @@ import models
 import schemas
 from database import get_db
 from auth import get_current_user
-from access_guard import require_meeting_member_by_session
+from access_guard import (
+    require_view_by_session,
+    require_owned_edit,
+    require_meeting_edit,
+    meeting_id_of_session,
+)
 from neo4j_sync import sync_minutes
 
 _openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -49,7 +54,7 @@ async def save_minutes(
     생성된 회의록을 R2에 업로드하고 PostgreSQL minutes 테이블에 저장합니다.
     스트리밍으로 생성 완료 후 프론트에서 최종 텍스트를 보내면 이 API를 호출합니다.
     """
-    require_meeting_member_by_session(db, current_user, session_id)
+    require_view_by_session(db, current_user, session_id)
     session = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.id == session_id)
@@ -89,6 +94,8 @@ async def save_minutes(
     )
 
     if existing:
+        # 기존 회의록 덮어쓰기는 작성자 본인 또는 간사/회사관리자/시스템관리자만
+        require_owned_edit(db, current_user, session.meeting_id, existing.recorder_id)
         existing.content_original = body.content
         existing.content_summary = summary
         existing.recorder_id = current_user.id
@@ -131,7 +138,7 @@ def get_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member_by_session(db, current_user, session_id)
+    require_view_by_session(db, current_user, session_id)
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
@@ -155,12 +162,15 @@ async def update_minutes_content(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member_by_session(db, current_user, session_id)
+    require_view_by_session(db, current_user, session_id)
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
+    require_owned_edit(
+        db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
+    )
     minutes.content_original = body.content
     minutes.content_summary = body.content_summary or body.content[:500]
     minutes.recorder_id = current_user.id
@@ -179,12 +189,15 @@ async def delete_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member_by_session(db, current_user, session_id)
+    require_view_by_session(db, current_user, session_id)
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
     if not minutes:
         raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
+    require_owned_edit(
+        db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
+    )
     db.delete(minutes)
     db.commit()
     return {"ok": True}
@@ -210,8 +223,10 @@ class RefineChunkResponse(BaseModel):
 async def refine_chunk(
     body: RefineChunkRequest,
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),
 ):
+    # 실시간 요약 블록 기록은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id_of_session(db, body.session_id))
     session = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.id == body.session_id)

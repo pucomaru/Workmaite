@@ -52,7 +52,7 @@ public class ReportController {
   @GetMapping("/sessions/{sessionId}/reports")
   public ResponseEntity<ApiResponse<List<ReportResponse>>> getReportsBySession(
       @PathVariable Long sessionId) {
-    return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsByMeeting(sessionId)));
+    return ResponseEntity.ok(ApiResponse.ok(reportService.getReportsBySession(sessionId)));
   }
 
   // 자료 단건 조회

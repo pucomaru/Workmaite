@@ -130,10 +130,10 @@ public class UserService {
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     boolean sameCompanyAdmin =
-        caller.getRole() == UserRole.COMPANY_ADMIN
+        caller.getCompanyRole() == UserRole.COMPANY_ADMIN
             && caller.getCompanyId() != null
             && caller.getCompanyId().equals(user.getCompanyId());
-    if (caller.getRole() != UserRole.SYSTEM_ADMIN && !sameCompanyAdmin) {
+    if (caller.getCompanyRole() != UserRole.SYSTEM_ADMIN && !sameCompanyAdmin) {
       throw new BusinessException(ErrorCode.ACCESS_DENIED);
     }
 
@@ -142,14 +142,14 @@ public class UserService {
     return UserResponse.from(user);
   }
 
-  /** 역할 변경 (P1-7② — COMPANY_ADMIN 부여/회수). SYSTEM_ADMIN만 가능. */
+  /** 조직 권한 변경 (P1-7② — COMPANY_ADMIN 부여/회수). SYSTEM_ADMIN만 가능. */
   @Transactional
-  public UserResponse updateRole(Long callerId, Long userId, String role) {
+  public UserResponse updateCompanyRole(Long callerId, Long userId, String companyRole) {
     User caller =
         userRepository
             .findById(callerId)
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    if (caller.getRole() != UserRole.SYSTEM_ADMIN) {
+    if (caller.getCompanyRole() != UserRole.SYSTEM_ADMIN) {
       throw new BusinessException(ErrorCode.ACCESS_DENIED);
     }
     User user =
@@ -158,11 +158,11 @@ public class UserService {
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     UserRole newRole;
     try {
-      newRole = UserRole.valueOf(role);
+      newRole = UserRole.valueOf(companyRole);
     } catch (Exception e) {
       throw new BusinessException(ErrorCode.INVALID_INPUT_VALUE);
     }
-    user.changeRole(newRole);
+    user.changeCompanyRole(newRole);
     return UserResponse.from(user);
   }
 
@@ -176,7 +176,7 @@ public class UserService {
         userRepository
             .findById(callerId)
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    if (caller.getRole() != UserRole.SYSTEM_ADMIN && caller.getRole() != UserRole.COMPANY_ADMIN) {
+    if (caller.getCompanyRole() != UserRole.SYSTEM_ADMIN && caller.getCompanyRole() != UserRole.COMPANY_ADMIN) {
       throw new BusinessException(ErrorCode.ACCESS_DENIED);
     }
     List<Map<String, Object>> results = new java.util.ArrayList<>();
@@ -224,7 +224,10 @@ public class UserService {
         userRepository
             .findById(callerId)
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    if (caller.getRole() == UserRole.SYSTEM_ADMIN) {
+    // 탈퇴(소프트 삭제) 계정은 디렉터리 목록·검색에서 제외 (MT-6).
+    // by-ids 조회(getUsersByIds)는 작성자·참석자 이름 해석용이라 비활성도 포함한다.
+    users = users.stream().filter(User::isActive).toList();
+    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
       return users;
     }
 

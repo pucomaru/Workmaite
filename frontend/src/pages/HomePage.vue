@@ -169,7 +169,7 @@ onMounted(async () => {
         .catch(() => {}),
 
       hydrateMeetingMeta(),
-      // 역할은 fetchMeetings 응답(my_role)으로 meetingsStore.meetingRoles에 이미 채워짐 — 개별 /my-role N+1 호출 제거 
+      // 역할은 fetchMeetings 응답(my_role)으로 meetingsStore.meetingRoles에 이미 채워짐 — 개별 /my-role N+1 호출 제거
     ])
   } finally {
     initialLoading.value = false
@@ -216,8 +216,8 @@ const displayActiveMeetings = computed(() =>
 const sessionColumns = [
   { label: '회의명', sortKey: 'title' },
   { label: '회의체', sortKey: 'meeting_title' },
-  { label: '장소',   sortKey: 'location' },
-  { label: '날짜',  width: '110px', sortKey: 'date' },
+  { label: '장소', sortKey: 'location' },
+  { label: '날짜', width: '110px', sortKey: 'date' },
   { label: 'D-day', width: '80px', sortKey: 'date' },
 ]
 

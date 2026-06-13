@@ -23,7 +23,7 @@ public class MinutesService {
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "minutes")
   public MinutesResponse generateMinutes(Long sessionId, MinutesGenerateRequest request) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    meetingAccessGuard.requireViewBySession(sessionId);
     if (minutesRepository.existsBySessionId(sessionId)) {
       throw new BusinessException(ErrorCode.MINUTES_ALREADY_EXISTS);
     }
@@ -50,7 +50,10 @@ public class MinutesService {
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "minutes")
   public MinutesResponse updateMinutes(Long sessionId, MinutesUpdateRequest request) {
-    Minutes minutes = findBySessionIdOrThrow(sessionId);
+    Minutes minutes = fetchBySessionId(sessionId);
+    // 편집 — 작성자(recorder) 본인 또는 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireOwnedEdit(
+        meetingAccessGuard.meetingIdOfSession(sessionId), minutes.getRecorderId());
 
     if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
       throw new BusinessException(ErrorCode.MINUTES_ALREADY_CONFIRMED);
@@ -63,7 +66,9 @@ public class MinutesService {
   @Transactional
   @AuditLogged(action = "CONFIRM", entityType = "minutes")
   public MinutesResponse confirmMinutes(Long sessionId, MinutesConfirmRequest request) {
-    Minutes minutes = findBySessionIdOrThrow(sessionId);
+    Minutes minutes = fetchBySessionId(sessionId);
+    meetingAccessGuard.requireOwnedEdit(
+        meetingAccessGuard.meetingIdOfSession(sessionId), minutes.getRecorderId());
 
     if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
       throw new BusinessException(ErrorCode.MINUTES_ALREADY_CONFIRMED);
@@ -73,9 +78,14 @@ public class MinutesService {
     return MinutesResponse.of(minutes);
   }
 
-  // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
+  // 조회 단일 진입점 — 조회 권한 검증 포함 (IDOR 차단)
   private Minutes findBySessionIdOrThrow(Long sessionId) {
-    meetingAccessGuard.requireMemberBySession(sessionId);
+    meetingAccessGuard.requireViewBySession(sessionId);
+    return fetchBySessionId(sessionId);
+  }
+
+  // 가드 없는 원본 조회 — 호출부에서 view/edit 권한을 명시적으로 검증한다
+  private Minutes fetchBySessionId(Long sessionId) {
     return minutesRepository
         .findBySessionId(sessionId)
         .orElseThrow(() -> new BusinessException(ErrorCode.MINUTES_NOT_FOUND));

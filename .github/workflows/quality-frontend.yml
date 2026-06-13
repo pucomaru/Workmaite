@@ -31,7 +31,7 @@ jobs:
       - name: Install
         # npm ci 대신 install — npm의 크로스플랫폼 optional-dependency lock 버그 회피
         # (Windows에서 생성한 lock이 linux의 @emnapi/@rolldown-wasm 해석과 어긋남)
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-fund
 
       - name: Format check
         run: npm run format:check

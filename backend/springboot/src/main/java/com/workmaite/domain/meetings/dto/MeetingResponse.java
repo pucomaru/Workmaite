@@ -34,14 +34,15 @@ public class MeetingResponse {
   @JsonProperty("created_at")
   private LocalDateTime createdAt;
 
+  // 현재 사용자의 회의체 권한 (meeting_members.role 투영). API 키는 기존대로 my_role 유지.
   @JsonProperty("my_role")
-  private String myRole;
+  private String myMeetingRole;
 
   public static MeetingResponse from(Meeting meeting) {
     return from(meeting, null);
   }
 
-  public static MeetingResponse from(Meeting meeting, String myRole) {
+  public static MeetingResponse from(Meeting meeting, String myMeetingRole) {
     return MeetingResponse.builder()
         .id(meeting.getId())
         .title(meeting.getTitle())
@@ -53,7 +54,7 @@ public class MeetingResponse {
         .status(meeting.getStatus())
         .createdBy(meeting.getCreatedBy())
         .createdAt(meeting.getCreatedAt())
-        .myRole(myRole)
+        .myMeetingRole(myMeetingRole)
         .build();
   }
 }

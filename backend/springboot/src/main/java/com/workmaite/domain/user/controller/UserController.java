@@ -74,15 +74,16 @@ public class UserController {
     return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers(callerId, page, size)));
   }
 
-  // 역할 변경 (COMPANY_ADMIN 부여/회수) — SYSTEM_ADMIN만
+  // 조직 권한 변경 (COMPANY_ADMIN 부여/회수) — SYSTEM_ADMIN만. 본문 키는 기존대로 role(신규 company_role도 허용)
   @PatchMapping("/{userId}/role")
-  public ResponseEntity<ApiResponse<UserResponse>> updateRole(
+  public ResponseEntity<ApiResponse<UserResponse>> updateCompanyRole(
       Authentication authentication,
       @PathVariable Long userId,
       @RequestBody Map<String, String> body) {
     Long callerId = Long.parseLong(authentication.getName());
+    String companyRole = body.getOrDefault("role", body.getOrDefault("company_role", ""));
     return ResponseEntity.ok(
-        ApiResponse.ok(userService.updateRole(callerId, userId, body.getOrDefault("role", ""))));
+        ApiResponse.ok(userService.updateCompanyRole(callerId, userId, companyRole)));
   }
 
   // 구성원 일괄 생성 (임시 비밀번호 + 변경 강제) — SYSTEM/COMPANY_ADMIN만

@@ -23,7 +23,7 @@ public class AgendaService {
   private final MeetingAccessGuard meetingAccessGuard;
 
   public List<AgendaResponse> getAgendas(Long meetingId) {
-    meetingAccessGuard.requireMember(meetingId);
+    meetingAccessGuard.requireView(meetingId);
     return agendaRepository.findByMeetingIdOrderByCreatedAt(meetingId).stream()
         .map(AgendaResponse::from)
         .toList();
@@ -32,7 +32,8 @@ public class AgendaService {
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "agenda")
   public AgendaResponse createAgenda(Long meetingId, AgendaCreateRequest request) {
-    meetingAccessGuard.requireMember(meetingId);
+    // 아젠다(회의체 안건) 생성은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireMeetingEdit(meetingId);
     Agenda agenda =
         Agenda.create(meetingId, request.getSessionId(), request.getTitle(), request.getPriority());
     AgendaResponse response = AgendaResponse.from(agendaRepository.save(agenda));
@@ -52,7 +53,9 @@ public class AgendaService {
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "agenda")
   public AgendaResponse updateAgenda(Long agendaId, AgendaUpdateRequest request) {
-    Agenda agenda = findAgendaById(agendaId);
+    Agenda agenda = fetchAgenda(agendaId);
+    // 편집 — 담당자 본인 또는 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireOwnedEdit(agenda.getMeetingId(), agenda.getAssigneeId());
     agenda.update(
         request.getTitle(),
         request.getStatus(),
@@ -66,26 +69,34 @@ public class AgendaService {
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "agenda")
   public void deleteAgenda(Long agendaId) {
-    agendaRepository.delete(findAgendaById(agendaId));
+    Agenda agenda = fetchAgenda(agendaId);
+    meetingAccessGuard.requireOwnedEdit(agenda.getMeetingId(), agenda.getAssigneeId());
+    agendaRepository.delete(agenda);
     neoSyncService.deleteAgenda(agendaId); // 삭제 전파 (DATA-4)
   }
 
   @Transactional
   @AuditLogged(action = "ASSIGN", entityType = "agenda")
   public AgendaResponse assignAgenda(Long agendaId, AgendaAssignmentRequest request) {
-    Agenda agenda = findAgendaById(agendaId);
+    Agenda agenda = fetchAgenda(agendaId);
+    // 담당자 지정/변경은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
+    meetingAccessGuard.requireMeetingEdit(agenda.getMeetingId());
     agenda.assign(request.getAssigneeId());
     neoSyncService.syncAgenda(agendaId);
     return AgendaResponse.from(agenda);
   }
 
-  // 모든 agendaId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
+  // 조회 단일 진입점 — 조회 권한 검증 포함 (IDOR 차단)
   private Agenda findAgendaById(Long agendaId) {
-    Agenda agenda =
-        agendaRepository
-            .findById(agendaId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.AGENDA_NOT_FOUND));
-    meetingAccessGuard.requireMember(agenda.getMeetingId());
+    Agenda agenda = fetchAgenda(agendaId);
+    meetingAccessGuard.requireView(agenda.getMeetingId());
     return agenda;
+  }
+
+  // 가드 없는 원본 조회 — 호출부에서 view/edit 권한을 명시적으로 검증한다
+  private Agenda fetchAgenda(Long agendaId) {
+    return agendaRepository
+        .findById(agendaId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.AGENDA_NOT_FOUND));
   }
 }
