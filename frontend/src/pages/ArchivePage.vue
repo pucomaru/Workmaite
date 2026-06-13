@@ -2580,7 +2580,7 @@ async function downloadScript(sessionId) {
       h1{font-size:18px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       table{width:100%;border-collapse:collapse;font-size:12px}
       td{border:1px solid #e2e8f0;padding:6px 10px;vertical-align:top}
-      td:first-child{width:100px;font-weight:600;color:var(--text-dim);white-space:nowrap}
+      td:first-child{width:100px;font-weight:600;color:var(--text-muted);white-space:nowrap}
       @media print{body{padding:20px}}</style>
       </head><body><h1>STT 스크립트</h1><table>${rows}</table></body></html>`)
     w.document.close()

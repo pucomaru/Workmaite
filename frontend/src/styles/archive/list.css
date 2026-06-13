@@ -109,7 +109,7 @@
 }
 .day-mode .sidebar-toggle-handle:hover {
   background: var(--border);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .detail-section-label {
   color: var(--dark-muted);
@@ -190,7 +190,7 @@
 .day-mode .detail-purpose {
   background: #fff;
   border-color: var(--border);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .detail-info-key {
   color: var(--dark-muted);
@@ -199,7 +199,7 @@
   color: var(--dark-card);
 }
 .day-mode .detail-kv-val {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .detail-stat-card {
   background: #fff;
@@ -321,7 +321,7 @@
   gap: 6px;
 }
 .lv-expand-icon {
-  color: var(--text-dim);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 .lv-group-name {
@@ -552,7 +552,7 @@
   border-color: rgba(248, 113, 113, 0.4);
 }
 .lv-no-file {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .lv-hist-empty {
   padding: 14px 12px;
@@ -581,7 +581,7 @@
 .day-mode .lv-dl-btn {
   border-color: var(--border);
   background: var(--surface-2);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .lv-dl-btn:hover {
   background: var(--accent-bg);
@@ -696,7 +696,7 @@
 }
 .node-empty {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   padding: 8px 0;
 }
 .status-badge {

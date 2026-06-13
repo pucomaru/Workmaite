@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 /**
- * Promise 기반 확인/입력 다이얼로그 (PLAN Phase 2) — 네이티브 confirm()/prompt() 대체.
+ * Promise 기반 확인/입력 다이얼로그 — 네이티브 confirm()/prompt() 대체.
  * 사용:
  *   if (!(await confirmDialog('삭제하시겠습니까?', { danger: true }))) return
  *   const reason = await promptDialog('사유를 입력하세요 (선택)')  // 취소 시 null

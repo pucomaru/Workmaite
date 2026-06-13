@@ -122,7 +122,7 @@ function logout() {
 }
 
 // ── 개인설정 모달 ──────────────────────────────────────────────
-// 권한 역할 라벨 (읽기 전용 표시용)
+// 권한 라벨 (읽기 전용 표시용)
 const ROLE_LABELS = {
   SYSTEM_ADMIN: '시스템 관리자',
   COMPANY_ADMIN: '회사 관리자',
@@ -554,9 +554,9 @@ async function saveProfileSettings() {
                   style="background: var(--surface); color: var(--dark-muted)"
                 />
               </div>
-              <!-- 권한 역할 (readonly) -->
+              <!-- 권한 (readonly) -->
               <div class="app-modal-field">
-                <label>권한 역할 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <label>권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
                 <input
                   :value="roleLabel"
                   class="form-control"

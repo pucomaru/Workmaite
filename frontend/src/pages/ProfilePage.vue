@@ -69,7 +69,7 @@ async function save() {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
           <div class="form-group">
             <label class="form-label">회사명</label>
-            <input v-model="form.company" class="form-input" placeholder="예: 워크메이트" />
+            <input v-model="form.company" class="form-input" placeholder="예: SK AX" />
           </div>
           <div class="form-group">
             <label class="form-label">부서명</label>

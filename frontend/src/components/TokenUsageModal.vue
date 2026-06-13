@@ -343,7 +343,7 @@ const sec = computed(() => data.value?.sections || null)
 }
 .tum-chip.ctx-other {
   background: var(--surface-2);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 /* STT 칩 */
 .tum-chip.stt-gcapi {

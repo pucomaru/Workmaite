@@ -15,7 +15,6 @@ const MAP = {
   '#10b981': 'var(--success)',
   '#64748b': 'var(--text-muted)',
   '#94a3b8': 'var(--dark-muted)',
-  '#475569': 'var(--text-dim)',
   '#0f172a': 'var(--dark-bg)',
   '#1e293b': 'var(--dark-card)',
   '#334155': 'var(--dark-border)',

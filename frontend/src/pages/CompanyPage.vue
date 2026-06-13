@@ -155,7 +155,6 @@ async function removeMember(member) {
     if (meeting?.id && meeting?.member_id) {
       await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
     } else {
-      // 참여 회의체가 없는 사용자는 계정 자체를 삭제 (관리자 전용)
       await apiAI.delete(`/api/ai/users/${member.id}`)
     }
     await fetchAllMembers()
@@ -515,10 +514,10 @@ const {
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
               </div>
             </td>
-            <td class="cell-muted">{{ member.company || '-' }}</td>
-            <td class="cell-muted">{{ member.department || '-' }}</td>
-            <td class="cell-muted">{{ member.position || '-' }}</td>
-            <td class="cell-muted">{{ member.email || '-' }}</td>
+            <td class="text-muted">{{ member.company || '-' }}</td>
+            <td class="text-muted">{{ member.department || '-' }}</td>
+            <td class="text-muted">{{ member.position || '-' }}</td>
+            <td class="text-muted">{{ member.email || '-' }}</td>
             <td>
               <div class="cell-meetings">
                 <template v-if="selectedMeetingId !== 'all'">
@@ -594,7 +593,6 @@ const {
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">
               <div class="empty-state">
-                <div class="empty-icon-lg">👤</div>
                 <p>
                   {{
                     myMeetings.length
@@ -651,7 +649,7 @@ const {
                 <input
                   v-model="addForm.company"
                   class="app-modal-input"
-                  placeholder="예: 워크메이트"
+                  placeholder="예: SK AX"
                 />
               </div>
               <div class="app-modal-field">
@@ -770,7 +768,7 @@ const {
                 <input
                   v-model="editModal.company"
                   class="app-modal-input"
-                  placeholder="예: 워크메이트"
+                  placeholder="예: SK AX"
                 />
               </div>
               <div class="app-modal-field">
@@ -886,7 +884,7 @@ const {
   padding: 4px;
 }
 .day-mode .cell-muted {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .cell-meetings {
   display: flex;
@@ -901,7 +899,7 @@ const {
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--surface-2);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -934,9 +932,9 @@ const {
 .act-btn {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: #fff;
+  border-radius: 7px;
+  border: 1px solid var(--white-10);
+  background: var(--white-05);
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -944,14 +942,14 @@ const {
   cursor: pointer;
 }
 .act-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: var(--accent-bg);
+  border-color: rgba(96, 165, 250, 0.5);
+  color: var(--accent-soft);
+  background: rgba(96, 165, 250, 0.1);
 }
 .act-btn.danger:hover {
   border-color: #fca5a5;
   color: #dc2626;
-  background: #fef2f2;
+  background: rgba(96, 165, 250, 0.1);
 }
 
 .empty-row {

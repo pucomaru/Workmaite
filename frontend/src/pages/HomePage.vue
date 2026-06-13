@@ -133,7 +133,7 @@ function clickMiniDay(d) {
 }
 
 // ── Data loading ─────────────────────────────────────────────
-const initialLoading = ref(true) // 초기 로딩 동안 빈 테이블 노출 방지 (PLAN Phase 2)
+const initialLoading = ref(true) // 초기 로딩 동안 빈 테이블 노출 방지
 
 onMounted(async () => {
   try {
@@ -169,7 +169,7 @@ onMounted(async () => {
         .catch(() => {}),
 
       hydrateMeetingMeta(),
-      // 역할은 fetchMeetings 응답(my_role)으로 meetingsStore.meetingRoles에 이미 채워짐 — 개별 /my-role N+1 호출 제거 (PLAN Phase 1)
+      // 역할은 fetchMeetings 응답(my_role)으로 meetingsStore.meetingRoles에 이미 채워짐 — 개별 /my-role N+1 호출 제거 
     ])
   } finally {
     initialLoading.value = false
@@ -216,8 +216,8 @@ const displayActiveMeetings = computed(() =>
 const sessionColumns = [
   { label: '회의명', sortKey: 'title' },
   { label: '회의체', sortKey: 'meeting_title' },
-  { label: '장소', width: '110px', sortKey: 'location' },
-  { label: '날짜', width: '110px', sortKey: 'date' },
+  { label: '장소',   sortKey: 'location' },
+  { label: '날짜',  width: '110px', sortKey: 'date' },
   { label: 'D-day', width: '80px', sortKey: 'date' },
 ]
 
@@ -304,8 +304,8 @@ const {
                 </td>
                 <td class="text-muted">{{ s.meeting_title || '-' }}</td>
                 <td class="text-muted">{{ s.location || '-' }}</td>
-                <td>{{ formatDate(s.date) }}</td>
-                <td>
+                <td class="text-muted">{{ formatDate(s.date) }}</td>
+                <td class="text-muted">
                   <span
                     class="upcoming-dday"
                     :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'"
@@ -1145,7 +1145,7 @@ const {
 }
 .role-member {
   background: rgba(100, 116, 139, 0.12);
-  color: var(--text-muted);
+  color: var(--accent);
 }
 .evt-pill.evt-agenda {
   background: var(--warning-bg);

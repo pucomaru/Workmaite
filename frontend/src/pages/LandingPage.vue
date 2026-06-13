@@ -959,7 +959,7 @@ const trustItems = [
   transition: color 0.15s;
 }
 .popup-close:hover {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .modal-fade-enter-from,
 .modal-fade-leave-to {

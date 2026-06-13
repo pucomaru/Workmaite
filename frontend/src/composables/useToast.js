@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 /**
- * 전역 토스트 (PLAN Phase 2) — 네이티브 alert() 대체.
+ * 전역 토스트 — 네이티브 alert() 대체.
  * 사용: toast.success('저장되었습니다') / toast.error('저장 실패') / toast.info('안내')
  * 표시는 App.vue에 마운트된 <AppToast />가 담당한다.
  */

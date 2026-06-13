@@ -260,7 +260,7 @@ function startResize(e, colIndex) {
   background: var(--white-05);
 }
 .app-table-dark .sort-icon {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .app-table-dark .app-table th:last-child {
   background: #1e2d3e;

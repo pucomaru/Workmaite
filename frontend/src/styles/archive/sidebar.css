@@ -208,7 +208,7 @@
   align-items: center;
   gap: 4px;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .ctx-upload-area:hover {
   border-color: rgba(59, 130, 246, 0.5);
@@ -216,7 +216,7 @@
   color: var(--text-muted);
 }
 .ctx-upload-area svg {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .ctx-upload-area span {
   font-size: 11px;
@@ -332,7 +332,7 @@
 }
 .ctx-file-date {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .ctx-sim-score {
   font-size: 10px;
@@ -341,7 +341,7 @@
 }
 .ctx-empty {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   padding: 4px 0;
 }
 .ctx-run-btn {
@@ -382,7 +382,7 @@
 }
 .ctx-phase-label {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-weight: 600;
 }
 .ctx-phase-label.active {
@@ -427,7 +427,7 @@
 }
 .day-mode .task-back-btn:hover {
   background: var(--surface-2);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .ctx-section-title-flex {
   display: flex;
@@ -634,7 +634,7 @@
 }
 .agenda-dept-count {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .upload-file-drop {
   border: 1.5px dashed var(--white-15);
@@ -954,7 +954,7 @@
   background: rgba(245, 158, 11, 0.04);
 }
 .day-mode .dsi-name {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .dss-done {
   color: #16a34a;
@@ -2166,7 +2166,7 @@
   font-weight: 500;
 }
 .dept-count {
-  color: var(--text-dim);
+  color: var(--text-muted);
   text-align: right;
   white-space: nowrap;
 }
@@ -2215,7 +2215,7 @@
   word-break: break-all;
 }
 .day-mode .ai-evidence-box {
-  color: var(--text-dim);
+  color: var(--text-muted);
   background: rgba(99, 102, 241, 0.05);
   border-color: rgba(99, 102, 241, 0.2);
 }
@@ -2241,11 +2241,11 @@
 }
 .rs-total-denom {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   margin-left: 1px;
 }
 .rs-score-header svg {
-  color: var(--text-dim);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 .rs-gauge-bar {
@@ -2273,7 +2273,7 @@
 }
 .rs-detail-label {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2302,11 +2302,11 @@
 }
 .rs-detail-max {
   font-weight: 400;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .rs-no-score {
   font-size: 11px;
-  color: var(--text-dim, #555);
+  color: var(--text-muted, #555);
   padding: 4px 0;
 }
 .rs-feedback-box {
@@ -2330,7 +2330,7 @@
   background: rgba(0, 0, 0, 0.08);
 }
 .day-mode .rs-feedback-box {
-  color: var(--text-dim);
+  color: var(--text-muted);
   background: rgba(0, 0, 0, 0.02);
   border-color: rgba(0, 0, 0, 0.07);
 }
@@ -2570,7 +2570,7 @@
 /* 관계 탭 — outlink만 편집, inlink 읽기 전용 (GraphRAG 단방향 저장 원칙) */
 .rel-in-hint {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .rel-item-readonly {
   opacity: 0.75;

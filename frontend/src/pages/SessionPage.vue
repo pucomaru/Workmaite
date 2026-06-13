@@ -39,7 +39,7 @@ import { renderMd } from '../composables/useMarkdown'
 // ─── State ────────────────────────────────────────────────────
 const meetings = ref([]) // [{ id, title, sessions: [] }] — 사이드바 트리 표시용 (원본은 스토어)
 const loadingMeetings = ref(true) // 첫 페인트부터 로딩 표시 — onMounted 이전 빈 목록 깜빡임 방지
-const sessionsCache = computed(() => sessionsStore.sessionsByMeeting) // 단일 캐시 (PLAN Phase 1)
+const sessionsCache = computed(() => sessionsStore.sessionsByMeeting) // 단일 캐시
 
 const selectedMeetingId = ref(null)
 const expandedMeetingIds = ref(new Set())
@@ -114,7 +114,7 @@ async function loadSessions(meetingId) {
 async function fetchMeetings() {
   loadingMeetings.value = true
   try {
-    // 회의체 목록은 스토어 단일 fetch — 페이지별 중복 HTTP 호출 제거 (PLAN Phase 1)
+    // 회의체 목록은 스토어 단일 fetch — 페이지별 중복 HTTP 호출 제거
     await meetingsStore.fetchMeetings()
     meetings.value = meetingsStore.meetings.map(m => ({ ...m, sessions: null }))
     meetings.value.forEach(m => loadSessions(m.id))
@@ -627,7 +627,7 @@ function downloadPDF() {
       body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
       h1{font-size:20px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       h2{font-size:16px;font-weight:700;color:#1e40af;margin-top:20px;margin-bottom:6px}
-      h3{font-size:14px;font-weight:700;color:var(--text-dim);margin-top:12px;margin-bottom:4px}
+      h3{font-size:14px;font-weight:700;color:var(--text-muted);margin-top:12px;margin-bottom:4px}
       p{margin:0 0 6px}ul,ol{padding-left:20px;margin:4px 0}li{margin-bottom:2px}
       table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
       th,td{border:1px solid #e2e8f0;padding:6px 10px;text-align:left}th{background:var(--surface-2);font-weight:600}
@@ -1934,7 +1934,7 @@ async function downloadChatFile(filePath) {
               {{ savingMinutes ? '저장 중...' : '아카이브 저장' }}
             </button>
             <button
-              class="mbar-btn regen"
+              class="mbar-btn primary"
               :disabled="generatingMinutes"
               @click.stop="generateMinutes"
             >
@@ -2401,7 +2401,7 @@ async function downloadChatFile(filePath) {
   border-radius: 5px;
   border: 1px solid var(--border);
   background: var(--surface);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -2577,7 +2577,7 @@ async function downloadChatFile(filePath) {
 }
 .sp-session-location {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3012,7 +3012,7 @@ async function downloadChatFile(filePath) {
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .ts-summary-close {
   background: none;
@@ -3050,7 +3050,7 @@ async function downloadChatFile(filePath) {
   border: 1px solid transparent;
   border-radius: 4px;
   background: none;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.1s;
@@ -3117,7 +3117,7 @@ async function downloadChatFile(filePath) {
   font-size: 13px;
   font-weight: 700;
   margin: 10px 0 4px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .tiptap-content :deep(.ProseMirror strong) {
   font-weight: 700;
@@ -3200,7 +3200,7 @@ async function downloadChatFile(filePath) {
   font-size: 13px;
   font-weight: 700;
   margin: 10px 0 4px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .minutes-md :deep(strong) {
   font-weight: 700;
@@ -3278,7 +3278,7 @@ async function downloadChatFile(filePath) {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
 }
@@ -3321,7 +3321,7 @@ async function downloadChatFile(filePath) {
   gap: 8px;
   margin-bottom: 6px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .cpop-label {
   flex: 1;
@@ -3346,7 +3346,7 @@ async function downloadChatFile(filePath) {
   background: none;
   font-size: 13px;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .cpop-opt:hover {
   background: var(--surface-2);
@@ -3473,7 +3473,7 @@ async function downloadChatFile(filePath) {
   padding: 0;
 }
 .sp-search-clear:hover {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .sp-search-empty {
   padding: 20px 14px;
@@ -3536,7 +3536,7 @@ async function downloadChatFile(filePath) {
   border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--bg-card);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -3602,7 +3602,7 @@ async function downloadChatFile(filePath) {
   border-radius: 7px;
   border: 1px solid var(--border);
   background: var(--bg-card);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -3619,11 +3619,7 @@ async function downloadChatFile(filePath) {
 .mbar-btn.primary:hover {
   opacity: 0.88;
 }
-.mbar-btn.regen {
-  background: var(--surface);
-  border-color: #c7d2fe;
-  color: #4f46e5;
-}
+
 .mbar-btn.regen:hover {
   background: #eef2ff;
 }

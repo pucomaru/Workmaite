@@ -156,7 +156,7 @@ function updateRole(idx, role) {
 .mi-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   display: flex;
@@ -198,6 +198,7 @@ function updateRole(idx, role) {
 }
 .mi-search-input::placeholder {
   color: var(--dark-muted);
+  background: none;
 }
 .mi-spinner {
   color: var(--text-muted);
@@ -317,10 +318,10 @@ function updateRole(idx, role) {
   background: var(--white-05);
 }
 .mi-section.dark .mi-search-wrap svg {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .mi-section.dark .mi-search-input {
-  color: var(--surface-2);
+  color: var(--text-muted);
 }
 .mi-section.dark .mi-search-input::placeholder {
   color: var(--dark-border);
@@ -333,11 +334,11 @@ function updateRole(idx, role) {
   background: var(--white-06);
 }
 .mi-section.dark .mi-name {
-  color: var(--surface-2);
+  color: var(--text-muted);
 }
 .mi-section.dark .mi-email,
 .mi-section.dark .mi-empty {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .mi-section.dark .mi-member-row:hover {
   background: var(--white-04);

@@ -77,7 +77,7 @@ function handleInput(e) {
   transition:
     border-color 0.18s,
     background 0.18s;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .fua-area:hover {
   border-color: rgba(59, 130, 246, 0.5);
