@@ -1,7 +1,6 @@
 package com.workmaite.global.auth;
 
 import com.workmaite.domain.agendas.repository.AgendaRepository;
-import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.entity.MeetingMember;
 import com.workmaite.domain.meetings.entity.MeetingMemberRole;
 import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
@@ -20,9 +19,8 @@ import org.springframework.stereotype.Component;
 /**
  * 회의체 인가 가드 (P1-4, SEC-5 IDOR 차단).
  *
- * <p>두 권한 축을 결합한다: 조직 권한 company_role(SYSTEM_ADMIN/COMPANY_ADMIN/USER)과 회의체 권한
- * meeting_role(간사 admin/참여자 member). 회사 귀속 = meetings.created_by의 회사이며, 세션·아젠다·회의록·보고서는
- * 소속 회의체의 회사를 상속한다.
+ * <p>두 권한 축을 결합한다: 조직 권한 company_role(SYSTEM_ADMIN/COMPANY_ADMIN/USER)과 회의체 권한 meeting_role(간사
+ * admin/참여자 member). 회사 귀속 = meetings.created_by의 회사이며, 세션·아젠다·회의록·보고서는 소속 회의체의 회사를 상속한다.
  *
  * <ul>
  *   <li>{@link #requireView}: SYSTEM_ADMIN | (COMPANY_ADMIN & 자사가 참여한 회의체) | 멤버

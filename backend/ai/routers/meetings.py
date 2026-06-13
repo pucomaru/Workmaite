@@ -452,7 +452,8 @@ def search_users(
 ):
     visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
     query = db.query(models.User).filter(
-        models.User.name.contains(q), models.User.is_active.is_(True)  # 탈퇴 계정 제외(MT-6)
+        models.User.name.contains(q),
+        models.User.is_active.is_(True),  # 탈퇴 계정 제외(MT-6)
     )
     if visible is not None:
         query = query.filter(models.User.id.in_(visible))
@@ -615,7 +616,8 @@ async def rename_company_endpoint(
         raise HTTPException(status_code=404, detail="회사를 찾을 수 없습니다.")
     # 권한: SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN
     is_co_admin = (
-        current_user.company_role == "COMPANY_ADMIN" and current_user.company_id == company.id
+        current_user.company_role == "COMPANY_ADMIN"
+        and current_user.company_id == company.id
     )
     if not is_system_admin(current_user) and not is_co_admin:
         raise HTTPException(status_code=403, detail="회사명을 변경할 권한이 없습니다.")
@@ -699,7 +701,10 @@ def company_members(
     # 1) 역할별 가시 사용자 집합
     if is_system_admin(current_user):
         visible_users = db.query(models.User).all()
-    elif current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
+    elif (
+        current_user.company_role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+    ):
         visible_users = (
             db.query(models.User)
             .filter(models.User.company_id == current_user.company_id)
@@ -875,10 +880,14 @@ async def ai_delete_user(
 
     # 소프트 삭제 + 자격 익명화
     user.is_active = False
-    user.email = f"deleted+{user.id}@deleted.invalid"  # 원래 이메일 슬롯 해제(재가입 허용)
+    user.email = (
+        f"deleted+{user.id}@deleted.invalid"  # 원래 이메일 슬롯 해제(재가입 허용)
+    )
     user.password_hash = "!"  # BCrypt와 절대 매칭되지 않는 불용 해시
     # 활성 세션(refresh token) 폐기 — 행이 남으므로 명시적으로 정리
-    db.execute(text("DELETE FROM refresh_tokens WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(
+        text("DELETE FROM refresh_tokens WHERE user_id = :uid"), {"uid": user_id}
+    )
     # 활성 회의체 명단에서 제거 (참석 이력·발화 등은 별도 테이블에 보존됨)
     db.query(models.MeetingMember).filter(
         models.MeetingMember.user_id == user_id

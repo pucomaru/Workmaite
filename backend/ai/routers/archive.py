@@ -67,7 +67,9 @@ async def archive_extract_agendas(
     if not meeting:
         return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
 
-    require_meeting_edit(db, current_user, meeting_id)  # 아젠다 추출은 간사/회사관리자/시스템관리자만
+    require_meeting_edit(
+        db, current_user, meeting_id
+    )  # 아젠다 추출은 간사/회사관리자/시스템관리자만
     meeting_context = _get_meeting_context(db, meeting_id)
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
     previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
@@ -925,7 +927,10 @@ async def update_minutes(
     if not minutes:
         raise HTTPException(status_code=404, detail="Minutes not found")
     require_owned_edit(
-        db, current_user, meeting_id_of_session(db, minutes.session_id), minutes.recorder_id
+        db,
+        current_user,
+        meeting_id_of_session(db, minutes.session_id),
+        minutes.recorder_id,
     )
     if "file_name" in data and data["file_name"] is not None:
         minutes.file_name = data["file_name"]

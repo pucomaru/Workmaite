@@ -58,8 +58,8 @@ public class MeetingService {
   private static final int MAX_PAGE_SIZE = 100;
 
   /**
-   * 회의체 목록/검색 (P8-4). 조회 스코프는 company_role 기준: SYSTEM_ADMIN=전체, COMPANY_ADMIN=자사가 참여한 회의체,
-   * USER=내가 멤버인 회의체. size 미지정 시 기존 전체 반환(호환 모드).
+   * 회의체 목록/검색 (P8-4). 조회 스코프는 company_role 기준: SYSTEM_ADMIN=전체, COMPANY_ADMIN=자사가 참여한 회의체, USER=내가
+   * 멤버인 회의체. size 미지정 시 기존 전체 반환(호환 모드).
    */
   public List<MeetingResponse> getMeetings(
       Long userId, String keyword, Integer page, Integer size) {
@@ -112,9 +112,7 @@ public class MeetingService {
                     MeetingMember::getMeetingId,
                     mm -> mm.getMeetingRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
                     (a, b) -> a));
-    return visible.stream()
-        .map(m -> MeetingResponse.from(m, roleMap.get(m.getId())))
-        .toList();
+    return visible.stream().map(m -> MeetingResponse.from(m, roleMap.get(m.getId()))).toList();
   }
 
   // secretary가 여러 명일 경우 첫 번째만 담당자로 사용
