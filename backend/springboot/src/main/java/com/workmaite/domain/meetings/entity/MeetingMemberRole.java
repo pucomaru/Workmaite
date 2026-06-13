@@ -3,9 +3,9 @@ package com.workmaite.domain.meetings.entity;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public enum MeetingMemberRole {
-    @JsonProperty("admin")
-    ADMIN,
+  @JsonProperty("admin")
+  ADMIN,
 
-    @JsonProperty("member")
-    MEMBER
+  @JsonProperty("member")
+  MEMBER
 }

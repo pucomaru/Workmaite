@@ -12,6 +12,8 @@ from typing import Any
 
 from sqlalchemy import (
     Integer,
+    BigInteger,
+    SmallInteger,
     String,
     Text,
     DateTime,
@@ -28,14 +30,14 @@ class Company(Base):
     """회사(테넌트) — companies 테이블 (P1-7② 정규화, MT-4)."""
 
     __tablename__ = "companies"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class User(Base):
     __tablename__ = "users"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
@@ -43,7 +45,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     # 회사 정규화 (P1-7②) — users.company 문자열 폐기, companies FK
     company_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("companies.id"), nullable=True
+        BigInteger, ForeignKey("companies.id"), nullable=True
     )
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
     position: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -66,16 +68,16 @@ class ReportAgenda(Base):
 
     __tablename__ = "report_agendas"
     report_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True
+        BigInteger, ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True
     )
     agenda_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True
+        BigInteger, ForeignKey("agenda.id", ondelete="CASCADE"), primary_key=True
     )
 
 
 class Meeting(Base):
     __tablename__ = "meetings"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     guidelines: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -85,7 +87,7 @@ class Meeting(Base):
     end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -94,12 +96,12 @@ class Meeting(Base):
 class MeetingMember(Base):
     __tablename__ = "meeting_members"
     __table_args__ = (UniqueConstraint("meeting_id", "user_id"),)
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     meeting_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=False
+        BigInteger, ForeignKey("meetings.id"), nullable=False
     )
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     priority: Mapped[str] = mapped_column(String(20), default="medium")
@@ -109,9 +111,9 @@ class MeetingMember(Base):
 
 class MeetingSession(Base):
     __tablename__ = "meeting_sessions"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     meeting_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=False
+        BigInteger, ForeignKey("meetings.id"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -121,7 +123,7 @@ class MeetingSession(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="scheduled")
-    recording_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    recording_seconds: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     minutes: Mapped["Minutes | None"] = relationship(
@@ -131,17 +133,17 @@ class MeetingSession(Base):
 
 class Agenda(Base):
     __tablename__ = "agenda"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     meeting_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=False
+        BigInteger, ForeignKey("meetings.id"), nullable=False
     )
     session_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=True
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     assignee_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     department: Mapped[Any] = mapped_column(JSON, nullable=True)
     due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -152,15 +154,15 @@ class Agenda(Base):
 
 class Report(Base):
     __tablename__ = "reports"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     meeting_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=False
+        BigInteger, ForeignKey("meetings.id"), nullable=False
     )
     parent_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("reports.id"), nullable=True
+        BigInteger, ForeignKey("reports.id"), nullable=True
     )
     upload_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     submitter_department: Mapped[str] = mapped_column(
@@ -175,9 +177,9 @@ class Report(Base):
 
 class ReportScore(Base):
     __tablename__ = "report_scores"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     report_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("reports.id"), nullable=False
+        BigInteger, ForeignKey("reports.id"), nullable=False
     )
     ai_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
@@ -190,13 +192,13 @@ class ReportScore(Base):
 
 class SttSegment(Base):
     __tablename__ = "stt_segments"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=False
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=False
     )
     speaker_label: Mapped[str] = mapped_column(String(50), nullable=False)
     speaker_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     start_sec: Mapped[float] = mapped_column(Float, nullable=False)
@@ -208,14 +210,14 @@ class SttSegment(Base):
 
 class Minutes(Base):
     __tablename__ = "minutes"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=False, unique=True
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=False, unique=True
     )
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     recorder_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     content_original: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -229,22 +231,22 @@ class Minutes(Base):
 
 class SessionMember(Base):
     __tablename__ = "session_members"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=False
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=False
     )
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     role: Mapped[str] = mapped_column(String, default="member")
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     thread_id: Mapped[str] = mapped_column(String(100), nullable=False)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(10), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -252,10 +254,10 @@ class ChatMessage(Base):
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     context_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     meeting_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=True
+        BigInteger, ForeignKey("meetings.id"), nullable=True
     )
     session_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=True
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -264,18 +266,18 @@ class ChatFeedback(Base):
     """응답 피드백 (P3C-3, H-9) — eval 데이터셋 환류용."""
 
     __tablename__ = "chat_feedback"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     thread_id: Mapped[str] = mapped_column(String(100), nullable=False)
     message_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("chat_messages.id"), nullable=True
+        BigInteger, ForeignKey("chat_messages.id"), nullable=True
     )
     agent_log_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("agent_logs.id"), nullable=True
+        BigInteger, ForeignKey("agent_logs.id"), nullable=True
     )
-    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1=up / -1=down
+    rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)  # 1=up / -1=down
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -283,17 +285,17 @@ class ChatFeedback(Base):
 
 class AgentLog(Base):
     __tablename__ = "agent_logs"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     task_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     context_type: Mapped[str] = mapped_column(String(30), nullable=False)
     meeting_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("meetings.id"), nullable=True
+        BigInteger, ForeignKey("meetings.id"), nullable=True
     )
     session_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=True
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=True
     )
     user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), default="pending")
     input_data: Mapped[Any] = mapped_column(JSON, nullable=True)
@@ -309,9 +311,9 @@ class AgentLog(Base):
 
 class TokenUsageLog(Base):
     __tablename__ = "token_usage_logs"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     agent_log_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("agent_logs.id"), nullable=False
+        BigInteger, ForeignKey("agent_logs.id"), nullable=False
     )
     model_name: Mapped[str] = mapped_column(String(50), nullable=False)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -322,9 +324,9 @@ class TokenUsageLog(Base):
 
 class SessionSummaryBlock(Base):
     __tablename__ = "session_summary_blocks"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("meeting_sessions.id"), nullable=False
+        BigInteger, ForeignKey("meeting_sessions.id"), nullable=False
     )
     block_index: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -336,21 +338,21 @@ class SessionSummaryBlock(Base):
 
 class HitlReview(Base):
     __tablename__ = "hitl_reviews"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     agent_log_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("agent_logs.id"), nullable=True
+        BigInteger, ForeignKey("agent_logs.id"), nullable=True
     )
     target_type: Mapped[str] = mapped_column(String(30), nullable=False)
     agenda_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("agenda.id"), nullable=True
+        BigInteger, ForeignKey("agenda.id"), nullable=True
     )
     report_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("reports.id"), nullable=True
+        BigInteger, ForeignKey("reports.id"), nullable=True
     )
     ai_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="검토중")
     reviewer_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

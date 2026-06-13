@@ -8,39 +8,41 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.stereotype.Component;
 
 /**
- * {@link AuditLogged} 메서드가 정상 완료되면 audit_logs에 기록한다 (P1-6).
- * - entityId: 호출자 식별용 파라미터(requesterId/callerId)를 제외한 첫 번째 `*Id` Long 파라미터
- * - meetingId: "meetingId" 이름의 Long 파라미터
+ * {@link AuditLogged} 메서드가 정상 완료되면 audit_logs에 기록한다 (P1-6). - entityId: 호출자 식별용
+ * 파라미터(requesterId/callerId)를 제외한 첫 번째 `*Id` Integer 파라미터 - meetingId: "meetingId" 이름의 Integer 파라미터
  */
 @Aspect
 @Component
 @RequiredArgsConstructor
 public class AuditLogAspect {
 
-    private final AuditLogService auditLogService;
+  private final AuditLogService auditLogService;
 
-    @AfterReturning("@annotation(auditLogged)")
-    public void afterReturning(JoinPoint joinPoint, AuditLogged auditLogged) {
-        Long entityId = null;
-        Long meetingId = null;
+  @AfterReturning("@annotation(auditLogged)")
+  public void afterReturning(JoinPoint joinPoint, AuditLogged auditLogged) {
+    Integer entityId = null;
+    Integer meetingId = null;
 
-        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
-        String[] names = signature.getParameterNames();
-        Object[] args = joinPoint.getArgs();
-        if (names != null) {
-            for (int i = 0; i < names.length; i++) {
-                if (!(args[i] instanceof Long value)) {
-                    continue;
-                }
-                if ("meetingId".equals(names[i])) {
-                    meetingId = value;
-                } else if (entityId == null && names[i].endsWith("Id")
-                        && !"requesterId".equals(names[i]) && !"callerId".equals(names[i])) {
-                    entityId = value;
-                }
-            }
+    MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+    String[] names = signature.getParameterNames();
+    Object[] args = joinPoint.getArgs();
+    if (names != null) {
+      for (int i = 0; i < names.length; i++) {
+        if (!(args[i] instanceof Integer value)) {
+          continue;
         }
-
-        auditLogService.record(auditLogged.action(), auditLogged.entityType(), entityId, meetingId, null);
+        if ("meetingId".equals(names[i])) {
+          meetingId = value;
+        } else if (entityId == null
+            && names[i].endsWith("Id")
+            && !"requesterId".equals(names[i])
+            && !"callerId".equals(names[i])) {
+          entityId = value;
+        }
+      }
     }
+
+    auditLogService.record(
+        auditLogged.action(), auditLogged.entityType(), entityId, meetingId, null);
+  }
 }

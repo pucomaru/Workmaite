@@ -9,6 +9,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class MeetingMemberUpdateRequest {
 
-    @NotNull(message = "역할은 필수입니다.")
-    private MeetingMemberRole role;
+  @NotNull(message = "역할은 필수입니다.")
+  private MeetingMemberRole role;
 }

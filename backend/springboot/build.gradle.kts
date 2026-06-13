@@ -2,6 +2,37 @@ plugins {
 	java
 	id("org.springframework.boot") version "3.5.14"
 	id("io.spring.dependency-management") version "1.1.7"
+	id("com.diffplug.spotless") version "6.25.0"
+	checkstyle
+    pmd
+    id("com.github.spotbugs") version "6.0.7"
+}
+
+spotless {
+    encoding("UTF-8") 
+    java {
+        googleJavaFormat()
+		importOrder()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+checkstyle {
+    toolVersion = "10.12.7"
+    // config/checkstyle/checkstyle.xml 에 규칙 파일 둠
+}
+
+pmd {
+    toolVersion = "6.55.0"
+    ruleSetFiles = files("config/pmd/ruleset.xml")  // 커스텀 규칙 쓸 경우
+    isIgnoreFailures = false
+}
+
+spotbugs {
+    ignoreFailures.set(false)
+    excludeFilter.set(file("config/spotbugs/exclude.xml"))
 }
 
 group = "com.workmaite"
@@ -42,7 +73,21 @@ dependencies {
 }
 
 tasks.withType<Test> {
-	useJUnitPlatform()
+	// schema 태그는 실 DB가 필요하므로 일반 test에서 제외
+	useJUnitPlatform {
+		excludeTags("schema")
+	}
+}
+
+// 스키마 검증: 빈 DB에 Flyway V1 baseline으로 스키마를 만든 뒤 JPA 엔티티가 일치하는지 validate.
+// 데이터/스키마를 변경하지 않으며(read-only validate), CI에서 postgres 서비스를 대상으로 실행한다.
+// 예: DB_URL=jdbc:postgresql://localhost:5432/workmaite_ci DB_USER=wm DB_PASSWORD=wm ./gradlew schemaValidate
+tasks.register<Test>("schemaValidate") {
+	group = "verification"
+	description = "Flyway V1으로 빈 DB에 스키마 생성 후 JPA 엔티티 일치 검증"
+	useJUnitPlatform { includeTags("schema") }
+	testClassesDirs = sourceSets["test"].output.classesDirs
+	classpath = sourceSets["test"].runtimeClasspath
 }
 
 // 로컬 개발 편의: 리포 루트 .env를 bootRun 환경변수로 자동 주입.
