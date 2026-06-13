@@ -1,0 +1,28 @@
+# 테스트 프로파일 — @SpringBootTest(contextLoads 등) 통합 테스트용.
+# DB는 운영과 동일한 PostgreSQL을 사용한다(datasource는 main application.yaml의
+# ${DB_URL}/${DB_USER}/${DB_PASSWORD} env 설정을 그대로 상속).
+#   - CI(quality-backend.yml): postgres 서비스 컨테이너를 띄우고 위 env로 연결
+#   - 로컬: kubectl port-forward 등으로 PostgreSQL을 localhost:5432에 노
+#
+# Flyway 마이그레이션은 V1 baseline(기존 운영 스키마)이 없어 빈 DB에선 돌릴 수 없으므로
+# 테스트에서는 비활성화하고, Hibernate가 엔티티로부터 스키마를 생성(create-drop)한다.
+# (jsonb 등 PG 전용 타입도 실제 PostgreSQL이므로 정상 동작)
+spring:
+  # ⚠️ 운영 DB 안전 — 이중 안전장치:
+  #   1) ddl-auto: none — Hibernate가 스키마를 전혀 건드리지 않음(CREATE/DROP/ALTER 0).
+  #      contextLoads는 쿼리하지 않으므로 스키마 없이도 컨텍스트가 뜬다(연결만 확인).
+  #   2) datasource 기본값을 운영 DB(sk-team-9)가 아닌 전용 workmaite_test로 분리.
+  #   CI는 DB_URL/DB_USER/DB_PASSWORD env로 postgres 서비스(workmaite_test)에 연결.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/workmaite_test}
+    username: ${DB_USER:test}
+    password: ${DB_PASSWORD:test}
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+# HS256 서명 키는 256비트(32바이트) 이상이어야 함 — 테스트 전용 더미 값
+jwt:
+  secret: "test-jwt-secret-for-ci-only-do-not-use-in-production-0123456789"

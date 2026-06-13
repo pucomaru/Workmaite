@@ -8,6 +8,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class MinutesSummaryRequest {
 
-    @NotBlank(message = "STT 원문을 입력해주세요.")
-    private String contentRaw;
+  @NotBlank(message = "STT 원문을 입력해주세요.")
+  private String contentRaw;
 }

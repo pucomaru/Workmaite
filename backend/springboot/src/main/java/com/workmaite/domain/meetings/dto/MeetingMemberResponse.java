@@ -11,38 +11,41 @@ import lombok.Getter;
 @Builder
 public class MeetingMemberResponse {
 
-    private Long id;
+  private Integer id;
 
-    @JsonProperty("meeting_id")
-    private Long meetingId;
+  @JsonProperty("meeting_id")
+  private Integer meetingId;
 
-    @JsonProperty("user_id")
-    private Long userId;
+  @JsonProperty("user_id")
+  private Integer userId;
 
-    private MeetingMemberRole role;
+  private MeetingMemberRole role;
 
-    private String priority;
+  private String priority;
 
-    private UserInfo user;
+  private UserInfo user;
 
-    @Getter
-    @Builder
-    public static class UserInfo {
-        private Long id;
-        private String name;
-        private String email;
-        private String company;
-        private Long companyId;
-        private String department;
-        private String position;
-    }
+  @Getter
+  @Builder
+  public static class UserInfo {
+    private Integer id;
+    private String name;
+    private String email;
+    private String company;
+    private Integer companyId;
+    private String department;
+    private String position;
+  }
 
-    public static MeetingMemberResponse from(MeetingMember member) {
-        return from(member, null);
-    }
+  public static MeetingMemberResponse from(MeetingMember member) {
+    return from(member, null);
+  }
 
-    public static MeetingMemberResponse from(MeetingMember member, User user) {
-        UserInfo userInfo = user == null ? null : UserInfo.builder()
+  public static MeetingMemberResponse from(MeetingMember member, User user) {
+    UserInfo userInfo =
+        user == null
+            ? null
+            : UserInfo.builder()
                 .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
@@ -51,13 +54,13 @@ public class MeetingMemberResponse {
                 .department(user.getDepartment())
                 .position(user.getPosition())
                 .build();
-        return MeetingMemberResponse.builder()
-                .id(member.getId())
-                .meetingId(member.getMeetingId())
-                .userId(member.getUserId())
-                .role(member.getRole())
-                .priority(member.getPriority())
-                .user(userInfo)
-                .build();
-    }
+    return MeetingMemberResponse.builder()
+        .id(member.getId())
+        .meetingId(member.getMeetingId())
+        .userId(member.getUserId())
+        .role(member.getRole())
+        .priority(member.getPriority())
+        .user(userInfo)
+        .build();
+  }
 }

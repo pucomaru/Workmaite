@@ -2,6 +2,37 @@ plugins {
 	java
 	id("org.springframework.boot") version "3.5.14"
 	id("io.spring.dependency-management") version "1.1.7"
+	id("com.diffplug.spotless") version "6.25.0"
+	checkstyle
+    pmd
+    id("com.github.spotbugs") version "6.0.7"
+}
+
+spotless {
+    encoding("UTF-8") 
+    java {
+        googleJavaFormat()
+		importOrder()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+checkstyle {
+    toolVersion = "10.12.7"
+    // config/checkstyle/checkstyle.xml 에 규칙 파일 둠
+}
+
+pmd {
+    toolVersion = "6.55.0"
+    ruleSetFiles = files("config/pmd/ruleset.xml")  // 커스텀 규칙 쓸 경우
+    isIgnoreFailures = false
+}
+
+spotbugs {
+    ignoreFailures.set(false)
+    excludeFilter.set(file("config/spotbugs/exclude.xml"))
 }
 
 group = "com.workmaite"
@@ -41,8 +72,24 @@ dependencies {
 	testAnnotationProcessor("org.projectlombok:lombok")
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+tasks.named<Test>("test") {
+	// 운영 DB 대상 스키마 검증(@Tag("schema"))은 기본 test에서 제외 — 빈 CI DB에선 못 돈다
+	useJUnitPlatform {
+		excludeTags("schema")
+	}
+}
+
+// 엔티티(JPA) 매핑이 실제 DB 스키마와 일치하는지 read-only로 검증한다 (레거시/누락 컬럼 탐지).
+// 운영 PostgreSQL을 localhost:5432로 port-forward 한 뒤:
+//   DB_URL=jdbc:postgresql://localhost:5432/<운영DB> DB_USER=<r/o> DB_PASSWORD=<pw> ./gradlew schemaValidate
+tasks.register<Test>("schemaValidate") {
+	group = "verification"
+	description = "JPA 엔티티가 실제 DB 스키마와 일치하는지 validate (read-only, 스키마/데이터 불변)"
+	testClassesDirs = sourceSets["test"].output.classesDirs
+	classpath = sourceSets["test"].runtimeClasspath
+	useJUnitPlatform {
+		includeTags("schema")
+	}
 }
 
 // 로컬 개발 편의: 리포 루트 .env를 bootRun 환경변수로 자동 주입.

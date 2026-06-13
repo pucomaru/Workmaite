@@ -1,4 +1,3 @@
-
 from langchain_openai import ChatOpenAI
 
 from llm_factory import llm_factory

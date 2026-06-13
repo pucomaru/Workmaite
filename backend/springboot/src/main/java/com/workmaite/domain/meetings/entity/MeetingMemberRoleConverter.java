@@ -6,22 +6,22 @@ import jakarta.persistence.Converter;
 @Converter
 public class MeetingMemberRoleConverter implements AttributeConverter<MeetingMemberRole, String> {
 
-    @Override
-    public String convertToDatabaseColumn(MeetingMemberRole role) {
-        if (role == null) return null;
-        return switch (role) {
-            case ADMIN -> "admin";
-            case MEMBER -> "member";
-        };
-    }
+  @Override
+  public String convertToDatabaseColumn(MeetingMemberRole role) {
+    if (role == null) return null;
+    return switch (role) {
+      case ADMIN -> "admin";
+      case MEMBER -> "member";
+    };
+  }
 
-    @Override
-    public MeetingMemberRole convertToEntityAttribute(String dbValue) {
-        if (dbValue == null) return null;
-        return switch (dbValue.toLowerCase()) {
-            case "admin" -> MeetingMemberRole.ADMIN;
-            case "member", "presenter" -> MeetingMemberRole.MEMBER;
-            default -> throw new IllegalArgumentException("Unknown MeetingMemberRole: " + dbValue);
-        };
-    }
+  @Override
+  public MeetingMemberRole convertToEntityAttribute(String dbValue) {
+    if (dbValue == null) return null;
+    return switch (dbValue.toLowerCase()) {
+      case "admin" -> MeetingMemberRole.ADMIN;
+      case "member", "presenter" -> MeetingMemberRole.MEMBER;
+      default -> throw new IllegalArgumentException("Unknown MeetingMemberRole: " + dbValue);
+    };
+  }
 }

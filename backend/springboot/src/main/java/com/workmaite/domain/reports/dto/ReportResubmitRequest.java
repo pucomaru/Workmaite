@@ -7,12 +7,12 @@ import lombok.Getter;
 @Getter
 public class ReportResubmitRequest {
 
-    @NotNull(message = "업로더 ID를 입력해주세요.")
-    private Long uploadId;
+  @NotNull(message = "업로더 ID를 입력해주세요.")
+  private Integer uploadId;
 
-    @NotBlank(message = "제출 부서를 입력해주세요.")
-    private String submitterDepartment;
+  @NotBlank(message = "제출 부서를 입력해주세요.")
+  private String submitterDepartment;
 
-    private String fileName;
-    private String filePath;
+  private String fileName;
+  private String filePath;
 }
