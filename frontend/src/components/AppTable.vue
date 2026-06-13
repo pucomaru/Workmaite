@@ -5,7 +5,9 @@
         <col
           v-for="(col, i) in columns"
           :key="i"
-          :style="colWidths[i] ? { width: colWidths[i] + 'px' } : (col.width ? { width: col.width } : {})"
+          :style="
+            colWidths[i] ? { width: colWidths[i] + 'px' } : col.width ? { width: col.width } : {}
+          "
         />
       </colgroup>
       <thead>
@@ -19,13 +21,25 @@
             <span class="th-content">
               {{ col.label ?? '' }}
               <span v-if="col.sortKey" class="sort-icons">
-                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'asc' }"
-                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M4 1 L7 6 L1 6 Z"/>
+                <svg
+                  class="sort-icon"
+                  :class="{ active: sortKey === col.sortKey && sortDir === 'asc' }"
+                  width="8"
+                  height="8"
+                  viewBox="0 0 8 8"
+                  fill="currentColor"
+                >
+                  <path d="M4 1 L7 6 L1 6 Z" />
                 </svg>
-                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'desc' }"
-                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M4 7 L1 2 L7 2 Z"/>
+                <svg
+                  class="sort-icon"
+                  :class="{ active: sortKey === col.sortKey && sortDir === 'desc' }"
+                  width="8"
+                  height="8"
+                  viewBox="0 0 8 8"
+                  fill="currentColor"
+                >
+                  <path d="M4 7 L1 2 L7 2 Z" />
                 </svg>
               </span>
             </span>
@@ -51,7 +65,7 @@ const props = defineProps({
   columns: { type: Array, default: () => [] },
   dark: { type: Boolean, default: false },
   sortKey: { type: String, default: null },
-  sortDir: { type: String, default: null },  // 'asc' | 'desc' | null
+  sortDir: { type: String, default: null }, // 'asc' | 'desc' | null
   // true면 처음부터 table-layout:fixed — 데이터 내용과 무관하게 컬럼 폭이 columns의 width 정의만 따른다
   fixed: { type: Boolean, default: false },
 })
@@ -89,7 +103,7 @@ function startResize(e, colIndex) {
     nextStartWidth: colWidths.value[colIndex + 1],
   }
 
-  const onMouseMove = (ev) => {
+  const onMouseMove = ev => {
     if (!resizing) return
     const dx = ev.clientX - resizing.startX
 
@@ -139,7 +153,7 @@ function startResize(e, colIndex) {
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-align: left;
   white-space: nowrap;
   background: var(--surface);
@@ -263,6 +277,6 @@ function startResize(e, colIndex) {
 }
 .app-table-dark .col-resize-handle:hover,
 .app-table-dark .col-resize-handle:active {
-  background: rgba(255,255,255,.35);
+  background: rgba(255, 255, 255, 0.35);
 }
 </style>

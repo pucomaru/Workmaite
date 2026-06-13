@@ -3,10 +3,11 @@
 DB 컨텍스트 빌더·활동 로그·파일 텍스트 추출·플랜 스트리밍 등
 여러 라우터가 공유하는 비-HTTP 로직. (routers/는 HTTP 변환만 담당)
 """
+
 import logging
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from database import SessionLocal
 from routers.prompts import make_llm
 
 logger = logging.getLogger(__name__)
+
 
 def _log_activity(meeting_id: int, agent: str, action: str, detail: str = ""):
     if not meeting_id:
@@ -45,12 +47,14 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         return ""
-    lines = [f"회의체 이름: {meeting.title}"]
+    lines = [f"회의체명: {meeting.title}"]
     if meeting.description:
         lines.append(f"회의 목적: {meeting.description}")
-    members = db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id
-    ).all()
+    members = (
+        db.query(models.MeetingMember)
+        .filter(models.MeetingMember.meeting_id == meeting_id)
+        .all()
+    )
     if members:
         member_parts = []
         for m in members:
@@ -67,6 +71,7 @@ def _get_meeting_context(db: Session, meeting_id: int) -> str:
 def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
     """Return unique (company, department) pairs from meeting members."""
     from sqlalchemy.orm import joinedload
+
     members = (
         db.query(models.MeetingMember)
         .options(joinedload(models.MeetingMember.user))
@@ -87,10 +92,15 @@ def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
 
 
 def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
-    sessions = db.query(models.MeetingSession).filter(
-        models.MeetingSession.meeting_id == meeting_id,
-        models.MeetingSession.status.in_(["ended", "ENDED"]),
-    ).order_by(models.MeetingSession.ended_at.desc()).all()
+    sessions = (
+        db.query(models.MeetingSession)
+        .filter(
+            models.MeetingSession.meeting_id == meeting_id,
+            models.MeetingSession.status.in_(["ended", "ENDED"]),
+        )
+        .order_by(models.MeetingSession.ended_at.desc())
+        .all()
+    )
 
     result = []
     for s in sessions:
@@ -101,10 +111,21 @@ def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
         elif s.minutes.file_path:
             # content_summary 없으면 파일에서 직접 텍스트 추출 (STT 원문 등)
             try:
-                from r2_storage import is_r2_url as _is_r2, url_to_key as _r2_key, download_bytes as _r2_dl
-                raw = _r2_dl(_r2_key(s.minutes.file_path)) if _is_r2(s.minutes.file_path) else None
+                from r2_storage import (
+                    is_r2_url as _is_r2,
+                    url_to_key as _r2_key,
+                    download_bytes as _r2_dl,
+                )
+
+                raw = (
+                    _r2_dl(_r2_key(s.minutes.file_path))
+                    if _is_r2(s.minutes.file_path)
+                    else None
+                )
                 if raw:
-                    text = _extract_text_from_file(raw, s.minutes.file_name or "minutes.pdf")
+                    text = _extract_text_from_file(
+                        raw, s.minutes.file_name or "minutes.pdf"
+                    )
                     if text.strip():
                         result.append(text[:3000])
             except Exception:
@@ -157,7 +178,11 @@ def _format_schedule_table(table: list) -> str:
         tasks = team_tasks[team]
         if tasks:
             for col_idx in sorted(tasks):
-                col_label = header[col_idx] if col_idx < len(header) and header[col_idx] else f"열{col_idx}"
+                col_label = (
+                    header[col_idx]
+                    if col_idx < len(header) and header[col_idx]
+                    else f"열{col_idx}"
+                )
                 lines.append(f"  {col_label}: {tasks[col_idx]}")
         else:
             lines.append("  (배정된 작업 없음)")
@@ -172,12 +197,13 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
         # 1순위: pdfplumber — 표는 구조화 추출, 나머지는 텍스트 추출
         try:
             import pdfplumber
+
             parts = []
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 for page in pdf.pages:
                     # 표 구조화 추출
                     tables = page.extract_tables()
-                    for t in (tables or []):
+                    for t in tables or []:
                         formatted = _format_schedule_table(t)
                         if formatted:
                             parts.append(formatted)
@@ -195,6 +221,7 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
         # 2순위: pypdf (기본 의존성)
         try:
             import pypdf
+
             reader = pypdf.PdfReader(io.BytesIO(raw))
             pages = [page.extract_text() or "" for page in reader.pages]
             return "\n".join(pages).strip()
@@ -204,6 +231,7 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
     if filename.endswith(".docx"):
         try:
             import docx as _docx
+
             doc = _docx.Document(io.BytesIO(raw))
             return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         except Exception as e:
@@ -212,6 +240,7 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
     if filename.endswith((".xlsx", ".xls")):
         try:
             import openpyxl
+
             wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
             lines = []
             for ws in wb.worksheets:
@@ -235,12 +264,14 @@ async def _stream_plan(system_content: str, human_content: str):
     """LLM이 작업 계획을 줄 단위로 스트리밍 생성합니다."""
     llm = make_llm(temperature=0.2, streaming=True)
     buf = ""
-    async for chunk in llm.astream([
-        SystemMessage(content=system_content),
-        HumanMessage(content=human_content),
-    ]):
+    async for chunk in llm.astream(
+        [
+            SystemMessage(content=system_content),
+            HumanMessage(content=human_content),
+        ]
+    ):
         if chunk.content:
-            buf += chunk.content
+            buf += cast(str, chunk.content)
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
                 line = line.strip().lstrip("-•·▪▸◦*0123456789.").strip()
@@ -249,5 +280,3 @@ async def _stream_plan(system_content: str, human_content: str):
     tail = buf.strip().lstrip("-•·▪▸◦*0123456789.").strip()
     if tail:
         yield tail
-
-

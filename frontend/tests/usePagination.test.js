@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { ref, nextTick } from 'vue'
 import { usePagination } from '../src/composables/usePagination'
 
-const items = (n) => Array.from({ length: n }, (_, i) => i + 1)
+const items = n => Array.from({ length: n }, (_, i) => i + 1)
 
 describe('usePagination', () => {
   it('페이지 크기만큼 슬라이스한다', () => {

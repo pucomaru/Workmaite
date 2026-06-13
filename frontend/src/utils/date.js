@@ -23,13 +23,24 @@ export function formatDateShort(ds) {
 /** '2026. 6월 12. 오후 10:30' (연도 포함) — 아카이브 이력용 */
 export function formatDateTimeFull(d) {
   if (!d) return '-'
-  return new Date(d).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 /** '6월 12일 오후 10:30' (연도 없음) — 세션 목록용 */
 export function formatDateTimeShort(d, fallback = '-') {
   if (!d) return fallback
-  return new Date(d).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString('ko-KR', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 /** '2026년 6월 12일' — 날짜만. 'YYYY-MM-DD' 문자열은 KST 오전 9시로 해석해 UTC 밀림 방지 */

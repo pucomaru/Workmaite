@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { ref } from 'vue'
 import { useTableSort } from '../src/composables/useTableSort'
 
-const rows = () => ref([
-  { name: '나', count: 10 },
-  { name: '가', count: 2 },
-  { name: '다', count: 1 },
-])
+const rows = () =>
+  ref([
+    { name: '나', count: 10 },
+    { name: '가', count: 2 },
+    { name: '다', count: 1 },
+  ])
 
 describe('useTableSort', () => {
   it('정렬 키가 없으면 원본 순서를 유지한다', () => {

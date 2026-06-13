@@ -10,15 +10,29 @@ import { ref } from 'vue'
 export const confirmState = ref(null)
 // { mode: 'confirm'|'prompt', message, okText, cancelText, danger, placeholder, resolve }
 
-export function confirmDialog(message, { okText = '확인', cancelText = '취소', danger = false } = {}) {
+export function confirmDialog(
+  message,
+  { okText = '확인', cancelText = '취소', danger = false } = {},
+) {
   return new Promise(resolve => {
     confirmState.value = { mode: 'confirm', message, okText, cancelText, danger, resolve }
   })
 }
 
-export function promptDialog(message, { okText = '확인', cancelText = '취소', placeholder = '' } = {}) {
+export function promptDialog(
+  message,
+  { okText = '확인', cancelText = '취소', placeholder = '' } = {},
+) {
   return new Promise(resolve => {
-    confirmState.value = { mode: 'prompt', message, okText, cancelText, placeholder, danger: false, resolve }
+    confirmState.value = {
+      mode: 'prompt',
+      message,
+      okText,
+      cancelText,
+      placeholder,
+      danger: false,
+      resolve,
+    }
   })
 }
 

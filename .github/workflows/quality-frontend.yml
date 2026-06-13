@@ -1,6 +1,6 @@
 name: Quality - Frontend
 
-# 배포(ci-frontend.yml)와 분리된 품질 게이트 — lint / test / build
+# 배포(ci-frontend.yml) lint / test / build
 on:
   pull_request:
     paths:
@@ -29,7 +29,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install
-        run: npm ci
+        # npm ci 대신 install — npm의 크로스플랫폼 optional-dependency lock 버그 회피
+        # (Windows에서 생성한 lock이 linux의 @emnapi/@rolldown-wasm 해석과 어긋남)
+        run: npm install --no-audit --no-fund
+
+      - name: Format check
+        run: npm run format:check
 
       - name: Lint
         run: npm run lint

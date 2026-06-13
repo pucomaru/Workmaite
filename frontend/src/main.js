@@ -15,9 +15,10 @@ app.mount('#app')
 
 // Bootstrap 툴팁 전역 초기화 — [data-bs-toggle="tooltip"] 요소에 적용
 import('bootstrap').then(({ Tooltip }) => {
-  const init = () => document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-    if (!Tooltip.getInstance(el)) new Tooltip(el)
-  })
+  const init = () =>
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+      if (!Tooltip.getInstance(el)) new Tooltip(el)
+    })
   init()
   new MutationObserver(init).observe(document.body, { childList: true, subtree: true })
 })

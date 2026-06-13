@@ -11,10 +11,14 @@ onMounted(async () => {
   await meetingsStore.fetchMeetings()
 })
 
-watch(() => route.params.meetingId, (id) => {
-  meetingsStore.currentLoopIdx = 0
-  if (id) meetingsStore.fetchRole(id)
-}, { immediate: true })
+watch(
+  () => route.params.meetingId,
+  id => {
+    meetingsStore.currentLoopIdx = 0
+    if (id) meetingsStore.fetchRole(id)
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -30,9 +34,23 @@ watch(() => route.params.meetingId, (id) => {
 </template>
 
 <style scoped>
-.layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.layout-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
-.layout-main { flex: 1; overflow-y: auto; padding: 24px 28px; }
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.layout-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.layout-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
 .ai-disclaimer {
   text-align: center;
   font-size: 11px;

@@ -11,14 +11,14 @@ import { toast } from '../composables/useToast'
 import { confirmDialog, promptDialog } from '../composables/useConfirm'
 
 const auth = useAuthStore()
-const orgColumns = [
+const companyColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
   { label: '회사', width: '110px', sortKey: 'company' },
   { label: '부서', width: '110px', sortKey: 'department' },
   { label: '직책', width: '80px', sortKey: 'position' },
   { label: '이메일', width: '180px', sortKey: 'email' },
   { label: '참여 회의체' },
-  { label: '', width: '72px', noResize: true }
+  { label: '', width: '72px', noResize: true },
 ]
 
 const themeStore = useThemeStore()
@@ -29,13 +29,20 @@ const searchQuery = ref('')
 const allMembers = ref([])
 // 본인이 속한 회의체 목록 (PostgreSQL 기준 권한 범위)
 const myMeetings = ref([])
-const loadingMembers = ref(false)
+const loadingMembers = ref(true) // 첫 페인트부터 로딩 표시 — onMounted 이전에 빈 상태가 노출되는 깜빡임 방지
 
 const showAddModal = ref(false)
-const addForm = ref({ name: '', email: '', company: '', department: '', position: '', password: '' })
+const addForm = ref({
+  name: '',
+  email: '',
+  company: '',
+  department: '',
+  position: '',
+  password: '',
+})
 const addError = ref('')
 
-const editModal = ref(null)  // { ...member }
+const editModal = ref(null) // { ...member }
 
 // 본인이 속한 회의체의 구성원만 PostgreSQL 기준으로 조회 (서버에서 권한 범위 강제)
 async function fetchAllMembers() {
@@ -67,12 +74,14 @@ const filteredMembers = computed(() => {
   let list = allMembers.value
   if (sid !== 'all') list = list.filter(m => m.meetings.some(mg => String(mg.id) === String(sid)))
   const q = searchQuery.value.trim().toLowerCase()
-  if (q) list = list.filter(m =>
-    (m.name || '').toLowerCase().includes(q) ||
-    (m.email || '').toLowerCase().includes(q) ||
-    (m.position || '').toLowerCase().includes(q) ||
-    (m.department || '').toLowerCase().includes(q)
-  )
+  if (q)
+    list = list.filter(
+      m =>
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.email || '').toLowerCase().includes(q) ||
+        (m.position || '').toLowerCase().includes(q) ||
+        (m.department || '').toLowerCase().includes(q),
+    )
   return list
 })
 
@@ -96,22 +105,33 @@ function openAddModal() {
 // 해당 계정은 최초 로그인 시 비밀번호 변경이 강제된다(서버 필터로 차단)
 async function submitAdd() {
   addError.value = ''
-  if (!addForm.value.name.trim()) { addError.value = '이름을 입력해주세요.'; return }
-  if (!addForm.value.email.trim()) { addError.value = '이메일을 입력해주세요.'; return }
+  if (!addForm.value.name.trim()) {
+    addError.value = '이름을 입력해주세요.'
+    return
+  }
+  if (!addForm.value.email.trim()) {
+    addError.value = '이메일을 입력해주세요.'
+    return
+  }
   if ((addForm.value.password || '').length < 8) {
     addError.value = '임시 비밀번호(8자 이상)를 입력해주세요.'
     return
   }
   try {
-    const { data } = await api.post('/api/v1/users/bulk', [{
-      name: addForm.value.name,
-      email: addForm.value.email,
-      department: addForm.value.department || '',
-      position: addForm.value.position || '',
-      password: addForm.value.password,
-    }])
+    const { data } = await api.post('/api/v1/users/bulk', [
+      {
+        name: addForm.value.name,
+        email: addForm.value.email,
+        department: addForm.value.department || '',
+        position: addForm.value.position || '',
+        password: addForm.value.password,
+      },
+    ])
     const r = data?.[0]
-    if (r && !r.ok) { addError.value = r.reason || '등록 실패'; return }
+    if (r && !r.ok) {
+      addError.value = r.reason || '등록 실패'
+      return
+    }
     await fetchAllMembers()
     showAddModal.value = false
   } catch (e) {
@@ -120,8 +140,16 @@ async function submitAdd() {
 }
 
 async function removeMember(member) {
-  if (!(await confirmDialog(`${member.name || member.email}을(를) 제거하시겠습니까?`, { danger: true }))) return
-  if (member.isCustom) { allMembers.value = allMembers.value.filter(m => m.id !== member.id); return }
+  if (
+    !(await confirmDialog(`${member.name || member.email}을(를) 제거하시겠습니까?`, {
+      danger: true,
+    }))
+  )
+    return
+  if (member.isCustom) {
+    allMembers.value = allMembers.value.filter(m => m.id !== member.id)
+    return
+  }
   const meeting = member.meetings[0]
   try {
     if (meeting?.id && meeting?.member_id) {
@@ -131,10 +159,14 @@ async function removeMember(member) {
       await apiAI.delete(`/api/ai/users/${member.id}`)
     }
     await fetchAllMembers()
-  } catch (e) { toast.error(e.response?.data?.detail || '제거 실패') }
+  } catch (e) {
+    toast.error(e.response?.data?.detail || '제거 실패')
+  }
 }
 
-function openEdit(member) { editModal.value = { ...member, _origRole: member.role } }
+function openEdit(member) {
+  editModal.value = { ...member, _origRole: member.role }
+}
 
 async function saveEdit() {
   const m = editModal.value
@@ -149,7 +181,9 @@ async function saveEdit() {
       await api.patch(`/api/v1/users/${m.id}/role`, { role: m.role }) // COMPANY_ADMIN 부여/회수 (P1-7②)
     }
     await fetchAllMembers()
-  } catch (e) { toast.error(e.response?.data?.detail || e.response?.data?.message || '변경 실패') }
+  } catch (e) {
+    toast.error(e.response?.data?.detail || e.response?.data?.message || '변경 실패')
+  }
   editModal.value = null
 }
 
@@ -179,7 +213,7 @@ function exportCSV() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `구성원_${new Date().toISOString().slice(0,10)}.csv`
+  a.download = `구성원_${new Date().toISOString().slice(0, 10)}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -195,7 +229,7 @@ function handleCSVFile(e) {
   const file = e.target.files?.[0]
   if (!file) return
   const reader = new FileReader()
-  reader.onload = (ev) => {
+  reader.onload = ev => {
     parseAndImportCSV(ev.target.result)
   }
   reader.readAsText(file, 'utf-8')
@@ -206,14 +240,18 @@ const csvImportResult = ref(null)
 
 function parseCSVLine(line) {
   const result = []
-  let cur = '', inQuote = false
+  let cur = '',
+    inQuote = false
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]
     if (ch === '"') {
-      if (inQuote && line[i+1] === '"') { cur += '"'; i++ }
-      else inQuote = !inQuote
+      if (inQuote && line[i + 1] === '"') {
+        cur += '"'
+        i++
+      } else inQuote = !inQuote
     } else if (ch === ',' && !inQuote) {
-      result.push(cur.trim()); cur = ''
+      result.push(cur.trim())
+      cur = ''
     } else {
       cur += ch
     }
@@ -223,27 +261,36 @@ function parseCSVLine(line) {
 }
 
 const CSV_HEADER_MAP = {
-  '이름': 'name', 'name': 'name',
-  '이메일': 'email', 'email': 'email',
-  '회사': 'company', '회사명': 'company', 'company': 'company',
-  '부서': 'department', '부서명': 'department', 'department': 'department',
-  '직책': 'position', 'position': 'position',
-  '임시비밀번호': 'password', '비밀번호': 'password', 'password': 'password',
-}
-
-function generateTempPassword() {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$'
-  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  이름: 'name',
+  name: 'name',
+  이메일: 'email',
+  email: 'email',
+  회사: 'company',
+  회사명: 'company',
+  company: 'company',
+  부서: 'department',
+  부서명: 'department',
+  department: 'department',
+  직책: 'position',
+  position: 'position',
+  임시비밀번호: 'password',
+  비밀번호: 'password',
+  password: 'password',
 }
 
 async function parseAndImportCSV(text) {
   // BOM 제거
   const content = text.replace(/^\uFEFF/, '')
   const lines = content.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) { toast.info('CSV 파일에 데이터가 없습니다.'); return }
+  if (lines.length < 2) {
+    toast.info('CSV 파일에 데이터가 없습니다.')
+    return
+  }
 
   const headerLine = parseCSVLine(lines[0])
-  const fieldKeys = headerLine.map(h => CSV_HEADER_MAP[h.toLowerCase()] || CSV_HEADER_MAP[h] || null)
+  const fieldKeys = headerLine.map(
+    h => CSV_HEADER_MAP[h.toLowerCase()] || CSV_HEADER_MAP[h] || null,
+  )
 
   if (!fieldKeys.includes('name')) {
     toast.info('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책,임시비밀번호')
@@ -251,10 +298,12 @@ async function parseAndImportCSV(text) {
   }
 
   // 일괄 임시 비밀번호: CSV에 개별 비밀번호가 없거나 비어있는 행에 공통 적용 (각자 최초 로그인 시 변경 강제)
-  const bulkPassword = ((await promptDialog(
-    '가져올 구성원에 적용할 임시 비밀번호를 입력하세요 (8자 이상).\n' +
-    'CSV에 개별 비밀번호 컬럼이 있으면 그 값이 우선합니다. (비우면 CSV 값만 사용)'
-  )) || '').trim()
+  const bulkPassword = (
+    (await promptDialog(
+      '가져올 구성원에 적용할 임시 비밀번호를 입력하세요 (8자 이상).\n' +
+        'CSV에 개별 비밀번호 컬럼이 있으면 그 값이 우선합니다. (비우면 CSV 값만 사용)',
+    )) || ''
+  ).trim()
 
   const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))
   const skippedNoEmail = []
@@ -265,7 +314,9 @@ async function parseAndImportCSV(text) {
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i])
     const obj = {}
-    fieldKeys.forEach((key, idx) => { if (key) obj[key] = cols[idx] || '' })
+    fieldKeys.forEach((key, idx) => {
+      if (key) obj[key] = cols[idx] || ''
+    })
     if (!obj.name) continue
 
     if (!obj.email) {
@@ -286,13 +337,20 @@ async function parseAndImportCSV(text) {
     }
     try {
       // 임시 비밀번호 방식 (P1-7② 개정): 행별 비밀번호 또는 일괄 비밀번호로 즉시 생성, 로그인 시 변경 강제
-      const { data } = await api.post('/api/v1/users/bulk', [{
-        name: obj.name, email: obj.email,
-        department: obj.department || '', position: obj.position || '',
-        password: rowPassword,
-      }])
+      const { data } = await api.post('/api/v1/users/bulk', [
+        {
+          name: obj.name,
+          email: obj.email,
+          department: obj.department || '',
+          position: obj.position || '',
+          password: rowPassword,
+        },
+      ])
       const r = data?.[0]
-      if (r && !r.ok) { failed.push(`${obj.name} (${r.reason})`); continue }
+      if (r && !r.ok) {
+        failed.push(`${obj.name} (${r.reason})`)
+        continue
+      }
       existingEmails.add(emailLower)
       succeeded.push(obj.name)
     } catch {
@@ -302,10 +360,14 @@ async function parseAndImportCSV(text) {
 
   await fetchAllMembers()
 
-  const pwNote = bulkPassword ? '임시 비밀번호로 로그인 → 최초 로그인 시 변경 강제' : '각자 CSV의 임시 비밀번호로 로그인 → 변경 강제'
+  const pwNote = bulkPassword
+    ? '임시 비밀번호로 로그인 → 최초 로그인 시 변경 강제'
+    : '각자 CSV의 임시 비밀번호로 로그인 → 변경 강제'
   const resultLines = [`${succeeded.length}명 등록 완료 (${pwNote})`]
-  if (skippedNoEmail.length) resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
-  if (skippedDuplicate.length) resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
+  if (skippedNoEmail.length)
+    resultLines.push(`이메일 없음 (${skippedNoEmail.length}명): ${skippedNoEmail.join(', ')}`)
+  if (skippedDuplicate.length)
+    resultLines.push(`이미 존재 (${skippedDuplicate.length}명): ${skippedDuplicate.join(', ')}`)
   if (failed.length) resultLines.push(`등록 실패 (${failed.length}명): ${failed.join(', ')}`)
   csvImportResult.value = resultLines.join('\n')
 }
@@ -317,34 +379,96 @@ const groupedFilteredMembers = computed(() => filteredMembers.value)
 const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(groupedFilteredMembers)
 
 const MEMBER_PAGE_SIZE = 30
-const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } = usePagination(sortedMembers, MEMBER_PAGE_SIZE)
+const {
+  page: memberPage,
+  paged: pagedMembers,
+  fillerCount: memberFillerCount,
+} = usePagination(sortedMembers, MEMBER_PAGE_SIZE)
 </script>
 
 <template>
-  <div class="org-page page-full-height" :class="{ 'day-mode': !nightMode }">
+  <div class="company-page page-full-height" :class="{ 'day-mode': !nightMode }">
     <!-- Archive-style header -->
     <div class="archive-header">
       <div class="header-title-wrap">
-        <h1 class="archive-title">회사 구성원 관리</h1>
+        <h1 class="archive-title">구성원 관리</h1>
       </div>
 
       <div class="search-wrap">
-        <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input v-model="searchQuery" class="search-input" placeholder="이름, 직책, 이메일 검색..." />
+        <svg
+          class="search-icon"
+          width="14"
+          height="14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="M21 21l-4.35-4.35" />
+        </svg>
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="이름, 직책, 이메일 검색..."
+        />
       </div>
 
       <div class="plus-wrap">
-        <input ref="csvImportInput" type="file" accept=".csv" style="display:none" @change="handleCSVFile" />
+        <input
+          ref="csvImportInput"
+          type="file"
+          accept=".csv"
+          style="display: none"
+          @change="handleCSVFile"
+        />
         <button class="create-btn secondary" @click="exportCSV" title="현재 목록을 CSV로 내보내기">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <svg
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
           CSV 내보내기
         </button>
-        <button class="create-btn secondary" @click="triggerCSVImport" title="CSV 파일로 구성원 일괄 등록">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <button
+          class="create-btn secondary"
+          @click="triggerCSVImport"
+          title="CSV 파일로 구성원 일괄 등록"
+        >
+          <svg
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
           CSV 가져오기
         </button>
         <button class="create-btn" @click="openAddModal">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+          <svg
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            viewBox="0 0 24 24"
+          >
+            <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M19 8v6M22 11h-6" />
+          </svg>
           구성원 추가
         </button>
       </div>
@@ -365,17 +489,27 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
         </select>
       </template>
       <template #header-right>
-        <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '조회된 구성원' }}</span>
+        <span class="lv-title">{{
+          searchQuery ? `"${searchQuery}" 검색 결과` : '조회된 구성원'
+        }}</span>
         <span class="lv-count">{{ memberCount }}명</span>
       </template>
 
       <div v-if="loadingMembers" class="table-loading">
         <span class="spinner-border spinner-border-sm text-primary"></span>
-        <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
+        <span style="margin-left: 10px; color: var(--text-muted); font-size: 13px"
+          >불러오는 중...</span
+        >
       </div>
       <template v-else>
-      <AppTable :columns="orgColumns" :dark="nightMode" :sortKey="sortKey" :sortDir="sortDir" @sort="handleSort">
-          <tr v-for="member in pagedMembers" :key="member.email||member.name" class="member-row">
+        <AppTable
+          :columns="companyColumns"
+          :dark="nightMode"
+          :sortKey="sortKey"
+          :sortDir="sortDir"
+          @sort="handleSort"
+        >
+          <tr v-for="member in pagedMembers" :key="member.email || member.name" class="member-row">
             <td>
               <div class="name-cell">
                 <span class="member-name-text">{{ member.name || '이름없음' }}</span>
@@ -387,46 +521,91 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
             <td class="cell-muted">{{ member.email || '-' }}</td>
             <td>
               <div class="cell-meetings">
-              <template v-if="selectedMeetingId !== 'all'">
-                <span class="meeting-tag">{{ member.meetings.find(g => String(g.id) === String(selectedMeetingId))?.title || '-' }}</span>
-              </template>
-              <template v-else>
-                <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
-                <template v-if="member.meetings.length > 1">
-                  <template v-if="expandedRows.has(member.email||member.name)">
-                    <span v-for="mg in member.meetings.slice(1)" :key="mg.id" class="meeting-tag">{{ mg.title }}</span>
-                    <button class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">접기</button>
-                  </template>
-                  <button v-else class="meeting-more-btn" @click.stop="toggleExpand(member.email||member.name)">
-                    +{{ member.meetings.length - 1 }}개 더보기
-                  </button>
+                <template v-if="selectedMeetingId !== 'all'">
+                  <span class="meeting-tag">{{
+                    member.meetings.find(g => String(g.id) === String(selectedMeetingId))?.title ||
+                    '-'
+                  }}</span>
                 </template>
-              </template>
+                <template v-else>
+                  <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
+                  <template v-if="member.meetings.length > 1">
+                    <template v-if="expandedRows.has(member.email || member.name)">
+                      <span
+                        v-for="mg in member.meetings.slice(1)"
+                        :key="mg.id"
+                        class="meeting-tag"
+                        >{{ mg.title }}</span
+                      >
+                      <button
+                        class="meeting-more-btn"
+                        @click.stop="toggleExpand(member.email || member.name)"
+                      >
+                        접기
+                      </button>
+                    </template>
+                    <button
+                      v-else
+                      class="meeting-more-btn"
+                      @click.stop="toggleExpand(member.email || member.name)"
+                    >
+                      +{{ member.meetings.length - 1 }}개 더보기
+                    </button>
+                  </template>
+                </template>
               </div>
             </td>
             <td>
               <div class="action-btns">
                 <button class="act-btn" @click="openEdit(member)" title="수정">
-                  <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <svg
+                    width="13"
+                    height="13"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
                 </button>
                 <button class="act-btn danger" @click="removeMember(member)" title="제거">
-                  <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                  <svg
+                    width="13"
+                    height="13"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                  </svg>
                 </button>
               </div>
             </td>
           </tr>
           <tr v-for="i in memberFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in orgColumns" :key="ci">&nbsp;</td>
+            <td v-for="(c, ci) in companyColumns" :key="ci">&nbsp;</td>
           </tr>
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">
               <div class="empty-state">
                 <div class="empty-icon-lg">👤</div>
-                <p>{{ myMeetings.length ? '표시할 구성원이 없습니다' : '소속된 회의체가 없어 조회할 구성원이 없습니다' }}</p>
+                <p>
+                  {{
+                    myMeetings.length
+                      ? '표시할 구성원이 없습니다'
+                      : '소속된 회의체가 없어 조회할 구성원이 없습니다'
+                  }}
+                </p>
               </div>
             </td>
           </tr>
-      </AppTable>
+        </AppTable>
       </template>
     </AppTableSection>
 
@@ -437,7 +616,16 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
           <div class="app-modal-header">
             <span class="app-modal-title">구성원 추가</span>
             <button class="app-modal-close" @click="showAddModal = false">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+              <svg
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
           <div class="app-modal-body">
@@ -449,18 +637,30 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
               </div>
               <div class="app-modal-field">
                 <label>이메일</label>
-                <input v-model="addForm.email" class="app-modal-input" placeholder="example@company.com" />
+                <input
+                  v-model="addForm.email"
+                  class="app-modal-input"
+                  placeholder="example@company.com"
+                />
               </div>
             </div>
             <!-- Company & Department -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>회사명</label>
-                <input v-model="addForm.company" class="app-modal-input" placeholder="예: 워크메이트" />
+                <input
+                  v-model="addForm.company"
+                  class="app-modal-input"
+                  placeholder="예: 워크메이트"
+                />
               </div>
               <div class="app-modal-field">
                 <label>부서명</label>
-                <input v-model="addForm.department" class="app-modal-input" placeholder="예: 전략기획팀" />
+                <input
+                  v-model="addForm.department"
+                  class="app-modal-input"
+                  placeholder="예: 전략기획팀"
+                />
               </div>
             </div>
             <!-- Position -->
@@ -471,15 +671,23 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
               </div>
               <div class="app-modal-field">
                 <label>비밀번호 <span class="req">*</span></label>
-                <input v-model="addForm.password" type="password" class="app-modal-input"
-                       placeholder="임시 비밀번호 (8자 이상 — 최초 로그인 시 변경 강제)" />
+                <input
+                  v-model="addForm.password"
+                  type="password"
+                  class="app-modal-input"
+                  placeholder="임시 비밀번호 (8자 이상 — 최초 로그인 시 변경 강제)"
+                />
               </div>
             </div>
-            <div v-if="addError" style="color:#ef4444;font-size:13px;margin-top:8px">{{ addError }}</div>
+            <div v-if="addError" style="color: #ef4444; font-size: 13px; margin-top: 8px">
+              {{ addError }}
+            </div>
           </div>
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showAddModal = false">취소</button>
-            <button class="app-btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">추가</button>
+            <button class="app-btn-primary" :disabled="!addForm.name.trim()" @click="submitAdd">
+              추가
+            </button>
           </div>
         </div>
       </div>
@@ -490,16 +698,29 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
           <div class="app-modal-header">
             <span class="app-modal-title">CSV 가져오기 결과</span>
             <button class="app-modal-close" @click="csvImportResult = null">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+              <svg
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
-          <div class="app-modal-body" style="white-space:pre-line;font-size:14px;line-height:1.8">{{ csvImportResult }}</div>
+          <div
+            class="app-modal-body"
+            style="white-space: pre-line; font-size: 14px; line-height: 1.8"
+          >
+            {{ csvImportResult }}
+          </div>
           <div class="app-modal-footer">
             <button class="app-btn-primary" @click="csvImportResult = null">확인</button>
           </div>
         </div>
       </div>
-
 
       <!-- Edit member modal -->
       <div v-if="editModal" class="app-modal-backdrop">
@@ -507,7 +728,16 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
           <div class="app-modal-header">
             <span class="app-modal-title">구성원 정보 수정</span>
             <button class="app-modal-close" @click="editModal = null">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+              <svg
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
           <div class="app-modal-body">
@@ -518,7 +748,12 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
               </div>
               <div class="app-modal-field">
                 <label>이메일</label>
-                <input :value="editModal.email" class="app-modal-input" disabled style="background:var(--surface);color:var(--dark-muted)" />
+                <input
+                  :value="editModal.email"
+                  class="app-modal-input"
+                  disabled
+                  style="background: var(--surface); color: var(--dark-muted)"
+                />
               </div>
             </div>
             <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
@@ -532,17 +767,29 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>회사명</label>
-                <input v-model="editModal.company" class="app-modal-input" placeholder="예: 워크메이트" />
+                <input
+                  v-model="editModal.company"
+                  class="app-modal-input"
+                  placeholder="예: 워크메이트"
+                />
               </div>
               <div class="app-modal-field">
                 <label>부서명</label>
-                <input v-model="editModal.department" class="app-modal-input" placeholder="예: 전략기획팀" />
+                <input
+                  v-model="editModal.department"
+                  class="app-modal-input"
+                  placeholder="예: 전략기획팀"
+                />
               </div>
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>직책</label>
-                <input v-model="editModal.position" class="app-modal-input" placeholder="예: 팀장" />
+                <input
+                  v-model="editModal.position"
+                  class="app-modal-input"
+                  placeholder="예: 팀장"
+                />
               </div>
             </div>
           </div>
@@ -552,47 +799,189 @@ const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } 
           </div>
         </div>
       </div>
-
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.org-page { display:flex;flex-direction:column;margin:-24px -28px;height:calc(100% + 48px);overflow:hidden; }
+.company-page {
+  display: flex;
+  flex-direction: column;
+  margin: -24px -28px;
+  height: calc(100% + 48px);
+  overflow: hidden;
+}
 
-.member-count-text { font-size:13px;color:#c8d1dd;white-space:nowrap;flex-shrink:0; }
-.day-mode .member-count-text { color:#5a5f66; }
-.org-scope-badge { display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#7dd3fc;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);border-radius:6px;padding:3px 8px;white-space:nowrap;flex-shrink:0; }
-.org-scope-badge svg { flex-shrink:0; }
-.day-mode .org-scope-badge { color:#0369a1;background:rgba(2,132,199,0.08);border-color:rgba(2,132,199,0.25); }
-.org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
+.member-count-text {
+  font-size: 13px;
+  color: #c8d1dd;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.day-mode .member-count-text {
+  color: #5a5f66;
+}
+.company-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.company-scope-badge svg {
+  flex-shrink: 0;
+}
+.day-mode .company-scope-badge {
+  color: #0369a1;
+  background: rgba(2, 132, 199, 0.08);
+  border-color: rgba(2, 132, 199, 0.25);
+}
+.company-meeting-select {
+  min-width: 120px;
+  font-size: 12px;
+  font-weight: 500;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
 
 /* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용 */
-.member-row { border-bottom:1px solid var(--white-06); }
-.member-row:last-child { border-bottom:none; }
-.member-row:hover { background:var(--white-04); }
-.day-mode .member-row { border-bottom-color:var(--surface-2); }
-.day-mode .member-row:hover { background:#fafbff; }
+.member-row {
+  border-bottom: 1px solid var(--white-06);
+}
+.member-row:last-child {
+  border-bottom: none;
+}
+.member-row:hover {
+  background: var(--white-04);
+}
+.day-mode .member-row {
+  border-bottom-color: var(--surface-2);
+}
+.day-mode .member-row:hover {
+  background: #fafbff;
+}
 
-.name-cell { display:flex;align-items:center;gap:10px; }
-.member-name-text { font-weight:600;color:var(--dark-text); }
-.day-mode .member-name-text { color:var(--dark-card); }
-.cell-muted { color:var(--text-muted); padding: 4px; }
-.day-mode .cell-muted { color:var(--text-dim); }
-.cell-meetings { display:flex;flex-wrap:nowrap;align-items:center;gap:4px;overflow:hidden;width:100%; }
-.meeting-tag { display:inline-block;padding:2px 8px;border-radius:4px;background:var(--surface-2);color:var(--text-dim);font-size:12px;white-space:nowrap; }
-.meeting-more-btn { border:none;background:none;color:var(--dark-muted);font-size:11px;font-weight:600;cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;flex-shrink:0; }
-.meeting-more-btn:hover { color:var(--accent); }
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.member-name-text {
+  font-weight: 600;
+  color: var(--dark-text);
+}
+.day-mode .member-name-text {
+  color: var(--dark-card);
+}
+.cell-muted {
+  color: var(--text-muted);
+  padding: 4px;
+}
+.day-mode .cell-muted {
+  color: var(--text-dim);
+}
+.cell-meetings {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  width: 100%;
+}
+.meeting-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.meeting-more-btn {
+  border: none;
+  background: none;
+  color: var(--dark-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.meeting-more-btn:hover {
+  color: var(--accent);
+}
 
-.action-btns { display:flex;gap:4px;width:fit-content;margin-left:auto; }
-:deep(td:last-child) { padding-left:6px;padding-right:6px; }
-.act-btn { width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
-.act-btn:hover { border-color:var(--primary);color:var(--primary);background:var(--accent-bg); }
-.act-btn.danger:hover { border-color:#fca5a5;color:#dc2626;background:#fef2f2; }
+.action-btns {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  margin-left: auto;
+}
+:deep(td:last-child) {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.act-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.act-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--accent-bg);
+}
+.act-btn.danger:hover {
+  border-color: #fca5a5;
+  color: #dc2626;
+  background: #fef2f2;
+}
 
-.empty-row { padding:0 !important; }
-.req { color:var(--danger); }
-.dropdown-results { position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:10;overflow:hidden;max-height:200px;overflow-y:auto; }
-.dropdown-item-result { display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer; }
-.dropdown-item-result:hover { background:var(--surface-2); }
+.empty-row {
+  padding: 0 !important;
+}
+.req {
+  color: var(--danger);
+}
+.dropdown-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  overflow: hidden;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.dropdown-item-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.dropdown-item-result:hover {
+  background: var(--surface-2);
+}
 </style>

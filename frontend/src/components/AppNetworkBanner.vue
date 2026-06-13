@@ -13,11 +13,30 @@ import { networkDown } from '../stores/network'
 
 <style scoped>
 .net-banner {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 3100;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  background: var(--danger); color: #fff;
-  font-size: 12.5px; font-weight: 600; padding: 7px 16px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 16px;
 }
-.netbanner-enter-active, .netbanner-leave-active { transition: transform .2s, opacity .2s; }
-.netbanner-enter-from, .netbanner-leave-to { transform: translateY(-100%); opacity: 0; }
+.netbanner-enter-active,
+.netbanner-leave-active {
+  transition:
+    transform 0.2s,
+    opacity 0.2s;
+}
+.netbanner-enter-from,
+.netbanner-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
+}
 </style>
