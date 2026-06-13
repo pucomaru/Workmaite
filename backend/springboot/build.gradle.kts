@@ -2,6 +2,37 @@ plugins {
 	java
 	id("org.springframework.boot") version "3.5.14"
 	id("io.spring.dependency-management") version "1.1.7"
+	id("com.diffplug.spotless") version "6.25.0"
+	checkstyle
+    pmd
+    id("com.github.spotbugs") version "6.0.7"
+}
+
+spotless {
+    encoding("UTF-8") 
+    java {
+        googleJavaFormat()
+		importOrder()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+checkstyle {
+    toolVersion = "10.12.7"
+    // config/checkstyle/checkstyle.xml 에 규칙 파일 둠
+}
+
+pmd {
+    toolVersion = "6.55.0"
+    ruleSetFiles = files("config/pmd/ruleset.xml")  // 커스텀 규칙 쓸 경우
+    isIgnoreFailures = false
+}
+
+spotbugs {
+    ignoreFailures.set(false)
+    excludeFilter.set(file("config/spotbugs/exclude.xml"))
 }
 
 group = "com.workmaite"

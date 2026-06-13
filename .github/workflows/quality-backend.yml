@@ -1,0 +1,67 @@
+name: Quality - Backend
+
+
+# 배포(ci-backend.yml) 
+on:
+  pull_request:
+    paths:
+      - 'backend/springboot/**'
+  push:
+    branches:
+      - develop
+    paths:
+      - 'backend/springboot/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # @SpringBootTest(test 단계)용 throwaway PostgreSQL — 운영과 동일 DB로 컨텍스트 검증
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: workmaite_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/setup-java@v4
+        # setup-java에 cache: gradle 옵션 사용
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Spotless (format check)
+        run: ./gradlew spotlessCheck
+
+      - name: Checkstyle
+        run: ./gradlew checkstyleMain checkstyleTest
+
+      - name: PMD
+        run: ./gradlew pmdMain
+
+      - name: SpotBugs
+        run: ./gradlew spotbugsMain
+
+      - name: Test
+        run: ./gradlew test
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/workmaite_test
+          DB_USER: test
+          DB_PASSWORD: test

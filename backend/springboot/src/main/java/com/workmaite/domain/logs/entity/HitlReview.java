@@ -1,10 +1,9 @@
 package com.workmaite.domain.logs.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "hitl_reviews")
@@ -14,32 +13,32 @@ import java.time.LocalDateTime;
 @Builder
 public class HitlReview {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Integer id;
 
-    @Column(name = "agent_log_id")
-    private Long agentLogId;
+  @Column(name = "agent_log_id")
+  private Integer agentLogId;
 
-    @Column(name = "target_type", length = 30, nullable = false)
-    private String targetType;
+  @Column(name = "target_type", length = 30, nullable = false)
+  private String targetType;
 
     @Column(name = "ai_rationale", columnDefinition = "TEXT")
     private String aiRationale;
 
-    @Builder.Default
-    @Column(length = 20, nullable = false)
-    private String status = "pending";
+  @Builder.Default
+  @Column(length = 20, nullable = false)
+  private String status = "pending";
 
-    @Column(name = "reviewer_id")
-    private Long reviewerId;
+  @Column(name = "reviewer_id")
+  private Integer reviewerId;
 
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
+  @CreationTimestamp
+  @Column(name = "created_at", updatable = false)
+  private LocalDateTime createdAt;
 
     @Column(name = "agenda_id")
     private Long agendaId;

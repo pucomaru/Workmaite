@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class MinutesGenerateRequest {
 
-    private String contentOriginal;
-    private String fileName;
-    private String filePath;
+  private String contentOriginal;
+  private String fileName;
+  private String filePath;
 }

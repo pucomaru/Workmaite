@@ -8,6 +8,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class MinutesUpdateRequest {
 
-    @NotBlank(message = "수정할 내용을 입력해주세요.")
-    private String contentSummary;
+  @NotBlank(message = "수정할 내용을 입력해주세요.")
+  private String contentSummary;
 }
