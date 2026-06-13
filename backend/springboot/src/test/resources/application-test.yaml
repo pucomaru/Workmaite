@@ -4,9 +4,7 @@
 #   - CI(quality-backend.yml): postgres 서비스 컨테이너를 띄우고 위 env로 연결
 #   - 로컬: kubectl port-forward 등으로 PostgreSQL을 localhost:5432에 노
 #
-# Flyway 마이그레이션은 V1 baseline(기존 운영 스키마)이 없어 빈 DB에선 돌릴 수 없으므로
-# 테스트에서는 비활성화하고, Hibernate가 엔티티로부터 스키마를 생성(create-drop)한다.
-# (jsonb 등 PG 전용 타입도 실제 PostgreSQL이므로 정상 동작)
+# contextLoads 통합 테스트 — ddl-auto:none 이라 스키마를 건드리지 않고 연결/컨텍스트만 검증한다.
 spring:
   # ⚠️ 운영 DB 안전 — 이중 안전장치:
   #   1) ddl-auto: none — Hibernate가 스키마를 전혀 건드리지 않음(CREATE/DROP/ALTER 0).
@@ -17,8 +15,6 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/workmaite_test}
     username: ${DB_USER:test}
     password: ${DB_PASSWORD:test}
-  flyway:
-    enabled: false
   jpa:
     hibernate:
       ddl-auto: none

@@ -12,7 +12,7 @@ updates:
       interval: "daily"
     open-pull-requests-limit: 5
 
-  - package-ecosystem: "pip"
+  - package-ecosystem: "uv"
     directory: "/backend/ai"
     schedule:
       interval: "daily"

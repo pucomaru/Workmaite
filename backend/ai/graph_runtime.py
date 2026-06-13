@@ -4,8 +4,7 @@ HITL `interrupt()`는 체크포인터 없이는 동작하지 않는다(기존 �
 체크포인터가 없어 get_state가 'No checkpointer set'으로 실패 — UX-1의 원인).
 AsyncPostgresSaver로 영속화해 승인 대기 상태가 재시작·스케일아웃에도 유지되게 한다.
 
-체크포인트 테이블(checkpoints 등)은 LangGraph가 자체 관리(setup())하는 프레임워크
-내부 스키마라 Flyway 대상에서 제외한다.
+체크포인트 테이블(checkpoints 등)은 LangGraph가 자체 관리(setup())하는 프레임워크 내부 스키마
 """
 
 import logging
