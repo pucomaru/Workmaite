@@ -83,12 +83,12 @@ function go(p) {
 }
 /* ── Dark variant (AppTable의 dark prop과 동일하게 사용) ── */
 .app-pagination-dark .page-btn {
-  background: rgba(255,255,255,.06);
-  border-color: rgba(255,255,255,.1);
+  background: var(--white-06);
+  border-color: var(--white-10);
   color: var(--dark-muted);
 }
 .app-pagination-dark .page-btn:hover:not(:disabled):not(.active) {
-  background: rgba(255,255,255,.12);
+  background: var(--white-12);
   color: var(--dark-text);
 }
 .app-pagination-dark .page-btn.active {

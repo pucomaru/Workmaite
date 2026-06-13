@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { toast } from '../composables/useToast'
 import api from '../api'
 import MemberInvite from './MemberInvite.vue'
 import { useAuthStore } from '../stores/auth'
@@ -106,7 +107,7 @@ async function doCreate() {
     emit('saved', { meetingId: f.meeting_id })
     emit('close')
   } catch (e) {
-    alert(e.response?.data?.message || '생성 실패')
+    toast.error(e.response?.data?.message || '생성 실패')
   } finally {
     creating.value = false
   }

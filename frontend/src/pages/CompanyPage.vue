@@ -1,10 +1,14 @@
 <script setup>
 import { useAuthStore } from '../stores/auth'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api, { apiAI } from '../api'
 import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
-import AppPagination from '../components/AppPagination.vue'
+import AppTableSection from '../components/AppTableSection.vue'
+import { useTableSort } from '../composables/useTableSort'
+import { usePagination } from '../composables/usePagination'
+import { toast } from '../composables/useToast'
+import { confirmDialog, promptDialog } from '../composables/useConfirm'
 
 const auth = useAuthStore()
 const orgColumns = [
@@ -116,7 +120,7 @@ async function submitAdd() {
 }
 
 async function removeMember(member) {
-  if (!confirm(`${member.name || member.email}을(를) 제거하시겠습니까?`)) return
+  if (!(await confirmDialog(`${member.name || member.email}을(를) 제거하시겠습니까?`, { danger: true }))) return
   if (member.isCustom) { allMembers.value = allMembers.value.filter(m => m.id !== member.id); return }
   const meeting = member.meetings[0]
   try {
@@ -127,7 +131,7 @@ async function removeMember(member) {
       await apiAI.delete(`/api/ai/users/${member.id}`)
     }
     await fetchAllMembers()
-  } catch (e) { alert(e.response?.data?.detail || '제거 실패') }
+  } catch (e) { toast.error(e.response?.data?.detail || '제거 실패') }
 }
 
 function openEdit(member) { editModal.value = { ...member, _origRole: member.role } }
@@ -145,7 +149,7 @@ async function saveEdit() {
       await api.patch(`/api/v1/users/${m.id}/role`, { role: m.role }) // COMPANY_ADMIN 부여/회수 (P1-7②)
     }
     await fetchAllMembers()
-  } catch (e) { alert(e.response?.data?.detail || e.response?.data?.message || '변경 실패') }
+  } catch (e) { toast.error(e.response?.data?.detail || e.response?.data?.message || '변경 실패') }
   editModal.value = null
 }
 
@@ -236,21 +240,21 @@ async function parseAndImportCSV(text) {
   // BOM 제거
   const content = text.replace(/^\uFEFF/, '')
   const lines = content.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) { alert('CSV 파일에 데이터가 없습니다.'); return }
+  if (lines.length < 2) { toast.info('CSV 파일에 데이터가 없습니다.'); return }
 
   const headerLine = parseCSVLine(lines[0])
   const fieldKeys = headerLine.map(h => CSV_HEADER_MAP[h.toLowerCase()] || CSV_HEADER_MAP[h] || null)
 
   if (!fieldKeys.includes('name')) {
-    alert('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책,임시비밀번호')
+    toast.info('CSV에 "이름" 열이 필요합니다.\n헤더 예시: 이름,이메일,조직,부서,직책,임시비밀번호')
     return
   }
 
   // 일괄 임시 비밀번호: CSV에 개별 비밀번호가 없거나 비어있는 행에 공통 적용 (각자 최초 로그인 시 변경 강제)
-  const bulkPassword = (window.prompt(
+  const bulkPassword = ((await promptDialog(
     '가져올 구성원에 적용할 임시 비밀번호를 입력하세요 (8자 이상).\n' +
     'CSV에 개별 비밀번호 컬럼이 있으면 그 값이 우선합니다. (비우면 CSV 값만 사용)'
-  ) || '').trim()
+  )) || '').trim()
 
   const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))
   const skippedNoEmail = []
@@ -309,57 +313,11 @@ async function parseAndImportCSV(text) {
 // Each user from /api/users/all is already unique – no grouping needed
 const groupedFilteredMembers = computed(() => filteredMembers.value)
 
-// ── 정렬 ────────────────────────────────────────────
-const sortKey = ref(null)
-const sortDir = ref(null)
+// ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
+const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(groupedFilteredMembers)
 
-function handleSort({ key, dir }) {
-  sortKey.value = key
-  sortDir.value = dir
-}
-
-const sortedMembers = computed(() => {
-  const list = [...groupedFilteredMembers.value]
-  if (!sortKey.value || !sortDir.value) return list
-  const k = sortKey.value
-  const dir = sortDir.value === 'asc' ? 1 : -1
-  return list.sort((a, b) => {
-    const av = (a[k] || '').toLowerCase()
-    const bv = (b[k] || '').toLowerCase()
-    if (av < bv) return -1 * dir
-    if (av > bv) return 1 * dir
-    return 0
-  })
-})
-
-// ── 페이지네이션 ────────────────────────────────────
 const MEMBER_PAGE_SIZE = 30
-const memberPage = ref(1)
-
-const pagedMembers = computed(() =>
-  sortedMembers.value.slice((memberPage.value - 1) * MEMBER_PAGE_SIZE, memberPage.value * MEMBER_PAGE_SIZE)
-)
-const memberFillerCount = computed(() =>
-  pagedMembers.value.length ? MEMBER_PAGE_SIZE - pagedMembers.value.length : 0
-)
-
-watch(() => sortedMembers.value.length, (len) => {
-  const tp = Math.max(1, Math.ceil(len / MEMBER_PAGE_SIZE))
-  if (memberPage.value > tp) memberPage.value = tp
-})
-
-function formatDate(s) {
-  if (!s) return '-'
-  const d = new Date(s)
-  if (isNaN(d)) return s
-  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`
-}
-
-function initials(name) { return (name || '?')[0] }
-
-// avatar color per name (stable)
-const AVATAR_COLORS = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6']
-function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length; return AVATAR_COLORS[h] }
+const { page: memberPage, paged: pagedMembers, fillerCount: memberFillerCount } = usePagination(sortedMembers, MEMBER_PAGE_SIZE)
 </script>
 
 <template>
@@ -392,24 +350,25 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
       </div>
     </div>
 
-    <!-- List header + Table (lv-inner: 28px 좌우 여백으로 ArchivePage와 동일) -->
-    <div class="lv-inner">
-      <div class="lv-header">
-        <div class="lv-filter-wrap">
-          <select v-model="selectedMeetingId" class="lv-type-filter">
-            <option value="all">내 회의체 전체</option>
-            <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
-          </select>
-        </div>
-        <AppPagination v-if="!loadingMembers" v-model="memberPage" :totalItems="sortedMembers.length" :pageSize="MEMBER_PAGE_SIZE" :dark="nightMode" />
-        <div class="lv-header-right">
-          <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '조회된 구성원' }}</span>
-          <span class="lv-count">{{ memberCount }}명</span>
-        </div>
-    </div>
+    <!-- 목록 본문 (공통 레이아웃: lv-header + table-wrap) -->
+    <AppTableSection
+      v-model:page="memberPage"
+      :total-items="sortedMembers.length"
+      :page-size="MEMBER_PAGE_SIZE"
+      :dark="nightMode"
+      :show-pagination="!loadingMembers"
+    >
+      <template #filters>
+        <select v-model="selectedMeetingId" class="lv-type-filter">
+          <option value="all">내 회의체 전체</option>
+          <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
+        </select>
+      </template>
+      <template #header-right>
+        <span class="lv-title">{{ searchQuery ? `"${searchQuery}" 검색 결과` : '조회된 구성원' }}</span>
+        <span class="lv-count">{{ memberCount }}명</span>
+      </template>
 
-    <!-- Table -->
-    <div class="table-wrap">
       <div v-if="loadingMembers" class="table-loading">
         <span class="spinner-border spinner-border-sm text-primary"></span>
         <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
@@ -469,8 +428,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
           </tr>
       </AppTable>
       </template>
-    </div><!-- /table-wrap -->
-    </div><!-- /lv-inner -->
+    </AppTableSection>
 
     <!-- Add member modal -->
     <Teleport to="body">
@@ -609,44 +567,10 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .day-mode .org-scope-badge { color:#0369a1;background:rgba(2,132,199,0.08);border-color:rgba(2,132,199,0.25); }
 .org-meeting-select { min-width:120px;font-size:12px;font-weight:500;height:32px;padding-top:0;padding-bottom:0; }
 
-/* lv-inner: ArchivePage lv-inner와 동일한 28px 좌우 여백 */
-.lv-inner { flex:1;min-height:0;padding:6px 16px 0;display:flex;flex-direction:column;overflow:hidden; }
-.lv-inner { width:100%;padding:6px 16px;display:flex;flex-direction:column;gap:0; }
-
-/* lv-header (아카이브 목록 스타일 재사용) */
-.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0;position:relative; }
-/* 페이지네이션을 테이블 가로 중앙에 고정 (좌우 요소 폭과 무관) */
-.lv-header .app-pagination { position:absolute;left:50%;transform:translateX(-50%); }
-.lv-filter-wrap { display:flex;gap:6px; }
-.lv-header-right { display:flex;align-items:center;gap:6px; }
-.lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }
-.lv-count { font-size:12px;color:var(--dark-muted); }
-.lv-type-filter {
-  appearance:none;-webkit-appearance:none;
-  background:rgba(255,255,255,.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 8px center;
-  background-size:10px 6px;
-  border:1px solid rgba(255,255,255,.12);border-radius:7px;
-  color:#cbd5e1;font-size:12px;padding:5px 26px 5px 10px;
-  cursor:pointer;outline:none;
-}
-.lv-type-filter:hover { border-color:rgba(255,255,255,.22); }
-.lv-type-filter:focus { border-color:rgba(99,102,241,.6); }
-.day-mode .lv-type-filter {
-  background-color:#fff;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
-  border-color:var(--border);color:var(--dark-border);
-}
-.day-mode .lv-type-filter:hover { border-color:#cbd5e1; }
-.day-mode .lv-type-filter:focus { border-color:#6366f1; }
-.day-mode .lv-title { color:var(--text-muted); }
-.day-mode .lv-count { color:var(--dark-muted); }
-
-/* Table */
-.table-wrap { flex:1;overflow-y:auto;min-height:0;padding:0 0 16px 0;display:flex;flex-direction:column;gap:8px; }
-.table-loading { display:flex;align-items:center;justify-content:center;padding:48px; }
-.member-row { border-bottom:1px solid rgba(255,255,255,.06); }
+/* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용 */
+.member-row { border-bottom:1px solid var(--white-06); }
 .member-row:last-child { border-bottom:none; }
-.member-row:hover { background:rgba(255,255,255,.04); }
+.member-row:hover { background:var(--white-04); }
 .day-mode .member-row { border-bottom-color:var(--surface-2); }
 .day-mode .member-row:hover { background:#fafbff; }
 
@@ -663,7 +587,7 @@ function avatarColor(name) { let h = 0; for (const c of (name || '')) h = (h * 3
 .action-btns { display:flex;gap:4px;width:fit-content;margin-left:auto; }
 :deep(td:last-child) { padding-left:6px;padding-right:6px; }
 .act-btn { width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
-.act-btn:hover { border-color:var(--primary);color:var(--primary);background:#eff6ff; }
+.act-btn:hover { border-color:var(--primary);color:var(--primary);background:var(--accent-bg); }
 .act-btn.danger:hover { border-color:#fca5a5;color:#dc2626;background:#fef2f2; }
 
 .empty-row { padding:0 !important; }

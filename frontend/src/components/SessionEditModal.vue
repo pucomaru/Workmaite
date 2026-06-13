@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { toast } from '../composables/useToast'
+import { confirmDialog } from '../composables/useConfirm'
 import api from '../api'
 import MemberInvite from './MemberInvite.vue'
 
@@ -46,14 +48,14 @@ const canSubmit = computed(() => {
 })
 
 async function doDelete() {
-  if (!confirm('회의를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  if (!(await confirmDialog('회의를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.', { danger: true }))) return
   saving.value = true
   try {
     await api.delete(`/api/v1/sessions/${form.value.id}`)
     emit('deleted', { meetingId: form.value.meetingId })
     emit('close')
   } catch (e) {
-    alert(e.response?.data?.message || '삭제 실패')
+    toast.error(e.response?.data?.message || '삭제 실패')
   } finally {
     saving.value = false
   }
@@ -74,7 +76,7 @@ async function doSave() {
     emit('saved', { meetingId: form.value.meetingId })
     emit('close')
   } catch (e) {
-    alert(e.response?.data?.message || '수정 실패')
+    toast.error(e.response?.data?.message || '수정 실패')
   } finally {
     saving.value = false
   }

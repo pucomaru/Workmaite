@@ -22,6 +22,10 @@ import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/theme'
 import { useAgentChat } from '../composables/useAgentChat'
 import { useGraphBuilder } from '../composables/useGraphBuilder'
+import { toast } from '../composables/useToast'
+import { confirmDialog } from '../composables/useConfirm'
+import { useTableSort } from '../composables/useTableSort'
+import { formatDateTimeFull as formatDate, formatDateLong as formatDateOnly } from '../utils/date'
 
 const lvColumns = [
   { label: '회의체명', width: '480px', sortKey: 'title' },
@@ -966,7 +970,7 @@ async function saveSettings() {
     settingsModal.value = null
     // Neo4j 동기화 반영 후 그래프 재로드
     setTimeout(refreshArchive, 600)
-  } catch (e) { alert(e.response?.data?.detail || '저장 실패') }
+  } catch (e) { toast.error(e.response?.data?.detail || '저장 실패') }
   finally { savingSettings.value = false }
 }
 
@@ -1914,11 +1918,9 @@ const filteredGroups = computed(() => {
   return list
 })
 
-const lvSortKey = ref(null)
-const lvSortDir = ref(null)
-function handleLvSort({ key, dir }) { lvSortKey.value = key; lvSortDir.value = dir }
-const sortedGroups = computed(() => {
-  const enriched = filteredGroups.value.map(g => {
+// 목록 표시·정렬용 파생 필드 부여
+const enrichedGroups = computed(() =>
+  filteredGroups.value.map(g => {
     const adminMember = g.members.find(m => m.role === 'admin')
     const histCount = (g.minutes?.length || 0) + (g.reports?.length || 0)
     return {
@@ -1928,15 +1930,10 @@ const sortedGroups = computed(() => {
       _histCount: histCount,
     }
   })
-  if (!lvSortKey.value || !lvSortDir.value) return enriched
-  const d = lvSortDir.value === 'asc' ? 1 : -1
-  return [...enriched].sort((a, b) => {
-    const av = (a[lvSortKey.value] ?? '').toString().toLowerCase()
-    const bv = (b[lvSortKey.value] ?? '').toString().toLowerCase()
-    if (!isNaN(Number(av)) && !isNaN(Number(bv))) return (Number(av) - Number(bv)) * d
-    return av < bv ? -d : av > bv ? d : 0
-  })
-})
+)
+
+// 정렬 (공통 컴포저블)
+const { sortKey: lvSortKey, sortDir: lvSortDir, handleSort: handleLvSort, sorted: sortedGroups } = useTableSort(enrichedGroups)
 
 // ─── 사이드바 로그용: 회의록 + 보고서 + 과제, 최신순 ─────────────
 const groupHistoryMap = computed(() => {
@@ -2189,8 +2186,6 @@ watch(() => neo4jMeetings.value.length, () => {
 
 
 // ─── Helpers ──────────────────────────────────────────────────
-function formatDate(d){if(!d)return'-';return new Date(d).toLocaleString('ko-KR',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-function formatDateOnly(d){if(!d)return'-';const dt=new Date(typeof d==='string'&&d.length<=10?d+'T09:00:00':d);return dt.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'})}
 async function _openPresigned(filePath) {
   const { data } = await apiAI.get('/api/upload/presigned', { params: { file_path: filePath } })
   window.open(data.url, '_blank')
@@ -2203,9 +2198,9 @@ async function downloadFile(item) {
   try {
     let filePath = item?.filePath || null
     if (!filePath && item?.sessionId) filePath = await _fetchMinutesFilePath(item.sessionId)
-    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    if (!filePath) { toast.info('다운로드할 파일이 없습니다.'); return }
     await _openPresigned(filePath)
-  } catch(e) { console.error('[download]', e); alert('파일 다운로드에 실패했습니다.') }
+  } catch(e) { console.error('[download]', e); toast.error('파일 다운로드에 실패했습니다.') }
 }
 async function downloadNode(node) {
   try {
@@ -2218,42 +2213,42 @@ async function downloadNode(node) {
         if (Number.isFinite(sessionId)) filePath = await _fetchMinutesFilePath(sessionId)
       }
     }
-    if (!filePath) { alert('다운로드할 파일이 없습니다.'); return }
+    if (!filePath) { toast.info('다운로드할 파일이 없습니다.'); return }
     await _openPresigned(filePath)
-  } catch(e) { console.error('[downloadNode]', e); alert('파일 다운로드에 실패했습니다.') }
+  } catch(e) { console.error('[downloadNode]', e); toast.error('파일 다운로드에 실패했습니다.') }
 }
 const downloadDummy = downloadNode
 async function deleteMinutes(sessionId) {
-  if (!confirm('회의록을 삭제하시겠습니까?')) return
+  if (!(await confirmDialog('회의록을 삭제하시겠습니까?', { danger: true }))) return
   try {
     await apiAI.delete(`/api/ai/sessions/${sessionId}/minutes`)
     setTimeout(refreshArchive, 600)
-  } catch (e) { alert('삭제에 실패했습니다.') }
+  } catch { toast.error('삭제에 실패했습니다.') }
 }
 
 async function downloadScript(sessionId) {
   try {
     const { data } = await api.get(`/api/v1/sessions/${sessionId}/scripts`)
-    if (!data?.length) { alert('저장된 스크립트가 없습니다.'); return }
+    if (!data?.length) { toast.info('저장된 스크립트가 없습니다.'); return }
     const rows = data.map(s => `<tr><td>${s.speakerLabel || '발화자'}</td><td>${s.content || ''}</td></tr>`).join('')
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>STT 스크립트</title>
-      <style>body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:#1e293b;padding:40px;max-width:820px;margin:0 auto}
+      <style>body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
       h1{font-size:18px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       table{width:100%;border-collapse:collapse;font-size:12px}
       td{border:1px solid #e2e8f0;padding:6px 10px;vertical-align:top}
-      td:first-child{width:100px;font-weight:600;color:#475569;white-space:nowrap}
+      td:first-child{width:100px;font-weight:600;color:var(--text-dim);white-space:nowrap}
       @media print{body{padding:20px}}</style>
       </head><body><h1>STT 스크립트</h1><table>${rows}</table></body></html>`)
     w.document.close()
     setTimeout(() => { w.focus(); w.print() }, 400)
-  } catch (e) { alert('스크립트 다운로드에 실패했습니다.') }
+  } catch { toast.error('스크립트 다운로드에 실패했습니다.') }
 }
 
 async function deleteReport(reportId) {
   if (!reportId) return
-  if (!confirm('보고서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
+  if (!(await confirmDialog('보고서를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.', { danger: true }))) return
   try {
     await apiAI.delete(`/api/upload/reports/${reportId}`)
     // 그래프에서 노드 제거
@@ -2265,7 +2260,7 @@ async function deleteReport(reportId) {
     detailNode.value = null
     setTimeout(refreshArchive, 600)
   } catch (e) {
-    alert('삭제에 실패했습니다.')
+    toast.error('삭제에 실패했습니다.')
   }
 }
 const TYPES=['Draft','In Progress','Done','Pending']
@@ -2290,7 +2285,7 @@ async function resumePendingReport(rId, readOnly = false) {
     uploadStep.value = 2
     showUploadModal.value = true
   } catch (e) {
-    alert('검토 결과를 불러오지 못했습니다.')
+    toast.error('검토 결과를 불러오지 못했습니다.')
   }
 }
 
@@ -2391,7 +2386,7 @@ async function deleteAgendaEdit() {
     ? parseInt(agendaId.replace('agenda-', ''), 10)
     : Number(agendaId)
   if (!numId || isNaN(numId)) return
-  if (!confirm('이 아젠다를 삭제하시겠습니까?')) return
+  if (!(await confirmDialog('이 아젠다를 삭제하시겠습니까?', { danger: true }))) return
   try {
     await apiAI.delete(`/api/agent/archive/agendas/${numId}`)
     agendaEditModal.value = null

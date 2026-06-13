@@ -2,6 +2,7 @@
 import { inject, ref, onMounted } from 'vue'
 import { renderMd } from '../composables/useMarkdown'
 import AgentComposer from './AgentComposer.vue'
+import { promptDialog } from '../composables/useConfirm'
 
 const {
   SUPERVISOR, agentInfo, agentSidebarOpen, clearAgentChat,
@@ -29,7 +30,7 @@ function fbBtnStyle(active, color) {
 async function sendFeedback(msg, rating) {
   if (msg._fb === rating) return
   let reason = null
-  if (rating === -1) reason = window.prompt('어떤 점이 아쉬웠나요? (선택, 취소 시 사유 없이 전송)') || null
+  if (rating === -1) reason = (await promptDialog('어떤 점이 아쉬웠나요? (선택, 취소 시 사유 없이 전송)')) || null
   msg._fb = rating
   try {
     await apiAI.post('/api/agent/feedback', {

@@ -230,7 +230,7 @@ async function submit() {
 .form-control { border-color: var(--border); font-size: 13px; }
 .success-icon {
   width: 64px; height: 64px; border-radius: 50%;
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, var(--success), #059669);
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto;
   box-shadow: 0 8px 24px rgba(16,185,129,.3);

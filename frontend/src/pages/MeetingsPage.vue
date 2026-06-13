@@ -1,12 +1,15 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useMeetingsStore } from '../stores/meetings'
 import { useThemeStore } from '../stores/theme'
 import { useAuthStore } from '../stores/auth'
 import api, { apiAI } from '../api'
 import MemberInvite from '../components/MemberInvite.vue'
 import AppTable from '../components/AppTable.vue'
-import AppPagination from '../components/AppPagination.vue'
+import AppTableSection from '../components/AppTableSection.vue'
+import { useTableSort } from '../composables/useTableSort'
+import { usePagination } from '../composables/usePagination'
+import { toast } from '../composables/useToast'
 import DateInput from '../components/DateInput.vue'
 import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 
@@ -16,7 +19,7 @@ const mgColumns = [
   { label: '역할', width: '80px', sortKey: '_role' },
   { label: '유형', width: '100px', sortKey: 'meeting_type' },
   { label: '간사', width: '160px', sortKey: '_adminName' },
-  { label: '참여조직', width: '180px', sortKey: '_orgCount' },
+  { label: '참여조직', width: '180px', sortKey: '_companyCount' },
   { label: '참여자', width: '150px', sortKey: '_memberCount' },
   { label: '', width: '72px', noResize: true }
 ]
@@ -29,7 +32,8 @@ const nightMode = computed(() => themeStore.nightMode)
 const search = ref('')
 const statusTab = ref('active')
 const expandedId = ref(null)
-const membersCache = ref({})
+// 멤버 캐시는 스토어 단일 캐시 사용 — 페이지 로컬 사본 금지 (PLAN Phase 1)
+const membersCache = computed(() => meetingsStore.membersByMeeting)
 const loadingMembers = ref({})
 
 const filteredGroups = computed(() => {
@@ -44,47 +48,27 @@ const filteredGroups = computed(() => {
   })
 })
 
-const mgSortKey = ref(null)
-const mgSortDir = ref(null)
-function handleMgSort({ key, dir }) { mgSortKey.value = key; mgSortDir.value = dir }
-const sortedGroups = computed(() => {
-  const enriched = filteredGroups.value.map(g => {
+// 테이블 표시·정렬용 파생 필드 부여 (간사/참여조직/참여자 컬럼)
+const enrichedGroups = computed(() =>
+  filteredGroups.value.map(g => {
     const members = membersCache.value[g.id] || []
     const admins = members.filter(mb => mb.role === 'admin')
-    const orgs = [...new Set(members.map(mb => mb.user?.company || mb.company).filter(Boolean))]
+    const companies = [...new Set(members.map(mb => mb.user?.company || mb.company).filter(Boolean))]
     return {
       ...g,
-      _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자',
+      _role: meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : meetingsStore.meetingRoles[g.id] ? '참여자' : '',
       _adminName: admins.map(mb => mb.user?.name || mb.name).join(', ') || '',
-      _orgCount: orgs.length,
+      _companyCount: companies.length,
       _memberCount: members.length,
     }
   })
-  if (!mgSortKey.value || !mgSortDir.value) return enriched
-  const d = mgSortDir.value === 'asc' ? 1 : -1
-  return [...enriched].sort((a, b) => {
-    const av = (a[mgSortKey.value] ?? '').toString().toLowerCase()
-    const bv = (b[mgSortKey.value] ?? '').toString().toLowerCase()
-    if (!isNaN(Number(av)) && !isNaN(Number(bv))) return (Number(av) - Number(bv)) * d
-    return av < bv ? -d : av > bv ? d : 0
-  })
-})
+)
 
-// ── 페이지네이션 ────────────────────────────────────
+// ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
+const { sortKey: mgSortKey, sortDir: mgSortDir, handleSort: handleMgSort, sorted: sortedGroups } = useTableSort(enrichedGroups)
+
 const MG_PAGE_SIZE = 30
-const mgPage = ref(1)
-
-const pagedGroups = computed(() =>
-  sortedGroups.value.slice((mgPage.value - 1) * MG_PAGE_SIZE, mgPage.value * MG_PAGE_SIZE)
-)
-const mgFillerCount = computed(() =>
-  pagedGroups.value.length ? MG_PAGE_SIZE - pagedGroups.value.length : 0
-)
-
-watch(() => sortedGroups.value.length, (len) => {
-  const tp = Math.max(1, Math.ceil(len / MG_PAGE_SIZE))
-  if (mgPage.value > tp) mgPage.value = tp
-})
+const { page: mgPage, paged: pagedGroups, fillerCount: mgFillerCount } = usePagination(sortedGroups, MG_PAGE_SIZE)
 
 const activeCount = computed(() =>
   meetingsStore.meetings.filter(m => meetingsStore.meetingRoles[m.id] != null && (!m.status || m.status === 'active')).length)
@@ -94,10 +78,7 @@ const endedCount = computed(() =>
 async function loadMembers(meetingId) {
   if (membersCache.value[meetingId]) return
   loadingMembers.value[meetingId] = true
-  try {
-    const res = await api.get(`/api/v1/meetings/${meetingId}/members`)
-    membersCache.value[meetingId] = res.data
-  } catch { membersCache.value[meetingId] = [] }
+  try { await meetingsStore.fetchMembersOnce(meetingId) }
   finally { loadingMembers.value[meetingId] = false }
 }
 
@@ -140,7 +121,7 @@ async function submitCreate() {
       await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
     showCreate.value = false
-  } catch (e) { alert(e.response?.data?.detail || '생성 실패') }
+  } catch (e) { toast.error(e.response?.data?.detail || '생성 실패') }
   finally { creating.value = false }
 }
 
@@ -150,7 +131,7 @@ async function endMeeting(m) {
   endingId.value = m.id
   try {
     await meetingsStore.terminateMeeting(m.id)
-  } catch (e) { alert(e.response?.data?.detail || '종료 처리 실패') }
+  } catch (e) { toast.error(e.response?.data?.detail || '종료 처리 실패') }
   finally { endingId.value = null }
 }
 
@@ -168,8 +149,8 @@ async function executeDelete() {
   try {
     await meetingsStore.deleteMeeting(m.id)
     if (expandedId.value === m.id) expandedId.value = null
-    delete membersCache.value[m.id]
-  } catch (e) { alert(e.response?.data?.detail || '삭제 실패') }
+    meetingsStore.invalidateMembers(m.id)
+  } catch (e) { toast.error(e.response?.data?.detail || '삭제 실패') }
   finally { deletingId.value = null }
 }
 
@@ -234,7 +215,7 @@ async function saveSettings() {
     settingsModal.value = null
   } catch (e) {
     const detail = e.response?.data?.detail
-    alert(typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : '저장 실패')
+    toast.error(typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : '저장 실패')
   }
   finally { savingSettings.value = false }
 }
@@ -243,10 +224,16 @@ function canManage(g) { return meetingsStore.meetingRoles[g.id] === 'admin' }
 function getAdmins(gid) { return (membersCache.value[gid] || []).filter(mb => mb.role === 'admin') }
 function getCompanies(gid) { const companies = new Set(); (membersCache.value[gid] || []).forEach(mb => { const o = mb.user?.company || mb.user?.department; if (o) companies.add(o) }); return [...companies] }
 
+// 한 번에 테이블을 렌더링
+const initialLoading = ref(true)
+
 onMounted(async () => {
-  await meetingsStore.fetchMeetings()
-  // Preload member counts for table display
-  meetingsStore.meetings.forEach(m => loadMembers(m.id))
+  try {
+    await meetingsStore.fetchMeetings()
+    // Preload member info for table display (간사/참여조직/참여자 컬럼)
+    await Promise.all(meetingsStore.meetings.map(m => loadMembers(m.id)))
+  } catch { /* 실패해도 테이블은 표시 — 셀은 '-' 폴백 */ }
+  finally { initialLoading.value = false }
 })
 </script>
 
@@ -277,18 +264,24 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="lv-inner">
-      <div class="lv-header">
-        <div class="lv-filter-wrap"></div>
-        <AppPagination v-model="mgPage" :totalItems="sortedGroups.length" :pageSize="MG_PAGE_SIZE" :dark="nightMode" />
-        <div class="lv-header-right">
-          <span class="lv-title">{{ search ? `"${search}" 검색 결과` : statusTab === 'active' ? '진행 중 회의체' : '종료된 회의체' }}</span>
-          <span class="lv-count">{{ sortedGroups.length }}건</span>
-        </div>
-      </div>
+    <!-- 목록 본문 (공통 레이아웃: lv-header + table-wrap) -->
+    <AppTableSection
+      v-model:page="mgPage"
+      :total-items="sortedGroups.length"
+      :page-size="MG_PAGE_SIZE"
+      :dark="nightMode"
+      :show-pagination="!initialLoading"
+    >
+      <template #header-right>
+        <span class="lv-title">{{ search ? `"${search}" 검색 결과` : statusTab === 'active' ? '진행 중 회의체' : '종료된 회의체' }}</span>
+        <span class="lv-count">{{ sortedGroups.length }}건</span>
+      </template>
 
-      <div class="table-wrap">
-      <div v-if="!meetingsStore.meetings.length" class="mg-empty">
+      <div v-if="initialLoading" class="table-loading">
+        <span class="spinner-border spinner-border-sm text-primary"></span>
+        <span style="margin-left:10px;color:var(--text-muted);font-size:13px">불러오는 중...</span>
+      </div>
+      <div v-else-if="!meetingsStore.meetings.length" class="mg-empty">
         <div class="empty-icon">🗂️</div>
         <p>아직 참여 중인 회의체가 없습니다.</p>
       </div>
@@ -304,9 +297,10 @@ onMounted(async () => {
                 <div class="mg-row-title">{{ g.title }}</div>
               </td>
               <td>
-                <span class="mg-role-text" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
+                <span v-if="meetingsStore.meetingRoles[g.id]" class="mg-role-text" :class="meetingsStore.meetingRoles[g.id]==='admin' ? 'role-admin' : 'role-member'">
                   {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
                 </span>
+                <span v-else class="mg-row-nodates">-</span>
               </td>
               <!-- 유형 -->
               <td>
@@ -357,8 +351,7 @@ onMounted(async () => {
             </tr>
       </AppTable>
       </template>
-      </div><!-- /table-wrap -->
-    </div><!-- /lv-inner -->
+    </AppTableSection>
 
     <Teleport to="body">
       <!-- Create modal -->
@@ -452,28 +445,18 @@ onMounted(async () => {
 <style scoped>
 .mg-page { display:flex;flex-direction:column;height:100%; }
 
-/* lv-inner / table-wrap (회사 탭과 동일한 본문 구조) */
-.lv-inner { flex:1;min-height:0;width:100%;padding:6px 16px;display:flex;flex-direction:column;gap:0;overflow:hidden; }
-.table-wrap { flex:1;overflow-y:auto;min-height:0;padding:0 0 16px 0;display:flex;flex-direction:column;gap:8px; }
-
-/* lv-header (회사 탭과 동일한 목록 헤더 스타일) */
-.lv-header { display:flex;align-items:center;justify-content:space-between;padding:0 0 6px 0;position:relative; height: 36px; }
-/* 페이지네이션을 테이블 가로 중앙에 고정 (좌우 요소 폭과 무관) */
-.lv-header .app-pagination { position:absolute;left:50%;transform:translateX(-50%); }
-.lv-filter-wrap { display:flex;gap:6px; }
-.lv-header-right { display:flex;align-items:center;gap:6px; }
-.lv-title { font-size:12px;font-weight:500;color:var(--text-muted); }
-.lv-count { font-size:12px;color:var(--dark-muted); }
+/* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용
+   (lv-header height:36px 포함 — 전역으로 이동) */
 
 /* 테이블 행 */
-.mg-row { border-bottom:1px solid rgba(255,255,255,.06);cursor:default;background:transparent; }
-.mg-row:hover { background:rgba(255,255,255,.04); }
+.mg-row { border-bottom:1px solid var(--white-06);cursor:default;background:transparent; }
+.mg-row:hover { background:var(--white-04); }
 .mg-row-title { font-size:13px;font-weight:600;color:var(--dark-text); }
 .day-mode .mg-row { border-bottom-color:var(--surface-2);background:#fff; }
 .day-mode .mg-row:hover { background:var(--surface); }
 .day-mode .mg-row-title { color:var(--dark-card); }
 .mg-row-nodates { color:var(--text-dim); }
-.day-mode .mg-row-nodates { color:#cbd5e1; }
+.day-mode .mg-row-nodates { color:var(--dark-text-2); }
 .mg-type-text { font-size:12px;color:var(--text-muted); }
 .mg-admin-name { font-size:12px;color:var(--text-muted); }
 .mg-member-count-label { font-size:12px;color:var(--text-muted); }
@@ -486,16 +469,16 @@ onMounted(async () => {
 
 /* 아이콘 버튼 (설정) */
 .action-btns { display:flex;gap:6px;align-items:center; }
-.mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
-.mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:#93c5fd;background:rgba(96,165,250,.1); }
+.mg-icon-btn { width:28px;height:28px;border-radius:7px;border:1px solid var(--white-10);background:var(--white-05);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer; }
+.mg-icon-btn.settings:hover { border-color:rgba(96,165,250,.5);color:var(--accent-soft);background:rgba(96,165,250,.1); }
 .mg-icon-btn:disabled { opacity:.4;cursor:not-allowed; }
 .day-mode .mg-icon-btn { border-color:var(--border);background:#fff;color:var(--text-muted); }
 
 /* 텍스트 액션 버튼 (종료 / 삭제) — 설정 버튼과 동일 베이스 */
-.mg-action-btn { display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--text-muted); white-space:nowrap; }
+.mg-action-btn { display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid var(--white-10);background:var(--white-05);color:var(--text-muted); white-space:nowrap; }
 .mg-action-btn:disabled { opacity:.4;cursor:not-allowed; }
 .mg-btn-end:hover:not(:disabled) { border-color:rgba(34,197,94,.4);color:#4ade80;background:rgba(34,197,94,.08); }
-.mg-btn-delete:hover:not(:disabled) { border-color:rgba(239,68,68,.4);color:#f87171;background:rgba(239,68,68,.08); }
+.mg-btn-delete:hover:not(:disabled) { border-color:rgba(239,68,68,.4);color:var(--danger-soft);background:rgba(239,68,68,.08); }
 .day-mode .mg-action-btn { border-color:var(--border);background:#fff;color:var(--text-muted); }
 .day-mode .mg-btn-end:hover:not(:disabled) { border-color:#bbf7d0;color:#16a34a;background:#f0fdf4; }
 .day-mode .mg-btn-delete:hover:not(:disabled) { border-color:#fecaca;color:#dc2626;background:#fef2f2; }
@@ -506,7 +489,7 @@ onMounted(async () => {
 .delete-confirm-icon { flex-shrink:0;margin-top:2px; }
 .delete-confirm-msg { font-size:13px;color:var(--dark-text);line-height:1.6;margin:0; }
 .delete-confirm-sub { font-size:11.5px;color:var(--text-muted); }
-.app-btn-danger { padding:7px 18px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+.app-btn-danger { padding:7px 18px;border-radius:8px;border:none;background:var(--danger);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
 .app-btn-danger:hover { background:#dc2626; }
 
 /* 역할 텍스트 */

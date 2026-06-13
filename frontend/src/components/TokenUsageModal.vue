@@ -198,21 +198,21 @@ const sec = computed(() => data.value?.sections || null)
   padding: 12px 20px 10px; flex-shrink: 0;
   border-bottom: 1px solid var(--border, #e2e8f0);
 }
-.tum-sep { padding-bottom: 10px; color: var(--text-muted, #94a3b8); }
-.tum-date-err { margin: 4px 20px 0; font-size: 11px; color: #ef4444; }
-.tum-placeholder { text-align: center; padding: 40px 20px; font-size: 13px; color: var(--text-muted, #64748b); }
+.tum-sep { padding-bottom: 10px; color: var(--text-muted, var(--dark-muted)); }
+.tum-date-err { margin: 4px 20px 0; font-size: 11px; color: var(--danger); }
+.tum-placeholder { text-align: center; padding: 40px 20px; font-size: 13px; color: var(--text-muted, var(--text-muted)); }
 
 /* ── 요약 바 ── */
 .tum-stats-bar {
   display: flex; align-items: center; justify-content: space-around;
-  padding: 12px 20px; background: var(--surface, #f8fafc);
+  padding: 12px 20px; background: var(--surface, var(--surface));
   border-bottom: 1px solid var(--border, #e2e8f0); flex-shrink: 0;
 }
 .tum-stat { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.tum-stat-val { font-size: 16px; font-weight: 700; color: var(--text, #1e293b); line-height: 1; }
-.tum-stat-lbl { font-size: 10px; color: var(--text-muted, #64748b); text-transform: uppercase; letter-spacing: .04em; }
+.tum-stat-val { font-size: 16px; font-weight: 700; color: var(--text, var(--dark-card)); line-height: 1; }
+.tum-stat-lbl { font-size: 10px; color: var(--text-muted, var(--text-muted)); text-transform: uppercase; letter-spacing: .04em; }
 .tum-stat-sep { width: 1px; height: 32px; background: var(--border, #e2e8f0); }
-.tum-accent { color: var(--accent, #3b82f6) !important; }
+.tum-accent { color: var(--accent, var(--accent)) !important; }
 
 /* ── 공통 행 ── */
 .tum-m-row {
@@ -222,7 +222,7 @@ const sec = computed(() => data.value?.sections || null)
 .tum-model-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 /* ── 컨텍스트 하위 행 ── */
-.tum-ctx-row { background: var(--surface, #f8fafc); }
+.tum-ctx-row { background: var(--surface, var(--surface)); }
 .tum-ctx-indent { width: 16px; flex-shrink: 0; }
 
 /* ── 칩 ── */
@@ -233,33 +233,33 @@ const sec = computed(() => data.value?.sections || null)
 /* 컨텍스트 칩 */
 .tum-chip.ctx-task_extraction { background: #d1fae5; color: #065f46; }
 .tum-chip.ctx-report_analysis { background: #ede9fe; color: #5b21b6; }
-.tum-chip.ctx-meeting         { background: #fef3c7; color: #92400e; }
-.tum-chip.ctx-other           { background: #f1f5f9; color: #475569; }
+.tum-chip.ctx-meeting         { background: var(--warning-bg); color: #92400e; }
+.tum-chip.ctx-other           { background: var(--surface-2); color: var(--text-dim); }
 /* STT 칩 */
-.tum-chip.stt-gcapi        { background: #dbeafe; color: #1d4ed8; }
-.tum-chip.stt-whisperapi   { background: #fef3c7; color: #92400e; }
+.tum-chip.stt-gcapi        { background: var(--accent-bg-2); color: var(--accent-strong); }
+.tum-chip.stt-whisperapi   { background: var(--warning-bg); color: #92400e; }
 .tum-chip.stt-localwhisper { background: #d1fae5; color: #065f46; }
 
 /* ── 행 내 텍스트 ── */
-.tum-m-desc { flex: 1; font-weight: 500; color: var(--text, #1e293b); }
-.tum-m-note { font-size: 11px; color: var(--text-muted, #64748b); white-space: nowrap; }
-.tum-m-cost { width: 64px; text-align: right; font-weight: 600; color: var(--text, #1e293b); flex-shrink: 0; }
+.tum-m-desc { flex: 1; font-weight: 500; color: var(--text, var(--dark-card)); }
+.tum-m-note { font-size: 11px; color: var(--text-muted, var(--text-muted)); white-space: nowrap; }
+.tum-m-cost { width: 64px; text-align: right; font-weight: 600; color: var(--text, var(--dark-card)); flex-shrink: 0; }
 
 /* ── 합계 행 ── */
 .tum-m-total {
   display: flex; justify-content: space-between;
-  padding: 8px 0 2px; font-size: 12px; font-weight: 700; color: var(--text, #1e293b);
+  padding: 8px 0 2px; font-size: 12px; font-weight: 700; color: var(--text, var(--dark-card));
 }
 </style>
 
 <style>
 /* ── 나이트 모드 ── */
-html.night-mode .tum-stats-bar { background: rgba(255,255,255,.03) !important; }
+html.night-mode .tum-stats-bar { background: var(--white-03) !important; }
 html.night-mode .tum-ctx-row   { background: rgba(255,255,255,.02) !important; }
 html.night-mode .tum-chip.ctx-task_extraction { background: rgba(16,185,129,.15) !important; color: #6ee7b7 !important; }
 html.night-mode .tum-chip.ctx-report_analysis { background: rgba(139,92,246,.15) !important; color: #c4b5fd !important; }
 html.night-mode .tum-chip.ctx-meeting         { background: rgba(245,158,11,.15) !important; color: #fcd34d !important; }
-html.night-mode .tum-chip.stt-gcapi           { background: rgba(147,197,253,.15) !important; color: #93c5fd !important; }
+html.night-mode .tum-chip.stt-gcapi           { background: rgba(147,197,253,.15) !important; color: var(--accent-soft) !important; }
 html.night-mode .tum-chip.stt-whisperapi      { background: rgba(251,191,36,.15) !important;  color: #fcd34d !important; }
 html.night-mode .tum-chip.stt-localwhisper    { background: rgba(16,185,129,.15) !important;  color: #6ee7b7 !important; }
 </style>

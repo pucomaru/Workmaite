@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '../api'
+import { toast } from '../composables/useToast'
 
 function safeParseUser() {
   try { return JSON.parse(sessionStorage.getItem('user') || 'null') }
@@ -30,7 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
  
     if (data.user?.mustChangePassword) {
       // 임시 비밀번호 과도기 (P1-7②): 변경을 강하게 안내
-      alert('임시 비밀번호로 로그인했습니다. 보안을 위해 프로필에서 비밀번호를 변경해주세요.')
+      toast.info('임시 비밀번호로 로그인했습니다. 보안을 위해 프로필에서 비밀번호를 변경해주세요.', { duration: 6000 })
     }
   }
 
