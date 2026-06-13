@@ -13,7 +13,7 @@ useThemeStore()
 
 <template>
   <RouterView />
-  <!-- 전역 피드백 레이어 (PLAN Phase 2): 토스트 · 확인 다이얼로그 · 네트워크 단절 배너 -->
+  <!-- 전역 피드백 레이어: 토스트 · 확인 다이얼로그 · 네트워크 배너 -->
   <AppToast />
   <AppConfirmModal />
   <AppNetworkBanner />

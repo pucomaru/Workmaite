@@ -86,7 +86,7 @@ function click(i) {
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
-  color: var(--text-dim);
+  color: var(--text-muted);
   transition: all 0.2s;
 }
 .psb-step.psb-active .psb-dot {
@@ -101,7 +101,7 @@ function click(i) {
 }
 .psb-label {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-weight: 500;
   white-space: nowrap;
 }

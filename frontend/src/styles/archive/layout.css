@@ -169,7 +169,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 13px;
 }
 .graph-loading-spinner {
@@ -191,7 +191,7 @@
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(6px);
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 11px;
   pointer-events: none;
   z-index: 10;
@@ -258,7 +258,7 @@
 .day-mode .zoom-btn {
   background: rgba(255, 255, 255, 0.85);
   border-color: var(--border);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .zoom-btn:hover {
   background: var(--accent-bg-2);

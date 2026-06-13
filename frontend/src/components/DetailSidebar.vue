@@ -1163,7 +1163,7 @@ function parseAiEvidence(val) {
                     <div
                       class="detail-member-avatar"
                       :style="{
-                        background: mb.role === 'admin' ? 'var(--accent)' : 'var(--text-dim)',
+                        background: mb.role === 'admin' ? 'var(--accent)' : 'var(--text-muted)',
                       }"
                     >
                       {{ (mb.userName || mb.name || '?')[0] }}
@@ -1355,7 +1355,7 @@ function parseAiEvidence(val) {
                     :key="p.userId || p.userName"
                     class="detail-member-row"
                   >
-                    <div class="detail-member-avatar" style="background: var(--text-dim)">
+                    <div class="detail-member-avatar" style="background: var(--text-muted)">
                       {{ (p.userName || p.name || '?')[0] }}
                     </div>
                     <div class="detail-member-info">

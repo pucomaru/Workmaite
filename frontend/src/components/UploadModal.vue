@@ -1014,7 +1014,7 @@ function toggleAgendaDropdown() {
 }
 .cs-fb-item {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   line-height: 1.55;
 }
 .cs-fb-item-warn {

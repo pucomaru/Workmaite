@@ -957,7 +957,7 @@ html.night-mode .suggested-btn:hover:not(:disabled) {
   background: var(--white-10);
 }
 html.night-mode .suggested-section-label {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 html.night-mode .suggested-btn--at {
   background: var(--white-03);

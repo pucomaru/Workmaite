@@ -9,7 +9,7 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const currentMembers = ref([])
   const currentLoopIdx = ref(0) // MeetingNav ↔ SessionsPage 공유
   const meetingRoles = ref({}) // { [meetingId]: 'admin' | 'member' | null }
-  const membersByMeeting = ref({}) // { [meetingId]: MemberResponse[] } — 페이지 로컬 캐시 대신 단일 캐시 (PLAN Phase 1)
+  const membersByMeeting = ref({}) // { [meetingId]: MemberResponse[] } — 페이지 로컬 캐시 대신 단일 캐시
 
   async function fetchMeetings() {
     const { data } = await api.get('/api/v1/meetings')

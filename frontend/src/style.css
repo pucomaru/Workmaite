@@ -14,7 +14,6 @@
   --border: #e2e8f0;
   --text: #1a202c;
   --text-muted: #64748b;
-  --text-dim: #475569; /* 중간 회색 텍스트 */
   --surface: #f8fafc; /* 가장 연한 배경면 */
   --surface-2: #f1f5f9; /* 조금 진한 배경면 */
 
@@ -587,7 +586,7 @@ html.night-mode {
   --bg-card: var(--dark-card);
   --bg-subtle: var(--dark-subtle);
   --border: var(--dark-border);
-  --text: var(--dark-text);
+  --text: var(--text-muted) !important;
   --text-muted: var(--dark-muted);
   --surface: #1e2d3e;
   --surface-2: var(--dark-subtle);
@@ -618,9 +617,8 @@ html.night-mode .search-input,
 html.night-mode input:not([type='range']):not([type='checkbox']):not([type='radio']),
 html.night-mode textarea,
 html.night-mode select {
-  background: var(--bg-card) !important;
   border-color: var(--border) !important;
-  color: var(--text) !important;
+  color: var(--dark-text);
 }
 html.night-mode input::placeholder,
 html.night-mode textarea::placeholder {
@@ -761,7 +759,7 @@ html.night-mode .btn-outline-secondary:hover {
 }
 html.night-mode .btn-secondary {
   background: var(--border) !important;
-  border-color: var(--text-dim) !important;
+  border-color: var(--text-muted) !important;
   color: var(--text) !important;
 }
 html.night-mode .btn-light {
@@ -919,7 +917,7 @@ html.night-mode .empty-state {
 }
 .archive-desc {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   margin: 0;
 }
 .search-wrap {
@@ -933,7 +931,7 @@ html.night-mode .empty-state {
   left: 9px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-dim);
+  color: var(--text-muted);
   pointer-events: none;
 }
 .search-input {
@@ -960,7 +958,7 @@ html.night-mode .empty-state {
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
 }
@@ -1085,7 +1083,7 @@ html.night-mode .empty-state {
 }
 .day-mode .create-btn.secondary {
   border-color: var(--dark-text-2);
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .create-btn.secondary:hover {
   background: var(--surface-2);
@@ -1307,7 +1305,7 @@ html.night-mode .empty-state {
   background-size: 8px 5px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   padding: 4px 22px 4px 8px;
   cursor: pointer;
   outline: none;
@@ -1356,7 +1354,7 @@ html.night-mode .app-select option {
   white-space: nowrap;
 }
 .app-tab:hover {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .app-tab.active {
   color: #2563eb;
@@ -1365,7 +1363,7 @@ html.night-mode .app-select option {
 /* .app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
 .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); } */
 html.night-mode .app-tab {
-  color: var(--text-dim) !important;
+  color: var(--text-muted) !important;
 }
 html.night-mode .app-tab:hover {
   color: var(--dark-muted) !important;
@@ -1419,7 +1417,6 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
 .app-modal-title {
   font-size: 15px;
   font-weight: 700;
-  color: var(--dark-card);
 }
 .app-modal-close {
   width: 28px;
@@ -1464,7 +1461,6 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
 .app-modal-field label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1483,7 +1479,6 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   width: 100%;
   box-sizing: border-box;
   font-family: inherit;
-  color: var(--dark-card);
 }
 input[type='datetime-local'].app-modal-input {
   font-size: 12px;
@@ -1597,14 +1592,14 @@ select.app-modal-input {
 .app-modal.dark .app-modal-input {
   background: var(--white-06);
   border-color: var(--white-12);
-  color: var(--surface-2);
+  color: var(--white-08);
 }
 .app-modal.dark .app-modal-input:focus {
   border-color: rgba(96, 165, 250, 0.5);
   background: var(--white-08);
 }
 .app-modal.dark .app-modal-input::placeholder {
-  color: var(--dark-border);
+  color: var(--dark-muted) !important;
 }
 .app-modal.dark select.app-modal-input {
   background-color: var(--white-06);
@@ -1631,11 +1626,11 @@ html.night-mode .app-modal-header {
   border-bottom-color: var(--white-08) !important;
 }
 html.night-mode .app-modal-title {
-  color: var(--surface-2) !important;
+  color: var(--dark-text) !important;
 }
 html.night-mode .app-modal-close {
   background: var(--white-07) !important;
-  color: var(--text-muted) !important;
+  color: var(--dark-text) !important;
 }
 html.night-mode .app-modal-close:hover {
   background: var(--white-12) !important;
@@ -1645,18 +1640,18 @@ html.night-mode .app-modal-footer {
   border-top-color: var(--white-08) !important;
 }
 html.night-mode .app-modal-field label {
-  color: var(--text-muted) !important;
+  color: var(--dark-text) !important;
 }
 html.night-mode .app-modal-input {
   background: var(--white-06) !important;
   border-color: var(--white-12) !important;
-  color: var(--surface-2) !important;
+  color: var(--dark-text) !important;
 }
 html.night-mode .app-modal-input:focus {
   border-color: rgba(96, 165, 250, 0.5) !important;
 }
 html.night-mode .app-modal-input::placeholder {
-  color: var(--dark-border) !important;
+  color: var(--dark-muted) !important;
 }
 html.night-mode select.app-modal-input {
   background-color: var(--white-06) !important;

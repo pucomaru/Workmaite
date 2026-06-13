@@ -509,7 +509,7 @@ function deptList(dept) {
 .arb-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text-muted);
   letter-spacing: 0.03em;
 }
 .arb-rejected .arb-label {
@@ -593,7 +593,7 @@ function deptList(dept) {
 .dei-num {
   font-size: 10px;
   font-weight: 700;
-  color: var(--text-dim);
+  color: var(--text-muted);
   min-width: 16px;
   margin-top: 2px;
 }

@@ -90,7 +90,7 @@ api.interceptors.response.use(
   },
   async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
-      markNetworkDown() // 전역 배너 표시 — 스토어 캐시가 최신 아님을 사용자에게 인지시킴 (PLAN Phase 2)
+      markNetworkDown() // 전역 배너 표시 — 스토어 캐시가 최신 아님을 사용자에게 인지시킴
       return Promise.reject(new Error('서버에 연결할 수 없습니다.'))
     }
     const isAuthRequest =

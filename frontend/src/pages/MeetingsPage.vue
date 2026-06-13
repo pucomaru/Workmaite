@@ -16,11 +16,11 @@ import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 const mgColumns = [
   { label: '', width: '28px' },
   { label: '회의체명', sortKey: 'title' },
-  { label: '역할', width: '80px', sortKey: '_role' },
+  { label: '역할', width: '60px', sortKey: '_role' },
   { label: '유형', width: '100px', sortKey: 'meeting_type' },
-  { label: '간사', width: '160px', sortKey: '_adminName' },
-  { label: '참여조직', width: '180px', sortKey: '_companyCount' },
-  { label: '참여자', width: '150px', sortKey: '_memberCount' },
+  { label: '간사', width: '60px', sortKey: '_adminName' },
+  { label: '참여조직', width: '100px', sortKey: '_companyCount' },
+  { label: '참여자', width: '60px', sortKey: '_memberCount' },
   { label: '', width: '72px', noResize: true },
 ]
 
@@ -32,7 +32,7 @@ const nightMode = computed(() => themeStore.nightMode)
 const search = ref('')
 const statusTab = ref('active')
 const expandedId = ref(null)
-// 멤버 캐시는 스토어 단일 캐시 사용 — 페이지 로컬 사본 금지 (PLAN Phase 1)
+// 멤버 캐시는 스토어 단일 캐시 사용 — 페이지 로컬 사본 금지
 const membersCache = computed(() => meetingsStore.membersByMeeting)
 const loadingMembers = ref({})
 
@@ -709,7 +709,7 @@ onMounted(async () => {
   color: var(--dark-card);
 }
 .mg-row-nodates {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .mg-row-nodates {
   color: var(--dark-text-2);
@@ -869,17 +869,15 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-muted);
 }
-.mg-role-text.role-admin {
-  font-weight: 600;
-}
+
 .day-mode .mg-role-text {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .day-mode .mg-type-text,
 .day-mode .mg-admin-name,
 .day-mode .mg-member-count-label,
 .day-mode .mg-company-plain {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 
 /* 빈 상태 */
