@@ -12,7 +12,7 @@ import lombok.Getter;
 @Builder
 public class MeetingResponse {
 
-  private Integer id;
+  private Long id;
   private String title;
   private String description;
   private String guidelines;
@@ -29,7 +29,7 @@ public class MeetingResponse {
   private MeetingStatus status;
 
   @JsonProperty("created_by")
-  private Integer createdBy;
+  private Long createdBy;
 
   @JsonProperty("created_at")
   private LocalDateTime createdAt;

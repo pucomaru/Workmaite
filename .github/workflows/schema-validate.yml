@@ -71,6 +71,8 @@ jobs:
           DB_NAME: workmaite_ci
           DB_USER: wm
           DB_PASSWORD: wm
+          
+          PYTHONPATH: ${{ github.workspace }}/backend/ai
         run: |
           python -m pip install -q "sqlalchemy>=2" psycopg2-binary python-dotenv
           python scripts/validate_schema.py

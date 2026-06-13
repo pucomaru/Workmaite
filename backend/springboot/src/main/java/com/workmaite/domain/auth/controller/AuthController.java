@@ -53,9 +53,9 @@ public class AuthController {
   @PostMapping("/logout")
   public ResponseEntity<ApiResponse<Void>> logout(
       @RequestBody(required = false) RefreshRequest request, Authentication authentication) {
-    Integer userId =
+    Long userId =
         authentication != null && authentication.getName() != null
-            ? Integer.parseInt(authentication.getName())
+            ? Long.parseLong(authentication.getName())
             : null;
     authService.logout(request != null ? request.getRefreshToken() : null, userId);
     return ResponseEntity.ok(ApiResponse.ok(null));

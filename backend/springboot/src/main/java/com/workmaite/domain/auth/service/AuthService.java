@@ -94,7 +94,7 @@ public class AuthService {
   @Transactional(noRollbackFor = BusinessException.class)
   public LoginResponse refresh(RefreshRequest request) {
     jwtTokenProvider.validateRefreshToken(request.getRefreshToken());
-    Integer userId = jwtTokenProvider.getUserId(request.getRefreshToken());
+    Long userId = jwtTokenProvider.getUserId(request.getRefreshToken());
     if (!userRepository.existsById(userId)) {
       throw new BusinessException(ErrorCode.USER_NOT_FOUND);
     }
@@ -118,7 +118,7 @@ public class AuthService {
   }
 
   /** 로그아웃: 제출된 refresh token을 폐기한다. 토큰이 없으면(만료 등) 인증된 사용자의 전체 refresh token을 폐기한다. */
-  public void logout(String refreshToken, Integer authenticatedUserId) {
+  public void logout(String refreshToken, Long authenticatedUserId) {
     if (refreshToken != null && !refreshToken.isBlank()) {
       refreshTokenRepository.deleteByTokenHash(sha256Hex(refreshToken));
     } else if (authenticatedUserId != null) {
@@ -128,7 +128,7 @@ public class AuthService {
         authenticatedUserId, "LOGOUT", "auth", authenticatedUserId, null, null);
   }
 
-  private String issueRefreshToken(Integer userId) {
+  private String issueRefreshToken(Long userId) {
     // 만료된 잔여 토큰 정리 (기기별 다중 로그인은 유지)
     refreshTokenRepository.deleteByUserIdAndExpiresAtBefore(userId, LocalDateTime.now());
     String refreshToken = jwtTokenProvider.createRefreshToken(userId);

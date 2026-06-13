@@ -45,17 +45,17 @@ public class JwtTokenProvider {
   public static final String TYPE_REFRESH = "refresh";
 
   // Access Token 발급
-  public String createAccessToken(Integer userId) {
+  public String createAccessToken(Long userId) {
     return createToken(userId, accessTokenExpiration, TYPE_ACCESS);
   }
 
   // Refresh Token 발급
-  public String createRefreshToken(Integer userId) {
+  public String createRefreshToken(Long userId) {
     return createToken(userId, refreshTokenExpiration, TYPE_REFRESH);
   }
 
   // 토큰 생성 공통 로직
-  private String createToken(Integer userId, long expiration, String type) {
+  private String createToken(Long userId, long expiration, String type) {
     Date now = new Date();
     Date expiredAt = new Date(now.getTime() + expiration);
 
@@ -72,8 +72,8 @@ public class JwtTokenProvider {
   }
 
   // 토큰에서 userId 추출
-  public Integer getUserId(String token) {
-    return Integer.parseInt(getClaims(token).getSubject());
+  public Long getUserId(String token) {
+    return Long.parseLong(getClaims(token).getSubject());
   }
 
   // 토큰 만료 시각 추출 (refresh token 저장용)

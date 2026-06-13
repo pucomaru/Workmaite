@@ -35,7 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     if (StringUtils.hasText(token)) {
       try {
         jwtTokenProvider.validateAccessToken(token);
-        Integer userId = jwtTokenProvider.getUserId(token);
+        Long userId = jwtTokenProvider.getUserId(token);
 
         // DB에서 유저 조회 후 SecurityContext 에 저장
         UserDetails userDetails =

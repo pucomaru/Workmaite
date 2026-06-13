@@ -13,18 +13,18 @@ public class SessionMember {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "session_id", nullable = false)
-  private Integer sessionId;
+  private Long sessionId;
 
   @Column(name = "user_id", nullable = false)
-  private Integer userId;
+  private Long userId;
 
   @Column(name = "role")
   private String role;
 
-  public static SessionMember of(Integer sessionId, Integer userId, String role) {
+  public static SessionMember of(Long sessionId, Long userId, String role) {
     SessionMember m = new SessionMember();
     m.sessionId = sessionId;
     m.userId = userId;

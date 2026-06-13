@@ -9,6 +9,7 @@
 실행: DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD 환경변수 설정 후
       python scripts/validate_schema.py
 """
+
 import sys
 
 from sqlalchemy import inspect
@@ -28,7 +29,14 @@ def category(sa_type) -> str:
         return "int4"
     if n in ("STRING", "VARCHAR", "TEXT", "CHAR", "NVARCHAR", "NAME", "CITEXT"):
         return "str"
-    if n in ("FLOAT", "DOUBLE_PRECISION", "DOUBLEPRECISION", "REAL", "NUMERIC", "DECIMAL"):
+    if n in (
+        "FLOAT",
+        "DOUBLE_PRECISION",
+        "DOUBLEPRECISION",
+        "REAL",
+        "NUMERIC",
+        "DECIMAL",
+    ):
         return "float"
     if n in ("DATETIME", "TIMESTAMP"):
         return "ts"

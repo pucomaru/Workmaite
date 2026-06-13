@@ -29,28 +29,28 @@ public class AuditLogService {
 
   /** SecurityContext의 현재 사용자를 actor로 기록 */
   public void record(
-      String action, String entityType, Integer entityId, Integer meetingId, String detailJson) {
+      String action, String entityType, Long entityId, Long meetingId, String detailJson) {
     recordAs(CurrentUser.idOrNull(), action, entityType, entityId, meetingId, detailJson);
   }
 
   /** 인증 컨텍스트가 없는 시점(로그인 등)에 actor를 명시해 기록 */
   public void recordAs(
-      Integer actorId,
+      Long actorId,
       String action,
       String entityType,
-      Integer entityId,
-      Integer meetingId,
+      Long entityId,
+      Long meetingId,
       String detailJson) {
     write(actorId, action, entityType, entityId, meetingId, detailJson, clientIp());
   }
 
   /** 호출자 트랜잭션 커밋 후 기록. actor 자신이 같은 트랜잭션에서 생성되는 경우(signup) FK 충족을 위해 사용한다. */
   public void recordAfterCommit(
-      Integer actorId,
+      Long actorId,
       String action,
       String entityType,
-      Integer entityId,
-      Integer meetingId,
+      Long entityId,
+      Long meetingId,
       String detailJson) {
     String ip = clientIp(); // afterCommit 시점엔 요청 컨텍스트가 없을 수 있어 미리 캡처
     if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -67,11 +67,11 @@ public class AuditLogService {
   }
 
   private void write(
-      Integer actorId,
+      Long actorId,
       String action,
       String entityType,
-      Integer entityId,
-      Integer meetingId,
+      Long entityId,
+      Long meetingId,
       String detailJson,
       String ip) {
     try {

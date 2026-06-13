@@ -22,7 +22,7 @@ public class MinutesService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "minutes")
-  public MinutesResponse generateMinutes(Integer sessionId, MinutesGenerateRequest request) {
+  public MinutesResponse generateMinutes(Long sessionId, MinutesGenerateRequest request) {
     meetingAccessGuard.requireMemberBySession(sessionId);
     if (minutesRepository.existsBySessionId(sessionId)) {
       throw new BusinessException(ErrorCode.MINUTES_ALREADY_EXISTS);
@@ -43,13 +43,13 @@ public class MinutesService {
     return MinutesSummaryResponse.of(request.getContentRaw());
   }
 
-  public MinutesResponse getMinutes(Integer sessionId) {
+  public MinutesResponse getMinutes(Long sessionId) {
     return MinutesResponse.of(findBySessionIdOrThrow(sessionId));
   }
 
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "minutes")
-  public MinutesResponse updateMinutes(Integer sessionId, MinutesUpdateRequest request) {
+  public MinutesResponse updateMinutes(Long sessionId, MinutesUpdateRequest request) {
     Minutes minutes = findBySessionIdOrThrow(sessionId);
 
     if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
@@ -62,7 +62,7 @@ public class MinutesService {
 
   @Transactional
   @AuditLogged(action = "CONFIRM", entityType = "minutes")
-  public MinutesResponse confirmMinutes(Integer sessionId, MinutesConfirmRequest request) {
+  public MinutesResponse confirmMinutes(Long sessionId, MinutesConfirmRequest request) {
     Minutes minutes = findBySessionIdOrThrow(sessionId);
 
     if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
@@ -74,7 +74,7 @@ public class MinutesService {
   }
 
   // 모든 sessionId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
-  private Minutes findBySessionIdOrThrow(Integer sessionId) {
+  private Minutes findBySessionIdOrThrow(Long sessionId) {
     meetingAccessGuard.requireMemberBySession(sessionId);
     return minutesRepository
         .findBySessionId(sessionId)

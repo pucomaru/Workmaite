@@ -34,36 +34,36 @@ public class SessionController {
   @GetMapping("/me/sessions")
   public ResponseEntity<ApiResponse<List<UpcomingSessionResponse>>> getMyUpcomingSessions(
       Authentication authentication) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(sessionService.getMyUpcomingSessions(userId)));
   }
 
   @GetMapping("/meetings/{meetingId}/sessions")
   public ResponseEntity<ApiResponse<List<SessionResponse>>> getSessions(
-      @PathVariable Integer meetingId, @RequestParam(required = false) SessionStatus status) {
+      @PathVariable Long meetingId, @RequestParam(required = false) SessionStatus status) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.getSessions(meetingId, status)));
   }
 
   @PostMapping("/meetings/{meetingId}/sessions")
   public ResponseEntity<ApiResponse<SessionResponse>> createSession(
-      @PathVariable Integer meetingId, @RequestBody @Valid SessionCreateRequest request) {
+      @PathVariable Long meetingId, @RequestBody @Valid SessionCreateRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.ok(sessionService.createSession(meetingId, request)));
   }
 
   @GetMapping("/sessions/{sessionId}")
-  public ResponseEntity<ApiResponse<SessionResponse>> getSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> getSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.getSession(sessionId)));
   }
 
   @PatchMapping("/sessions/{sessionId}")
   public ResponseEntity<ApiResponse<SessionResponse>> updateSession(
-      @PathVariable Integer sessionId, @RequestBody SessionUpdateRequest request) {
+      @PathVariable Long sessionId, @RequestBody SessionUpdateRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.updateSession(sessionId, request)));
   }
 
   @DeleteMapping("/sessions/{sessionId}")
-  public ResponseEntity<ApiResponse<Void>> deleteSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<Void>> deleteSession(@PathVariable Long sessionId) {
     sessionService.deleteSession(sessionId);
     return ResponseEntity.ok(ApiResponse.ok(null));
   }
@@ -71,33 +71,33 @@ public class SessionController {
   // Meeting Progress — status, started_at, ended_at 업데이트
 
   @PostMapping("/sessions/{sessionId}/start")
-  public ResponseEntity<ApiResponse<SessionResponse>> startSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> startSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.startSession(sessionId)));
   }
 
   @PostMapping("/sessions/{sessionId}/pause")
-  public ResponseEntity<ApiResponse<SessionResponse>> pauseSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> pauseSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.pauseSession(sessionId)));
   }
 
   @PostMapping("/sessions/{sessionId}/resume")
-  public ResponseEntity<ApiResponse<SessionResponse>> resumeSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> resumeSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.resumeSession(sessionId)));
   }
 
   @PostMapping("/sessions/{sessionId}/end")
-  public ResponseEntity<ApiResponse<SessionResponse>> endSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> endSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.endSession(sessionId)));
   }
 
   @PostMapping("/sessions/{sessionId}/archive")
-  public ResponseEntity<ApiResponse<SessionResponse>> archiveSession(@PathVariable Integer sessionId) {
+  public ResponseEntity<ApiResponse<SessionResponse>> archiveSession(@PathVariable Long sessionId) {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.archiveSession(sessionId)));
   }
 
   @PatchMapping("/sessions/{sessionId}/context")
   public ResponseEntity<ApiResponse<SessionResponse>> updateContext(
-      @PathVariable Integer sessionId, @RequestBody java.util.Map<String, String> body) {
+      @PathVariable Long sessionId, @RequestBody java.util.Map<String, String> body) {
     return ResponseEntity.ok(
         ApiResponse.ok(sessionService.updateContext(sessionId, body.get("context"))));
   }

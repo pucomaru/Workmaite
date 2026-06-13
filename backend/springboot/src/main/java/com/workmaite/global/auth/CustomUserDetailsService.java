@@ -20,7 +20,7 @@ public class CustomUserDetailsService implements UserDetailsService {
   public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
     com.workmaite.domain.user.entity.User user =
         userRepository
-            .findById(Integer.parseInt(userId))
+            .findById(Long.parseLong(userId))
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     var builder =

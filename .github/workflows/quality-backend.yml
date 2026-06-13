@@ -15,6 +15,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # gradlew/Dockerfile 은 backend/springboot 하위에 있으므로 모든 run 스텝을 그 디렉터리에서 실행
+    defaults:
+      run:
+        working-directory: backend/springboot
     # @SpringBootTest(test 단계)용 throwaway PostgreSQL — 운영과 동일 DB로 컨텍스트 검증
     services:
       postgres:

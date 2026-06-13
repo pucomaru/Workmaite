@@ -37,7 +37,7 @@ public class MeetingService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "meeting")
-  public MeetingResponse createMeeting(Integer requesterId, MeetingCreateRequest request) {
+  public MeetingResponse createMeeting(Long requesterId, MeetingCreateRequest request) {
     Meeting meeting =
         Meeting.create(
             request.getTitle(),
@@ -58,7 +58,7 @@ public class MeetingService {
 
   /** 회의체 목록/검색 (P8-4). size 미지정 시 기존 전체 반환(호환 모드). */
   public List<MeetingResponse> getMeetings(
-      Integer userId, String keyword, Integer page, Integer size) {
+      Long userId, String keyword, Integer page, Integer size) {
     boolean paged = size != null;
     var pageable =
         paged
@@ -81,8 +81,8 @@ public class MeetingService {
                 : meetingRepository.findByUserId(userId));
 
     // Build role map for this user
-    List<Integer> meetingIds = all.stream().map(Meeting::getId).toList();
-    Map<Integer, String> roleMap =
+    List<Long> meetingIds = all.stream().map(Meeting::getId).toList();
+    Map<Long, String> roleMap =
         meetingMemberRepository.findByUserId(userId).stream()
             .filter(mm -> meetingIds.contains(mm.getMeetingId()))
             .collect(
@@ -98,20 +98,20 @@ public class MeetingService {
   }
 
   // secretary가 여러 명일 경우 첫 번째만 담당자로 사용
-  public List<ActiveMeetingResponse> getMyActiveMeetings(Integer userId) {
+  public List<ActiveMeetingResponse> getMyActiveMeetings(Long userId) {
     List<Meeting> meetings = meetingRepository.findByUserIdAndStatus(userId, MeetingStatus.ACTIVE);
     if (meetings.isEmpty()) return List.of();
 
-    List<Integer> meetingIds = meetings.stream().map(Meeting::getId).toList();
+    List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
     List<MeetingMember> admins =
         meetingMemberRepository.findByMeetingIdInAndRole(meetingIds, MeetingMemberRole.ADMIN);
 
-    List<Integer> adminUserIds = admins.stream().map(MeetingMember::getUserId).distinct().toList();
-    Map<Integer, String> userNameMap =
+    List<Long> adminUserIds = admins.stream().map(MeetingMember::getUserId).distinct().toList();
+    Map<Long, String> userNameMap =
         userRepository.findAllById(adminUserIds).stream()
             .collect(Collectors.toMap(User::getId, User::getName));
 
-    Map<Integer, String> adminNameMap =
+    Map<Long, String> adminNameMap =
         admins.stream()
             .collect(
                 Collectors.toMap(
@@ -120,7 +120,7 @@ public class MeetingService {
                     (first, second) -> first));
 
     List<MeetingMember> allMembers = meetingMemberRepository.findByMeetingIdIn(meetingIds);
-    Map<Integer, Long> memberCountMap =
+    Map<Long, Long> memberCountMap =
         allMembers.stream()
             .collect(Collectors.groupingBy(MeetingMember::getMeetingId, Collectors.counting()));
 
@@ -134,18 +134,18 @@ public class MeetingService {
         .toList();
   }
 
-  public MeetingDetailResponse getMeeting(Integer meetingId) {
+  public MeetingDetailResponse getMeeting(Long meetingId) {
     meetingAccessGuard.requireMember(meetingId);
     Meeting meeting = findMeetingOrThrow(meetingId);
     List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
-    Map<Integer, User> userMap = buildUserMap(members);
+    Map<Long, User> userMap = buildUserMap(members);
     return MeetingDetailResponse.from(meeting, members, userMap);
   }
 
-  public List<MeetingMemberResponse> findMembers(Integer meetingId) {
+  public List<MeetingMemberResponse> findMembers(Long meetingId) {
     meetingAccessGuard.requireMember(meetingId);
     List<MeetingMember> members = meetingMemberRepository.findByMeetingId(meetingId);
-    Map<Integer, User> userMap = buildUserMap(members);
+    Map<Long, User> userMap = buildUserMap(members);
     return members.stream()
         .map(mm -> MeetingMemberResponse.from(mm, userMap.get(mm.getUserId())))
         .toList();
@@ -154,7 +154,7 @@ public class MeetingService {
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "meeting")
   public MeetingResponse updateMeeting(
-      Integer meetingId, Integer requesterId, MeetingUpdateRequest request) {
+      Long meetingId, Long requesterId, MeetingUpdateRequest request) {
     checkSecretaryPermission(meetingId, requesterId);
     Meeting meeting = findMeetingOrThrow(meetingId);
     meeting.update(
@@ -172,7 +172,7 @@ public class MeetingService {
   @Transactional
   @AuditLogged(action = "ADD", entityType = "member")
   public MeetingMemberResponse addMember(
-      Integer meetingId, Integer requesterId, MeetingMemberAddRequest request) {
+      Long meetingId, Long requesterId, MeetingMemberAddRequest request) {
     checkSecretaryPermission(meetingId, requesterId);
     findMeetingOrThrow(meetingId);
     if (meetingMemberRepository.existsByMeetingIdAndUserId(meetingId, request.getUserId())) {
@@ -188,13 +188,13 @@ public class MeetingService {
 
   @Transactional
   @AuditLogged(action = "REMOVE", entityType = "member")
-  public void removeMember(Integer meetingId, Integer requesterId, Integer memberId) {
+  public void removeMember(Long meetingId, Long requesterId, Long memberId) {
     checkSecretaryPermission(meetingId, requesterId);
     MeetingMember member =
         meetingMemberRepository
             .findById(memberId)
             .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_MEMBER_NOT_FOUND));
-    Integer userId = member.getUserId();
+    Long userId = member.getUserId();
     meetingMemberRepository.delete(member);
     neoSyncService.deleteMember(meetingId, userId);
   }
@@ -202,7 +202,7 @@ public class MeetingService {
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "member")
   public MeetingMemberResponse updateMemberRole(
-      Integer meetingId, Integer requesterId, Integer memberId, MeetingMemberUpdateRequest request) {
+      Long meetingId, Long requesterId, Long memberId, MeetingMemberUpdateRequest request) {
     checkSecretaryPermission(meetingId, requesterId);
     MeetingMember member =
         meetingMemberRepository
@@ -216,27 +216,27 @@ public class MeetingService {
   }
 
   /** 현재 사용자의 특정 회의체 내 역할 반환 (없으면 null) */
-  public String getMyRole(Integer meetingId, Integer userId) {
+  public String getMyRole(Long meetingId, Long userId) {
     return meetingMemberRepository
         .findByMeetingIdAndUserId(meetingId, userId)
         .map(m -> m.getRole() == MeetingMemberRole.ADMIN ? "admin" : "member")
         .orElse(null);
   }
 
-  private Meeting findMeetingOrThrow(Integer meetingId) {
+  private Meeting findMeetingOrThrow(Long meetingId) {
     return meetingRepository
         .findById(meetingId)
         .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_NOT_FOUND));
   }
 
-  private Map<Integer, User> buildUserMap(List<MeetingMember> members) {
-    List<Integer> userIds = members.stream().map(MeetingMember::getUserId).distinct().toList();
+  private Map<Long, User> buildUserMap(List<MeetingMember> members) {
+    List<Long> userIds = members.stream().map(MeetingMember::getUserId).distinct().toList();
     return userRepository.findAllById(userIds).stream()
         .collect(Collectors.toMap(User::getId, u -> u));
   }
 
   // secretary 권한이 없으면 403 예외 발생
-  private void checkSecretaryPermission(Integer meetingId, Integer requesterId) {
+  private void checkSecretaryPermission(Long meetingId, Long requesterId) {
     // 시스템관리자는 간사가 아니어도 회의체 설정/종료/멤버 편집 가능
     boolean isSystemAdmin =
         userRepository

@@ -15,10 +15,10 @@ public class TokenUsageLog {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "agent_log_id")
-  private Integer agentLogId;
+  private Long agentLogId;
 
   @Column(name = "model_name", length = 50, nullable = false)
   private String modelName;
@@ -29,8 +29,8 @@ public class TokenUsageLog {
   @Column(name = "completion_tokens", nullable = false)
   private Integer completionTokens;
 
-    @Column(name = "estimated_cost_usd")
-    private Double estimatedCostUsd;
+  @Column(name = "estimated_cost_usd")
+  private Double estimatedCostUsd;
 
   @CreationTimestamp
   @Column(name = "created_at", updatable = false)

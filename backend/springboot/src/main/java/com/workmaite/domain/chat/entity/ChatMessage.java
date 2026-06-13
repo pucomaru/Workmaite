@@ -15,13 +15,13 @@ public class ChatMessage {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "thread_id", length = 100, nullable = false)
   private String threadId;
 
   @Column(name = "user_id", nullable = false)
-  private Integer userId;
+  private Long userId;
 
   @Column(length = 10, nullable = false)
   private String role;
@@ -39,10 +39,10 @@ public class ChatMessage {
   private String contextType;
 
   @Column(name = "meeting_id")
-  private Integer meetingId;
+  private Long meetingId;
 
   @Column(name = "session_id")
-  private Integer sessionId;
+  private Long sessionId;
 
   @CreationTimestamp
   @Column(name = "created_at", updatable = false)

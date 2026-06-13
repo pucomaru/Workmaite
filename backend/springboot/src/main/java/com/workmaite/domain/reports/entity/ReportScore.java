@@ -17,21 +17,21 @@ public class ReportScore {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "report_id", nullable = false)
-  private Integer reportId;
+  private Long reportId;
 
   @Builder.Default
   @Column(name = "ai_status", length = 20, nullable = false)
   private String aiStatus = "pending";
 
-    @Column(name = "total_score")
-    private Double totalScore;
+  @Column(name = "total_score")
+  private Double totalScore;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "detail_scores", columnDefinition = "jsonb")
-    private String detailScores;
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(name = "detail_scores", columnDefinition = "jsonb")
+  private String detailScores;
 
   @Column(name = "feedback", columnDefinition = "TEXT")
   private String feedback;
@@ -40,10 +40,10 @@ public class ReportScore {
   @Column(name = "created_at", updatable = false)
   private LocalDateTime createdAt;
 
-    public void saveResult(String aiStatus, Double totalScore, String detailScores, String feedback) {
-        this.aiStatus = aiStatus;
-        this.totalScore = totalScore;
-        this.detailScores = detailScores;
-        this.feedback = feedback;
-    }
+  public void saveResult(String aiStatus, Double totalScore, String detailScores, String feedback) {
+    this.aiStatus = aiStatus;
+    this.totalScore = totalScore;
+    this.detailScores = detailScores;
+    this.feedback = feedback;
+  }
 }

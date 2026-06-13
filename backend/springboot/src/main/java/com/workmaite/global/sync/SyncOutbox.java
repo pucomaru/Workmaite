@@ -27,13 +27,13 @@ public class SyncOutbox {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "entity_type", nullable = false, length = 30)
   private String entityType;
 
   @Column(name = "entity_id", nullable = false)
-  private Integer entityId;
+  private Long entityId;
 
   @Column(nullable = false, length = 10)
   private String op;

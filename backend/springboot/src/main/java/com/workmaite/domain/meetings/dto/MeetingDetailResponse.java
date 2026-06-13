@@ -16,7 +16,7 @@ import lombok.Getter;
 @Builder
 public class MeetingDetailResponse {
 
-  private Integer id;
+  private Long id;
   private String title;
   private String description;
   private String guidelines;
@@ -33,7 +33,7 @@ public class MeetingDetailResponse {
   private MeetingStatus status;
 
   @JsonProperty("created_by")
-  private Integer createdBy;
+  private Long createdBy;
 
   @JsonProperty("created_at")
   private LocalDateTime createdAt;
@@ -41,7 +41,7 @@ public class MeetingDetailResponse {
   private List<MeetingMemberResponse> members;
 
   public static MeetingDetailResponse from(
-      Meeting meeting, List<MeetingMember> members, Map<Integer, User> userMap) {
+      Meeting meeting, List<MeetingMember> members, Map<Long, User> userMap) {
     return MeetingDetailResponse.builder()
         .id(meeting.getId())
         .title(meeting.getTitle())

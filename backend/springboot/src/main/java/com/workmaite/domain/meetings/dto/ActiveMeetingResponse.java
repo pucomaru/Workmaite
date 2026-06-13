@@ -10,7 +10,7 @@ import lombok.Getter;
 @Builder
 public class ActiveMeetingResponse {
 
-  private Integer meetingId;
+  private Long meetingId;
   private String title;
   private MeetingType type;
   private LocalDateTime endDate;

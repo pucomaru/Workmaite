@@ -16,10 +16,10 @@ public class Minutes {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "session_id", nullable = false, unique = true)
-  private Integer sessionId;
+  private Long sessionId;
 
   @Column(name = "file_name", length = 255)
   private String fileName;
@@ -28,7 +28,7 @@ public class Minutes {
   private String filePath;
 
   @Column(name = "recorder_id")
-  private Integer recorderId;
+  private Long recorderId;
 
   @Column(name = "content_original", columnDefinition = "TEXT")
   private String contentOriginal;

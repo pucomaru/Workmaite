@@ -10,7 +10,7 @@ import lombok.Getter;
 @Builder
 public class CalendarSessionItem {
 
-  private Integer sessionId;
+  private Long sessionId;
   private String title;
   private String meetingTitle;
   private LocalDateTime scheduledAt;

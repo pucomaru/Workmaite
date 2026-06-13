@@ -16,10 +16,10 @@ public class MeetingSession {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "meeting_id", nullable = false)
-  private Integer meetingId;
+  private Long meetingId;
 
   @Column(length = 255)
   private String title;
@@ -50,13 +50,13 @@ public class MeetingSession {
   private String context;
 
   @Column(name = "recording_seconds", nullable = false)
-  private Integer recordingSeconds = 0;
+  private Long recordingSeconds = 0L;
 
   @Column(name = "last_resumed_at")
   private LocalDateTime lastResumedAt;
 
   public static MeetingSession create(
-      Integer meetingId,
+      Long meetingId,
       String title,
       String description,
       String location,
@@ -92,7 +92,7 @@ public class MeetingSession {
   // 녹음 일시정지: 시간 누적, status는 ONGOING 유지
   public void pause() {
     if (this.lastResumedAt != null) {
-      this.recordingSeconds += (int) ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
+      this.recordingSeconds += ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
     }
     this.lastResumedAt = null;
   }
@@ -105,7 +105,7 @@ public class MeetingSession {
   // ONGOING → ENDED: 마지막 녹음 구간 누적 후 종료
   public void end() {
     if (this.lastResumedAt != null) {
-      this.recordingSeconds += (int) ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
+      this.recordingSeconds += ChronoUnit.SECONDS.between(this.lastResumedAt, LocalDateTime.now());
     }
     this.lastResumedAt = null;
     this.endedAt = LocalDateTime.now();

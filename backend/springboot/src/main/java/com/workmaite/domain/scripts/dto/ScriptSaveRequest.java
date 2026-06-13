@@ -24,7 +24,7 @@ public class ScriptSaveRequest {
     private String speakerLabel;
 
     // 매핑된 시스템 사용자 ID (nullable)
-    private Integer speakerUserId;
+    private Long speakerUserId;
 
     @NotBlank(message = "발화 내용은 필수입니다.")
     private String content;

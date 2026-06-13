@@ -25,7 +25,7 @@ public class ReportService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "report")
-  public ReportResponse submitReport(Integer meetingId, ReportSubmitRequest request) {
+  public ReportResponse submitReport(Long meetingId, ReportSubmitRequest request) {
     meetingAccessGuard.requireMember(meetingId);
     Report report =
         Report.builder()
@@ -40,7 +40,7 @@ public class ReportService {
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "report")
-  public ReportResponse submitReportForSession(Integer sessionId, ReportSessionSubmitRequest request) {
+  public ReportResponse submitReportForSession(Long sessionId, ReportSessionSubmitRequest request) {
     meetingAccessGuard.requireMember(request.getMeetingId());
     Report report =
         Report.builder()
@@ -55,7 +55,7 @@ public class ReportService {
 
   @Transactional
   @AuditLogged(action = "RESUBMIT", entityType = "report")
-  public ReportResponse resubmitReport(Integer reportId, ReportResubmitRequest request) {
+  public ReportResponse resubmitReport(Long reportId, ReportResubmitRequest request) {
     Report original = findByIdOrThrow(reportId);
 
     Report resubmitted =
@@ -72,24 +72,24 @@ public class ReportService {
     return ReportResponse.of(reportRepository.save(resubmitted));
   }
 
-  public List<ReportResponse> getReportsByMeeting(Integer meetingId) {
+  public List<ReportResponse> getReportsByMeeting(Long meetingId) {
     meetingAccessGuard.requireMember(meetingId);
     return reportRepository.findAllByMeetingId(meetingId).stream().map(ReportResponse::of).toList();
   }
 
-  public ReportResponse getReport(Integer reportId) {
+  public ReportResponse getReport(Long reportId) {
     return ReportResponse.of(findByIdOrThrow(reportId));
   }
 
   @Transactional
   @AuditLogged(action = "REVIEW", entityType = "report")
-  public ReportResponse updateHumanStatus(Integer reportId, ReportStatusUpdateRequest request) {
+  public ReportResponse updateHumanStatus(Long reportId, ReportStatusUpdateRequest request) {
     Report report = findByIdOrThrow(reportId);
     report.updateHumanStatus(request.getStatus());
     return ReportResponse.of(report);
   }
 
-  public ReportReviewResultResponse getReviewResult(Integer reportId) {
+  public ReportReviewResultResponse getReviewResult(Long reportId) {
     meetingAccessGuard.requireMemberByReport(reportId);
     ReportScore reportScore =
         reportScoreRepository
@@ -100,13 +100,13 @@ public class ReportService {
 
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "report")
-  public void deleteReport(Integer reportId) {
+  public void deleteReport(Long reportId) {
     meetingAccessGuard.requireMemberByReport(reportId);
     reportRepository.deleteById(reportId);
   }
 
   // 모든 reportId 경로의 단일 진입점 — 멤버십 검증 포함 (IDOR 차단, P1-4)
-  private Report findByIdOrThrow(Integer reportId) {
+  private Report findByIdOrThrow(Long reportId) {
     Report report =
         reportRepository
             .findById(reportId)

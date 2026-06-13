@@ -28,8 +28,8 @@ public class MeetingController {
 
   @GetMapping("/meetings/{meetingId}/my-role")
   public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getMyRole(
-      @PathVariable Integer meetingId, Authentication authentication) {
-    Integer userId = Integer.parseInt(authentication.getName());
+      @PathVariable Long meetingId, Authentication authentication) {
+    Long userId = Long.parseLong(authentication.getName());
     String role = meetingService.getMyRole(meetingId, userId);
     return ResponseEntity.ok(ApiResponse.ok(java.util.Map.of("role", role != null ? role : "")));
   }
@@ -37,7 +37,7 @@ public class MeetingController {
   @GetMapping("/me/meetings")
   public ResponseEntity<ApiResponse<List<ActiveMeetingResponse>>> getMyActiveMeetings(
       Authentication authentication) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(ApiResponse.ok(meetingService.getMyActiveMeetings(userId)));
   }
 
@@ -47,7 +47,7 @@ public class MeetingController {
       @RequestParam(required = false) String keyword,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer size) {
-    Integer userId = Integer.parseInt(authentication.getName());
+    Long userId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(
         ApiResponse.ok(meetingService.getMeetings(userId, keyword, page, size)));
   }
@@ -56,58 +56,58 @@ public class MeetingController {
   @PostMapping("/meetings")
   public ResponseEntity<ApiResponse<MeetingResponse>> createMeeting(
       Authentication authentication, @RequestBody @Valid MeetingCreateRequest request) {
-    Integer requesterId = Integer.parseInt(authentication.getName());
+    Long requesterId = Long.parseLong(authentication.getName());
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.ok(meetingService.createMeeting(requesterId, request)));
   }
 
   @GetMapping("/meetings/{meetingId}")
   public ResponseEntity<ApiResponse<MeetingDetailResponse>> getMeeting(
-      @PathVariable Integer meetingId) {
+      @PathVariable Long meetingId) {
     return ResponseEntity.ok(ApiResponse.ok(meetingService.getMeeting(meetingId)));
   }
 
   @PatchMapping("/meetings/{meetingId}")
   public ResponseEntity<ApiResponse<MeetingResponse>> updateMeeting(
-      @PathVariable Integer meetingId,
+      @PathVariable Long meetingId,
       Authentication authentication,
       @RequestBody MeetingUpdateRequest request) {
-    Integer requesterId = Integer.parseInt(authentication.getName());
+    Long requesterId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(
         ApiResponse.ok(meetingService.updateMeeting(meetingId, requesterId, request)));
   }
 
   @GetMapping("/meetings/{meetingId}/members")
   public ResponseEntity<ApiResponse<List<MeetingMemberResponse>>> getMembers(
-      @PathVariable Integer meetingId) {
+      @PathVariable Long meetingId) {
     return ResponseEntity.ok(ApiResponse.ok(meetingService.findMembers(meetingId)));
   }
 
   @PostMapping("/meetings/{meetingId}/members")
   public ResponseEntity<ApiResponse<MeetingMemberResponse>> addMember(
-      @PathVariable Integer meetingId,
+      @PathVariable Long meetingId,
       Authentication authentication,
       @RequestBody @Valid MeetingMemberAddRequest request) {
-    Integer requesterId = Integer.parseInt(authentication.getName());
+    Long requesterId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(
         ApiResponse.ok(meetingService.addMember(meetingId, requesterId, request)));
   }
 
   @DeleteMapping("/meetings/{meetingId}/members/{memberId}")
   public ResponseEntity<ApiResponse<Void>> removeMember(
-      @PathVariable Integer meetingId, @PathVariable Integer memberId, Authentication authentication) {
-    Integer requesterId = Integer.parseInt(authentication.getName());
+      @PathVariable Long meetingId, @PathVariable Long memberId, Authentication authentication) {
+    Long requesterId = Long.parseLong(authentication.getName());
     meetingService.removeMember(meetingId, requesterId, memberId);
     return ResponseEntity.ok(ApiResponse.ok(null));
   }
 
   @PatchMapping("/meetings/{meetingId}/members/{memberId}")
   public ResponseEntity<ApiResponse<MeetingMemberResponse>> updateMemberRole(
-      @PathVariable Integer meetingId,
-      @PathVariable Integer memberId,
+      @PathVariable Long meetingId,
+      @PathVariable Long memberId,
       Authentication authentication,
       @RequestBody @Valid MeetingMemberUpdateRequest request) {
-    Integer requesterId = Integer.parseInt(authentication.getName());
+    Long requesterId = Long.parseLong(authentication.getName());
     return ResponseEntity.ok(
         ApiResponse.ok(meetingService.updateMemberRole(meetingId, requesterId, memberId, request)));
   }

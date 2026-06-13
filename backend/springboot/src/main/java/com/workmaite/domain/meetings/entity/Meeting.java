@@ -18,7 +18,7 @@ public class Meeting {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(length = 255, nullable = false)
   private String title;
@@ -46,7 +46,7 @@ public class Meeting {
   private MeetingStatus status;
 
   @Column(name = "created_by", nullable = false)
-  private Integer createdBy;
+  private Long createdBy;
 
   @CreatedDate
   @Column(name = "created_at", nullable = false, updatable = false)
@@ -63,7 +63,7 @@ public class Meeting {
       MeetingType type,
       LocalDateTime startDate,
       LocalDateTime endDate,
-      Integer createdBy) {
+      Long createdBy) {
     Meeting meeting = new Meeting();
     meeting.title = title;
     meeting.description = description;

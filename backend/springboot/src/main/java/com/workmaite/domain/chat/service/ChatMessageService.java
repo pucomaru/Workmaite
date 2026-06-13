@@ -23,7 +23,7 @@ public class ChatMessageService {
    * 채팅 이력 조회 (P8-2 keyset). limit 미지정 시 기존 전체 반환(호환 모드 — 프론트 전환 후 기본 size 강제 예정). beforeId 지정 시 그
    * 이전(과거) 메시지 페이지를 반환한다. 결과는 항상 시간 오름차순.
    */
-  public List<ChatMessageResponse> getHistory(String threadId, Integer beforeId, Integer limit) {
+  public List<ChatMessageResponse> getHistory(String threadId, Long beforeId, Integer limit) {
     if (limit == null && beforeId == null) {
       return chatMessageRepository.findByThreadIdOrderByCreatedAtAsc(threadId).stream()
           .map(ChatMessageResponse::from)

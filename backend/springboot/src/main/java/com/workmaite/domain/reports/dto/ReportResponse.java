@@ -9,10 +9,10 @@ import lombok.Getter;
 @Builder
 public class ReportResponse {
 
-  private Integer id;
-  private Integer meetingId;
-  private Integer parentId;
-  private Integer uploadId;
+  private Long id;
+  private Long meetingId;
+  private Long parentId;
+  private Long uploadId;
   private Integer version;
   private String submitterDepartment;
   private String fileName;

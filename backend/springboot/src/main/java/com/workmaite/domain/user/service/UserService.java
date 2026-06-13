@@ -36,7 +36,7 @@ public class UserService {
   private final MeetingRepository meetingRepository;
   private final CompanyService companyService;
 
-  public UserResponse getMe(Integer userId) {
+  public UserResponse getMe(Long userId) {
     User user =
         userRepository
             .findById(userId)
@@ -46,7 +46,7 @@ public class UserService {
 
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "user")
-  public UserResponse updateMe(Integer userId, UpdateUserRequest request) {
+  public UserResponse updateMe(Long userId, UpdateUserRequest request) {
     User user =
         userRepository
             .findById(userId)
@@ -60,7 +60,7 @@ public class UserService {
   }
 
   /** 이름 또는 이메일로 사용자 검색 — 디렉터리 가시성 스코프 적용 (MT-3) */
-  public List<UserResponse> searchUsers(Integer callerId, String q, Integer page, Integer size) {
+  public List<UserResponse> searchUsers(Long callerId, String q, Integer page, Integer size) {
     List<User> found =
         userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q);
     return paginate(scopeVisible(callerId, found), page, size).stream()
@@ -76,24 +76,24 @@ public class UserService {
     return list.subList(from, Math.min(from + s, list.size()));
   }
 
-  public List<UserResponse> getUsersByIds(List<Integer> ids) {
+  public List<UserResponse> getUsersByIds(List<Long> ids) {
     return userRepository.findAllById(ids).stream().map(UserResponse::from).toList();
   }
 
   /** 사용자 목록 조회 (참여 회의체 title 포함) — 디렉터리 가시성 스코프 적용 (MT-3) */
-  public List<UserResponse> getAllUsers(Integer callerId, Integer page, Integer size) {
+  public List<UserResponse> getAllUsers(Long callerId, Integer page, Integer size) {
     List<User> users = paginate(scopeVisible(callerId, userRepository.findAll()), page, size);
     List<MeetingMember> allMembers = meetingMemberRepository.findAll();
 
     // meetingId → title 맵 (한 번만 조회)
-    List<Integer> meetingIds =
+    List<Long> meetingIds =
         allMembers.stream().map(MeetingMember::getMeetingId).distinct().toList();
-    Map<Integer, String> titleMap =
+    Map<Long, String> titleMap =
         meetingRepository.findAllById(meetingIds).stream()
             .collect(Collectors.toMap(m -> m.getId(), m -> m.getTitle()));
 
     // userId → memberList 맵
-    Map<Integer, List<MeetingMember>> membersByUser =
+    Map<Long, List<MeetingMember>> membersByUser =
         allMembers.stream().collect(Collectors.groupingBy(MeetingMember::getUserId));
 
     return users.stream()
@@ -119,7 +119,7 @@ public class UserService {
    */
   @Transactional
   @AuditLogged(action = "UPDATE", entityType = "user")
-  public UserResponse updateUser(Integer callerId, Integer userId, UpdateUserRequest request) {
+  public UserResponse updateUser(Long callerId, Long userId, UpdateUserRequest request) {
     User caller =
         userRepository
             .findById(callerId)
@@ -144,7 +144,7 @@ public class UserService {
 
   /** 역할 변경 (P1-7② — COMPANY_ADMIN 부여/회수). SYSTEM_ADMIN만 가능. */
   @Transactional
-  public UserResponse updateRole(Integer callerId, Integer userId, String role) {
+  public UserResponse updateRole(Long callerId, Long userId, String role) {
     User caller =
         userRepository
             .findById(callerId)
@@ -171,7 +171,7 @@ public class UserService {
    * must_change_password=true로 생성되어 최초 로그인 시 변경이 강제된다.
    */
   @Transactional
-  public List<Map<String, Object>> createMembers(Integer callerId, List<Map<String, String>> rows) {
+  public List<Map<String, Object>> createMembers(Long callerId, List<Map<String, String>> rows) {
     User caller =
         userRepository
             .findById(callerId)
@@ -219,7 +219,7 @@ public class UserService {
   }
 
   /** 디렉터리 가시성 (MT-3): 본인 + 내 회사 구성원 + 나와 같은 회의체에 속한 인원만. SYSTEM_ADMIN은 전체. */
-  private List<User> scopeVisible(Integer callerId, List<User> users) {
+  private List<User> scopeVisible(Long callerId, List<User> users) {
     User caller =
         userRepository
             .findById(callerId)
@@ -228,12 +228,12 @@ public class UserService {
       return users;
     }
 
-    Integer companyId = caller.getCompanyId();
-    List<Integer> myMeetingIds =
+    Long companyId = caller.getCompanyId();
+    List<Long> myMeetingIds =
         meetingMemberRepository.findByUserId(callerId).stream()
             .map(MeetingMember::getMeetingId)
             .toList();
-    Set<Integer> sharedUserIds =
+    Set<Long> sharedUserIds =
         myMeetingIds.isEmpty()
             ? Set.of()
             : meetingMemberRepository.findByMeetingIdIn(myMeetingIds).stream()

@@ -123,7 +123,9 @@ class MeetingSession(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="scheduled")
-    recording_seconds: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    recording_seconds: Mapped[int] = mapped_column(
+        BigInteger, default=0, nullable=False
+    )
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     minutes: Mapped["Minutes | None"] = relationship(

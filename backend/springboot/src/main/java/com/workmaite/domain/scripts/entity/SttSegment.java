@@ -15,10 +15,10 @@ public class SttSegment {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "session_id", nullable = false)
-  private Integer sessionId;
+  private Long sessionId;
 
   // 발화자 식별자 (예: SPEAKER_00, SPEAKER_01)
   @Column(name = "speaker_label", nullable = false, length = 50)
@@ -26,7 +26,7 @@ public class SttSegment {
 
   // 매핑된 시스템 사용자 ID (nullable - 미매핑 상태 허용)
   @Column(name = "speaker_user_id")
-  private Integer speakerUserId;
+  private Long speakerUserId;
 
   @Column(nullable = false, columnDefinition = "TEXT")
   private String content;
@@ -48,7 +48,7 @@ public class SttSegment {
 
   // 부분 수정: null이 아닌 필드만 업데이트
   public void update(
-      String speakerLabel, Integer speakerUserId, String content, Double startSec, Double endSec) {
+      String speakerLabel, Long speakerUserId, String content, Double startSec, Double endSec) {
     if (speakerLabel != null) this.speakerLabel = speakerLabel;
     if (speakerUserId != null) this.speakerUserId = speakerUserId;
     if (content != null) this.content = content;

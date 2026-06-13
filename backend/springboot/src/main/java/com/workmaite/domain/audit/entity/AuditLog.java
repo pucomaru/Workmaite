@@ -21,10 +21,10 @@ public class AuditLog {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "actor_id")
-  private Integer actorId;
+  private Long actorId;
 
   @Column(nullable = false, length = 40)
   private String action; // CREATE/UPDATE/DELETE/APPROVE/LOGIN/...
@@ -33,10 +33,10 @@ public class AuditLog {
   private String entityType; // meeting/report/agenda/minutes/member/...
 
   @Column(name = "entity_id")
-  private Integer entityId;
+  private Long entityId;
 
   @Column(name = "meeting_id")
-  private Integer meetingId;
+  private Long meetingId;
 
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(columnDefinition = "jsonb")

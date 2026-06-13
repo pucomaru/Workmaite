@@ -17,7 +17,7 @@ public class AgentLog {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Integer id;
+  private Long id;
 
   @Column(name = "task_id", length = 100, nullable = false, unique = true)
   private String taskId;
@@ -26,29 +26,29 @@ public class AgentLog {
   private String contextType;
 
   @Column(name = "meeting_id")
-  private Integer meetingId;
+  private Long meetingId;
 
   @Column(name = "session_id")
-  private Integer sessionId;
+  private Long sessionId;
 
   @Column(name = "user_id")
-  private Integer userId;
+  private Long userId;
 
   @Builder.Default
   @Column(length = 20, nullable = false)
   private String status = "pending";
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "input_data", columnDefinition = "jsonb")
-    private String inputData;
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(name = "input_data", columnDefinition = "jsonb")
+  private String inputData;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "output_data", columnDefinition = "jsonb")
-    private String outputData;
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(name = "output_data", columnDefinition = "jsonb")
+  private String outputData;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "reasoning_steps", columnDefinition = "jsonb")
-    private String reasoningSteps;
+  @JdbcTypeCode(SqlTypes.JSON)
+  @Column(name = "reasoning_steps", columnDefinition = "jsonb")
+  private String reasoningSteps;
 
   @Builder.Default
   @Column(name = "loop_count")
