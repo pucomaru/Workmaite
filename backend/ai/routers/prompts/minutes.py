@@ -1,6 +1,3 @@
-
-
-
 MINUTES_SYSTEM = """\
 당신은 회의록 작성 전문 AI MinutesAgent입니다.
 - STT 변환 텍스트를 분석해 구조적 회의록을 생성합니다
@@ -37,7 +34,7 @@ def generate_minutes_system(
 
     if participants:
         lines = [
-            f"- {p.get('name','?')} ({p.get('dept','')}{'·진행' if p.get('role')=='admin' else ''})"
+            f"- {p.get('name', '?')} ({p.get('dept', '')}{'·진행' if p.get('role') == 'admin' else ''})"
             for p in participants
         ]
         parts.append("[참석자]\n" + "\n".join(lines))
@@ -49,11 +46,20 @@ def generate_minutes_system(
         parts.append(f"[등록된 안건]\n{agenda_text}")
 
     if overdue_agendas:
-        lines = [f"- {a['title']}" + (f" (마감: {a['due_date']})" if a.get('due_date') else "") for a in overdue_agendas]
-        parts.append("[미해결 안건 — 이번 회의에서 다뤄졌을 가능성 높음]\n" + "\n".join(lines))
+        lines = [
+            f"- {a['title']}"
+            + (f" (마감: {a['due_date']})" if a.get("due_date") else "")
+            for a in overdue_agendas
+        ]
+        parts.append(
+            "[미해결 안건 — 이번 회의에서 다뤄졌을 가능성 높음]\n" + "\n".join(lines)
+        )
 
     if report_chunks:
-        parts.append("[관련 보고서 내용 — 필요한 경우 회의록에 통합할 것]\n" + "\n\n---\n\n".join(report_chunks[:4]))
+        parts.append(
+            "[관련 보고서 내용 — 필요한 경우 회의록에 통합할 것]\n"
+            + "\n\n---\n\n".join(report_chunks[:4])
+        )
 
     parts.append("""\
 [절대 원칙 — 반드시 준수]
@@ -69,7 +75,9 @@ def generate_minutes_system(
     return "\n\n".join(parts)
 
 
-def generate_minutes_human(transcript: str, now: str, summary_blocks: list = None) -> str:
+def generate_minutes_human(
+    transcript: str, now: str, summary_blocks: list = None
+) -> str:
     blocks_section = ""
     if summary_blocks:
         blocks_text = "\n\n".join(summary_blocks)

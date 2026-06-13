@@ -2,6 +2,7 @@
 
 /metrics는 prometheus_fastapi_instrumentator가 이미 노출 중 — 같은 레지스트리에 등록된다.
 """
+
 import time
 from typing import AsyncGenerator
 
@@ -21,13 +22,19 @@ CHAT_STREAM_DURATION = Histogram(
 )
 
 
-async def instrument_stream(gen: AsyncGenerator[str, None], route: str) -> AsyncGenerator[str, None]:
+async def instrument_stream(
+    gen: AsyncGenerator[str, None], route: str
+) -> AsyncGenerator[str, None]:
     """SSE generator를 감싸 첫 token 이벤트까지의 시간과 총 시간을 기록한다."""
     t0 = time.monotonic()
     first_token = False
     try:
         async for item in gen:
-            if not first_token and isinstance(item, str) and item.startswith("event: token"):
+            if (
+                not first_token
+                and isinstance(item, str)
+                and item.startswith("event: token")
+            ):
                 CHAT_TTFT.labels(route).observe(time.monotonic() - t0)
                 first_token = True
             yield item

@@ -5,6 +5,7 @@ knowledge_manager.index_map, minutes_generator 폴백 튜플)에 중복 정의�
 단일 소스로 통합한다. 인덱스명 불일치는 "조용한 검색 0건"(G-1 장애)으로 나타나므로,
 0건 발생을 Prometheus 카운터로 상시 집계한다.
 """
+
 import logging
 
 from prometheus_client import Counter
@@ -22,29 +23,58 @@ RETRIEVAL_ZERO_RESULTS = Counter(
 #        "rel"   = (node)--(:Meetings) 관계로 mg.pg_id 필터
 #        None    = 스코프 미지원 (청크 등 — 호출측에서 별도 처리)
 REGISTRY: dict[str, dict] = {
-    "Meetings":      {"index": "meetingsEmbedding",      "legacy": [], "scope": None,
-                      "fields": "node.title AS title, node.description AS content"},
-    "Session":       {"index": "sessionEmbedding",       "legacy": [], "scope": "rel",
-                      "fields": "node.title AS title, node.description AS content"},
-    "Agenda":        {"index": "agendaEmbedding",        "legacy": [], "scope": "rel",
-                      "fulltext": {"index": "agendaFulltext", "props": ["title"]},
-                      "fields": "node.title AS title, node.status AS status, node.department AS department"},
+    "Meetings": {
+        "index": "meetingsEmbedding",
+        "legacy": [],
+        "scope": None,
+        "fields": "node.title AS title, node.description AS content",
+    },
+    "Session": {
+        "index": "sessionEmbedding",
+        "legacy": [],
+        "scope": "rel",
+        "fields": "node.title AS title, node.description AS content",
+    },
+    "Agenda": {
+        "index": "agendaEmbedding",
+        "legacy": [],
+        "scope": "rel",
+        "fulltext": {"index": "agendaFulltext", "props": ["title"]},
+        "fields": "node.title AS title, node.status AS status, node.department AS department",
+    },
     # Minutes는 구형 노드에 meeting_id 프로퍼티가 없어(2-hop 관계만 존재) 결합 스코프 사용
-    "Minutes":       {"index": "minutesEmbedding",       "legacy": ["minutes_embedding_index"],
-                      "scope": "custom",
-                      "scope_cypher": ("WHERE node.meeting_id IN $mids "
-                                       "OR EXISTS { MATCH (node)-[:기록]->(:Session)--(mg:Meetings) "
-                                       "WHERE mg.pg_id IN $mids } "),
-                      "fulltext": {"index": "minutesFulltext", "props": ["title", "content_summary"]},
-                      "fields": "node.title AS title, node.content_summary AS summary, node.content AS content"},
-    "MinutesChunk":  {"index": "minutesChunkEmbedding",  "legacy": [], "scope": None,
-                      "fields": "node.text AS content"},
-    "Report":        {"index": "reportEmbedding",        "legacy": [], "scope": "prop",
-                      "fulltext": {"index": "reportFulltext", "props": ["file_name"]},
-                      "fields": "node.file_name AS title, node.human_status AS status"},
-    "ReportChunk":   {"index": "reportChunkEmbedding",   "legacy": [], "scope": None,
-                      "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
-                      "fields": "node.text AS content, node.title AS title"},
+    "Minutes": {
+        "index": "minutesEmbedding",
+        "legacy": ["minutes_embedding_index"],
+        "scope": "custom",
+        "scope_cypher": (
+            "WHERE node.meeting_id IN $mids "
+            "OR EXISTS { MATCH (node)-[:기록]->(:Session)--(mg:Meetings) "
+            "WHERE mg.pg_id IN $mids } "
+        ),
+        "fulltext": {"index": "minutesFulltext", "props": ["title", "content_summary"]},
+        "fields": "node.title AS title, node.content_summary AS summary, node.content AS content",
+    },
+    "MinutesChunk": {
+        "index": "minutesChunkEmbedding",
+        "legacy": [],
+        "scope": None,
+        "fields": "node.text AS content",
+    },
+    "Report": {
+        "index": "reportEmbedding",
+        "legacy": [],
+        "scope": "prop",
+        "fulltext": {"index": "reportFulltext", "props": ["file_name"]},
+        "fields": "node.file_name AS title, node.human_status AS status",
+    },
+    "ReportChunk": {
+        "index": "reportChunkEmbedding",
+        "legacy": [],
+        "scope": None,
+        "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
+        "fields": "node.text AS content, node.title AS title",
+    },
     # 업로드 지식 문서는 ReportChunk 라벨로 저장됨 (별칭)
     "KnowledgeChunk": {"alias": "ReportChunk"},
 }
@@ -53,7 +83,9 @@ REGISTRY: dict[str, dict] = {
 def _resolve(label: str) -> tuple[str, dict]:
     entry = REGISTRY.get(label)
     if entry is None:
-        raise KeyError(f"등록되지 않은 검색 라벨: {label} — retrieval_registry.REGISTRY에 추가 필요")
+        raise KeyError(
+            f"등록되지 않은 검색 라벨: {label} — retrieval_registry.REGISTRY에 추가 필요"
+        )
     if "alias" in entry:
         return entry["alias"], REGISTRY[entry["alias"]]
     return label, entry
@@ -66,8 +98,11 @@ def index_for(label: str) -> str:
 
 def index_names_for_creation() -> list[tuple[str, str, str]]:
     """init_vector_index용 (label, index_name, property) 목록."""
-    return [(label, e["index"], "embedding")
-            for label, e in REGISTRY.items() if "alias" not in e]
+    return [
+        (label, e["index"], "embedding")
+        for label, e in REGISTRY.items()
+        if "alias" not in e
+    ]
 
 
 async def vector_search(
@@ -103,7 +138,9 @@ async def vector_search(
             scope_clause = entry["scope_cypher"]
             params["mids"] = list(meeting_ids)
         else:
-            logger.warning(f"[Retrieval] {real_label}는 meeting 스코프 미지원 — 전체 검색")
+            logger.warning(
+                f"[Retrieval] {real_label}는 meeting 스코프 미지원 — 전체 검색"
+            )
 
     rows: list[dict] = []
     last_err: Exception | None = None
@@ -144,7 +181,9 @@ async def ensure_fulltext_indexes() -> None:
                 f"FOR (n:{label}) ON EACH [{props}]"
             )
         except Exception as ex:
-            logger.warning(f"[Retrieval] 풀텍스트 인덱스 {ft['index']} 생성 실패 (무시): {ex}")
+            logger.warning(
+                f"[Retrieval] 풀텍스트 인덱스 {ft['index']} 생성 실패 (무시): {ex}"
+            )
 
 
 def _rrf(rank: int, k: int = 60) -> float:
@@ -165,13 +204,16 @@ async def hybrid_search(
     from neo4j_client import run_cypher
 
     real_label, entry = _resolve(label)
-    vec_rows = await vector_search(label, query, k=max(k * 2, 10), meeting_ids=meeting_ids)
+    vec_rows = await vector_search(
+        label, query, k=max(k * 2, 10), meeting_ids=meeting_ids
+    )
 
     ft = entry.get("fulltext")
     ft_rows: list[dict] = []
     if ft and query.strip():
         # Lucene 특수문자 이스케이프 후 OR 검색
         import re as _re
+
         safe = _re.sub(r'[+\-&|!(){}\[\]^"~*?:\\/]', " ", query)[:100].strip()
         if safe:
             try:
@@ -186,7 +228,9 @@ async def hybrid_search(
 
     # RRF 결합 — title+content 기준으로 동일 문서 판별
     def _key(r: dict) -> str:
-        return f"{r.get('title')}|{str(r.get('content') or r.get('summary') or '')[:80]}"
+        return (
+            f"{r.get('title')}|{str(r.get('content') or r.get('summary') or '')[:80]}"
+        )
 
     scores: dict[str, float] = {}
     docs: dict[str, dict] = {}
@@ -245,8 +289,12 @@ async def graph_expanded_search(
                     parts.append("세션: " + ", ".join(filter(None, row["sessions"])))
                 if row.get("reports"):
                     parts.append("보고서: " + ", ".join(filter(None, row["reports"])))
-                out.append({"title": title, "path": " → ".join(parts), "score": s.get("score")})
+                out.append(
+                    {"title": title, "path": " → ".join(parts), "score": s.get("score")}
+                )
         except Exception as e:
             logger.warning(f"[Retrieval] 그래프 확장 실패({title}): {e}")
-            out.append({"title": title, "path": f"아젠다 '{title}'", "score": s.get("score")})
+            out.append(
+                {"title": title, "path": f"아젠다 '{title}'", "score": s.get("score")}
+            )
     return out

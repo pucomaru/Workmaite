@@ -1,6 +1,3 @@
-
-
-
 REPORT_REVIEW_SYSTEM = """\
 당신은 대기업 발제자료 검토 전문 AI ReportAgent입니다.
 발제자료를 아래 **12대 필수요소** 기준으로 평가하고, 5대 핵심 원칙도 함께 점검합니다.
@@ -58,7 +55,7 @@ def review_propose_prompt(agenda: str, report_content: str) -> str:
 }}
 
 [아젠다]
-{agenda or '(없음)'}
+{agenda or "(없음)"}
 
 [발제자료 내용]
 {report_content[:4000]}"""
@@ -102,7 +99,7 @@ def review_direct_prompt(agenda: str, report_content: str) -> str:
 전체 score는 12개 element 가중 평균 (+ 5대 원칙 보너스 최대 10점).
 
 [아젠다]
-{agenda or '(없음)'}
+{agenda or "(없음)"}
 
 [발제자료 내용]
 {report_content[:4000]}"""

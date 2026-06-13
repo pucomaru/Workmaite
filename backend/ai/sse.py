@@ -6,6 +6,7 @@ v1은 `data: [PLANNING] ...` 같은 문자열 프리픽스 프로토콜이라 LL
 
 이벤트 타입: run | planning | token | tool_call | result | highlight | usage | error | done
 """
+
 import json
 
 
@@ -13,7 +14,9 @@ def sse_event(event: str, data) -> str:
     """타입 있는 SSE 이벤트 한 건을 직렬화한다. data는 dict 또는 str."""
     if isinstance(data, str):
         data = {"text": data}
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+    return (
+        f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+    )
 
 
 def sse_token(text: str) -> str:

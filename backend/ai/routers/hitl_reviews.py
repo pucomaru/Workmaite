@@ -1,4 +1,5 @@
 """HITL 검토 저장·보고서/추출 검토 시작·확정 라우터 (P3A-4 — routers/supervisor.py에서 분리)."""
+
 import logging
 import uuid
 from datetime import datetime
@@ -24,6 +25,7 @@ from services.supervisor_helpers import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
 
 # ─── HITL 검토 저장 ──────────────────────────────────────────────────────────
 class HitlReviewCreate(BaseModel):
@@ -59,6 +61,7 @@ async def create_hitl_review(
     # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
     try:
         from neo4j_sync import sync_hitl_target
+
         background_tasks.add_task(sync_hitl_target, review.id)
     except Exception as _se:
         logger.warning(f"[hitl-reviews] Neo4j HITL 대상노드 sync 실패: {_se}")
@@ -80,6 +83,7 @@ async def update_hitl_review(
     db: Session = Depends(get_db),
 ):
     from fastapi import HTTPException
+
     review = db.query(models.HitlReview).filter(models.HitlReview.id == hj_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="HitlReview not found")
@@ -95,11 +99,16 @@ async def update_hitl_review(
     # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
     try:
         from neo4j_sync import sync_hitl_target
+
         background_tasks.add_task(sync_hitl_target, review.id)
     except Exception as _se:
         logger.warning(f"[hitl-reviews] Neo4j HITL 대상노드 sync 실패: {_se}")
 
-    return {"id": review.id, "status": review.status, "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None}
+    return {
+        "id": review.id,
+        "status": review.status,
+        "reviewed_at": review.reviewed_at.isoformat() if review.reviewed_at else None,
+    }
 
 
 # ─── 보고서 종합 검토 (스트리밍) ──────────────────────────────────────────────
@@ -151,7 +160,9 @@ async def review_report_ep(
         )
     except Exception as e:
         # 검토 생성 실패는 가짜 점수 대신 명시적 에러로 (P3A-2, H-2)
-        raise HTTPException(status_code=502, detail=f"보고서 검토 생성 실패 — 다시 시도해주세요: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"보고서 검토 생성 실패 — 다시 시도해주세요: {e}"
+        )
     return result
 
 
@@ -192,6 +203,7 @@ async def confirm_report_review_ep(
     current_user: models.User = Depends(get_current_user),
 ):
     from service_guards import idempotency_guard, release_idempotency
+
     _idem_key = f"report-confirm:{data.thread_id}"
     idempotency_guard(_idem_key)  # 더블클릭/재시도 중복 차단 (P3C-2)
 
@@ -245,6 +257,7 @@ async def confirm_extraction_review_ep(
     current_user: models.User = Depends(get_current_user),
 ):
     from service_guards import idempotency_guard, release_idempotency
+
     _idem_key = f"extract-confirm:{data.thread_id}"
     idempotency_guard(_idem_key)  # 더블클릭/재시도 중복 차단 (P3C-2)
 
@@ -258,5 +271,3 @@ async def confirm_extraction_review_ep(
         release_idempotency(_idem_key)  # 실패한 시도는 재시도 가능해야 함
         raise
     return result
-
-
