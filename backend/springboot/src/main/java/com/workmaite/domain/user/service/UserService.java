@@ -176,7 +176,8 @@ public class UserService {
         userRepository
             .findById(callerId)
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    if (caller.getCompanyRole() != UserRole.SYSTEM_ADMIN && caller.getCompanyRole() != UserRole.COMPANY_ADMIN) {
+    if (caller.getCompanyRole() != UserRole.SYSTEM_ADMIN
+        && caller.getCompanyRole() != UserRole.COMPANY_ADMIN) {
       throw new BusinessException(ErrorCode.ACCESS_DENIED);
     }
     List<Map<String, Object>> results = new java.util.ArrayList<>();

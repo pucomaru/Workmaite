@@ -103,7 +103,10 @@ async def get_archive(
         .all()
     }
     # 회사 관리자는 자사 구성원이 참여한 회의체까지 그래프에 포함 (SEC-5/MT)
-    if current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
+    if (
+        current_user.company_role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+    ):
         _raw_ids |= {
             row.meeting_id
             for row in db.query(models.MeetingMember.meeting_id)
@@ -613,7 +616,9 @@ async def get_archive(
                         "userName": u.name or "",
                         "email": u.email or "",
                         "position": u.position or "",
-                        "role": "admin" if str(mb.meeting_role) == "admin" else "member",
+                        "role": "admin"
+                        if str(mb.meeting_role) == "admin"
+                        else "member",
                         "department": u.department or "",
                         "company": u.company_name or "",
                     }

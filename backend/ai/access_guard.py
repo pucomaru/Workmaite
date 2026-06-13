@@ -124,7 +124,9 @@ def _meeting_company_id(db: Session, meeting_id: int) -> int | None:
     return u.company_id if u else None
 
 
-def _company_participates_in(db: Session, meeting_id: int, company_id: int | None) -> bool:
+def _company_participates_in(
+    db: Session, meeting_id: int, company_id: int | None
+) -> bool:
     """호출자 회사가 해당 회의체에 멤버를 한 명이라도 갖는가 (회사 관리자 조회 범위)."""
     if company_id is None:
         return False
@@ -194,7 +196,8 @@ def require_meeting_edit(db: Session, user: models.User, meeting_id: int) -> Non
     """회의체 하위 전체 편집 권한 요구 (간사/회사관리자/시스템관리자)."""
     if not can_edit_meeting(db, user, meeting_id):
         raise HTTPException(
-            status_code=403, detail="편집 권한이 없습니다. (간사/회사관리자/시스템관리자만)"
+            status_code=403,
+            detail="편집 권한이 없습니다. (간사/회사관리자/시스템관리자만)",
         )
 
 
@@ -206,7 +209,9 @@ def require_owned_edit(
         return
     if owner_id is not None and owner_id == user.id:
         return
-    raise HTTPException(status_code=403, detail="본인이 작성한 항목만 편집할 수 있습니다.")
+    raise HTTPException(
+        status_code=403, detail="본인이 작성한 항목만 편집할 수 있습니다."
+    )
 
 
 def meeting_id_of_session(db: Session, session_id: int) -> int:

@@ -99,9 +99,13 @@ async def update_hitl_review(
     if not review:
         raise HTTPException(status_code=404, detail="HitlReview not found")
     if review.report_id is not None:
-        require_meeting_edit(db, current_user, meeting_id_of_report(db, review.report_id))
+        require_meeting_edit(
+            db, current_user, meeting_id_of_report(db, review.report_id)
+        )
     elif review.agenda_id is not None:
-        require_meeting_edit(db, current_user, meeting_id_of_agenda(db, review.agenda_id))
+        require_meeting_edit(
+            db, current_user, meeting_id_of_agenda(db, review.agenda_id)
+        )
     if data.status is not None:
         review.status = data.status
     if data.comment is not None:

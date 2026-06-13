@@ -336,7 +336,11 @@ async def minutes_generate_minutes(
             .all()
         )
         participants = [
-            {"name": mm.user.name, "dept": mm.user.department or "", "role": mm.meeting_role}
+            {
+                "name": mm.user.name,
+                "dept": mm.user.department or "",
+                "role": mm.meeting_role,
+            }
             for mm in mm_rows
             if mm.user
         ]
@@ -561,7 +565,10 @@ async def supervisor_chat(
         .all()
     }
     # 회사 관리자는 자사 구성원이 참여한 회의체까지 AI 조회 범위에 포함 (SEC-5/MT)
-    if current_user.company_role == "COMPANY_ADMIN" and current_user.company_id is not None:
+    if (
+        current_user.company_role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+    ):
         pg_meeting_ids |= {
             row.meeting_id
             for row in db.query(models.MeetingMember.meeting_id)
@@ -840,7 +847,8 @@ async def supervisor_chat(
                                     .all()
                                 }
                                 _admin_mem = next(
-                                    (m for m in _mems if m.meeting_role == "admin"), None
+                                    (m for m in _mems if m.meeting_role == "admin"),
+                                    None,
                                 )
                                 _sec = (
                                     _users.get(_admin_mem.user_id)
