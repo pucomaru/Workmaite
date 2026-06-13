@@ -14,7 +14,7 @@ jobs:
     steps:
       # 1. 코드 체크아웃 (워크플로우가 레포 코드에 접근할 수 있게 함)
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GIT_TOKEN }}  # yaml 업데이트 후 push할 때 필요
 
