@@ -8,6 +8,7 @@
 
 유일한 직접응답 경로 (P3B-2 — 사전조립 경로 제거 완료)
 """
+
 import logging
 import uuid
 from typing import AsyncGenerator
@@ -36,15 +37,21 @@ async def _compact_history(history_msgs: list) -> list:
     )
     try:
         from llm_factory import llm_factory
-        resp = await llm_factory("routing").ainvoke([
-            SystemMessage(content="다음 대화를 3~5문장 한국어로 요약하세요. 결정사항·맥락 위주."),
-            HumanMessage(content=convo[:6000]),
-        ])
+
+        resp = await llm_factory("routing").ainvoke(
+            [
+                SystemMessage(
+                    content="다음 대화를 3~5문장 한국어로 요약하세요. 결정사항·맥락 위주."
+                ),
+                HumanMessage(content=convo[:6000]),
+            ]
+        )
         summary = resp.content
     except Exception as e:
         logger.warning(f"[Compaction] 요약 실패, 원본 유지: {e}")
         return history_msgs
     return [AIMessage(content=f"[이전 대화 요약]\n{summary}")] + recent
+
 
 _SYSTEM = """\
 당신은 회의체 운영 AI 워크메이트입니다. 사용자의 회의체 현황·아젠다·보고서·회의록 질문에
@@ -74,6 +81,7 @@ def _get_agent():
         from langgraph.prebuilt import create_react_agent
         from llm_factory import llm_factory
         from tools.meeting_tools import SUPERVISOR_TOOLS
+
         _agent = create_react_agent(
             model=llm_factory("chat", temperature=0.2),
             tools=SUPERVISOR_TOOLS,
@@ -96,12 +104,14 @@ async def direct_agent_stream(
     진행표시는 별도 narration LLM 없이 astream_events의 실제 도구 이벤트에서 파생한다(H-13).
     """
     hint = f"(현재 보고 있는 회의체 meeting_id={meeting_id})\n" if meeting_id else ""
-    config = {"configurable": {
-        "thread_id": f"run-{uuid.uuid4()}",
-        "user_id": user_id,
-        "allowed_meeting_ids": list(allowed_meeting_ids),
-        "is_admin": is_admin,
-    }}
+    config = {
+        "configurable": {
+            "thread_id": f"run-{uuid.uuid4()}",
+            "user_id": user_id,
+            "allowed_meeting_ids": list(allowed_meeting_ids),
+            "is_admin": is_admin,
+        }
+    }
     compacted = await _compact_history(list(history_msgs))
     inputs = {"messages": compacted + [HumanMessage(content=hint + message)]}
     async for event in _get_agent().astream_events(inputs, config, version="v2"):

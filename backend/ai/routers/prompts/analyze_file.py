@@ -1,6 +1,3 @@
-
-
-
 ANALYZE_FILE_SYSTEM = """\
 당신은 조직 내 보고서를 전문적으로 검토하는 AI 평가관입니다.
 업로드된 보고서를 6개 항목, 총 100점 기준으로 객관적으로 평가합니다.
@@ -200,10 +197,10 @@ def analyze_file_human(
 {file_content if file_content else "[파일 미첨부 — 이름만 입력됨]"}
 
 [연결 가능한 기존 과제 목록]
-{candidate_agendas or '(연결 가능한 과제 없음)'}
+{candidate_agendas or "(연결 가능한 과제 없음)"}
 
 [현재 조직 그래프 맥락]
-{graph_context or '(그래프 정보 없음)'}
+{graph_context or "(그래프 정보 없음)"}
 """
 
 

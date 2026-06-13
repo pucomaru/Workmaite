@@ -3,6 +3,7 @@
 변경성 요청(POST/PATCH/PUT/DELETE)이 성공하면 audit_logs에 "누가-언제-무엇을" 기록한다.
 Spring의 @AuditLogged AOP와 같은 테이블을 공유한다. 기록 실패는 본 요청에 영향을 주지 않는다.
 """
+
 import json
 import logging
 
@@ -49,8 +50,9 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 and not path.startswith(_EXCLUDE_PREFIXES)
             ):
                 detail = json.dumps({"method": request.method, "path": path})
-                ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-                      or (request.client.host if request.client else None))
+                ip = request.headers.get("x-forwarded-for", "").split(",")[
+                    0
+                ].strip() or (request.client.host if request.client else None)
                 db = SessionLocal()
                 try:
                     db.execute(

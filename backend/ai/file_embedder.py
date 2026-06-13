@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _openai: AsyncOpenAI | None = None
 
+
 def _get_openai() -> AsyncOpenAI:
     """Lazy initialization — .env 로드 후 최초 호출 시 클라이언트 생성."""
     global _openai
@@ -26,14 +27,16 @@ def _get_openai() -> AsyncOpenAI:
         _openai = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
     return _openai
 
+
 # 청킹 설정 (token 수 기준)
-CHUNK_TOKENS   = int(os.environ["EMBED_CHUNK_TOKENS"])
-CHUNK_OVERLAP  = int(os.environ["EMBED_CHUNK_OVERLAP"])
-EMBED_MODEL    = os.environ["EMBED_MODEL"]
-EMBED_DIM      = 1536  # text-embedding-3-small 차원
+CHUNK_TOKENS = int(os.environ["EMBED_CHUNK_TOKENS"])
+CHUNK_OVERLAP = int(os.environ["EMBED_CHUNK_OVERLAP"])
+EMBED_MODEL = os.environ["EMBED_MODEL"]
+EMBED_DIM = 1536  # text-embedding-3-small 차원
 
 
 # ─── 텍스트 추출 ─────────────────────────────────────────────────────────────
+
 
 def _download_to_tempfile(r2_url: str, suffix: str) -> str:
     """R2 URL에서 파일을 다운로드하여 임시 파일 경로를 반환합니다."""
@@ -83,6 +86,7 @@ def extract_text(file_path: str) -> str:
 def _extract_pdf(file_path: str) -> str:
     try:
         import pypdf
+
         reader = pypdf.PdfReader(file_path)
         pages = [page.extract_text() or "" for page in reader.pages]
         return "\n".join(pages)
@@ -97,6 +101,7 @@ def _extract_pdf(file_path: str) -> str:
 def _extract_docx(file_path: str) -> str:
     try:
         import docx
+
         doc = docx.Document(file_path)
         return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
     except ImportError:
@@ -111,6 +116,7 @@ def _extract_hwp(file_path: str) -> str:
     """HWP는 olefile 기반 텍스트 추출 (간이 지원)."""
     try:
         import olefile
+
         with olefile.OleFileIO(file_path) as f:
             if f.exists("PrvText"):
                 raw = f.openstream("PrvText").read()
@@ -124,7 +130,10 @@ def _extract_hwp(file_path: str) -> str:
 
 # ─── 청킹 (토큰 기반) ────────────────────────────────────────────────────────
 
-def chunk_text(text: str, chunk_tokens: int = CHUNK_TOKENS, overlap: int = CHUNK_OVERLAP) -> list[str]:
+
+def chunk_text(
+    text: str, chunk_tokens: int = CHUNK_TOKENS, overlap: int = CHUNK_OVERLAP
+) -> list[str]:
     """
     텍스트를 토큰 기준으로 청크로 분할합니다.
     tiktoken이 없으면 글자 수(4자 ≈ 1토큰) 근사값을 사용합니다.
@@ -133,6 +142,7 @@ def chunk_text(text: str, chunk_tokens: int = CHUNK_TOKENS, overlap: int = CHUNK
         return []
     try:
         import tiktoken
+
         enc = tiktoken.get_encoding("cl100k_base")
         tokens = enc.encode(text)
         chunks = []
@@ -147,7 +157,7 @@ def chunk_text(text: str, chunk_tokens: int = CHUNK_TOKENS, overlap: int = CHUNK
         return [c for c in chunks if c.strip()]
     except ImportError:
         # 문자 수 기반 fallback (4자 ≈ 1토큰)
-        char_size    = chunk_tokens * 4
+        char_size = chunk_tokens * 4
         char_overlap = overlap * 4
         chunks = []
         start = 0
@@ -162,6 +172,7 @@ def chunk_text(text: str, chunk_tokens: int = CHUNK_TOKENS, overlap: int = CHUNK
 
 # ─── 임베딩 ──────────────────────────────────────────────────────────────────
 
+
 async def embed_chunks(chunks: list[str], batch_size: int = 20) -> list[list[float]]:
     """OpenAI text-embedding-3-small으로 배치 임베딩합니다."""
     embeddings: list[list[float]] = []
@@ -175,13 +186,14 @@ async def embed_chunks(chunks: list[str], batch_size: int = 20) -> list[list[flo
             for item in resp.data:
                 embeddings.append(item.embedding)
         except Exception as e:
-            logger.error(f"[Embedder] 임베딩 실패 (배치 {i}~{i+batch_size}): {e}")
+            logger.error(f"[Embedder] 임베딩 실패 (배치 {i}~{i + batch_size}): {e}")
             # 실패한 배치는 zero 벡터로 채워 인덱스 불일치 방지
             embeddings.extend([[0.0] * EMBED_DIM] * len(batch))
     return embeddings
 
 
 # ─── 단일 쿼리 임베딩 ────────────────────────────────────────────────────────
+
 
 async def embed_query(text: str) -> list[float]:
     """검색 쿼리 한 건을 임베딩합니다."""
@@ -194,6 +206,7 @@ async def embed_query(text: str) -> list[float]:
 
 
 # ─── 파일 → 청킹 → 임베딩 → Neo4j 저장 ─────────────────────────────────────
+
 
 async def embed_and_store(
     file_path_or_url: str,
@@ -222,7 +235,7 @@ async def embed_and_store(
 
     embeddings = await embed_chunks(chunks)
     base_id = (source_id or filename).replace(" ", "_")
-    mg_id   = to_mg_id(meeting_id) if meeting_id else None
+    mg_id = to_mg_id(meeting_id) if meeting_id else None
 
     if context_type == "report" or context_type in ("agenda", "archive"):
         node_label = "ReportChunk"
@@ -288,7 +301,7 @@ FOREACH (_ IN CASE WHEN mn IS NOT NULL THEN [1] ELSE [] END |
         except Exception as e:
             logger.error(f"[Embedder] 청크 저장 실패 (id={chunk_id}): {e}")
 
-    logger.info(f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (context_type={context_type})")
+    logger.info(
+        f"[Embedder] {node_label} {stored}/{len(chunks)}청크 저장 완료: {filename} (context_type={context_type})"
+    )
     return stored
-
-

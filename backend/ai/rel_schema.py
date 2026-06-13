@@ -24,11 +24,11 @@ REL_MATRIX: dict[str, str] = {
     "person→Meetings": "구성원",
     "person→agenda": "담당",
     # 라이프사이클: 아젠다·회의·회의록 (neo4j_sync.py canonical과 일치)
-    "agenda→session": "발제세션",   # was 다룸 — sync: Agenda-[발제세션]->Session
-    "session→Meetings": "소속",     # was 개최 — sync: Session-[소속]->Meetings
-    "minutes→session": "기록",       # was 참조 — sync: Minutes-[기록]->Session
-    "person→minutes": "작성",        # was 첨부 — sync: User-[작성]->Minutes
-    "person→session": "참석",        # sync: User-[참석]->Session
+    "agenda→session": "발제세션",  # was 다룸 — sync: Agenda-[발제세션]->Session
+    "session→Meetings": "소속",  # was 개최 — sync: Session-[소속]->Meetings
+    "minutes→session": "기록",  # was 참조 — sync: Minutes-[기록]->Session
+    "person→minutes": "작성",  # was 첨부 — sync: User-[작성]->Minutes
+    "person→session": "참석",  # sync: User-[참석]->Session
     "session→session": "후속",
     "minutes→agenda": "도출",
     # 보고자료
@@ -70,14 +70,41 @@ REL_COLORS: dict[str, str] = {
 }
 
 # matrix 밖에서 사용자가 자유 입력할 수 있는 관계 (UI 추천 목록)
-FREE_REL_TYPES: set[str] = {"연결", "협업", "공유", "지원", "검토", "출처", "참조", "관련"}
+FREE_REL_TYPES: set[str] = {
+    "연결",
+    "협업",
+    "공유",
+    "지원",
+    "검토",
+    "출처",
+    "참조",
+    "관련",
+}
 
 # 구조(PG 엔티티)에서 buildGraphNodes가 자동 파생하는 관계 — archive 엔드포인트가
 # 수동 관계를 읽어올 때 이 집합은 제외한다(파생 엣지와 중복 방지).
 DERIVED_REL_TYPES: set[str] = {
-    "포함", "참여", "소속", "소속회사", "간사", "구성원", "참석", "작성",
-    "기록", "담당", "담당부서", "관할", "발제세션", "개최", "후속",
-    "산출", "첨부", "도출", "다룸", "생성", "진행",
+    "포함",
+    "참여",
+    "소속",
+    "소속회사",
+    "간사",
+    "구성원",
+    "참석",
+    "작성",
+    "기록",
+    "담당",
+    "담당부서",
+    "관할",
+    "발제세션",
+    "개최",
+    "후속",
+    "산출",
+    "첨부",
+    "도출",
+    "다룸",
+    "생성",
+    "진행",
 }
 
 # 내부 동기화 전용 관계 (사용자가 직접 만들진 않지만 편집/삭제 대상이 될 수 있어 허용)

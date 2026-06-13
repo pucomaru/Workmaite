@@ -1,7 +1,6 @@
 from typing import List
 
 
-
 def extract_agendas_system(
     org_dept_list: str,
     meeting_context: str = "",
@@ -11,9 +10,12 @@ def extract_agendas_system(
     if meeting_context:
         _extra += f"\n\n## 이번 회의 맥락\n{meeting_context}"
     if knowledge:
-        criteria = "\n".join([f"- [{k.get('category','')}] {k.get('title','')}" for k in knowledge])
+        criteria = "\n".join(
+            [f"- [{k.get('category', '')}] {k.get('title', '')}" for k in knowledge]
+        )
         _extra += f"\n\n## 조직 아젠다 선정 기준\n{criteria}"
-    return f"""\
+    return (
+        f"""\
 당신은 회의체 운영을 지원하는 AI입니다.
 제공된 보고서, 회의록, 참고자료를 종합하여 각 팀이 다음으로 수행해야 할 아젠다를 추출합니다.
 
@@ -230,11 +232,15 @@ due_date 산출: 1주차 → 다음 보고회 5/22(금) → 5/22 - 2일 = 5/20(�
       "reasoning": "문서 내용을 바탕으로 자연스러운 2-3문장. 이 작업을 지금 선택한 이유(문서 근거), 앞뒤 단계와의 관계, 마감일 산출 근거를 포함. 단, 매번 같은 문장 구조를 반복하지 말고 문서의 맥락에 맞게 자유롭게 서술."
     }}
   ]
-}}""" + _extra
+}}"""
+        + _extra
+    )
 
 
 # ─── archive/chat-extract ─────────────────────────────────────────────────────
-def chat_extract_system(meeting_context: str, org_dept_list: str, current_agendas_text: str) -> str:
+def chat_extract_system(
+    meeting_context: str, org_dept_list: str, current_agendas_text: str
+) -> str:
     return f"""\
 당신은 회의체 과제 관리 AI입니다.
 현재 추출된 과제 목록과 사용자의 요청을 바탕으로 과제 목록을 업데이트해주세요.

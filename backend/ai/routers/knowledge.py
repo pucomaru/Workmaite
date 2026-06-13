@@ -1,4 +1,5 @@
 """Knowledge Base 저장·관계 제안·지식 채팅 라우터 (P3A-4 — routers/supervisor.py에서 분리)."""
+
 import logging
 from typing import List, Optional
 
@@ -21,6 +22,7 @@ from services.supervisor_helpers import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agents"])
+
 
 # ─── Knowledge Base 요청 스키마 ───────────────────────────────────────────────
 class _StoreMinutesReq(BaseModel):
@@ -46,12 +48,14 @@ class _StoreReportReq(BaseModel):
 
 class _ProposeRelationshipsReq(BaseModel):
     """POST /knowledge/propose-relationships 요청 바디."""
+
     meeting_id: int
     node_types: Optional[List[str]] = None  # None이면 Agenda·Minutes 전체
 
 
 class _ConfirmRelationshipsReq(BaseModel):
     """POST /knowledge/confirm-relationships 요청 바디."""
+
     proposal_id: str
     approved: bool
     reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
@@ -65,8 +69,10 @@ async def knowledge_store_minutes(
 ):
     try:
         return await knowledge_agent.store_minutes(
-            title=data.title, content=data.content,
-            meeting_id=data.meeting_id, session_id=data.session_id,
+            title=data.title,
+            content=data.content,
+            meeting_id=data.meeting_id,
+            session_id=data.session_id,
         )
     except Exception as e:
         return {"status": "error", "detail": str(e)}
@@ -79,8 +85,10 @@ async def knowledge_store_task(
 ):
     try:
         return await knowledge_agent.store_task(
-            content=data.content, department=data.department,
-            due_date=data.due_date, meeting_id=data.meeting_id,
+            content=data.content,
+            department=data.department,
+            due_date=data.due_date,
+            meeting_id=data.meeting_id,
         )
     except Exception as e:
         return {"status": "error", "detail": str(e)}
@@ -93,14 +101,18 @@ async def knowledge_store_report(
 ):
     try:
         return await knowledge_agent.store_report(
-            title=data.title, content=data.content,
-            meeting_id=data.meeting_id, score=data.score,
+            title=data.title,
+            content=data.content,
+            meeting_id=data.meeting_id,
+            score=data.score,
         )
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/propose-relationships", summary="Knowledge Propose Relationships")
+@router.post(
+    "/knowledge/propose-relationships", summary="Knowledge Propose Relationships"
+)
 async def knowledge_propose_relationships(
     data: _ProposeRelationshipsReq,
     _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
@@ -116,7 +128,9 @@ async def knowledge_propose_relationships(
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships")
+@router.post(
+    "/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships"
+)
 async def knowledge_confirm_relationships(
     data: _ConfirmRelationshipsReq,
     _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
@@ -133,7 +147,6 @@ async def knowledge_confirm_relationships(
         return {"status": "error", "detail": str(e)}
 
 
-
 # ─── 지식 관리 채팅 (스트리밍) ───────────────────────────────────────────────
 class KnowledgeChatRequest(BaseModel):
     message: str
@@ -147,7 +160,9 @@ async def knowledge_chat_stream_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    meeting_context = _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
+    meeting_context = (
+        _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
+    )
 
     async def stream():
         try:
@@ -163,5 +178,3 @@ async def knowledge_chat_stream_ep(
         yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
-
-
