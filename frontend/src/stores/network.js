@@ -7,5 +7,9 @@ import { ref } from 'vue'
  */
 export const networkDown = ref(false)
 
-export function markNetworkDown() { networkDown.value = true }
-export function markNetworkUp() { if (networkDown.value) networkDown.value = false }
+export function markNetworkDown() {
+  networkDown.value = true
+}
+export function markNetworkUp() {
+  if (networkDown.value) networkDown.value = false
+}

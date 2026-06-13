@@ -45,7 +45,9 @@ async function _doRefresh() {
         if (newRefresh) sessionStorage.setItem('refreshToken', newRefresh)
         return newToken
       })
-      .finally(() => { _refreshPromise = null })
+      .finally(() => {
+        _refreshPromise = null
+      })
   }
   return _refreshPromise
 }
@@ -55,7 +57,7 @@ async function _doRefresh() {
  * - streamPost / streamPostForm 진입 시 안전망으로 호출
  * - useActivityRefresh 컴포저블이 사용자 인터랙션 시에도 호출
  */
-export async function ensureFreshToken() { 
+export async function ensureFreshToken() {
   const token = sessionStorage.getItem('token')
   if (!token) return
   try {
@@ -63,7 +65,9 @@ export async function ensureFreshToken() {
     const payload = JSON.parse(atob(b64))
     const msLeft = payload.exp * 1000 - Date.now()
     if (msLeft < 5 * 60 * 1000) await _doRefresh()
-  } catch { /* 파싱 실패 무시 — 요청 실패 시 인터셉터가 처리 */ }
+  } catch {
+    /* 파싱 실패 무시 — 요청 실패 시 인터셉터가 처리 */
+  }
 }
 
 // ── SpringBoot API ─────────────────────────────────────────────────────────
@@ -89,8 +93,13 @@ api.interceptors.response.use(
       markNetworkDown() // 전역 배너 표시 — 스토어 캐시가 최신 아님을 사용자에게 인지시킴 (PLAN Phase 2)
       return Promise.reject(new Error('서버에 연결할 수 없습니다.'))
     }
-    const isAuthRequest = err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
-    if ((err.response?.status === 401 || err.response?.status === 403) && !err.config._retry && !isAuthRequest) {
+    const isAuthRequest =
+      err.config.url?.includes('/auth/login') || err.config.url?.includes('/auth/signup')
+    if (
+      (err.response?.status === 401 || err.response?.status === 403) &&
+      !err.config._retry &&
+      !isAuthRequest
+    ) {
       err.config._retry = true
       try {
         const newToken = await _doRefresh()
@@ -101,7 +110,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(err)
-  }
+  },
 )
 
 export default api
@@ -116,7 +125,10 @@ apiAI.interceptors.request.use(config => {
 })
 
 apiAI.interceptors.response.use(
-  res => { markNetworkUp(); return res },
+  res => {
+    markNetworkUp()
+    return res
+  },
   async err => {
     if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK' || !err.response) {
       markNetworkDown()
@@ -133,7 +145,7 @@ apiAI.interceptors.response.use(
       }
     }
     return Promise.reject(err)
-  }
+  },
 )
 
 // ── Streaming (FastAPI) ────────────────────────────────────────────────────
@@ -146,14 +158,46 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
   let eventType = null // 직전 'event:' 라인 (v2)
   const handleV2 = (type, data) => {
     switch (type) {
-      case 'done': onDone?.(); return true
-      case 'planning': { try { onPlanning?.(JSON.parse(data).text ?? data) } catch { onPlanning?.(data) } break }
-      case 'result': { try { onResult?.(JSON.parse(data)) } catch {} break }
-      case 'highlight': { try { onHighlight?.(JSON.parse(data)) } catch {} break }
-      case 'error': { try { onChunk(`[오류] ${JSON.parse(data).message ?? data}`) } catch { onChunk(`[오류] ${data}`) } break }
-      case 'run': break // {run_id} — 중단/이어보기용 메타 (후속 UI에서 사용)
-      case 'token': default: {
-        try { onChunk(JSON.parse(data).text ?? '') } catch { onChunk(data.replace(/\\n/g, '\n')) }
+      case 'done':
+        onDone?.()
+        return true
+      case 'planning': {
+        try {
+          onPlanning?.(JSON.parse(data).text ?? data)
+        } catch {
+          onPlanning?.(data)
+        }
+        break
+      }
+      case 'result': {
+        try {
+          onResult?.(JSON.parse(data))
+        } catch {}
+        break
+      }
+      case 'highlight': {
+        try {
+          onHighlight?.(JSON.parse(data))
+        } catch {}
+        break
+      }
+      case 'error': {
+        try {
+          onChunk(`[오류] ${JSON.parse(data).message ?? data}`)
+        } catch {
+          onChunk(`[오류] ${data}`)
+        }
+        break
+      }
+      case 'run':
+        break // {run_id} — 중단/이어보기용 메타 (후속 UI에서 사용)
+      case 'token':
+      default: {
+        try {
+          onChunk(JSON.parse(data).text ?? '')
+        } catch {
+          onChunk(data.replace(/\\n/g, '\n'))
+        }
       }
     }
     return false
@@ -165,23 +209,34 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
     const lines = buffer.split('\n')
     buffer = lines.pop()
     for (const line of lines) {
-      if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); continue }
+      if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim()
+        continue
+      }
       if (!line.startsWith('data: ')) continue
       const data = line.slice(6)
-      if (eventType) { // v2
+      if (eventType) {
+        // v2
         const finished = handleV2(eventType, data)
         eventType = null
         if (finished) return
         continue
       }
       // v1 폴백
-      if (data === '[DONE]') { onDone?.(); return }
+      if (data === '[DONE]') {
+        onDone?.()
+        return
+      }
       if (data.startsWith('[PLANNING] ') && onPlanning) {
         onPlanning(data.slice(11))
       } else if (data.startsWith('[RESULT] ') && onResult) {
-        try { onResult(JSON.parse(data.slice(9))) } catch {}
+        try {
+          onResult(JSON.parse(data.slice(9)))
+        } catch {}
       } else if (data.startsWith('[HIGHLIGHT] ') && onHighlight) {
-        try { onHighlight(JSON.parse(data.slice(12))) } catch {}
+        try {
+          onHighlight(JSON.parse(data.slice(12)))
+        } catch {}
       } else {
         onChunk(data.replace(/\\n/g, '\n'))
       }
@@ -190,16 +245,26 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
   onDone?.()
 }
 
-export async function streamPost(path, body, onChunk, onDone, onPlanning, onHighlight, onResult, options = {}) {
+export async function streamPost(
+  path,
+  body,
+  onChunk,
+  onDone,
+  onPlanning,
+  onHighlight,
+  onResult,
+  options = {},
+) {
   // 만료 임박 시 미리 갱신 (스트림 도중 토큰 만료 방지)
   await ensureFreshToken()
 
-  const doFetch = (tok) => fetch(`${AI_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
-    body: JSON.stringify(body),
-    signal: options.signal, // 중단 버튼 (P3A-6) — abort 시 서버 generator도 취소됨
-  })
+  const doFetch = tok =>
+    fetch(`${AI_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      body: JSON.stringify(body),
+      signal: options.signal, // 중단 버튼 (P3A-6) — abort 시 서버 generator도 취소됨
+    })
 
   let token = sessionStorage.getItem('token')
   let response = await doFetch(token)
@@ -220,7 +285,10 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
   try {
     await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
   } catch (e) {
-    if (e.name === 'AbortError') { onDone?.(); return } // 사용자 중단은 정상 종료로 처리
+    if (e.name === 'AbortError') {
+      onDone?.()
+      return
+    } // 사용자 중단은 정상 종료로 처리
     throw e
   }
 }
@@ -230,11 +298,12 @@ export async function streamPost(path, body, onChunk, onDone, onPlanning, onHigh
 export async function streamPostForm(path, formData, onEvent) {
   await ensureFreshToken()
 
-  const doFetch = (tok) => fetch(`${AI_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${tok}` },
-    body: formData,
-  })
+  const doFetch = tok =>
+    fetch(`${AI_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tok}` },
+      body: formData,
+    })
 
   let token = sessionStorage.getItem('token')
   let response = await doFetch(token)
@@ -264,8 +333,11 @@ export async function streamPostForm(path, formData, onEvent) {
       if (!line.startsWith('data: ')) continue
       const data = line.slice(6)
       if (data === '[DONE]') return
-      try { onEvent(JSON.parse(data)) } catch { /* 부분 데이터 무시 */ }
+      try {
+        onEvent(JSON.parse(data))
+      } catch {
+        /* 부분 데이터 무시 */
+      }
     }
   }
 }
-

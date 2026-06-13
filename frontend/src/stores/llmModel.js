@@ -19,5 +19,7 @@ export async function fetchModels() {
     availableModels.value = data?.models || []
     defaultModel.value = data?.default || ''
     _loaded = true
-  } catch { /* 다음 마운트에서 재시도 */ }
+  } catch {
+    /* 다음 마운트에서 재시도 */
+  }
 }

@@ -12,8 +12,23 @@
       @blur="onBlur"
       @keydown="onKeydown"
     />
-    <button type="button" class="cdate-btn" tabindex="-1" aria-label="달력 열기" @click="openPicker">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <button
+      type="button"
+      class="cdate-btn"
+      tabindex="-1"
+      aria-label="달력 열기"
+      @click="openPicker"
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         <rect x="3" y="4" width="18" height="18" rx="2" />
         <line x1="16" y1="2" x2="16" y2="6" />
         <line x1="8" y1="2" x2="8" y2="6" />
@@ -61,9 +76,12 @@ onMounted(() => document.addEventListener('mousedown', onDocMousedown))
 onUnmounted(() => document.removeEventListener('mousedown', onDocMousedown))
 const display = ref(formatFromValue(props.modelValue))
 
-watch(() => props.modelValue, (v) => {
-  display.value = formatFromValue(v)
-})
+watch(
+  () => props.modelValue,
+  v => {
+    display.value = formatFromValue(v)
+  },
+)
 
 function formatFromValue(v) {
   if (!v) return ''
@@ -114,7 +132,9 @@ function commit(str) {
     display.value = formatFromValue(props.modelValue)
     return
   }
-  const y = +m[1], mo = +m[2], d = +m[3]
+  const y = +m[1],
+    mo = +m[2],
+    d = +m[3]
   if (!isValid(y, mo, d)) {
     display.value = formatFromValue(props.modelValue)
     return
@@ -128,7 +148,12 @@ function openPicker() {
   const el = nativeRef.value
   if (!el) return
   if (typeof el.showPicker === 'function') {
-    try { el.showPicker(); return } catch (_) { /* fall through */ }
+    try {
+      el.showPicker()
+      return
+    } catch {
+      /* fall through */
+    }
   }
   el.focus()
   el.click()
@@ -147,7 +172,7 @@ function onNative(e) {
   align-items: center;
   width: 100%;
 }
-.cdate-wrap > input[type="text"] {
+.cdate-wrap > input[type='text'] {
   width: 100%;
   padding-right: 30px;
 }

@@ -17,7 +17,7 @@ const routes = [
       { path: 'reports', redirect: '/archive' },
       { path: 'past-meetings', redirect: '/archive' },
       { path: 'meetings/:meetingId', redirect: '/meetings' },
-{ path: 'profile', component: () => import('./pages/ProfilePage.vue') },
+      { path: 'profile', component: () => import('./pages/ProfilePage.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -28,7 +28,7 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+router.beforeEach(to => {
   const token = sessionStorage.getItem('token')
   if (to.meta.requiresAuth && !token) return '/landing'
   if ((to.path === '/register' || to.path === '/landing') && token) return '/'

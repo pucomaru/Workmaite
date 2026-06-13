@@ -7,15 +7,17 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const currentMeeting = ref(null)
   const myRole = ref(null)
   const currentMembers = ref([])
-  const currentLoopIdx = ref(0)   // MeetingNav ↔ SessionsPage 공유
-  const meetingRoles = ref({})    // { [meetingId]: 'admin' | 'member' | null }
+  const currentLoopIdx = ref(0) // MeetingNav ↔ SessionsPage 공유
+  const meetingRoles = ref({}) // { [meetingId]: 'admin' | 'member' | null }
   const membersByMeeting = ref({}) // { [meetingId]: MemberResponse[] } — 페이지 로컬 캐시 대신 단일 캐시 (PLAN Phase 1)
 
   async function fetchMeetings() {
     const { data } = await api.get('/api/v1/meetings')
     meetings.value = data
     const roles = {}
-    data.forEach(m => { roles[m.id] = m.my_role ?? null })
+    data.forEach(m => {
+      roles[m.id] = m.my_role ?? null
+    })
     meetingRoles.value = roles
   }
 
@@ -114,7 +116,9 @@ export const useMeetingsStore = defineStore('meetings', () => {
     await api.delete(`/api/v1/meetings/${meetingId}/members/${memberId}`)
     currentMembers.value = currentMembers.value.filter(m => m.id !== memberId)
     if (membersByMeeting.value[meetingId]) {
-      membersByMeeting.value[meetingId] = membersByMeeting.value[meetingId].filter(m => m.id !== memberId)
+      membersByMeeting.value[meetingId] = membersByMeeting.value[meetingId].filter(
+        m => m.id !== memberId,
+      )
     }
   }
 
@@ -127,9 +131,26 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   return {
-    meetings, currentMeeting, myRole, currentMembers, currentLoopIdx, meetingRoles, membersByMeeting,
-    fetchMeetings, fetchMeeting, fetchMembers, fetchMembersOnce, invalidateMembers, fetchRole,
-    createMeeting, updateTitle, terminateMeeting, deleteMeeting,
-    addMember, updateMemberRole, removeMember, leaveMeeting,
+    meetings,
+    currentMeeting,
+    myRole,
+    currentMembers,
+    currentLoopIdx,
+    meetingRoles,
+    membersByMeeting,
+    fetchMeetings,
+    fetchMeeting,
+    fetchMembers,
+    fetchMembersOnce,
+    invalidateMembers,
+    fetchRole,
+    createMeeting,
+    updateTitle,
+    terminateMeeting,
+    deleteMeeting,
+    addMember,
+    updateMemberRole,
+    removeMember,
+    leaveMeeting,
   }
 })

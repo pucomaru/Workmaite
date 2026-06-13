@@ -1,0 +1,11 @@
+# 빌드 산출물·의존성
+dist
+node_modules
+coverage
+
+# 자동 생성/잠금 파일
+package-lock.json
+
+# 압축 파일
+*.min.js
+*.min.css

@@ -4,7 +4,9 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')
-const tsv = readFileSync(join(ROOT, 'scripts', 'dead-css.tsv'), 'utf8').trim().split('\n')
+const tsv = readFileSync(join(ROOT, 'scripts', 'dead-css.tsv'), 'utf8')
+  .trim()
+  .split('\n')
 
 const deadByFile = new Map() // file -> Set(cls)
 for (const line of tsv) {
@@ -27,17 +29,24 @@ function removeDead(css, deadSet) {
     if (css.startsWith('/*', i)) {
       const end = css.indexOf('*/', i + 2)
       const j = end === -1 ? css.length : end + 2
-      out += css.slice(i, j); i = j; continue
+      out += css.slice(i, j)
+      i = j
+      continue
     }
     const brace = css.indexOf('{', i)
-    if (brace === -1) { out += css.slice(i); break }
+    if (brace === -1) {
+      out += css.slice(i)
+      break
+    }
     // 셀렉터 추출 (직전 '}' 또는 ';' 이후부터)
     let selStart = i
     const selector = css.slice(selStart, brace)
-    if (selector.trimStart().startsWith('@')) { // @media 등 — 헤더만 쓰고 내부 재귀
+    if (selector.trimStart().startsWith('@')) {
+      // @media 등 — 헤더만 쓰고 내부 재귀
       const inner = matchBlock(css, brace)
       out += css.slice(selStart, brace + 1) + removeDead(css.slice(brace + 1, inner), deadSet) + '}'
-      i = inner + 1; continue
+      i = inner + 1
+      continue
     }
     const end = matchBlock(css, brace) // leaf 규칙 가정 (이 코드베이스는 중첩 없음)
     const body = css.slice(brace + 1, end)
@@ -57,7 +66,10 @@ function matchBlock(css, openIdx) {
   let depth = 0
   for (let i = openIdx; i < css.length; i++) {
     if (css[i] === '{') depth++
-    else if (css[i] === '}') { depth--; if (depth === 0) return i }
+    else if (css[i] === '}') {
+      depth--
+      if (depth === 0) return i
+    }
   }
   return css.length - 1
 }
@@ -71,8 +83,10 @@ for (const [file, deadSet] of deadByFile) {
   const txt = readFileSync(file, 'utf8')
   let next
   if (file.endsWith('.vue')) {
-    next = txt.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/g, (_, open, css, close) =>
-      open + tidy(removeDead(css, deadSet)) + close)
+    next = txt.replace(
+      /(<style[^>]*>)([\s\S]*?)(<\/style>)/g,
+      (_, open, css, close) => open + tidy(removeDead(css, deadSet)) + close,
+    )
   } else {
     next = tidy(removeDead(txt, deadSet))
   }

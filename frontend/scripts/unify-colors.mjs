@@ -62,22 +62,31 @@ function walk(dir, exts, out = []) {
 
 const counts = {}
 function convert(css, e2var) {
-  return css.split('\n').map(line => {
-    if (/^\s*--[\w-]+\s*:/.test(line)) return line // 변수 정의 라인 보호
-    let l = line
-    // hex는 뒤에 16진수가 더 붙지 않을 때만 (#3b82f6aa 같은 8자리 오인 방지)
-    for (const [lit, v] of Object.entries(MAP)) {
-      if (!l.includes(lit)) continue
-      const re = lit.startsWith('#')
-        ? new RegExp(lit + '(?![0-9a-fA-F])', 'g')
-        : new RegExp(lit.replace(/[().]/g, '\\$&') + '(?!\\d)', 'g')
-      l = l.replace(re, () => { counts[lit] = (counts[lit] || 0) + 1; return v })
-    }
-    if (e2var && l.includes(E2)) {
-      l = l.replace(new RegExp(E2 + '(?![0-9a-fA-F])', 'g'), () => { counts[E2] = (counts[E2] || 0) + 1; return e2var })
-    }
-    return l
-  }).join('\n')
+  return css
+    .split('\n')
+    .map(line => {
+      if (/^\s*--[\w-]+\s*:/.test(line)) return line // 변수 정의 라인 보호
+      let l = line
+      // hex는 뒤에 16진수가 더 붙지 않을 때만 (#3b82f6aa 같은 8자리 오인 방지)
+      for (const [lit, v] of Object.entries(MAP)) {
+        if (!l.includes(lit)) continue
+        const re = lit.startsWith('#')
+          ? new RegExp(lit + '(?![0-9a-fA-F])', 'g')
+          : new RegExp(lit.replace(/[().]/g, '\\$&') + '(?!\\d)', 'g')
+        l = l.replace(re, () => {
+          counts[lit] = (counts[lit] || 0) + 1
+          return v
+        })
+      }
+      if (e2var && l.includes(E2)) {
+        l = l.replace(new RegExp(E2 + '(?![0-9a-fA-F])', 'g'), () => {
+          counts[E2] = (counts[E2] || 0) + 1
+          return e2var
+        })
+      }
+      return l
+    })
+    .join('\n')
 }
 
 let changed = 0
@@ -85,15 +94,24 @@ for (const f of walk(SRC, ['.css'])) {
   const e2var = f.includes('archive') ? 'var(--dark-text)' : 'var(--border)'
   const txt = readFileSync(f, 'utf8')
   const next = convert(txt, e2var)
-  if (next !== txt) { writeFileSync(f, next); changed++ }
+  if (next !== txt) {
+    writeFileSync(f, next)
+    changed++
+  }
 }
 for (const f of walk(SRC, ['.vue'])) {
   const txt = readFileSync(f, 'utf8')
-  const next = txt.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/g, (_, open, css, close) =>
-    open + convert(css, null) + close)
-  if (next !== txt) { writeFileSync(f, next); changed++ }
+  const next = txt.replace(
+    /(<style[^>]*>)([\s\S]*?)(<\/style>)/g,
+    (_, open, css, close) => open + convert(css, null) + close,
+  )
+  if (next !== txt) {
+    writeFileSync(f, next)
+    changed++
+  }
 }
 
 const total = Object.values(counts).reduce((a, b) => a + b, 0)
-for (const [k, v] of Object.entries(counts).sort((a, b) => b[1] - a[1])) console.log(`${k} → ${v}회`)
+for (const [k, v] of Object.entries(counts).sort((a, b) => b[1] - a[1]))
+  console.log(`${k} → ${v}회`)
 console.log(`\n${changed}개 파일, 총 ${total}회 치환`)

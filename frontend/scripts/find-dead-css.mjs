@@ -18,7 +18,10 @@ function walk(dir, exts, out = []) {
 
 function classesOf(css) {
   const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const selectors = noComments.split('}').map(b => b.split('{')[0]).join(',')
+  const selectors = noComments
+    .split('}')
+    .map(b => b.split('{')[0])
+    .join(',')
   return [...selectors.matchAll(/\.([a-zA-Z_][\w-]*)/g)].map(m => m[1])
 }
 
@@ -28,7 +31,8 @@ const LIB_CLASSES = new Set(['ProseMirror'])
 function isDeadIn(cls, haystack) {
   if (haystack.includes(cls)) return false
   if (LIB_CLASSES.has(cls)) return false
-  if (TRANSITION_SUFFIX.test(cls) && haystack.includes(cls.replace(TRANSITION_SUFFIX, ''))) return false
+  if (TRANSITION_SUFFIX.test(cls) && haystack.includes(cls.replace(TRANSITION_SUFFIX, '')))
+    return false
   const parts = cls.split('-')
   for (let i = 1; i < parts.length; i++) {
     if (haystack.includes(parts.slice(0, i).join('-') + '-')) return false // 동적 조립 가능성
@@ -58,7 +62,8 @@ for (const f of vueFiles) {
   const styles = [...txt.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m => m[1]).join('\n')
   for (const cls of new Set(classesOf(styles))) {
     // scoped여도 전역 클래스(style.css 정의)를 페이지에서 보강하는 경우가 있어 전역 사용도 인정
-    if (isDeadIn(cls, own) && isDeadIn(cls, globalHaystack)) dead.push({ cls, file: f, scope: 'scoped' })
+    if (isDeadIn(cls, own) && isDeadIn(cls, globalHaystack))
+      dead.push({ cls, file: f, scope: 'scoped' })
   }
 }
 

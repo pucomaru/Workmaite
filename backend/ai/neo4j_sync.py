@@ -181,6 +181,43 @@ async def sync_company(name: str) -> None:
         logger.error(f"[Neo4jSync] sync_company 실패 ({name}): {e}")
 
 
+async def rename_company(old_name: str, new_name: str) -> None:
+    """Company 노드명 변경 + 소속 User 노드의 company 속성 일괄 갱신 (name 기반 식별)."""
+    old, new = (old_name or "").strip(), (new_name or "").strip()
+    if not old or not new or old == new:
+        return
+    try:
+        await run_cypher("MATCH (c:Company {name: $old}) SET c.name = $new", {"old": old, "new": new})
+        await run_cypher("MATCH (u:User {company: $old}) SET u.company = $new", {"old": old, "new": new})
+    except Exception as e:
+        logger.error(f"[Neo4jSync] rename_company 실패 ({old}→{new}): {e}")
+
+
+async def rename_department(old_name: str, new_name: str, company_name: str | None = None) -> None:
+    """부서명 변경 — User 노드의 department 속성 일괄 갱신 (department 문자열 기반 식별).
+
+    부서는 별도 노드 없이 User.department 속성으로만 존재하므로 해당 속성을 변경한다.
+    company_name이 주어지면 그 회사 소속 User로 한정해 타 회사 동명 부서 오염을 막는다.
+    """
+    old, new = (old_name or "").strip(), (new_name or "").strip()
+    co = (company_name or "").strip()
+    if not old or not new or old == new:
+        return
+    try:
+        if co:
+            await run_cypher(
+                "MATCH (u:User {department: $old, company: $co}) SET u.department = $new",
+                {"old": old, "new": new, "co": co},
+            )
+        else:
+            await run_cypher(
+                "MATCH (u:User {department: $old}) SET u.department = $new",
+                {"old": old, "new": new},
+            )
+    except Exception as e:
+        logger.error(f"[Neo4jSync] rename_department 실패 ({old}→{new}): {e}")
+
+
 # ─── User 동기화 (PG users) ──────────────────────────────────────────────────
 
 async def sync_user(

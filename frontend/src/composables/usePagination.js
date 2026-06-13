@@ -14,18 +14,21 @@ export function usePagination(listRef, pageSize, { fillEmpty = false } = {}) {
   const page = ref(1)
 
   const paged = computed(() =>
-    listRef.value.slice((page.value - 1) * pageSize, page.value * pageSize)
+    listRef.value.slice((page.value - 1) * pageSize, page.value * pageSize),
   )
 
   const fillerCount = computed(() =>
-    (paged.value.length || fillEmpty) ? pageSize - paged.value.length : 0
+    paged.value.length || fillEmpty ? pageSize - paged.value.length : 0,
   )
 
   // 검색·필터로 목록이 줄어 현재 페이지가 범위를 벗어나면 마지막 페이지로 보정
-  watch(() => listRef.value.length, (len) => {
-    const tp = Math.max(1, Math.ceil(len / pageSize))
-    if (page.value > tp) page.value = tp
-  })
+  watch(
+    () => listRef.value.length,
+    len => {
+      const tp = Math.max(1, Math.ceil(len / pageSize))
+      if (page.value > tp) page.value = tp
+    },
+  )
 
   return { page, paged, fillerCount, pageSize }
 }

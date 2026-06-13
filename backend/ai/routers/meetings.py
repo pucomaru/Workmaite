@@ -19,6 +19,8 @@ from neo4j_sync import (
     update_meeting_member_role,
     delete_meeting as neo4j_delete_meeting,
     delete_user as neo4j_delete_user,
+    rename_company as neo4j_rename_company,
+    rename_department as neo4j_rename_department,
 )
 import logging
 
@@ -320,7 +322,8 @@ async def delete_meeting(
         models.MeetingMember.meeting_id == meeting_id,
         models.MeetingMember.user_id == current_user.id,
     ).first()
-    if not member or member.role != "admin":
+    # 시스템관리자는 간사가 아니어도 삭제 가능
+    if not is_system_admin(current_user) and (not member or member.role != "admin"):
         raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
 
     # ── 1. ID 선수집 ──────────────────────────────────────────────
@@ -474,6 +477,86 @@ def my_role(
 
 # ── /api/ai prefix 라우터 (Ingress: /api/ai → FastAPI) ───────────────────────
 ai_router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@ai_router.patch("/companies/rename")
+async def rename_company_endpoint(
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """회사명 변경 — SYSTEM_ADMIN 또는 해당 회사 COMPANY_ADMIN만.
+
+    그래프 회사 노드는 이름으로 식별되므로 old_name으로 회사를 찾는다.
+    companies.name 한 행만 바꾸면 users.company_name(파생 property)이 전부 따라온다.
+    """
+    old_name = (data.get("old_name") or "").strip()
+    new_name = (data.get("new_name") or "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name, new_name이 필요합니다.")
+    company = db.query(models.Company).filter(models.Company.name == old_name).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="회사를 찾을 수 없습니다.")
+    # 권한: SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN
+    is_co_admin = current_user.role == "COMPANY_ADMIN" and current_user.company_id == company.id
+    if not is_system_admin(current_user) and not is_co_admin:
+        raise HTTPException(status_code=403, detail="회사명을 변경할 권한이 없습니다.")
+    if old_name == new_name:
+        return {"ok": True, "id": company.id, "name": new_name}
+    # 중복 검사 (companies.name UNIQUE)
+    if db.query(models.Company).filter(models.Company.name == new_name, models.Company.id != company.id).first():
+        raise HTTPException(status_code=409, detail="이미 존재하는 회사명입니다.")
+    company.name = new_name
+    db.commit()
+    background_tasks.add_task(neo4j_rename_company, old_name, new_name)
+    return {"ok": True, "id": company.id, "name": new_name}
+
+
+@ai_router.patch("/departments/rename")
+async def rename_department_endpoint(
+    data: dict,
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """부서명 변경 — SYSTEM_ADMIN 또는 해당 회사 COMPANY_ADMIN만.
+
+    부서는 별도 테이블 없이 users.department(문자열)로만 존재하므로
+    old_name과 일치하는 users 행의 department를 일괄 변경한다.
+    company_name이 주어지면 그 회사 소속으로 한정해 타 회사 동명 부서를 보호한다.
+    """
+    old_name = (data.get("old_name") or "").strip()
+    new_name = (data.get("new_name") or "").strip()
+    company_name = (data.get("company_name") or "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name, new_name이 필요합니다.")
+
+    # 회사 scope 해석 (있으면 company_id로 한정)
+    company = None
+    if company_name:
+        company = db.query(models.Company).filter(models.Company.name == company_name).first()
+
+    # 권한: SYSTEM_ADMIN(전체) 또는 COMPANY_ADMIN(자기 회사에 한해)
+    if not is_system_admin(current_user):
+        is_co_admin = (
+            current_user.role == "COMPANY_ADMIN"
+            and company is not None
+            and current_user.company_id == company.id
+        )
+        if not is_co_admin:
+            raise HTTPException(status_code=403, detail="부서명을 변경할 권한이 없습니다.")
+
+    if old_name == new_name:
+        return {"ok": True, "name": new_name}
+
+    q = db.query(models.User).filter(models.User.department == old_name)
+    if company is not None:
+        q = q.filter(models.User.company_id == company.id)
+    updated = q.update({models.User.department: new_name}, synchronize_session=False)
+    db.commit()
+    background_tasks.add_task(neo4j_rename_department, old_name, new_name, company_name or None)
+    return {"ok": True, "name": new_name, "updated": updated}
 
 
 @ai_router.get("/company/members")
@@ -690,7 +773,8 @@ async def ai_delete_meeting(
         models.MeetingMember.meeting_id == meeting_id,
         models.MeetingMember.user_id == current_user.id,
     ).first()
-    if not member or member.role != "admin":
+    # 시스템관리자는 간사가 아니어도 삭제 가능
+    if not is_system_admin(current_user) and (not member or member.role != "admin"):
         raise HTTPException(status_code=403, detail="관리자만 삭제할 수 있습니다.")
 
     # ── 1. ID 선수집 ──────────────────────────────────────────────

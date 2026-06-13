@@ -29,7 +29,7 @@ import AppPagination from './AppPagination.vue'
  * 슬롯: #filters(좌측 필터), #header-right(제목·건수), 기본 슬롯(로딩/빈 상태/AppTable)
  */
 defineProps({
-  page: { type: Number, default: 1 },          // v-model:page
+  page: { type: Number, default: 1 }, // v-model:page
   totalItems: { type: Number, default: 0 },
   pageSize: { type: Number, default: 30 },
   dark: { type: Boolean, default: false },
