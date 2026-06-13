@@ -6,37 +6,64 @@ metadata:
   labels:
     app: workmaite-backend
 spec:
-  replicas: 1  # 실행할 Pod 개수
+  replicas: 1
   selector:
     matchLabels:
-      app: workmaite-backend  # 아래 template labels와 반드시 일치해야 함
+      app: workmaite-backend
   template:
     metadata:
       labels:
         app: workmaite-backend
     spec:
       imagePullSecrets:
-        - name: harbor-secret  # Harbor 인증 정보 (교육환경에서 네임스페이스에 미리 등록됨)
+        - name: harbor-secret
       containers:
         - name: workmaite-backend
-          # GitHub Actions에서 커밋 SHA로 태그를 동적으로 업데이트함
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:latest
-          imagePullPolicy: Always  # 같은 태그라도 항상 최신 이미지 pull
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:c9742ac
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8080  # Spring Boot 기본 포트
-          # readinessProbe: 트래픽 받을 준비됐는지 확인 (실패 시 트래픽 차단)
+            - containerPort: 8080
+          resources:                 # P7-6: 스케줄링 안정성·OOM 방지
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          envFrom:
+            - secretRef:
+                name: r2-secret
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-1-postgresql.postgres.svc.cluster.local:5432/sk-team-9"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "team9"
+            # 자격증명은 backend-secret(k8s Secret)에서 주입 — 생성 방법은 k8s/secrets.example.yaml 참조
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
+            - name: AI_URL
+              value: "http://workmaite-ai-agent:8000"
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /actuator/health
               port: 8080
-            initialDelaySeconds: 10  # Spring Boot는 JVM 로딩으로 AI보다 느림
+            initialDelaySeconds: 30
             periodSeconds: 10
-          # livenessProbe: Pod가 살아있는지 확인 (실패 시 Pod 재시작)
           livenessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /actuator/health
               port: 8080
-            initialDelaySeconds: 20  # readinessProbe보다 늦게 시작
+            initialDelaySeconds: 60
             periodSeconds: 20
 ---
 apiVersion: v1
@@ -47,10 +74,10 @@ metadata:
   labels:
     app: workmaite-backend
 spec:
-  type: ClusterIP  # 클러스터 내부에서만 접근 가능, 외부 노출은 Ingress가 담당
+  type: ClusterIP
   selector:
-    app: workmaite-backend  # 이 label을 가진 Pod로 트래픽 전달
+    app: workmaite-backend
   ports:
     - name: http
-      port: 8080        # Service가 받는 포트
-      targetPort: 8080  # 실제 Pod의 포트 (containerPort와 일치)
+      port: 8080
+      targetPort: 8080

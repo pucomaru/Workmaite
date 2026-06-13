@@ -18,7 +18,7 @@ lib/
 lib64/
 .venv/
 venv/
-env/
+.env/
 ENV/
 
 # FastAPI / Uvicorn
@@ -48,8 +48,9 @@ vite.config.ts.timestamp-*
 *.db
 *.sqlite
 *.sqlite3
-*.sql
 *.dump
+*.sql
+!ddl/*.sql
 
 # IDE
 .vscode/
@@ -81,9 +82,19 @@ docker-compose.override.yml
 *.bak
 *.tmp
 *.orig
-# Java / Maven / Spring Boot
-target/
-*.class
-*.jar
-*.war
-*.ear
+*.pdf
+**/.gradle/
+AWSCLIV2.pkg
+
+# Claude Code local config
+.claude/settings.local.json
+
+# Vite cache
+.vite/
+
+# AI uploaded files (runtime uploads, not source)
+backend/ai/uploads/*
+!backend/ai/uploads/.gitkeep
+
+# Secret
+k8s/secrets.yaml

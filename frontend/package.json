@@ -1,17 +1,48 @@
 {
-  "name": "workmaite-frontend",
-  "version": "0.0.1",
+  "name": "workmate",
   "private": true,
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 18082",
+    "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 18082"
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "@vitejs/plugin-vue": "5.2.1",
-    "vite": "6.0.1",
-    "vue": "3.5.13"
+    "@tiptap/extension-table": "^3.23.6",
+    "@tiptap/extension-table-cell": "^3.23.6",
+    "@tiptap/extension-table-header": "^3.23.6",
+    "@tiptap/extension-table-row": "^3.23.6",
+    "@tiptap/extension-underline": "^3.23.6",
+    "@tiptap/pm": "^3.23.6",
+    "@tiptap/starter-kit": "^3.23.6",
+    "@tiptap/vue-3": "^3.23.6",
+    "axios": "^1.15.2",
+    "bootstrap": "^5.3.8",
+    "bootstrap-icons": "^1.13.1",
+    "d3-force": "^3.0.0",
+    "d3-zoom": "^3.0.0",
+    "dompurify": "^3.4.2",
+    "marked": "^18.0.3",
+    "pinia": "^3.0.4",
+    "pixi.js": "^8.19.0",
+    "vue": "^3.5.32",
+    "vue-router": "^4.6.4"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.4",
+    "vite": "^8.0.10",
+    "vitest": "^4.1.8"
+  }
 }

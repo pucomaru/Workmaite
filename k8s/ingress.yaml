@@ -5,12 +5,79 @@ metadata:
   namespace: skala3-finalproj-class2-team9
   labels:
     app: workmaite
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   ingressClassName: public-nginx  # 교육환경에서 제공하는 Nginx Ingress 클래스명
+  tls:
+  - hosts:
+    - workmaite.project.skala-ai.com
+    secretName: workmaite-tls
   rules:
-    - http:
+    - host: workmaite.project.skala-ai.com
+      http:
         paths:
           # 경로 우선순위: 구체적인 경로를 앞에 배치해야 함
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/ai
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/agent
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/neo4j
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          # /api/sync는 내부 전용(Spring→FastAPI 클러스터 내부 호출) — 공개 ingress에 노출하지 않음
+          - path: /api/chats
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/stt
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/upload
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
+          - path: /api/usage
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-ai
+                port:
+                  number: 8000
           - path: /api
             pathType: Prefix  # /api, /api/v1/... 등 하위 경로 전부 매칭 → Spring Boot
             backend:
@@ -25,6 +92,13 @@ spec:
                 name: workmaite-ai
                 port:
                   number: 8000
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: workmaite-grafana
+                port:
+                  number: 3000
           - path: /
             pathType: Prefix  # 위 경로에 매칭 안 된 나머지 전부 → Vue 프론트엔드
             backend:

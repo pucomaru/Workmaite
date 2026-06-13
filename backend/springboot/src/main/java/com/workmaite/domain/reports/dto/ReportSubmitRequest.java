@@ -1,0 +1,18 @@
+package com.workmaite.domain.reports.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Getter;
+
+@Getter
+public class ReportSubmitRequest {
+
+  @NotNull(message = "업로더 ID를 입력해주세요.")
+  private Long uploadId;
+
+  @NotBlank(message = "제출 부서를 입력해주세요.")
+  private String submitterDepartment;
+
+  private String fileName;
+  private String filePath;
+}

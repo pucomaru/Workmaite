@@ -7,7 +7,7 @@ spec:
   project: default  # ArgoCD 기본 프로젝트
   source:
     repoURL: https://github.com/als7928/Workmaite.git  # 배포 대상 GitHub 레포
-    targetRevision: main  # 감시할 브랜치
+    targetRevision: develop  # 감시할 브랜치
     path: k8s  # 이 폴더 안의 yaml들을 EKS에 배포
   destination:
     server: https://kubernetes.default.svc  # 현재 클러스터 내부 API 서버

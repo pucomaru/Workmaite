@@ -3,9 +3,9 @@ name: CI - AI
 on:
   push:
     branches:
-      - main          # main 브랜치 push 시 실행
+      - develop          # develop 브랜치 push 시 실행
     paths:
-      - 'ai/**'          # ai 폴더 변경 시에만 실행
+      - 'backend/ai/**'  # backend/ai 폴더 변경 시에만 실행
 
 jobs:
   build-and-push:
@@ -30,11 +30,22 @@ jobs:
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
+      # 3.5 Python 컴파일·import 스모크 게이트 (P6-3/P7-4) — 빌드 전 import 깨짐 차단
+      - name: Python smoke check
+        run: |
+          python3 -m pip install -q ruff || true
+          python3 -m compileall -q backend/ai \
+            && echo "compileall OK"
+          # 미정의 이름·재정의·구문 오류만 빌드 차단 (런타임 NameError 방지). 미사용 import는 경고 수준이라 제외
+          python3 -m ruff check backend/ai --select F821,F811,F822,F823,F706,F707 --quiet || \
+            (echo "::error::ruff: 미정의 이름/재정의 — 런타임 NameError 위험" && exit 1)
+
       # 4. 이미지 빌드 & Harbor에 push
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./ai   # ai 폴더의 Dockerfile 사용
+          context: ./backend/ai
+          file: ./backend/ai/Dockerfile
           push: true
           tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:${{ env.IMAGE_TAG }}
 
@@ -51,4 +62,22 @@ jobs:
           git config user.email "github-actions@github.com"
           git add k8s/ai.yaml
           git commit -m "ci: update ai image tag to ${{ env.IMAGE_TAG }}"
-          git push origin main
+          git pull --rebase origin develop
+          git push origin develop
+
+      # 7. 오래된 Harbor 이미지 삭제 (최신 5개 유지)
+      - name: Delete old Harbor images
+        continue-on-error: true
+        run: |
+          REPO="workmaite-ai"
+          PROJECT="skala26a-ai2"
+          REGISTRY="amdp-registry.skala-ai.com"
+          DIGESTS=$(curl -s -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts?page_size=100&sort=-push_time" \
+            | jq -r '.[5:] | .[].digest')
+          for DIGEST in $DIGESTS; do
+            ENCODED=$(echo "$DIGEST" | sed 's/:/%3A/g')
+            curl -s -X DELETE -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+              "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts/${ENCODED}"
+            echo "Deleted: $DIGEST"
+          done

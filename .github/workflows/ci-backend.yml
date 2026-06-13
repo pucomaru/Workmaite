@@ -3,7 +3,7 @@ name: CI - Backend
 on:
   push:
     branches:
-      - main         # main 브랜치 push 시 실행
+      - develop         # develop 브랜치 push 시 실행
     paths:
       - 'backend/**'     # backend 폴더 변경 시에만 실행
 
@@ -34,7 +34,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./backend   # backend 폴더의 Dockerfile 사용
+          context: ./backend/springboot   # springboot 폴더의 Dockerfile 사용 (빌드 컨텍스트 최소화)
           push: true
           tags: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:${{ env.IMAGE_TAG }}
 
@@ -51,4 +51,22 @@ jobs:
           git config user.email "github-actions@github.com"
           git add k8s/backend.yaml
           git commit -m "ci: update backend image tag to ${{ env.IMAGE_TAG }}"
-          git push origin main
+          git pull --rebase origin develop
+          git push origin develop
+
+      # 7. 오래된 Harbor 이미지 삭제 (최신 5개 유지)
+      - name: Delete old Harbor images
+        continue-on-error: true
+        run: |
+          REPO="workmaite-backend"
+          PROJECT="skala26a-ai2"
+          REGISTRY="amdp-registry.skala-ai.com"
+          DIGESTS=$(curl -s -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts?page_size=100&sort=-push_time" \
+            | jq -r '.[5:] | .[].digest')
+          for DIGEST in $DIGESTS; do
+            ENCODED=$(echo "$DIGEST" | sed 's/:/%3A/g')
+            curl -s -X DELETE -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+              "https://${REGISTRY}/api/v2.0/projects/${PROJECT}/repositories/${REPO}/artifacts/${ENCODED}"
+            echo "Deleted: $DIGEST"
+          done

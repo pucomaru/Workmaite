@@ -6,37 +6,51 @@ metadata:
   labels:
     app: workmaite-ai
 spec:
-  replicas: 1  # 실행할 Pod 개수
+  replicas: 1
   selector:
     matchLabels:
-      app: workmaite-ai  # 아래 template labels와 반드시 일치해야 함
+      app: workmaite-ai
   template:
     metadata:
       labels:
         app: workmaite-ai
     spec:
       imagePullSecrets:
-        - name: harbor-secret  # Harbor 인증 정보 (교육환경에서 네임스페이스에 미리 등록됨)
+        - name: harbor-secret
       containers:
         - name: workmaite-ai
-          # GitHub Actions에서 커밋 SHA로 태그를 동적으로 업데이트함
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:latest
-          imagePullPolicy: Always  # 같은 태그라도 항상 최신 이미지 pull
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:c9742ac
+          imagePullPolicy: Always
           ports:
-            - containerPort: 8000  # FastAPI 기본 포트
-          # readinessProbe: 트래픽 받을 준비됐는지 확인 (실패 시 트래픽 차단)
+            - containerPort: 8000
+          resources:                 # P7-6: 스케줄링 안정성·OOM 방지
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          envFrom:
+            - secretRef:
+                name: ai-secret
+            - secretRef:
+                name: r2-secret
+          env:
+            - name: NEO4J_URL
+              value: "http://workmaite-neo4j:7474"
+            - name: DB_HOST
+              value: "postgres-1-postgresql.postgres.svc.cluster.local"
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 5   # Pod 시작 후 5초 뒤부터 체크
-            periodSeconds: 10        # 10초마다 체크
-          # livenessProbe: Pod가 살아있는지 확인 (실패 시 Pod 재시작)
+            initialDelaySeconds: 60
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 15  # readinessProbe보다 늦게 시작
+            initialDelaySeconds: 120
             periodSeconds: 20
 ---
 apiVersion: v1
@@ -47,10 +61,10 @@ metadata:
   labels:
     app: workmaite-ai
 spec:
-  type: ClusterIP  # 클러스터 내부에서만 접근 가능, 외부 노출은 Ingress가 담당
+  type: ClusterIP
   selector:
-    app: workmaite-ai  # 이 label을 가진 Pod로 트래픽 전달
+    app: workmaite-ai
   ports:
     - name: http
-      port: 8000        # Service가 받는 포트
-      targetPort: 8000  # 실제 Pod의 포트 (containerPort와 일치)
+      port: 8000
+      targetPort: 8000

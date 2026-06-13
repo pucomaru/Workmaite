@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: workmaite-loki-data
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-loki
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workmaite-loki-config
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-loki
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 100
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    ruler:
+      alertmanager_url: http://localhost:9093
+
+    limits_config:
+      retention_period: 168h  # 7일
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-loki
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-loki
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: workmaite-loki
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: workmaite-loki
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: loki
+          image: grafana/loki:3.4.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+          ports:
+            - name: http
+              containerPort: 3100
+            - name: grpc
+              containerPort: 9096
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            - name: data
+              mountPath: /loki
+      volumes:
+        - name: config
+          configMap:
+            name: workmaite-loki-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: workmaite-loki-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workmaite-loki
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-loki
+spec:
+  type: ClusterIP
+  selector:
+    app: workmaite-loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: http
+    - name: grpc
+      port: 9096
+      targetPort: grpc

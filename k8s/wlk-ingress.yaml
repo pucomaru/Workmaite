@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: workmaite-wlk-ingress
+  namespace: skala3-finalproj-class2-team9
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: public-nginx
+  tls:
+    - hosts:
+        - workmaite.project.skala-ai.com
+      secretName: workmaite-tls
+  rules:
+    - host: workmaite.project.skala-ai.com
+      http:
+        paths:
+          - path: /wlk(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: workmaite-wlk
+                port:
+                  number: 9100
