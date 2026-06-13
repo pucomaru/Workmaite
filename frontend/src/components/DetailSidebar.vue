@@ -506,7 +506,9 @@ function parseAiEvidence(val) {
                     <div class="detail-log-content">
                       <div class="detail-log-desc">{{ item.desc }}</div>
                       <div class="detail-log-meta">
-                        <template v-if="item.manager && item.date">{{ item.manager }} · {{ formatDate(item.date) }}</template>
+                        <template v-if="item.manager && item.date"
+                          >{{ item.manager }} · {{ formatDate(item.date) }}</template
+                        >
                         <template v-else-if="item.date">{{ formatDate(item.date) }}</template>
                         <template v-else-if="item.manager">{{ item.manager }}</template>
                       </div>
@@ -922,8 +924,7 @@ function parseAiEvidence(val) {
                   <path d="M4 4l16 8-16 8V4z" />
                 </svg>
                 아젠다 추출하기
-              </button>
-              </template
+              </button> </template
             ><!-- /자료선정 단계 -->
 
             <!-- 추출 결과: 로딩 중이거나 초안이 있을 때 -->
@@ -1838,7 +1839,6 @@ function parseAiEvidence(val) {
       />
     </svg>
   </button>
-
 </template>
 
 <style scoped>

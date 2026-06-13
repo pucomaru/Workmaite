@@ -1069,8 +1069,7 @@ async function addDirectAgenda(form) {
     rejected_ids: [],
   })
   // 아젠다 목록 즉시 갱신 (과제 탭)
-  detailAgendas.value =
-    (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
+  detailAgendas.value = (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
   // 관계도 + 기본탭 로그: Neo4j 동기화 완료 후 두 번 갱신 (빠른 표시 + 확실한 반영)
   setTimeout(refreshArchive, 600)
   setTimeout(refreshArchive, 2500)
@@ -2247,8 +2246,9 @@ const groupHistoryMap = computed(() => {
       for (let i = 1; i < sorted.length; i++) {
         const prev = batch[batch.length - 1]
         const curr = sorted[i]
-        const gap = (curr.created_at ? new Date(curr.created_at) : new Date(0))
-          - (prev.created_at ? new Date(prev.created_at) : new Date(0))
+        const gap =
+          (curr.created_at ? new Date(curr.created_at) : new Date(0)) -
+          (prev.created_at ? new Date(prev.created_at) : new Date(0))
         if (gap <= BATCH_GAP_MS) {
           batch.push(curr)
         } else {

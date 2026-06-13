@@ -549,9 +549,11 @@ async def commit_draft_agendas(
     from service_guards import idempotency_guard
 
     _ids = sorted(
-        str(a.get("db_id")) if a.get("db_id") is not None
+        str(a.get("db_id"))
+        if a.get("db_id") is not None
         else f"new:{a.get('title', '')[:60]}"
-        for a in approved if isinstance(a, dict)
+        for a in approved
+        if isinstance(a, dict)
     )
     idempotency_guard(
         f"agenda-commit:{meeting_id}:{','.join(_ids)}:{sorted(data.get('rejected_ids', []))}"
@@ -647,7 +649,9 @@ async def commit_draft_agendas(
                     priority=ag.priority or "medium",
                     due_date=ag.due_date.isoformat() + "Z" if ag.due_date else None,
                     department=dept_str,
-                    created_at=ag.created_at.isoformat() + "Z" if ag.created_at else None,
+                    created_at=ag.created_at.isoformat() + "Z"
+                    if ag.created_at
+                    else None,
                 )
             except Exception as e:
                 logger.warning(f"[commit] Neo4j sync 실패 (agenda {ag_id}): {e}")
