@@ -134,7 +134,7 @@ async def store_minutes(
             await run_cypher(
                 """MATCH (m:Minutes {id: $mid})
                    MATCH (mg:Meeting_session {pg_id: $pg_id})
-                   MERGE (m)-[:BELONGS_TO]->(mg)""",
+                   MERGE (m)-[:`청크`]->(mg)""",
                 {"mid": node_id, "pg_id": meeting_id},
             )
         except Exception:
@@ -194,7 +194,7 @@ async def store_task(
             await run_cypher(
                 """MATCH (t:Agenda {id: $tid})
                    MATCH (mg:Meeting {pg_id: $pg_id})
-                   MERGE (t)-[:BELONGS_TO]->(mg)""",
+                   MERGE (t)-[:`청크`]->(mg)""",
                 {"tid": node_id, "pg_id": meeting_id},
             )
         except Exception:
@@ -243,7 +243,7 @@ async def store_report(
             await run_cypher(
                 """MATCH (c:ReportChunk {id: $cid})
                    MATCH (mg:Meetings {id: $mg_id})
-                   MERGE (c)-[:BELONGS_TO]->(mg)""",
+                   MERGE (c)-[:`청크`]->(mg)""",
                 {"cid": node_id, "mg_id": to_mg_id(meeting_id)},
             )
         except Exception:
@@ -642,8 +642,8 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             emb = await _embed(content[:2000])
             rows = await run_cypher(
-                "MATCH (mn:Minutes {pg_id:$mid})-[:`생성`]->(s:Session {id:$sid})"
-                "-[:`소속`|`개최`]->(mg:Meetings) "
+                "MATCH (mn:Minutes {pg_id:$mid})-[:`기록`]->(s:Session {id:$sid})"
+                "-[:`소속`]->(mg:Meetings) "
                 "WITH mn, s, mg "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 5, $emb) YIELD node AS ag, score "
                 "WHERE score >= $lifecycle_th "
@@ -651,7 +651,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
                 "SET r.score=score, r.kind='minutes_agenda', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
-                "MERGE (ag)-[r2:`다룸`]->(s) "
+                "MERGE (ag)-[r2:`논의`]->(s) "
                 "SET r2.score=score, r2.kind='session_agenda', r2.discovered_by='knowledge_agent', r2.discovered_at=$ts "
                 "RETURN ag.title AS title, score",
                 {
@@ -679,7 +679,7 @@ async def reconcile_graph(analysis: dict) -> dict:
     # ①-b 이월(carry-forward)
     try:
         cf = await run_cypher(
-            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
+            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
             "WHERE coalesce(ag.status,'') IN ['ON_HOLD','IN_PROGRESS'] AND coalesce(s.scheduled_at,'')<>'' "
             "WITH ag, s ORDER BY s.scheduled_at DESC "
             "WITH ag, collect(s)[0] AS latest "
@@ -702,41 +702,27 @@ async def reconcile_graph(analysis: dict) -> dict:
     except Exception:
         pass
 
-    # ①-c 세션 → 안건 직접 연결 보완 (원칙: 회의는 아젠다와 연결되어야 한다)
+    # ①-c 세션↔안건 연결 보완 — 발제세션(canonical) 단일화. 역방향 '진행'·중복 '다룸'은 폐지하고
+    #     발제세션 하나로만 표현(Neo4j는 양방향 탐색 가능). 발제세션 없는 떠있는 안건을 같은 회의체 세션과 연결.
     try:
-        # 1단계: 발제세션 역방향 보완 — (ag)-[:발제세션]->(s) 가 있으면 (s)-[:진행]->(ag) 도 있어야 함
-        direct_rows = await run_cypher(
-            "MATCH (ag:Agenda)-[:`발제세션`]->(s:Session) "
-            "WHERE NOT (s)-[:`진행`]->(ag) "
-            "MERGE (s)-[r:`진행`]->(ag) "
-            "SET r.kind='session_agenda_direct', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
-            "RETURN count(r) AS n",
-            {"ts": ts},
-        )
-        direct_n = direct_rows[0].get("n", 0) if direct_rows else 0
-
-        # 2단계: 발제세션 링크 없이 회의체 내 떠 있는 안건을 같은 회의체의 세션과 연결
         floating_rows = await run_cypher(
-            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
-            "WHERE NOT (ag)-[:`발제세션`]->(:Session) "
-            "  AND NOT (s)-[:`진행`|`다룸`|`도출`]->(ag) "
+            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
+            "WHERE NOT (ag)-[:`논의`]->(:Session) "
             "  AND NOT coalesce(ag.status,'') IN ['DONE','COMPLETED','CLOSED','RESOLVED'] "
             "WITH s, ag LIMIT 200 "
-            "MERGE (s)-[r:`진행`]->(ag) "
+            "MERGE (ag)-[r:`논의`]->(s) "
             "SET r.kind='session_agenda_group', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
             "RETURN count(r) AS n",
             {"ts": ts},
         )
-        floating_n = floating_rows[0].get("n", 0) if floating_rows else 0
-
-        total_n = direct_n + floating_n
+        total_n = floating_rows[0].get("n", 0) if floating_rows else 0
         if total_n:
             stats["session_agenda_links"] = total_n
             actions.append(
                 {
                     "kind": "session_agenda",
-                    "detail": f"세션→안건 연결 {total_n}건 (직접 {direct_n}건 + 그룹 {floating_n}건)",
-                    "evidence": "회의(세션)는 아젠다와 연결되어야 한다는 원칙에 따라 미연결 세션-안건 쌍을 이어줬습니다.",
+                    "detail": f"세션↔안건 연결 {total_n}건 보완",
+                    "evidence": "회의(세션)는 아젠다와 연결되어야 한다는 원칙에 따라 미연결 안건을 같은 회의체 세션과 이어줬습니다.",
                     "highlight": None,
                 }
             )
@@ -776,7 +762,9 @@ async def reconcile_graph(analysis: dict) -> dict:
         except Exception:
             pass
 
-    # ② 문서 ↔ 안건 적합 → `참조` 링크
+    # ② 문서 ↔ 안건 적합 → canonical 연결
+    # 스키마상 안건으로 들어오는(agenda<-) 문서 관계는 보고자료=`첨부`, 회의록=`도출`이다.
+    # (과거엔 `참조`로 연결했으나, `참조`는 문서↔문서·회사→문서 폴백 전용이므로 폐지.)
     for link in sem.get("doc_links", []):
         d_id, ag_id = link.get("doc_id"), link.get("ag_id")
         if not d_id or not ag_id:
@@ -784,8 +772,12 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             await run_cypher(
                 "MATCH (d {id:$d}), (a:Agenda {id:$a}) WHERE d:Report OR d:Minutes "
-                "MERGE (d)-[r:`참조`]->(a) "
-                "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
+                "FOREACH (_ IN CASE WHEN d:Report THEN [1] ELSE [] END | "
+                "    MERGE (d)-[r:`첨부`]->(a) "
+                "    SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts) "
+                "FOREACH (_ IN CASE WHEN d:Minutes THEN [1] ELSE [] END | "
+                "    MERGE (d)-[r:`도출`]->(a) "
+                "    SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts)",
                 {
                     "d": d_id,
                     "a": ag_id,
@@ -798,7 +790,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 {
                     "kind": "doc_ref",
                     "detail": f"문서 [{link.get('doc_title', '?')}] → 안건 [{link.get('ag_title', '?')}]",
-                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — '참조' 관계로 연결했습니다.",
+                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — 보고자료는 '첨부', 회의록은 '도출' 관계로 연결했습니다.",
                     "highlight": link.get("ag_title"),
                 }
             )
@@ -928,9 +920,12 @@ async def reconcile_graph(analysis: dict) -> dict:
                     {"fid": from_id, "tid": to_id},
                 )
             elif kind == "weak_ref":
+                # AI가 의미유사로 자동 연결한 문서→안건(첨부/도출) 중 임계값 미달분 제거.
+                # 라이프사이클 도출(r.kind 보유)·수동 첨부는 건드리지 않는다.
                 await run_cypher(
-                    "MATCH (a {id:$fid})-[r:`참조`]->(b:Agenda {id:$tid}) "
-                    "WHERE (a:Report OR a:Minutes) AND r.discovered_by = 'knowledge_agent' DELETE r",
+                    "MATCH (a {id:$fid})-[r:`첨부`|`도출`]->(b:Agenda {id:$tid}) "
+                    "WHERE (a:Report OR a:Minutes) AND r.discovered_by = 'knowledge_agent' "
+                    "  AND r.kind IS NULL DELETE r",
                     {"fid": from_id, "tid": to_id},
                 )
             elif kind == "weak_attach":
@@ -943,7 +938,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "stale_carry": "완료된 안건에 달린 이월 관계를 정리했습니다.",
                 "stale_lifecycle": "완료된 안건과 연결된 회의록 도출 관계를 정리했습니다.",
                 "weak_related": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '관련' 링크를 지웠습니다.",
-                "weak_ref": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '참조' 링크를 지웠습니다.",
+                "weak_ref": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 문서→안건 링크를 지웠습니다.",
                 "weak_attach": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '첨부' 링크를 지웠습니다.",
             }.get(kind, "불필요한 연결을 제거했습니다.")
             actions.append(
@@ -982,7 +977,7 @@ async def summarize_relationship_analysis(report: dict) -> AsyncGenerator[str, N
             "session_chain": "🧵 회차 연결",
             "lifecycle": "🔄 생명주기",
             "related": "🔗 회의 간 연결",
-            "doc_ref": "📎 문서 참조",
+            "doc_ref": "📎 문서 연결",
             "doc_attach": "🧩 고아 문서 편입",
             "membership": "👤 소속 보정",
         }.get(a.get("kind"), "•")

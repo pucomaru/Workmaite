@@ -31,6 +31,8 @@ const {
   triggerAtSuggest,
   loadChatHistory,
   getThreadId,
+  confirmAgentAction,
+  cancelAgentAction,
 } = inject('agentSidebar')
 
 import { apiAI } from '../api'
@@ -355,6 +357,38 @@ function onResizeEnd() {
               >
             </div>
           </div>
+
+          <!-- 에이전트 쓰기 액션 확인 카드 (실행은 사용자가 확인을 눌러야) -->
+          <div
+            v-else-if="msg.role === 'action'"
+            class="agent-action-card"
+            :class="{ danger: msg.spec?.danger }"
+          >
+            <div class="agent-action-summary">
+              <span>{{ msg.spec?.danger ? '⚠️' : '✏️' }}</span>
+              <span>{{ msg.spec?.summary }}</span>
+            </div>
+            <div v-if="msg.state === 'pending'" class="agent-action-btns">
+              <button class="agent-action-btn cancel" @click="cancelAgentAction(msg)">
+                취소
+              </button>
+              <button
+                class="agent-action-btn confirm"
+                :class="{ danger: msg.spec?.danger }"
+                @click="confirmAgentAction(msg)"
+              >
+                확인
+              </button>
+            </div>
+            <div v-else-if="msg.state === 'running'" class="agent-action-state">처리 중…</div>
+            <div v-else-if="msg.state === 'done'" class="agent-action-state done">
+              ✅ 완료되었습니다
+            </div>
+            <div v-else-if="msg.state === 'cancelled'" class="agent-action-state">취소됨</div>
+            <div v-else-if="msg.state === 'error'" class="agent-action-state error">
+              실패: {{ msg.error }}
+            </div>
+          </div>
         </div>
         <div
           v-if="
@@ -391,3 +425,62 @@ function onResizeEnd() {
     </div>
   </Transition>
 </template>
+
+<style scoped>
+/* 에이전트 쓰기 액션 확인 카드 */
+.agent-action-card {
+  margin: 4px 0 8px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(96, 165, 250, 0.08);
+}
+.agent-action-card.danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+.agent-action-summary {
+  display: flex;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dark-text, #e2e8f0);
+  line-height: 1.5;
+}
+.agent-action-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.agent-action-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.agent-action-btn.cancel {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--dark-text, #cbd5e1);
+}
+.agent-action-btn.confirm {
+  background: #3b82f6;
+  color: #fff;
+}
+.agent-action-btn.confirm.danger {
+  background: #ef4444;
+}
+.agent-action-state {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+.agent-action-state.done {
+  color: #22c55e;
+}
+.agent-action-state.error {
+  color: #ef4444;
+}
+</style>

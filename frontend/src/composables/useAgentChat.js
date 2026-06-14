@@ -1,6 +1,6 @@
 import { ref, computed, reactive, nextTick, watch } from 'vue'
 import hyeanAvatar from '../assets/agents/hyean.png'
-import api, { streamPost } from '../api'
+import api, { apiAI, streamPost } from '../api'
 import { useAgentMention } from './useAgentMention'
 import { useAuthStore } from '../stores/auth'
 import { selectedModel } from '../stores/llmModel'
@@ -388,7 +388,19 @@ export function useAgentChat({
           onLabelsHighlight(labels)
         },
         undefined, // onResult
-        { signal: _agentAbortCtrl.signal },
+        {
+          signal: _agentAbortCtrl.signal,
+          onAction: spec => {
+            // 에이전트 쓰기 제안 → 확인 카드 메시지 삽입 (실행은 사용자가 확인 버튼을 눌러야)
+            allMessages.value[key].push(
+              reactive({ role: 'action', spec, state: 'pending', error: '' }),
+            )
+            nextTick(() => {
+              if (agentMessagesEl.value)
+                agentMessagesEl.value.scrollTop = agentMessagesEl.value.scrollHeight
+            })
+          },
+        },
       )
     } catch {
       agentMsg.content = '응답 중 오류가 발생했습니다.'
@@ -396,6 +408,27 @@ export function useAgentChat({
       planningMsg.open = false
       agentLoading.value = false
     }
+  }
+
+  // ── 에이전트 쓰기 액션 확인/실행 (확인 카드) ────────────────────────────
+  // 실행은 기존 CRUD 엔드포인트로 — 권한 재검증·감사(AuditLogMiddleware)·동기화가 그쪽에서 보장됨.
+  async function confirmAgentAction(msg) {
+    if (!msg?.spec?.exec || msg.state !== 'pending') return
+    msg.state = 'running'
+    const { method, url, body } = msg.spec.exec
+    try {
+      await apiAI[method](url, body)
+      msg.state = 'done'
+      allMessages.value['supervisor'].push(
+        reactive({ role: 'agent', content: `✅ ${msg.spec.summary}을(를) 완료했습니다.` }),
+      )
+    } catch (e) {
+      msg.state = 'error'
+      msg.error = e?.response?.data?.detail || e?.message || '실행에 실패했습니다.'
+    }
+  }
+  function cancelAgentAction(msg) {
+    if (msg && msg.state === 'pending') msg.state = 'cancelled'
   }
 
   function isExtractModeActive() {
@@ -575,6 +608,8 @@ export function useAgentChat({
     switchAgent,
     clearAgentChat,
     sendAgentMsg,
+    confirmAgentAction,
+    cancelAgentAction,
     isExtractModeActive,
     triggerAtSuggest,
     onAgentKeydown,

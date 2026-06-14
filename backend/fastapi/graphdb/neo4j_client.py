@@ -121,7 +121,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
         if not mg_rows:
             return {}
 
-        agenda_rows, session_rows, member_rows, report_rows = await asyncio.gather(
+        agenda_rows, session_rows, member_rows, report_rows, peer_rows = await asyncio.gather(
             run_cypher(
                 """MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings {id: $id})
                    OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
@@ -137,7 +137,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
                 {"id": mg_neo_id},
             ),
             run_cypher(
-                """MATCH (p:User)-[r:`간사`|`구성원`]->(mg:Meetings {id: $id})
+                """MATCH (p:User)-[r:`운영`|`참여`]->(mg:Meetings {id: $id})
                    RETURN p.name AS name, coalesce(p.department, '') AS dept,
                           coalesce(p.company, '') AS company, type(r) AS role
                    ORDER BY type(r), p.name""",
@@ -152,6 +152,15 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
                    ORDER BY d.created_at DESC LIMIT 10""",
                 {"id": mg_neo_id},
             ),
+            # 회의체↔회의체 `협의`(사용자 수동 연결, PG에 없는 Neo4j 전용). 방향 무관 조회.
+            # 보안: 연결된 회의체의 제목·상태(메타데이터)만 노출하고 내부(안건·문서)는 펼치지 않는다.
+            # 연결 회의체의 실제 내용 검색은 권한 스코프가 적용된 vector_search를 통해서만 이뤄진다.
+            run_cypher(
+                """MATCH (mg:Meetings {id: $id})-[:`협의`]-(peer:Meetings)
+                   RETURN DISTINCT peer.title AS title, peer.pg_id AS pg_id,
+                          coalesce(peer.status, '') AS status LIMIT 10""",
+                {"id": mg_neo_id},
+            ),
         )
         return {
             "meeting": mg_rows[0],
@@ -159,6 +168,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
             "recent_sessions": session_rows,
             "members": member_rows,
             "reports": report_rows,
+            "related_meetings": peer_rows,
             "decisions": [],
         }
     except Exception:
@@ -217,5 +227,16 @@ def graph_context_to_str(ctx: dict) -> str:
         for r in reports[:8]:
             doc_label = "보고자료" if r.get("doc_type") == "Report" else "회의록"
             lines.append(f"  - [{doc_label}] {r.get('title', '?')}")
+
+    related = ctx.get("related_meetings", [])
+    if related:
+        peer_str = ", ".join(
+            f"{m.get('title', '?')}"
+            + (f"(상태: {m['status']})" if m.get("status") else "")
+            for m in related
+            if m.get("title")
+        )
+        if peer_str:
+            lines.append(f"[협의 회의체] {peer_str}")
 
     return "\n".join(lines) if lines else "(Neo4j 데이터 없음)"
