@@ -885,7 +885,12 @@ async def update_agenda(
         agenda.title = data["title"]
     if "department" in data:
         raw_dept = data["department"]
-        agenda.department = [raw_dept] if raw_dept else None
+        if isinstance(raw_dept, list):
+            # 참여 부서 다중선택 — 비어있지 않은 부서명 리스트로 저장
+            _depts = [str(x).strip() for x in raw_dept if str(x).strip()]
+            agenda.department = _depts or None
+        else:
+            agenda.department = [raw_dept] if raw_dept else None
     if "due_date" in data:
         if data["due_date"]:
             from datetime import datetime as _dt
@@ -904,9 +909,11 @@ async def update_agenda(
     db.refresh(agenda)
     # Neo4j 동기화
     from graphdb.neo4j_sync import sync_agenda as _sync_ag
+    import json as _json
 
+    # 여러 참여 부서를 모두 담당부서 엣지로 동기화 — JSON 리스트로 넘기면 sync가 _parse_dept_names로 분리
     dept_str = (
-        agenda.department[0]
+        _json.dumps(agenda.department, ensure_ascii=False)
         if isinstance(agenda.department, list) and agenda.department
         else (agenda.department or "")
     )
@@ -952,9 +959,11 @@ async def update_agenda_status(
     db.commit()
     db.refresh(agenda)
     from graphdb.neo4j_sync import sync_agenda as _sync_ag
+    import json as _json
 
+    # 여러 참여 부서를 모두 담당부서 엣지로 동기화 — JSON 리스트로 넘기면 sync가 _parse_dept_names로 분리
     dept_str = (
-        agenda.department[0]
+        _json.dumps(agenda.department, ensure_ascii=False)
         if isinstance(agenda.department, list) and agenda.department
         else (agenda.department or "")
     )

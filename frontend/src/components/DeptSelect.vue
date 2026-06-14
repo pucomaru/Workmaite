@@ -1,55 +1,38 @@
 <script setup>
-import { ref } from 'vue'
-import api from '../api'
-import { avatarColor, initials } from '../utils/avatar'
+import { ref, computed } from 'vue'
 
 const props = defineProps({
-  modelValue: { type: Array, default: () => [] },
-  lockedUserId: { type: Number, default: null },
+  modelValue: { type: Array, default: () => [] }, // 선택된 부서명 문자열 배열
+  options: { type: Array, default: () => [] }, // 선택 가능한 부서명 목록(검색 대상)
   nightMode: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 
-const ROLE_MAP = { admin: '간사', member: '참여자' }
-
 const searchQ = ref('')
-const results = ref([])
-const loading = ref(false)
-let timer = null
 
-function onSearch(q) {
-  searchQ.value = q
-  clearTimeout(timer)
-  if (!q.trim()) {
-    results.value = []
-    return
-  }
-  timer = setTimeout(async () => {
-    loading.value = true
-    try {
-      const res = await api.get('/api/v1/users/search', { params: { q } })
-      results.value = res.data.filter(u => !props.modelValue.find(m => m.userId === u.id))
-    } catch {
-      results.value = []
-    } finally {
-      loading.value = false
-    }
-  }, 300)
-}
+// 검색어로 옵션 필터(이미 선택된 부서 제외). 입력이 없으면 결과를 표시하지 않는다.
+const filtered = computed(() => {
+  const q = searchQ.value.trim().toLowerCase()
+  if (!q) return []
+  const selected = new Set(props.modelValue)
+  return props.options.filter(d => d && !selected.has(d) && d.toLowerCase().includes(q))
+})
 
-function add(user) {
-  if (props.modelValue.find(m => m.userId === user.id)) return
-  emit('update:modelValue', [
-    ...props.modelValue,
-    {
-      userId: user.id,
-      name: user.name || user.email,
-      email: user.email || user.employee_id,
-      role: 'member',
-    },
-  ])
+// 옵션에 없는 부서명은 직접 추가 허용
+const canAddCustom = computed(() => {
+  const q = searchQ.value.trim()
+  if (!q) return false
+  const dup =
+    props.modelValue.some(d => d === q) ||
+    props.options.some(d => d.toLowerCase() === q.toLowerCase())
+  return !dup
+})
+
+function add(dept) {
+  const name = (dept || '').trim()
+  if (!name || props.modelValue.includes(name)) return
+  emit('update:modelValue', [...props.modelValue, name])
   searchQ.value = ''
-  results.value = []
 }
 
 function remove(idx) {
@@ -58,19 +41,19 @@ function remove(idx) {
   emit('update:modelValue', next)
 }
 
-function updateRole(idx, role) {
-  emit(
-    'update:modelValue',
-    props.modelValue.map((m, i) => (i === idx ? { ...m, role } : m)),
-  )
+function onEnter() {
+  const q = searchQ.value.trim()
+  if (!q) return
+  if (filtered.value.length) add(filtered.value[0])
+  else add(q)
 }
 </script>
 
 <template>
   <div class="mi-section" :class="{ dark: nightMode }">
     <div class="mi-title">
-      <span>참여자 <span class="req">*</span></span>
-      <span class="mi-cnt-badge">{{ modelValue.length }}명</span>
+      <span>참여 부서</span>
+      <span class="mi-cnt-badge">{{ modelValue.length }}개</span>
     </div>
 
     <div class="mi-search-wrap">
@@ -86,49 +69,34 @@ function updateRole(idx, role) {
         <path d="M21 21l-4.35-4.35" />
       </svg>
       <input
-        :value="searchQ"
-        @input="onSearch($event.target.value)"
+        v-model="searchQ"
+        @keydown.enter.prevent="onEnter"
         class="mi-search-input"
-        placeholder="이름 또는 이메일로 검색 후 추가"
+        placeholder="부서명으로 검색 후 추가 (Enter)"
       />
-      <span v-if="loading" class="mi-spinner">↻</span>
     </div>
 
-    <div v-if="results.length" class="mi-search-results">
-      <div v-for="u in results" :key="u.id" class="mi-search-item" @click="add(u)">
-        <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(u.name) }">
-          {{ initials(u.name || u.email) }}
-        </div>
+    <div v-if="filtered.length || canAddCustom" class="mi-search-results">
+      <div v-for="d in filtered" :key="d" class="mi-search-item" @click="add(d)">
+        <span class="dept-dot"></span>
+        <div class="mi-info"><span class="mi-name">{{ d }}</span></div>
+        <span class="mi-add-hint">+ 추가</span>
+      </div>
+      <div v-if="canAddCustom" class="mi-search-item" @click="add(searchQ)">
+        <span class="dept-dot dept-dot-new"></span>
         <div class="mi-info">
-          <span class="mi-name">{{ u.name || '이름없음' }}</span>
-          <span class="mi-email">{{ u.email }}</span>
+          <span class="mi-name">"{{ searchQ.trim() }}" 직접 추가</span>
         </div>
         <span class="mi-add-hint">+ 추가</span>
       </div>
     </div>
 
     <div class="mi-member-list">
-      <div v-if="!modelValue.length" class="mi-empty">참여자가 없습니다.</div>
-      <div v-for="(mb, idx) in modelValue" :key="mb.userId" class="mi-member-row">
-        <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(mb.name) }">
-          {{ initials(mb.name) }}
-        </div>
-        <div class="mi-info">
-          <span class="mi-name">
-            {{ mb.name }}
-            <span v-if="mb.userId === lockedUserId" class="mi-me-badge">나</span>
-          </span>
-          <span class="mi-email">{{ mb.position || mb.department || mb.email }}</span>
-        </div>
-        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="app-select">
-          <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
-        </select>
-        <button
-          v-if="mb.userId !== lockedUserId"
-          class="mi-remove"
-          @click="remove(idx)"
-          title="제거"
-        >
+      <div v-if="!modelValue.length" class="mi-empty">참여 부서가 없습니다.</div>
+      <div v-for="(d, idx) in modelValue" :key="d" class="mi-member-row">
+        <span class="dept-dot"></span>
+        <div class="mi-info"><span class="mi-name">{{ d }}</span></div>
+        <button class="mi-remove" @click="remove(idx)" title="제거">
           <svg
             width="12"
             height="12"
@@ -140,19 +108,18 @@ function updateRole(idx, role) {
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
-        <span v-else class="mi-remove-ph"></span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* MemberInvite의 mi-section 룩을 재현 — 부서 버전 */
 .mi-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-
 .mi-title {
   font-size: 12px;
   font-weight: 600;
@@ -174,7 +141,6 @@ function updateRole(idx, role) {
   letter-spacing: 0;
   line-height: 1.6;
 }
-
 .mi-search-wrap {
   display: flex;
   align-items: center;
@@ -200,16 +166,12 @@ function updateRole(idx, role) {
   color: var(--dark-muted);
   background: none;
 }
-.mi-spinner {
-  color: var(--text-muted);
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
 .mi-search-results {
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
+  /* 약 5줄까지만 보이고 나머지는 스크롤 */
+  max-height: 175px;
+  overflow-y: auto;
   background: #fff;
 }
 .mi-search-item {
@@ -229,12 +191,11 @@ function updateRole(idx, role) {
   color: var(--accent);
   flex-shrink: 0;
 }
-
 .mi-member-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 200px;
+  max-height: 180px;
   overflow-y: auto;
 }
 .mi-empty {
@@ -246,14 +207,13 @@ function updateRole(idx, role) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 6px;
+  padding: 6px 8px;
   border-radius: 7px;
   transition: background 0.1s;
 }
 .mi-member-row:hover {
   background: var(--surface);
 }
-
 .mi-info {
   flex: 1;
   display: flex;
@@ -268,25 +228,16 @@ function updateRole(idx, role) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.mi-email {
-  font-size: 11px;
-  color: var(--dark-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.dept-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed);
 }
-.mi-me-badge {
-  margin-left: 5px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--accent-bg-2);
-  color: var(--accent-strong);
-  vertical-align: baseline;
-  line-height: 1.6;
+.dept-dot-new {
+  background: radial-gradient(circle at 38% 38%, #6ee7b7, #059669);
 }
-
 .mi-remove {
   width: 22px;
   height: 22px;
@@ -304,11 +255,6 @@ function updateRole(idx, role) {
 .mi-remove:hover {
   background: rgba(239, 68, 68, 0.2);
 }
-.mi-remove-ph {
-  width: 22px;
-  flex-shrink: 0;
-}
-
 /* Dark */
 .mi-section.dark .mi-title {
   color: var(--dark-text);
@@ -336,7 +282,6 @@ function updateRole(idx, role) {
 .mi-section.dark .mi-name {
   color: var(--text-muted);
 }
-.mi-section.dark .mi-email,
 .mi-section.dark .mi-empty {
   color: var(--text-muted);
 }

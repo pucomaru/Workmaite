@@ -43,6 +43,10 @@
   border-bottom: 1px solid var(--white-06);
   flex-shrink: 0;
   gap: 10px;
+  background: var(--surface-2);
+}
+.day-mode .detail-header-icon {
+  background: transparent;
 }
 .detail-header-icon {
   width: 30px;
@@ -102,17 +106,17 @@
 }
 .detail-meta {
   font-size: 11px;
-  color: #555;
+  color: var(--text-muted);
 }
 .detail-meta-dot {
   font-size: 11px;
-  color: #333;
+  color: var(--text-muted);
 }
 .detail-icon-btn {
   background: none;
   border: 1px solid var(--white-08);
   cursor: pointer;
-  color: #555;
+  color: var(--text-muted);
   width: 26px;
   height: 26px;
   border-radius: 6px;
@@ -580,6 +584,10 @@
   gap: 0;
   border-bottom: 1px solid var(--white-07);
   padding: 0 6px;
+  background: var(--surface-2);
+}
+.day-mode .detail-header-icon {
+  background: transparent;
 }
 .detail-tab {
   background: none;
@@ -734,6 +742,8 @@
 .agenda-del-btn:hover {
   background: rgba(239, 68, 68, 0.25);
 }
+
+
 .detail-body {
   flex: 1;
   overflow-y: auto;
@@ -741,7 +751,15 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  background: var(--surface-2);
 }
+/* day-mode에서는 sidebar(--surface) 배경을 그대로 사용 */
+.day-mode .detail-body {
+  background: transparent;
+}
+
+
+
 .detail-body::-webkit-scrollbar {
   width: 3px;
 }
@@ -766,7 +784,7 @@
 .detail-section-label {
   font-size: 10px;
   font-weight: 700;
-  color: #555;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.07em;
 }
@@ -1079,7 +1097,7 @@
 }
 .rel-target-name {
   font-size: 11px;
-  color: #bbb;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1349,7 +1367,7 @@
 /* 소개 */
 .detail-purpose {
   font-size: 11.5px;
-  color: #777;
+  color: var(--dark-text);
   line-height: 1.65;
   padding: 0 1px;
 }
@@ -1381,13 +1399,13 @@
 .detail-info-key {
   width: 56px;
   flex-shrink: 0;
-  color: #444;
+  color: var(--text-muted);
   font-weight: 600;
   font-size: 11px;
 }
 .detail-info-val {
   flex: 1;
-  color: #999;
+  color: var(--text-muted);
   line-height: 1.5;
 }
 /* 진행 현황 */
@@ -1439,7 +1457,7 @@
 /* 로그 */
 .detail-log-total {
   font-size: 10px;
-  color: #454545;
+  color: var(--text-muted);
 }
 .detail-log-filters {
   display: flex;
@@ -1527,7 +1545,7 @@
 }
 .done-agenda-meta {
   font-size: 10px;
-  color: #555;
+  color: var(--text-muted);
   display: flex;
   gap: 4px;
 }
@@ -1539,7 +1557,7 @@
 }
 .done-agenda-filename {
   font-size: 10px;
-  color: #454545;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1551,7 +1569,7 @@
   flex-direction: column;
   gap: 2px;
   font-size: 10px;
-  color: #3a3a3a;
+  color: var(--text-muted);
   margin-top: 2px;
 }
 /* 로그 */
@@ -1583,19 +1601,19 @@
 }
 .detail-log-desc {
   font-size: 11.5px;
-  color: #bbb;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .detail-log-meta {
   font-size: 10px;
-  color: #454545;
+  color: var(--text-muted);
   margin-top: 2px;
 }
 .detail-log-empty {
   font-size: 11px;
-  color: #3a3a3a;
+  color: var(--text-muted);
   padding: 6px 8px;
 }
 /* 문서 (회의록/보고서) */
