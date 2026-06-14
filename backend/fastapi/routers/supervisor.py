@@ -206,6 +206,7 @@ async def minutes_sessions_chat(
         db.query(models.Agenda)
         .filter(
             models.Agenda.meeting_id == data.meeting_id,
+            models.Agenda.status != "draft",
         )
         .all()
     )
@@ -273,7 +274,10 @@ async def minutes_generate_minutes(
     )
     agendas = (
         db.query(models.Agenda)
-        .filter(models.Agenda.meeting_id == data.meeting_id)
+        .filter(
+            models.Agenda.meeting_id == data.meeting_id,
+            models.Agenda.status != "draft",
+        )
         .all()
         if data.meeting_id
         else []
