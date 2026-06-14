@@ -2,10 +2,16 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useThemeStore } from '../stores/theme'
+import logoBlack from '../assets/workmaite-logo-black.png'
+import logoWhite from '../assets/workmaite-logo-white.png'
 
 const emit = defineEmits(['close', 'go-login'])
 const router = useRouter()
 const auth = useAuthStore()
+const theme = useThemeStore()
+// 야간모드에서는 흰색 로고 사용
+const logoSrc = computed(() => (theme.nightMode ? logoWhite : logoBlack))
 
 const step = ref(1)
 const form = ref({
@@ -80,7 +86,7 @@ async function submit() {
   <div class="popup-inner">
     <!-- Header -->
     <div class="popup-header mb-3">
-      <img src="../assets/workmaite-logo-black.png" class="popup-logo-img" alt="Workma!te" />
+      <img :src="logoSrc" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <!-- ── STEP 1: 회원가입 폼 ──────────────────────── -->

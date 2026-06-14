@@ -256,35 +256,53 @@ async def search_knowledge(
     query: str,
     node_type: str = "Minutes",
     k: int = 5,
+    meeting_ids: list[int] | None = None,
 ) -> List[dict]:
+    """스코프드 의미검색. meeting_ids 미지정 시 현재 요청의 접근 스코프(agent_scope contextvar)를
+    자동 적용해 비소속·타사 회의체 데이터 누수(IDOR)를 차단한다. 관리자/스코프 미설정이면 전체 검색.
+    라벨별 스코프 규칙은 retrieval_registry와 동일(prop/rel/custom)."""
     from graphdb.neo4j_client import run_cypher
-
-    # 인덱스명·레거시 폴백·0건 메트릭은 retrieval_registry가 단일 관리 (P3B-6)
-    from graphdb.retrieval_registry import index_for, REGISTRY
+    from graphdb.retrieval_registry import index_for, _resolve, RETRIEVAL_ZERO_RESULTS
+    from core.agent_scope import current_scope_meeting_ids
 
     try:
         index_for(node_type)  # 미등록 라벨 조기 발견
     except KeyError as e:
         logger.warning(f"[search_knowledge] {e}")
         return []
+
+    scope = meeting_ids if meeting_ids is not None else current_scope_meeting_ids()
     embedding = await _embed(query)
-    entry_label = REGISTRY[node_type].get("alias", node_type)
-    entry = REGISTRY[entry_label]
+    entry_label, entry = _resolve(node_type)
+
+    # queryNodes는 전역 top-N을 먼저 뽑으므로, 스코프가 있으면 오버페치 후 잘라 누락을 막는다.
+    fetch_k = max(k * 10, 50) if scope is not None else k
+    scope_clause = ""
+    params: dict = {"k": k, "fetch_k": fetch_k, "embedding": embedding}
+    if scope is not None:
+        _sc = entry.get("scope")
+        if _sc == "prop":
+            scope_clause = "WHERE node.meeting_id IN $mids "
+            params["mids"] = list(scope)
+        elif _sc == "rel":
+            scope_clause = "MATCH (node)--(mg:Meetings) WHERE mg.pg_id IN $mids "
+            params["mids"] = list(scope)
+        elif _sc == "custom":
+            scope_clause = entry["scope_cypher"]
+            params["mids"] = list(scope)
+        # scope None(청크 등): 미지원 라벨은 전체 — 호출측이 별도 처리
 
     last_err: Exception | None = None
     for idx in [entry["index"], *entry.get("legacy", [])]:
         try:
             rows = await run_cypher(
-                f"""CALL db.index.vector.queryNodes('{idx}', $k, $embedding)
-                    YIELD node, score
-                    RETURN node.title AS title, node.content AS content,
-                           node.meeting_id AS meeting_id, score
-                    ORDER BY score DESC""",
-                {"k": k, "embedding": embedding},
+                f"CALL db.index.vector.queryNodes('{idx}', $fetch_k, $embedding) "
+                f"YIELD node, score {scope_clause}"
+                f"RETURN node.title AS title, node.content AS content, "
+                f"node.meeting_id AS meeting_id, score ORDER BY score DESC LIMIT $k",
+                params,
             )
             if not rows:
-                from graphdb.retrieval_registry import RETRIEVAL_ZERO_RESULTS
-
                 RETRIEVAL_ZERO_RESULTS.labels(entry_label).inc()
                 logger.warning(
                     f"[search_knowledge] 검색 결과 0건: node_type={node_type} index={idx} query={query[:50]!r}"
@@ -338,7 +356,13 @@ async def fetch_meeting_graph_context(meeting_id: int) -> str:
     Args:
         meeting_id: 조회할 회의체 ID (PostgreSQL PK)
     """
+    from core.agent_scope import current_scope_meeting_ids
     from graphdb.neo4j_client import get_meeting_graph_context, graph_context_to_str
+
+    # 현재 사용자가 볼 수 없는 회의체면 차단 (IDOR 방지)
+    _scope = current_scope_meeting_ids()
+    if _scope is not None and meeting_id not in _scope:
+        return "[접근 거부] 해당 회의체에 대한 접근 권한이 없습니다."
 
     ctx = await get_meeting_graph_context(meeting_id)
     return graph_context_to_str(ctx) or "(회의체 정보 없음)"
@@ -550,7 +574,11 @@ async def chat_stream(
 
 
 # ── 지식 그래프 관리(재구성) ──────────────────────────────────────────────────
-_ORPHAN_ATTACH_THRESHOLD = 0.78
+# 유사도 임계값은 core.ai_config로 집약(env로 튜닝 가능, 하드코딩 금지)
+from core.ai_config import (
+    ORPHAN_ATTACH_THRESHOLD as _ORPHAN_ATTACH_THRESHOLD,
+    LIFECYCLE_LINK_THRESHOLD as _LIFECYCLE_LINK_THRESHOLD,
+)
 
 
 async def reconcile_graph(analysis: dict) -> dict:
@@ -618,7 +646,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "-[:`소속`|`개최`]->(mg:Meetings) "
                 "WITH mn, s, mg "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 5, $emb) YIELD node AS ag, score "
-                "WHERE score >= 0.72 "
+                "WHERE score >= $lifecycle_th "
                 "WITH mn, s, mg, ag, score "
                 "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
@@ -626,7 +654,13 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "MERGE (ag)-[r2:`다룸`]->(s) "
                 "SET r2.score=score, r2.kind='session_agenda', r2.discovered_by='knowledge_agent', r2.discovered_at=$ts "
                 "RETURN ag.title AS title, score",
-                {"sid": sid, "emb": emb, "mid": mid, "ts": ts},
+                {
+                    "sid": sid,
+                    "emb": emb,
+                    "mid": mid,
+                    "ts": ts,
+                    "lifecycle_th": _LIFECYCLE_LINK_THRESHOLD,
+                },
             )
             if rows:
                 linked = [r.get("title", "?") for r in rows]

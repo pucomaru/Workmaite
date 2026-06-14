@@ -455,8 +455,11 @@ async def analyze_archive_file(
         logger.warning(f"[analyze-file] LangGraph 검토 실패: {e}")
         return {
             "score": 0,
-            "detail_scores": {},
-            "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+            "feedback": [
+                "⚠️ AI 평가에 오류가 발생했습니다.",
+                f"오류: {str(e)}",
+                "다시 시도하거나 수동으로 검토해 주세요.",
+            ],
             "matched_agendas": [],
             "agendas": [
                 {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
@@ -533,10 +536,10 @@ async def analyze_archive_file_stream_ep(
                 "type": "result",
                 "data": {
                     "score": 0,
-                    "detail_scores": {},
                     "feedback": [
-                        f"AI 분석 중 오류: {str(e)}",
-                        "수동으로 검토해 주세요.",
+                        "⚠️ AI 평가에 오류가 발생했습니다.",
+                        f"오류: {str(e)}",
+                        "다시 시도하거나 수동으로 검토해 주세요.",
                     ],
                     "matched_agendas": [],
                     "agendas": [

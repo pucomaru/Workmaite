@@ -1,11 +1,17 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useThemeStore } from '../stores/theme'
+import logoBlack from '../assets/workmaite-logo-black.png'
+import logoWhite from '../assets/workmaite-logo-white.png'
 
 const emit = defineEmits(['close', 'go-register'])
 const router = useRouter()
 const auth = useAuthStore()
+const theme = useThemeStore()
+// 야간모드에서는 흰색 로고 사용
+const logoSrc = computed(() => (theme.nightMode ? logoWhite : logoBlack))
 
 const form = ref({ email: '', password: '' })
 const error = ref('')
@@ -33,7 +39,7 @@ async function submit() {
   <div class="popup-inner">
     <!-- Header -->
     <div class="popup-header">
-      <img src="../assets/workmaite-logo-black.png" class="popup-logo-img" alt="Workma!te" />
+      <img :src="logoSrc" class="popup-logo-img" alt="Workma!te" />
     </div>
 
     <h4 class="fw-bold mb-1 mt-3" style="color: var(--primary)">로그인</h4>
