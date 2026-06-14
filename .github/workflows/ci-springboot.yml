@@ -1,11 +1,11 @@
-name: CI - Backend
+name: CI - Spring Boot
 
 on:
   push:
     branches:
       - develop         # develop 브랜치 push 시 실행
     paths:
-      - 'backend/**'     # backend 폴더 변경 시에만 실행
+      - 'backend/springboot/**'     # backend 폴더 변경 시에만 실행
 
 jobs:
   build-and-push:

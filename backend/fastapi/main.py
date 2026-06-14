@@ -10,6 +10,17 @@ from dotenv import load_dotenv
 _base = os.path.dirname(__file__)
 load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 
+# 로깅 설정 — 기본 INFO. 미설정 시 파이썬 기본은 WARNING이라 앱의 INFO 로그(예: [Realtime STT]
+# 이벤트 추적)가 콘솔에 안 보인다. LOG_LEVEL env(DEBUG/INFO/WARNING)로 조정.
+_log_level = getattr(
+    logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO
+)
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logging.getLogger().setLevel(_log_level)  # uvicorn이 root 핸들러를 이미 붙였어도 레벨 보장
+
 # LangSmith 트레이싱: API 키가 있고 LANGSMITH_TRACING=true일 때만 활성화 (키 없이 켜면 403 스팸)
 _tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool(
     os.environ.get("LANGSMITH_API_KEY")
@@ -58,7 +69,7 @@ async def _cleanup_stale_neo4j_nodes() -> None:
             "   OR (n:Agenda AND n.id IS NOT NULL AND n.id STARTS WITH 'todo-') "
             "DETACH DELETE n"
         )
-        logger.info("[Cleanup] 레거시 Todo/todo-* 노드 정리 완료")
+        logger.info("[Cleanup] 노드 정리 완료")
     except Exception as e:
         logger.warning(f"[Cleanup] 노드 정리 실패 (무시): {e}")
 

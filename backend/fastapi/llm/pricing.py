@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 _FALLBACK_DEFAULT = (2.50, 10.00)
 _FALLBACK_MODELS = {"gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.50, 10.00)}
-_FALLBACK_EMB_DEFAULT = 0.02
+_FALLBACK_EMB_DEFAULT = 0.13  # text-embedding-3-large
 _FALLBACK_EMB_MODELS = {"text-embedding-3-small": 0.02, "text-embedding-3-large": 0.13}
-_FALLBACK_STT_DEFAULT = {"per_min": 0.006}
+_FALLBACK_STT_DEFAULT = {"per_min": 0.017}  # gpt-realtime-whisper
 _FALLBACK_STT_MODELS = {
     "gpt-realtime-whisper": {"per_min": 0.017},
     "gpt-4o-transcribe": {"per_min": 0.006, "input": 2.50, "output": 10.00},
@@ -105,7 +105,7 @@ def _stt_info(model: str) -> dict:
 
 def stt_cost_per_min(model: str) -> float:
     """STT 모델의 분당 단가(USD)."""
-    return float(_stt_info(model).get("per_min", STT_DEFAULT.get("per_min", 0.006)))
+    return float(_stt_info(model).get("per_min", STT_DEFAULT.get("per_min", 0.017)))
 
 
 def stt_cost(
@@ -118,7 +118,7 @@ def stt_cost(
     """STT 비용(USD). 기본은 분당 과금. 토큰 단가가 등록된 모델에서 audio/text_tokens가
     주어지면 토큰 기반 합산이 분당 과금보다 크면 그쪽을 채택한다(과소청구 방지)."""
     info = _stt_info(model)
-    per_min = float(info.get("per_min", STT_DEFAULT.get("per_min", 0.006)))
+    per_min = float(info.get("per_min", STT_DEFAULT.get("per_min", 0.017)))
     cost = seconds / 60.0 * per_min
     if (audio_tokens or text_tokens) and ("input" in info or "output" in info):
         tok_cost = (audio_tokens or 0) / 1_000_000 * float(info.get("input", 0.0)) + (

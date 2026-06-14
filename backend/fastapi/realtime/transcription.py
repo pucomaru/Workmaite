@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 import os
+import re
 
 import websockets  # uvicorn[standard] 의존성
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -36,7 +37,7 @@ router = APIRouter()
 
 _OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
 _SAMPLE_RATE = 24000  # 브라우저가 24kHz PCM16 mono로 송신 (OpenAI Realtime 기본 포맷)
-_DEFAULT_REALTIME_MODEL = os.environ.get("STT_REALTIME_MODEL", "gpt-4o-transcribe")
+_DEFAULT_REALTIME_MODEL = os.environ.get("STT_MODEL", "gpt-realtime-whisper")
 _KNOWN_STT = tuple(STT_PRICING.keys())
 
 
@@ -46,6 +47,27 @@ def _resolve_model(requested) -> str:
         if any(req == k or req.startswith(k) for k in _KNOWN_STT):
             return req
     return _DEFAULT_REALTIME_MODEL
+
+
+# ── 문장 단위 재조립 ─────────────────────────────────────────────────────────
+# gpt-realtime-whisper는 turn_detection 미지원이라 짧은 조각으로 끊겨 온다. Whisper 계열이
+# 붙여주는 구두점을 기준으로 누적 텍스트를 문장 단위로 끊는다(외부 의존성 0). 더 정확한
+# 한국어 분절이 필요하면 kiwipiepy(Kiwi).split_into_sents로 이 함수만 교체하면 된다.
+_SENT_RE = re.compile(r"[^.!?。．…！？]*[.!?。．…！？]+['\"”’)\]]*\s*")
+_MAX_BUF_CHARS = 160  # 종결부호 없이 길어지면 강제로 한 줄 확정(버퍼 무한증가 방지)
+
+
+def _split_sentences(text: str):
+    """누적 텍스트를 (완결 문장 리스트, 미완결 꼬리)로 분리한다."""
+    text = (text or "").strip()
+    if not text:
+        return [], ""
+    raw = _SENT_RE.findall(text)
+    if not raw:
+        return [], text  # 종결부호 없음 → 전부 아직 말하는 중
+    tail = text[sum(len(s) for s in raw):].strip()
+    sents = [s.strip() for s in raw if s.strip()]
+    return sents, tail
 
 
 def _user_id_from_token(token: str):
@@ -121,7 +143,9 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         await websocket.send_json({"type": "error", "message": "STT 미설정"})
         await websocket.close()
         return
-    headers = {"Authorization": f"Bearer {api_key}", "OpenAI-Beta": "realtime=v1"}
+    # GA Realtime는 beta 헤더 불필요 — beta 헤더를 보내면 서버가 구 프로토콜로 처리해
+    # 아래 GA형 session.update(session.type=transcription, audio.input...)를 거부할 수 있다.
+    headers = {"Authorization": f"Bearer {api_key}"}
 
     # 첫 메시지 — 설정(JSON) 또는 곧바로 오디오(bytes)
     model = _DEFAULT_REALTIME_MODEL
@@ -144,28 +168,42 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
     elif first.get("bytes"):
         pending_audio = first["bytes"]
 
-    state = {"bytes_since_final": 0, "offset": 0.0}
+    state = {
+        "bytes_since_final": 0,
+        "offset": 0.0,
+        "sent_buf": "",  # 완료됐지만 아직 문장으로 확정 안 된 텍스트
+        "live": "",  # 현재 발화 중 delta 누적(미확정)
+        "buf_bytes": 0,  # sent_buf에 대응하는 오디오 바이트(문장별 시간 배분용)
+    }
 
     try:
         async with websockets.connect(
             _OPENAI_REALTIME_URL, additional_headers=headers, max_size=None
         ) as oai:
+            # GA Realtime 전사 세션 설정 — session.update + session.type=transcription +
+            # 중첩 audio.input(format/transcription).
+            _input_cfg = {
+                "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
+                "transcription": {"model": model, "language": lang},
+            }
+            # turn_detection(server_vad)은 지원 모델에만 추가 — 침묵(silence_duration) 기준으로
+            # 발화를 끊어 문장 단위에 가깝게 분절한다. gpt-realtime-whisper는 turn_detection을
+            # 지원하지 않으므로(넣으면 session.update 전체가 invalid_request_error로 거부됨) 생략하고
+            # 모델 내장 분절(speech_started/committed 자동 발생)을 사용한다.
+            if model.startswith(("gpt-4o-transcribe", "gpt-4o-mini-transcribe")):
+                _input_cfg["turn_detection"] = {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 700,
+                }
             await oai.send(
                 json.dumps(
                     {
-                        "type": "transcription_session.update",
+                        "type": "session.update",
                         "session": {
-                            "input_audio_format": "pcm16",
-                            "input_audio_transcription": {
-                                "model": model,
-                                "language": lang,
-                            },
-                            "turn_detection": {
-                                "type": "server_vad",
-                                "threshold": 0.5,
-                                "prefix_padding_ms": 300,
-                                "silence_duration_ms": 500,
-                            },
+                            "type": "transcription",
+                            "audio": {"input": _input_cfg},
                         },
                     }
                 )
@@ -186,29 +224,67 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
             if pending_audio:
                 await _append(pending_audio)
 
+            def _live_text():
+                # 확정전 버퍼 + 현재 발화중 텍스트 = 화면에 보여줄 라이브 텍스트
+                return " ".join(
+                    p for p in (state["sent_buf"], state["live"]) if p
+                ).strip()
+
+            async def _emit_complete(sentences, tail):
+                """완결 문장들을 각각 stt_segment로 저장하고 final로 전송한다. buf_bytes를
+                글자수 비율로 배분해 문장별 시간(start/end)을 추정한다(총합=실제 오디오 길이)."""
+                total = sum(len(s) for s in sentences) + len(tail)
+                fchars = sum(len(s) for s in sentences)
+                fbytes = (
+                    state["buf_bytes"]
+                    if total == 0
+                    else int(state["buf_bytes"] * fchars / total)
+                )
+                state["buf_bytes"] = max(0, state["buf_bytes"] - fbytes)
+                state["sent_buf"] = tail
+                dur_total = fbytes / (2 * _SAMPLE_RATE)
+                for s in sentences:
+                    sdur = dur_total * (len(s) / fchars) if fchars else 0.0
+                    start = round(state["offset"], 2)
+                    end = round(start + sdur, 2)
+                    state["offset"] = end
+                    sid = None
+                    if session_id:
+                        sid = await asyncio.to_thread(
+                            _save_segment, session_id, user_id, s, model, start, end
+                        )
+                    await websocket.send_json(
+                        {"type": "final", "text": s, "text_id": sid}
+                    )
+
             async def client_to_oai():
-                try:
-                    while True:
-                        try:
-                            msg = await websocket.receive()
-                        except WebSocketDisconnect:
-                            break
-                        if msg.get("type") == "websocket.disconnect":
-                            break
-                        if msg.get("bytes"):
-                            await _append(msg["bytes"])
-                        elif msg.get("text"):
-                            try:
-                                ev = json.loads(msg["text"])
-                            except Exception:
-                                continue
-                            if ev.get("type") == "stop":
-                                break
-                finally:
+                while True:
                     try:
-                        await oai.close()
-                    except Exception:
-                        pass
+                        msg = await websocket.receive()
+                    except WebSocketDisconnect:
+                        break
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    if msg.get("bytes"):
+                        await _append(msg["bytes"])
+                    elif msg.get("text"):
+                        try:
+                            ev = json.loads(msg["text"])
+                        except Exception:
+                            continue
+                        if ev.get("type") == "stop":
+                            # 남은 버퍼를 강제 커밋 → OpenAI가 마지막 .completed를 내보낸다.
+                            # server_vad가 발화 끝을 못 잡아 부분 전사(partial)가 최종(final)으로
+                            # 넘어가지 않고 'pending'에 머무는 문제를 방지한다. oai는 바깥에서
+                            # 닫아 마지막 전사를 받을 시간을 확보한다.
+                            state["stopping"] = True
+                            try:
+                                await oai.send(
+                                    json.dumps({"type": "input_audio_buffer.commit"})
+                                )
+                            except Exception:
+                                pass
+                            break
 
             async def oai_to_client():
                 async for raw in oai:
@@ -220,47 +296,80 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     if t == "conversation.item.input_audio_transcription.delta":
                         delta = ev.get("delta") or ""
                         if delta:
+                            # 발화중 누적 → 전체 라이브 텍스트(확정전 버퍼+발화중)를 보낸다.
+                            state["live"] += delta
                             await websocket.send_json(
-                                {"type": "partial", "text": delta}
+                                {"type": "partial", "text": _live_text()}
                             )
                     elif t == "conversation.item.input_audio_transcription.completed":
-                        text = (ev.get("transcript") or "").strip()
-                        dur = state["bytes_since_final"] / (2 * _SAMPLE_RATE)
+                        frag = (ev.get("transcript") or "").strip()
+                        state["buf_bytes"] += state["bytes_since_final"]
                         state["bytes_since_final"] = 0
-                        start = round(state["offset"], 2)
-                        end = round(start + dur, 2)
-                        state["offset"] = end
-                        text_id = None
-                        if text and session_id:
-                            text_id = await asyncio.to_thread(
-                                _save_segment,
-                                session_id,
-                                user_id,
-                                text,
-                                model,
-                                start,
-                                end,
+                        state["live"] = ""
+                        if frag:
+                            state["sent_buf"] = (
+                                f"{state['sent_buf']} {frag}".strip()
+                                if state["sent_buf"]
+                                else frag
                             )
+                            complete, tail = _split_sentences(state["sent_buf"])
+                            if not complete and len(tail) > _MAX_BUF_CHARS:
+                                complete, tail = [tail], ""
+                            if complete:
+                                # 완결 문장만 확정 저장, 미완결 꼬리는 버퍼에 남긴다.
+                                await _emit_complete(complete, tail)
+                        # 라이브 표시를 남은 꼬리로 갱신
                         await websocket.send_json(
-                            {"type": "final", "text": text, "text_id": text_id}
+                            {"type": "partial", "text": _live_text()}
                         )
                     elif t == "error":
+                        err = ev.get("error") or {}
+                        logger.warning(f"[Realtime STT] OpenAI 오류 이벤트: {err}")
                         await websocket.send_json(
-                            {
-                                "type": "error",
-                                "message": (ev.get("error") or {}).get(
-                                    "message", "전사 오류"
-                                ),
-                            }
+                            {"type": "error", "message": err.get("message", "전사 오류")}
                         )
+                    elif t in (
+                        "session.created",
+                        "session.updated",
+                        "transcription_session.created",
+                        "transcription_session.updated",
+                    ):
+                        logger.info(f"[Realtime STT] {t} (model={model})")
+                    else:
+                        # delta 외 모든 이벤트(speech_started/stopped, committed 등) 가시화 —
+                        # pending 원인 진단용.
+                        logger.info(f"[Realtime STT] event: {t}")
 
             t1 = asyncio.create_task(client_to_oai())
             t2 = asyncio.create_task(oai_to_client())
-            _, pending = await asyncio.wait(
-                {t1, t2}, return_when=asyncio.FIRST_COMPLETED
-            )
-            for p in pending:
-                p.cancel()
+            done, _ = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
+            # 정상 종료(stop)면 마지막 전사(.completed)를 받을 시간을 잠깐 준다.
+            if state.get("stopping") and t2 not in done:
+                try:
+                    await asyncio.wait({t2}, timeout=3.0)
+                except Exception:
+                    pass
+            for p in (t1, t2):
+                if not p.done():
+                    p.cancel()
+            # 취소/종료된 태스크의 예외를 회수 — 브라우저가 먼저 끊기면 oai_to_client의 send가
+            # WebSocketDisconnect를 던지는데, 회수하지 않으면 "Task exception was never
+            # retrieved" 트레이스백이 콘솔에 찍힌다(정상 종료라 무시해도 됨).
+            for p in (t1, t2):
+                try:
+                    await p
+                except BaseException:
+                    pass
+            # 종료 시 버퍼에 남은 미완결 텍스트도 한 문장으로 확정 저장한다.
+            if state["sent_buf"].strip():
+                try:
+                    await _emit_complete([state["sent_buf"].strip()], "")
+                except Exception:
+                    pass
+            try:
+                await oai.close()
+            except Exception:
+                pass
     except WebSocketDisconnect:
         pass
     except Exception as e:

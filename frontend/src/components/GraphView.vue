@@ -743,6 +743,7 @@ function onBgMove(e) {
   const p = e.global
   if (_draggingIdx !== null) {
     if (Math.abs(p.x - _downX) + Math.abs(p.y - _downY) > 4) {
+      if (!_didNodeDrag) sim?.alphaTarget(0.3).restart() // 실제 드래그 시작 시점에만 re-heat
       _didNodeDrag = true
       _targetVpX = null
       _targetVpY = null
@@ -811,7 +812,8 @@ function onNodeDown(idx, e) {
   if (sn) {
     sn.fx = sn.x
     sn.fy = sn.y
-    sim?.alphaTarget(0.3).restart()
+    // 클릭만으로 sim을 re-heat하지 않는다 — 실제 드래그가 시작될 때만 re-heat(onBgMove)한다.
+    // (기존엔 pointerdown마다 alphaTarget(0.3)+restart라 단순 클릭에도 전체 노드가 움직였다.)
   }
 }
 function onNodeUp(idx) {

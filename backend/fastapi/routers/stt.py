@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stt", tags=["stt"])
 
 # 배치 전사 기본 모델. gpt-realtime-whisper는 실시간 전용(P5)이라 배치에선 제외.
-_DEFAULT_STT_MODEL = os.environ.get("STT_MODEL", "gpt-4o-mini-transcribe")
+_DEFAULT_STT_MODEL = os.environ.get("STT_MODEL", "gpt-realtime-whisper")
 _KNOWN_STT = tuple(STT_PRICING.keys())
 
 

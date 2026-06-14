@@ -445,6 +445,7 @@ async def submit_report_review(
 @router.delete("/reports/{report_id}")
 async def delete_report(
     report_id: int,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -530,6 +531,16 @@ async def delete_report(
             ).update({"status": "ongoing"}, synchronize_session=False)
 
     db.commit()
+    # Neo4j Report 노드(+청크)도 제거 — PG만 지우면 그래프에 orphan으로 남아 새로고침 시 부활한다
+    from graphdb.neo4j_client import run_cypher as _run_cypher
+    from graphdb.neo4j_ids import to_report_id as _to_report_id
+
+    background_tasks.add_task(
+        _run_cypher,
+        "MATCH (r:Report {id: $rid}) "
+        "OPTIONAL MATCH (c:ReportChunk)-[:`청크`]->(r) DETACH DELETE c, r",
+        {"rid": _to_report_id(report_id)},
+    )
     return {"status": "ok"}
 
 

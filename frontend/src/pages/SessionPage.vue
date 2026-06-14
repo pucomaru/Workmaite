@@ -290,6 +290,14 @@ function loadMinutesToEditor(content) {
 onUnmounted(() => editor.value?.destroy())
 const showPopover = ref(null)
 const transcriptLang = ref('ko')
+// STT 모델 선택. 기본 = gpt-realtime-whisper. 실시간 전사 WS의 start 메시지로 전달됨.
+const sttModel = ref('gpt-realtime-whisper')
+const STT_MODELS = [
+  { value: 'gpt-realtime-whisper', label: 'gpt-realtime-whisper' },
+  { value: 'gpt-4o-transcribe', label: 'gpt-4o-transcribe' },
+  { value: 'gpt-4o-mini-transcribe', label: 'gpt-4o-mini-transcribe' },
+  { value: 'whisper-1', label: 'whisper-1' },
+]
 const micError = ref('')
 
 const sessionRecords = ref(new Map())
@@ -411,6 +419,7 @@ const stt = useRealtimeSTT({
     micError.value = msg
   },
   getLang: () => transcriptLang.value,
+  getModel: () => sttModel.value,
   getSessionId: () => activeSession.value?.id ?? null,
 })
 
@@ -1605,18 +1614,24 @@ async function downloadChatFile(filePath) {
             </div>
             <template v-for="(line, idx) in transcriptLines" :key="idx">
               <div v-if="editingIdx === idx" class="tline tline-editing">
-                <span class="tline-time">{{ line.time }}</span>
-                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="화자" />
-                <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
-                <div class="tline-edit-btns">
-                  <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
-                  <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                <div class="tline-head">
+                  <span class="tline-time">{{ line.time }}</span>
+                  <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="화자" />
+                </div>
+                <div class="tline-body">
+                  <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                  <div class="tline-edit-btns">
+                    <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
+                    <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
+                  </div>
                 </div>
               </div>
               <div v-else class="tline">
-                <span class="tline-time">{{ line.time }}</span>
-                <span class="tline-body">
+                <div class="tline-head">
+                  <span class="tline-time">{{ line.time }}</span>
                   <span v-if="line.speaker" class="tline-speaker">{{ line.speaker }}</span>
+                </div>
+                <div class="tline-body">
                   <span class="tline-text">{{ line.text }}</span>
                   <button
                     v-if="line.id"
@@ -1626,15 +1641,13 @@ async function downloadChatFile(filePath) {
                   >
                     <i class="bi bi-pencil"></i>
                   </button>
-                </span>
+                </div>
               </div>
             </template>
             <!-- 실시간 부분 전사 (미확정) -->
             <div v-if="partialText" class="tline" style="opacity: 0.55; font-style: italic">
-              <span class="tline-time">···</span>
-              <span class="tline-body"
-                ><span class="tline-text">{{ partialText }}</span></span
-              >
+              <div class="tline-head"><span class="tline-time">···</span></div>
+              <div class="tline-body"><span class="tline-text">{{ partialText }}</span></div>
             </div>
           </template>
 
@@ -1887,6 +1900,33 @@ async function downloadChatFile(filePath) {
                   @click="transcriptLang = 'en'; showPopover = null"
                 >
                   🇺🇸 English
+                </button>
+              </div>
+            </div>
+
+            <!-- STT 모델 선택 -->
+            <div class="ctrl-pop-wrap">
+              <button
+                class="ctrl-btn ctrl-lang"
+                :class="{ 'ctrl-active': showPopover === 'stt' }"
+                @click.stop="togglePopover('stt')"
+                title="STT 모델"
+              >
+                <i class="bi bi-soundwave"></i>
+                <span>{{ (STT_MODELS.find(m => m.value === sttModel) || STT_MODELS[0]).label }}</span>
+                <i class="bi bi-chevron-down ctrl-chev"></i>
+              </button>
+              <div v-if="showPopover === 'stt'" class="ctrl-popover" @click.stop>
+                <div class="cpop-title">STT 모델</div>
+                <!-- prettier-ignore -->
+                <button
+                  v-for="m in STT_MODELS"
+                  :key="m.value || 'default'"
+                  class="cpop-opt"
+                  :class="{ selected: sttModel === m.value }"
+                  @click="sttModel = m.value; showPopover = null"
+                >
+                  {{ m.label }}
                 </button>
               </div>
             </div>
@@ -2710,7 +2750,7 @@ async function downloadChatFile(filePath) {
 .sp-tab-body {
   flex: 1;
   overflow-y: auto;
-  padding: 35px 60px;
+  padding: 28px 18px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2900,10 +2940,16 @@ async function downloadChatFile(filePath) {
 /* Transcript lines */
 .tline {
   display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 3px 0;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  padding: 4px 0;
   position: relative;
+}
+.tline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .tline:hover .tline-edit-btn {
   opacity: 1;
@@ -2915,16 +2961,15 @@ async function downloadChatFile(filePath) {
   font-family: 'Pretendard', inherit;
 }
 .tline-body {
-  display: flex;
-  align-items: baseline;
-  flex: 1;
+  width: 100%;
   min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
 }
 .tline-text {
   font-size: 13px;
   color: var(--dark-card);
   line-height: 1.5;
-  flex: 1;
 }
 .tline-edit-btn {
   opacity: 0;
@@ -2936,23 +2981,29 @@ async function downloadChatFile(filePath) {
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 4px;
-  flex-shrink: 0;
-  margin-left: 2px;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
 }
 .tline-edit-btn:hover {
   color: var(--accent);
   background: rgba(96, 165, 250, 0.1);
 }
 
-/* 편집 모드 */
+/* 편집 모드 — 일반 줄(.tline)과 동일한 세로 구조: head(time+화자입력) / body(textarea+버튼) */
 .tline-editing {
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 6px;
+  gap: 4px;
   background: var(--surface);
   border-radius: 8px;
   padding: 6px 8px;
   margin: 2px 0;
+}
+/* 편집 body: 일반 줄의 [텍스트][편집버튼]처럼 [textarea][저장/취소]를 가로 배치 */
+.tline-editing .tline-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
 }
 .tline-edit-text {
   flex: 1;

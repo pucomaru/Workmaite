@@ -115,7 +115,7 @@ async function doCreate() {
       title: f.title,
       location: f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
-      type: 'localwhisper',
+      type: 'gpt-realtime-whisper',
       context: f.context || null,
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
     })

@@ -39,7 +39,7 @@ def llm_factory(
     model = (
         model_override_var.get()
         or os.environ.get(f"OPENAI_MODEL_{profile.upper()}")
-        or os.environ["OPENAI_MODEL"]
+        or os.environ.get("OPENAI_MODEL", "gpt-4o")
     )
     use_streaming = cfg["streaming"] if streaming is None else streaming
     kwargs: dict = {
