@@ -64,6 +64,11 @@ public class SessionController {
     return ResponseEntity.ok(ApiResponse.ok(sessionService.getSession(sessionId)));
   }
 
+  @GetMapping("/sessions/{sessionId}/agendas")
+  public ResponseEntity<ApiResponse<List<Long>>> getSessionAgendas(@PathVariable Long sessionId) {
+    return ResponseEntity.ok(ApiResponse.ok(sessionService.getSessionAgendaIds(sessionId)));
+  }
+
   @PatchMapping("/sessions/{sessionId}")
   public ResponseEntity<ApiResponse<SessionResponse>> updateSession(
       @PathVariable Long sessionId, @RequestBody SessionUpdateRequest request) {
