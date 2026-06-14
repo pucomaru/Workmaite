@@ -29,7 +29,11 @@ function startApprove(i) {
 
 function startReject(i) {
   const ag = props.items[i]
-  if (!props.removeOnApprove && ag._state === 'rejected') {
+  if (props.removeOnApprove) {
+    emit('rejected', i)
+    return
+  }
+  if (ag._state === 'rejected') {
     ag._state = null
     ag._showReason = false
     return
@@ -41,7 +45,7 @@ function startReject(i) {
   ag._origEndDate = ag.end_date
   ag._feedbackAction = 'rejected'
   ag._showReason = true
-  if (!props.removeOnApprove) ag._state = 'rejected'
+  ag._state = 'rejected'
   scrollReasonIntoView(i)
 }
 
@@ -86,7 +90,7 @@ function saveEdit(i) {
 function cancelEdit(i) {
   const ag = props.items[i]
   ag._editing = false
-  if (!ag.title) emit('remove', i)
+  if (!ag.title || ag._directAdd) emit('remove', i)
 }
 
 async function saveFeedback(i) {

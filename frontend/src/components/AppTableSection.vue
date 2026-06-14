@@ -2,19 +2,19 @@
   <div class="lv-inner lv-inner-fill">
     <div class="lv-header">
       <div class="lv-filter-wrap"><slot name="filters" /></div>
-      <AppPagination
-        v-if="showPagination"
-        :modelValue="page"
-        :totalItems="totalItems"
-        :pageSize="pageSize"
-        :dark="dark"
-        @update:modelValue="emit('update:page', $event)"
-      />
       <div class="lv-header-right"><slot name="header-right" /></div>
     </div>
     <div class="table-wrap">
       <slot />
     </div>
+    <AppPagination
+      v-if="showPagination"
+      :modelValue="page"
+      :totalItems="totalItems"
+      :pageSize="pageSize"
+      :dark="dark"
+      @update:modelValue="emit('update:page', $event)"
+    />
   </div>
 </template>
 

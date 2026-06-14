@@ -7,12 +7,15 @@ import lombok.Getter;
 public class CalendarResponse {
 
   private final List<CalendarSessionItem> sessions;
+  private final List<CalendarAgendaItem> agendas;
 
-  private CalendarResponse(List<CalendarSessionItem> sessions) {
+  private CalendarResponse(List<CalendarSessionItem> sessions, List<CalendarAgendaItem> agendas) {
     this.sessions = sessions;
+    this.agendas = agendas;
   }
 
-  public static CalendarResponse of(List<CalendarSessionItem> sessions) {
-    return new CalendarResponse(sessions);
+  public static CalendarResponse of(
+      List<CalendarSessionItem> sessions, List<CalendarAgendaItem> agendas) {
+    return new CalendarResponse(sessions, agendas);
   }
 }

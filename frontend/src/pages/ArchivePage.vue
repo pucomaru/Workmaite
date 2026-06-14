@@ -1059,7 +1059,10 @@ async function finishExtract() {
       meeting_id: toNumericId(detailMeeting.value.id),
       approved: approved.map(a => ({
         db_id: a.db_id,
+        title: a.title,
+        company: a.company || null,
         dept: a.dept || null,
+        start_date: a.start_date || null,
         due_date: a.end_date || null,
       })),
       rejected_ids: rejected.map(a => a.db_id),
@@ -1120,8 +1123,9 @@ const NODE_TYPE_COLORS = {
 }
 
 function goToProcessStep(step) {
-  if (step === 'context' && extractPhase.value === 'result') {
+  if (step === 'context') {
     extractPhase.value = 'context'
+    extractResult.value = []
   }
 }
 

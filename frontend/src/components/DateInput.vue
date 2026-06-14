@@ -45,7 +45,9 @@
       :max="max"
       :value="modelValue"
       @input="onNative"
+      @blur="pickerOpen = false"
     />
+    <div v-if="pickerOpen" class="cdate-overlay" @mousedown.prevent="closePicker" />
   </div>
 </template>
 
@@ -65,6 +67,7 @@ const emit = defineEmits(['update:modelValue'])
 const textRef = ref(null)
 const nativeRef = ref(null)
 const wrapRef = ref(null)
+const pickerOpen = ref(false)
 
 function onDocMousedown(e) {
   if (wrapRef.value && !wrapRef.value.contains(e.target)) {
@@ -147,6 +150,7 @@ function commit(str) {
 function openPicker() {
   const el = nativeRef.value
   if (!el) return
+  pickerOpen.value = true
   if (typeof el.showPicker === 'function') {
     try {
       el.showPicker()
@@ -159,9 +163,15 @@ function openPicker() {
   el.click()
 }
 
+function closePicker() {
+  pickerOpen.value = false
+  textRef.value?.focus()
+}
+
 function onNative(e) {
   const v = e.target.value
   if (v) emit('update:modelValue', v)
+  pickerOpen.value = false
 }
 </script>
 
@@ -202,5 +212,10 @@ function onNative(e) {
   height: 1px;
   opacity: 0;
   pointer-events: none;
+}
+.cdate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
 }
 </style>

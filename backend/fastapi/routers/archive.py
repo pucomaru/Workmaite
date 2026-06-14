@@ -429,7 +429,11 @@ async def analyze_archive_file(
             extracted = _extract_text_from_file(
                 raw, (file.filename or file_name or "").lower()
             )
-            file_content = (extracted or "").strip()[:8000]
+            extracted_clean = (extracted or "").strip()
+            if len(extracted_clean) > 8000:
+                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+            else:
+                file_content = extracted_clean
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
         except Exception as e:
@@ -455,7 +459,7 @@ async def analyze_archive_file(
         return {
             "score": 0,
             "feedback": [
-                "⚠️ AI 평가에 실패했습니다. 표시된 점수는 평가 결과가 아닙니다.",
+                "⚠️ AI 평가에 오류가 발생했습니다.",
                 f"오류: {str(e)}",
                 "다시 시도하거나 수동으로 검토해 주세요.",
             ],
@@ -496,7 +500,11 @@ async def analyze_archive_file_stream_ep(
             extracted = _extract_text_from_file(
                 raw, (file.filename or file_name or "").lower()
             )
-            file_content = (extracted or "").strip()[:8000]
+            extracted_clean = (extracted or "").strip()
+            if len(extracted_clean) > 8000:
+                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+            else:
+                file_content = extracted_clean
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
         except Exception as e:
@@ -532,7 +540,7 @@ async def analyze_archive_file_stream_ep(
                 "data": {
                     "score": 0,
                     "feedback": [
-                        "⚠️ AI 평가에 실패했습니다. 표시된 점수는 평가 결과가 아닙니다.",
+                        "⚠️ AI 평가에 오류가 발생했습니다.",
                         f"오류: {str(e)}",
                         "다시 시도하거나 수동으로 검토해 주세요.",
                     ],
