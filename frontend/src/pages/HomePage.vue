@@ -19,7 +19,7 @@ const upcomingSessionsList = ref([])
 const meetingMeta = ref({}) // { [meetingId]: { owner_name, due_date, priority } }
 
 // ── Calendar state ──────────────────────────────────────────
-const calView = ref('month')
+const calView = ref('week')
 const cursor = ref(new Date())
 const today = new Date()
 today.setHours(0, 0, 0, 0)
@@ -57,6 +57,12 @@ const calTitle = computed(() => {
     return `${y}년 ${sm}월 ${start.getDate()}일 – ${em}월 ${end.getDate()}일`
   }
   return `${y}년 ${m}월`
+})
+
+const todayLabel = computed(() => {
+  if (calView.value === 'month') return '이번 달'
+  if (calView.value === 'week') return '이번 주'
+  return '오늘'
 })
 
 function isSameDay(a, b) {
@@ -125,6 +131,25 @@ function clickDay(d) {
   if (!d) return
   cursor.value = new Date(d)
   calView.value = 'day'
+}
+function clickWeek(d) {
+  if (!d) return
+  cursor.value = new Date(d)
+  calView.value = 'week'
+}
+function clickEventDay(e) {
+  cursor.value = new Date(e.date)
+  calView.value = 'day'
+}
+function fmtScheduledAt(s) {
+  if (!s) return ''
+  const d = new Date(s)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}년 ${mo}월 ${day}일 ${h}:${min}`
 }
 function clickMiniDay(d) {
   if (!d) return
@@ -411,22 +436,23 @@ const {
             </div>
             <div class="card cal-card">
               <div class="cal-header">
-                <div class="d-flex align-items-center gap-1">
-                  <button class="btn btn-sm px-1" @click="navigate(-1)">‹</button>
-                  <button class="btn btn-sm px-1" @click="goToday">오늘</button>
-                  <button class="btn btn-sm px-1" @click="navigate(1)">›</button>
+                <div class="cal-nav-group">
+                  <button class="btn btn-sm nav-arrow" @click="navigate(-1)">‹</button>
+                  <span class="cal-title">{{ calTitle }}</span>
+                  <button class="btn btn-sm nav-arrow" @click="navigate(1)">›</button>
                 </div>
-                <span class="cal-title">{{ calTitle }}</span>
-                <div class="view-switch">
-                  <button
-                    v-for="v in views"
-                    :key="v.key"
-                    class="view-btn"
-                    :class="{ active: calView === v.key }"
-                    @click="calView = v.key"
-                  >
-                    {{ v.label }}
-                  </button>
+                <div class="cal-controls">
+                  <div class="view-switch">
+                    <button
+                      v-for="v in views"
+                      :key="v.key"
+                      class="view-btn"
+                      :class="{ active: calView === v.key }"
+                      @click="calView = v.key"
+                    >
+                      {{ v.label }}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -445,9 +471,8 @@ const {
                       today: cell && isToday(cell),
                       'has-events': cell && eventsOn(cell).length > 0,
                     }"
-                    @click="cell && clickDay(cell)"
                   >
-                    <span v-if="cell" class="day-num">{{ cell.getDate() }}</span>
+                    <span v-if="cell" class="day-num" @click="clickWeek(cell)">{{ cell.getDate() }}</span>
                     <div v-if="cell" class="month-evts">
                       <div
                         v-for="e in eventsOn(cell).slice(0, 2)"
@@ -455,6 +480,7 @@ const {
                         class="evt-pill"
                         :class="evtCls(e.type)"
                         :title="e.title"
+                        @click.stop="clickEventDay(e)"
                       >
                         {{ e.title }}
                       </div>
@@ -474,9 +500,8 @@ const {
                     :key="d.toISOString()"
                     class="week-col"
                     :class="{ today: isToday(d) }"
-                    @click="clickDay(d)"
                   >
-                    <div class="week-col-header">
+                    <div class="week-col-header" @click="clickDay(d)">
                       <span class="week-wd">{{ WEEKDAYS_KO[(d.getDay() + 6) % 7] }}</span>
                       <span class="week-daynum" :class="{ today: isToday(d) }">{{
                         d.getDate()
@@ -489,6 +514,7 @@ const {
                         class="evt-pill"
                         :class="evtCls(e.type)"
                         :title="e.title"
+                        @click.stop="clickEventDay(e)"
                       >
                         {{ e.title }}
                       </div>
@@ -507,13 +533,15 @@ const {
                   <div v-for="e in dayEvents" :key="e.id" class="day-evt-row">
                     <div class="day-evt-bar" :class="evtCls(e.type)" />
                     <div class="day-evt-info">
-                      <div class="day-evt-title">{{ e.title }}</div>
                       <span
                         class="badge"
                         :class="e.type === 'session' ? 'badge-app-primary' : 'badge-app-warning'"
                       >
                         {{ e.type === 'session' ? '회의' : 'To-do 마감' }}
                       </span>
+                      <div class="day-evt-title">{{ e.title }}</div>
+                      <div v-if="e.meeting_title" class="day-evt-meta">{{ e.meeting_title }}</div>
+                      <div v-if="e.scheduledAt" class="day-evt-meta">{{ fmtScheduledAt(e.scheduledAt) }}</div>
                     </div>
                   </div>
                 </div>
@@ -781,37 +809,44 @@ const {
 .cal-card {
   display: flex;
   flex-direction: column;
-  height: 448.5px;
 }
 .cal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   gap: 8px;
-  flex-wrap: wrap;
   font-size: 13px;
-  height: 33.5px;
+  height: 36px;
   flex-shrink: 0;
 }
-.cal-header .btn.btn-sm {
-  width: 18px;
-  height: 18px;
+.cal-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cal-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-arrow {
+  width: 22px;
+  height: 22px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
-  white-space: nowrap;
 }
 .cal-title {
   font-size: 13px;
   font-weight: 600;
-  flex: 1;
-  text-align: center;
   white-space: nowrap;
+  min-width: 130px;
+  text-align: center;
 }
 .cal-nav {
   display: flex;
@@ -843,27 +878,26 @@ const {
   overflow: hidden;
 }
 .view-btn {
-  padding: 0px;
+  padding: 3px 10px;
   font-size: 13px;
   font-weight: 500;
   background: none;
   border: none;
+  border-right: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
-  width: 18px;
-  height: 18px;
+  line-height: 1.4;
+}
+.view-btn:last-child {
+  border-right: none;
 }
 .view-btn:hover {
   background: var(--bg);
   color: var(--text);
-  width: 18px;
-  height: 18px;
 }
 .view-btn.active {
   background: var(--primary);
   color: #fff;
-  width: 18px;
-  height: 18px;
 }
 .cal-body {
   padding: 12px;
@@ -892,7 +926,7 @@ const {
   min-height: 52px;
   border-radius: 6px;
   padding: 4px 3px 3px;
-  cursor: pointer;
+  cursor: default;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -923,6 +957,7 @@ const {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
 }
 .month-evts {
   display: flex;
@@ -942,7 +977,7 @@ const {
   border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  cursor: pointer;
+  cursor: default;
   overflow: hidden;
   min-width: 0;
 }
@@ -961,6 +996,10 @@ const {
   gap: 2px;
   background: var(--surface);
   flex-shrink: 0;
+  cursor: pointer;
+}
+.week-col-header:hover {
+  background: var(--surface-2);
 }
 .week-wd {
   font-size: 13px;
@@ -1001,17 +1040,19 @@ const {
 .day-evt-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 14px 16px;
   background: var(--surface);
   border-radius: 8px;
   border: 1px solid var(--border);
+  min-height: 72px;
 }
 .day-evt-bar {
   width: 3px;
-  min-height: 36px;
+  min-height: 52px;
   border-radius: 2px;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 .day-evt-bar.evt-session {
   background: var(--accent);
@@ -1026,8 +1067,14 @@ const {
   gap: 4px;
 }
 .day-evt-title {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.day-evt-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
 }
 .year-grid {
   display: grid;
@@ -1095,6 +1142,12 @@ const {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+.week-evts .evt-pill {
+  width: 100%;
+  padding: 4px 6px;
+  min-height: 26px;
+  box-sizing: border-box;
 }
 .evt-pill.evt-session {
   background: var(--accent-bg-2);
