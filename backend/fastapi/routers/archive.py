@@ -986,8 +986,36 @@ async def delete_agenda_item(
     if agenda is None:
         return {"ok": True}
     require_owned_edit(db, current_user, agenda.meeting_id, agenda.assignee_id)
+    meeting_id_snap = agenda.meeting_id
+    title_snap = agenda.title or ""
+    created_at_snap = agenda.created_at.isoformat() + "Z" if agenda.created_at else None
     db.delete(agenda)
     db.commit()
+    # audit log는 별도 세션으로 — 실패해도 삭제 결과에 영향 없음
+    try:
+        from sqlalchemy import text as _text
+        from db.database import SessionLocal as _SL
+        _adb = _SL()
+        try:
+            _adb.execute(
+                _text(
+                    "INSERT INTO audit_logs (actor_id, action, entity_type, detail, ip_addr, created_at) "
+                    "VALUES (:actor, 'DELETE', 'agenda', CAST(:detail AS jsonb), NULL, now())"
+                ),
+                {
+                    "actor": current_user.id,
+                    "detail": json.dumps(
+                        {"log_type": "agenda_delete", "meeting_id": meeting_id_snap,
+                         "agenda_id": agenda_id, "title": title_snap,
+                         "agenda_created_at": created_at_snap}
+                    ),
+                },
+            )
+            _adb.commit()
+        finally:
+            _adb.close()
+    except Exception as _e:
+        logger.warning(f"[AgendaDeleteLog] 기록 실패: {_e}")
     from graphdb.neo4j_sync import delete_agenda as _del_ag
 
     try:
@@ -995,3 +1023,35 @@ async def delete_agenda_item(
     except Exception:
         pass
     return {"ok": True}
+
+
+# ─── 아젠다 삭제 로그 조회 ────────────────────────────────────────────────────
+@router.get("/meetings/{meeting_id}/agenda-delete-logs")
+async def get_agenda_delete_logs(
+    meeting_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_meeting_member(db, current_user, meeting_id)
+    from sqlalchemy import text as _text
+    rows = db.execute(
+        _text(
+            "SELECT actor_id, detail, created_at FROM audit_logs "
+            "WHERE entity_type = 'agenda' "
+            "AND action = 'DELETE' "
+            "AND (detail->>'log_type') = 'agenda_delete' "
+            "AND (detail->>'meeting_id')::int = :mid "
+            "ORDER BY created_at ASC"
+        ),
+        {"mid": meeting_id},
+    ).fetchall()
+    return [
+        {
+            "actor_id": r.actor_id,
+            "agenda_id": r.detail.get("agenda_id"),
+            "title": r.detail.get("title", ""),
+            "agenda_created_at": r.detail.get("agenda_created_at"),
+            "deleted_at": r.created_at.isoformat() + "Z" if r.created_at else None,
+        }
+        for r in rows
+    ]
