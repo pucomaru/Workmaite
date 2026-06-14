@@ -535,11 +535,8 @@ async function startNodeReview(reportId) {
 
   const fileName = detailNode.value?.data?.file_name || '보고자료'
 
-  // 에이전트 사이드바 열기
-  if (!agentSidebarOpen.value) {
-    agentSidebarOpen.value = true
-    initAgentGreeting()
-  }
+  // 에이전트 사이드바 열기 — watch의 자동 히스토리 로드가 아래 push 메시지를 덮어쓰지 않게 managed open
+  if (openSidebarManaged()) initAgentGreeting()
   await nextTick()
 
   allMessages.value['supervisor'].push({
@@ -873,8 +870,9 @@ async function runExtract() {
   const mgTitle = detailMeeting.value?.title || '회의체'
 
   // 채팅 초기화 후 사용자 메시지 + 사고 과정 + 에이전트 응답 슬롯을 순서대로 추가
+  // managed open: watch 자동 히스토리 로드가 방금 세팅한 extract greeting/메시지를 덮어쓰지 않게 함
+  openSidebarManaged()
   allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
-  agentSidebarOpen.value = true
   showExtractFlow.value = true
   extractPhase.value = 'result'
   detailTab.value = 'extract'
@@ -2085,6 +2083,7 @@ const {
   _runPlanningSteps,
   initAgentGreeting,
   runRelationshipAnalysis,
+  openSidebarManaged,
 } = agentChat
 provide('agentSidebar', agentChat)
 

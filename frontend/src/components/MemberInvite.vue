@@ -263,7 +263,7 @@ function updateRole(idx, role) {
 .mi-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--dark-card);
+  color: var(--dark-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

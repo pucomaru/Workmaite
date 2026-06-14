@@ -430,37 +430,25 @@ async def minutes_generate_minutes(
             input_data={"session_id": data.session_id},
         )
         _stream_error = None
-        collected_parts = []
-        async for chunk in minutes_agent.generate_minutes_stream(
-            transcript=transcript,
-            meeting_context=meeting_context,
-            agenda_text=agenda_text,
-            now=now,
-            meeting_id=data.meeting_id,
-            session_id=data.session_id,
-            title=minutes_title,
-            session_info=session_info,
-            participants=participants,
-            prev_minutes=prev_minutes_list,
-            summary_blocks=summary_blocks,
-            report_chunks=report_chunks,
-            overdue_agendas=overdue_agendas,
-        ):
-            collected_parts.append(chunk)
-            yield sse_token(chunk)
-
         try:
-            collected_parts = []
+            # 한 번만 생성·스트리밍한다 — 기존엔 generate_minutes_stream을 두 번 호출해 회의록이
+            # 두 벌로 이어붙던 버그가 있었다("여러개 생성"의 원인). 전체 컨텍스트(이전 회의록·
+            # 요약블록·보고서·미배정 안건)를 사용한다.
             async for chunk in minutes_agent.generate_minutes_stream(
-                transcript,
-                meeting_context,
-                agenda_text,
-                now,
+                transcript=transcript,
+                meeting_context=meeting_context,
+                agenda_text=agenda_text,
+                now=now,
                 meeting_id=data.meeting_id,
                 session_id=data.session_id,
                 title=minutes_title,
+                session_info=session_info,
+                participants=participants,
+                prev_minutes=prev_minutes_list,
+                summary_blocks=summary_blocks,
+                report_chunks=report_chunks,
+                overdue_agendas=overdue_agendas,
             ):
-                collected_parts.append(chunk)
                 yield sse_token(chunk)
             # 생성은 미리보기만 — PG/Neo4j 영속화는 사용자가 '아카이브 저장'(/api/upload/minutes)을
             # 누를 때만 한다. 생성만으로 DB·그래프에 박히면 사용자 의도와 어긋나므로 자동 저장 제거.

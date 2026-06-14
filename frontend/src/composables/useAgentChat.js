@@ -181,9 +181,26 @@ export function useAgentChat({
 
   // ─── 사이드바가 열릴 때마다 히스토리 로드 ───────────────────────
   // archive 스레드는 회의체 변경과 무관하므로 열릴 때만 로드
+  // _skipAutoHistoryLoad: 분석·추출·검토 등 '프로그램적 오픈'은 직후 자체 메시지를 push하므로,
+  // 늦게 도착해 그 메시지를 덮어쓰는 자동 히스토리 로드를 1회 건너뛴다 (regression: 6af82fe).
+  let _skipAutoHistoryLoad = false
   watch(agentSidebarOpen, open => {
-    if (open) loadChatHistory()
+    if (!open) return
+    if (_skipAutoHistoryLoad) {
+      _skipAutoHistoryLoad = false
+      return
+    }
+    loadChatHistory()
   })
+
+  // 사이드바를 프로그램적으로 연다(닫혀 있을 때만). watch의 자동 로드를 건너뛰게 해
+  // 호출자가 직후 push하는 메시지가 보존된다. 실제로 열었으면 true 반환.
+  function openSidebarManaged() {
+    if (agentSidebarOpen.value) return false
+    _skipAutoHistoryLoad = true
+    agentSidebarOpen.value = true
+    return true
+  }
 
   function initAgentGreeting() {
     if (!allMessages.value['supervisor'].length)
@@ -443,10 +460,7 @@ export function useAgentChat({
 
   // ─── 좌측 액션 → 우측 에이전트 채팅 주입 ─────────────────────
   async function injectActionToAgent(userText, planningSteps, agentReply) {
-    if (!agentSidebarOpen.value) {
-      agentSidebarOpen.value = true
-      await loadChatHistory()
-    }
+    if (openSidebarManaged()) await loadChatHistory()
     await nextTick()
     allMessages.value['supervisor'].push({ role: 'user', content: userText })
     const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
@@ -471,10 +485,7 @@ export function useAgentChat({
   // 실시간 [PLANNING] 스텝을 수신하며, 완료 시 onComplete(그래프 새로고침)를 호출합니다.
   async function runRelationshipAnalysis(onComplete) {
     if (agentLoading.value) return
-    if (!agentSidebarOpen.value) {
-      agentSidebarOpen.value = true
-      await loadChatHistory()
-    }
+    if (openSidebarManaged()) await loadChatHistory()
     await nextTick()
 
     allMessages.value['supervisor'].push({
@@ -560,6 +571,7 @@ export function useAgentChat({
     removeMentionCtx,
     initAgentGreeting,
     loadChatHistory,
+    openSidebarManaged,
     switchAgent,
     clearAgentChat,
     sendAgentMsg,

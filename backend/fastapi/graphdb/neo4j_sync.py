@@ -684,6 +684,12 @@ async def sync_minutes(
     """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다."""
     s_id = to_session_id(session_id)
     cypher = """
+    // 세션당 회의록은 하나여야 한다 — 같은 세션의 다른 pg_id Minutes(과거 삭제·재생성 잔재)를
+    // 먼저 제거해 아카이브에 회의록이 여러 개로 보이는 것을 막는다.
+    OPTIONAL MATCH (stale:Minutes)
+        WHERE stale.session_id = $session_id AND stale.pg_id <> $pg_id
+    DETACH DELETE stale
+    WITH count(*) AS _cleaned
     MERGE (mn:Minutes {pg_id: $pg_id})
     SET mn.session_id       = $session_id,
         mn.content_summary  = $content_summary,
