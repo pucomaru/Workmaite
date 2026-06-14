@@ -136,6 +136,7 @@ function startResize(e, colIndex) {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-card);
+  flex: 1;
 }
 .app-table {
   width: 100%;
