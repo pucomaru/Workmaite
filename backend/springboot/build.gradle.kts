@@ -5,7 +5,7 @@ plugins {
 	id("com.diffplug.spotless") version "8.6.0"
 	checkstyle
     pmd
-    id("com.github.spotbugs") version "6.0.7"
+    id("com.github.spotbugs") version "6.5.6"
 }
 
 spotless {
@@ -56,7 +56,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework.boot:spring-boot-starter-restclient")
 	implementation("io.jsonwebtoken:jjwt-api:0.13.0")
-	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.8")
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("io.micrometer:micrometer-registry-prometheus")
 	compileOnly("org.projectlombok:lombok")
