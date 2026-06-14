@@ -171,13 +171,23 @@ onMounted(async () => {
           params: { view: 'month', date: new Date().toISOString().slice(0, 10) },
         })
         .then(calRes => {
-          calendarEvents.value = (calRes.data?.sessions ?? []).map(s => ({
+          const sessions = (calRes.data?.sessions ?? []).map(s => ({
             ...s,
             id: s.sessionId,
             type: 'session',
             date: s.scheduledAt?.slice(0, 10),
             meeting_title: s.meetingTitle,
           }))
+          const agendas = (calRes.data?.agendas ?? []).map(a => ({
+            id: `agenda-${a.agendaId}`,
+            agendaId: a.agendaId,
+            type: 'agenda',
+            title: a.title,
+            date: a.dueDate?.slice(0, 10),
+            meeting_title: a.meetingTitle,
+            scheduledAt: a.dueDate,
+          }))
+          calendarEvents.value = [...sessions, ...agendas]
         })
         .catch(() => {}),
 
@@ -515,7 +525,7 @@ const {
                     :class="{ today: isToday(d) }"
                   >
                     <div class="week-col-header" @click="clickDay(d)">
-                      <span class="week-wd">{{ WEEKDAYS_KO[(d.getDay() + 6) % 7] }}</span>
+                      <span class="week-wd">{{ WEEKDAYS_KO[d.getDay()] }}</span>
                       <span class="week-daynum" :class="{ today: isToday(d) }">{{
                         d.getDate()
                       }}</span>
@@ -858,8 +868,9 @@ const {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  min-width: 130px;
+  width: 190px;
   text-align: center;
+  flex-shrink: 0;
 }
 .cal-nav {
   display: flex;
@@ -983,7 +994,7 @@ const {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  min-height: 160px;
+  height: 220px;
 }
 .week-col {
   border-radius: 6px;
@@ -1040,6 +1051,8 @@ const {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .week-empty-slot {
   flex: 1;
