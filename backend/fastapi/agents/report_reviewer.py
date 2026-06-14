@@ -564,7 +564,8 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
     raw_detail = parsed.get("detail_scores", {})
     detail_scores = _validate_detail_scores(raw_detail)
     computed_score = sum(v["score"] for v in detail_scores.values())
-    score = computed_score if raw_detail else int(parsed.get("score", 70))
+    # 평가 실패 시 그럴듯한 점수(70)를 위조하지 않는다 — LLM이 점수를 주면 존중, 없으면 0.
+    score = computed_score if raw_detail else int(parsed.get("score") or 0)
 
     valid_ids = {
         str(ag.get("id"))
@@ -650,8 +651,11 @@ async def analyze_archive_file(
         config,
     )
     return final_state.get("result") or {
-        "score": 70,
-        "feedback": ["검토 결과를 생성하지 못했습니다."],
+        "score": 0,
+        "feedback": [
+            "⚠️ AI 평가를 완료하지 못했습니다. 표시된 점수는 평가 결과가 아닙니다.",
+            "다시 시도하거나 수동으로 검토해 주세요.",
+        ],
         "matched_agendas": [],
         "agendas": [],
         "related_depts": [],
@@ -732,8 +736,12 @@ async def analyze_archive_file_stream(
         yield {
             "type": "result",
             "data": {
-                "score": 70,
-                "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                "score": 0,
+                "feedback": [
+                    "⚠️ AI 평가에 실패했습니다. 표시된 점수는 평가 결과가 아닙니다.",
+                    f"오류: {str(e)}",
+                    "다시 시도하거나 수동으로 검토해 주세요.",
+                ],
                 "matched_agendas": [],
                 "agendas": [
                     {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
