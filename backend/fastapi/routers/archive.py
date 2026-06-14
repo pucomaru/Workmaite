@@ -823,6 +823,7 @@ async def update_agenda(
 async def update_agenda_status(
     agenda_id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -835,6 +836,24 @@ async def update_agenda_status(
     new_status = data.get("status", "done")
     agenda.status = new_status
     db.commit()
+    db.refresh(agenda)
+    from graphdb.neo4j_sync import sync_agenda as _sync_ag
+
+    dept_str = (
+        agenda.department[0]
+        if isinstance(agenda.department, list) and agenda.department
+        else (agenda.department or "")
+    )
+    background_tasks.add_task(
+        _sync_ag,
+        agenda_id=agenda.id,
+        meeting_id=agenda.meeting_id,
+        title=agenda.title,
+        status=new_status,
+        priority=agenda.priority or "medium",
+        due_date=agenda.due_date.isoformat() if agenda.due_date else None,
+        department=dept_str,
+    )
     return {"ok": True, "status": new_status}
 
 
