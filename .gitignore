@@ -20,6 +20,9 @@ lib64/
 venv/
 .env/
 ENV/
+.ruff_cache/
+.mypy_cache/
+.ruff_cache/
 
 # FastAPI / Uvicorn
 *.log
@@ -88,13 +91,14 @@ AWSCLIV2.pkg
 
 # Claude Code local config
 .claude/settings.local.json
+.claude
 
 # Vite cache
 .vite/
 
 # AI uploaded files (runtime uploads, not source)
-backend/ai/uploads/*
-!backend/ai/uploads/.gitkeep
+backend/fastapi/uploads/*
+!backend/fastapi/uploads/.gitkeep
 
 # Secret
 k8s/secrets.yaml

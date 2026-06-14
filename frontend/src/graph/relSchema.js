@@ -6,7 +6,7 @@ import { apiAI } from '../api'
  * 번들 기본값은 백엔드 canonical과 동일하게 유지하고, 마운트 시 GET /api/neo4j/rel-schema로 병합한다.
  * (번들 기본값이 있어 첫 페인트·오프라인에서도 색상/추론이 동작한다.)
  *
- * 관계명 추가·변경은 반드시 backend/ai/rel_schema.py에서 시작할 것.
+ * 관계명 추가·변경은 반드시 backend/fastapi/rel_schema.py에서 시작할 것.
  */
 
 // 관계명 → 색상 (그래프 엣지·배지 공용)

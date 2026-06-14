@@ -18,7 +18,7 @@ import AgentComposer from '../components/AgentComposer.vue'
 import AgendaReviewList from '../components/AgendaReviewList.vue'
 import api, { apiAI } from '../api'
 import { streamPost } from '../api'
-import { useSTT } from '../composables/useSTT'
+import { useRealtimeSTT } from '../composables/useRealtimeSTT'
 import { useAgentMention } from '../composables/useAgentMention'
 import hyeanAvatar from '../assets/agents/hyean.png'
 import { useThemeStore } from '../stores/theme'
@@ -201,6 +201,7 @@ async function enterSession(s) {
           id: seg.id,
           time: utcToKst(seg.createdAt),
           text: seg.content,
+          speaker: seg.speakerLabel || '화자01',
         }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
@@ -385,8 +386,8 @@ function utcToKst(str) {
   return new Date(iso).toLocaleTimeString('ko-KR', KST)
 }
 
-function _pushLine(time, text, id = null) {
-  const entry = { time, text, id }
+function _pushLine(time, text, id = null, speaker = '화자01') {
+  const entry = { time, text, id, speaker }
   transcriptLines.value.push(entry)
   if (activeSession.value)
     getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
@@ -397,9 +398,17 @@ function _pushLine(time, text, id = null) {
   if (transcriptLines.value.length - lastRefineIdx.value >= REFINE_EVERY) refineChunk()
 }
 
-const stt = useSTT({
+const partialText = ref('') // 실시간 부분 전사(미확정) — 라이브 표시 (P5)
+const stt = useRealtimeSTT({
   onResult: (text, id = null) => {
+    partialText.value = ''
     _pushLine(nowTime(), text, id)
+  },
+  onPartial: t => {
+    partialText.value = t
+  },
+  onError: msg => {
+    micError.value = msg
   },
   getLang: () => transcriptLang.value,
   getSessionId: () => activeSession.value?.id ?? null,
@@ -437,7 +446,7 @@ const editDraft = ref({ text: '' })
 function startEdit(idx) {
   const line = transcriptLines.value[idx]
   editingIdx.value = idx
-  editDraft.value = { text: line.text }
+  editDraft.value = { text: line.text, speaker: line.speaker || '화자01' }
 }
 function cancelEdit() {
   editingIdx.value = null
@@ -445,10 +454,12 @@ function cancelEdit() {
 async function saveEdit(idx) {
   const line = transcriptLines.value[idx]
   if (!line.id) return
+  const speaker = (editDraft.value.speaker || '').trim() || '화자01'
   await api.patch(`/api/v1/sessions/${activeSession.value.id}/scripts`, {
-    segments: [{ id: line.id, content: editDraft.value.text }],
+    segments: [{ id: line.id, content: editDraft.value.text, speakerLabel: speaker }],
   })
   line.text = editDraft.value.text
+  line.speaker = speaker
   editingIdx.value = null
 }
 
@@ -1595,6 +1606,7 @@ async function downloadChatFile(filePath) {
             <template v-for="(line, idx) in transcriptLines" :key="idx">
               <div v-if="editingIdx === idx" class="tline tline-editing">
                 <span class="tline-time">{{ line.time }}</span>
+                <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="화자" />
                 <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
                 <div class="tline-edit-btns">
                   <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
@@ -1604,6 +1616,7 @@ async function downloadChatFile(filePath) {
               <div v-else class="tline">
                 <span class="tline-time">{{ line.time }}</span>
                 <span class="tline-body">
+                  <span v-if="line.speaker" class="tline-speaker">{{ line.speaker }}</span>
                   <span class="tline-text">{{ line.text }}</span>
                   <button
                     v-if="line.id"
@@ -1616,6 +1629,13 @@ async function downloadChatFile(filePath) {
                 </span>
               </div>
             </template>
+            <!-- 실시간 부분 전사 (미확정) -->
+            <div v-if="partialText" class="tline" style="opacity: 0.55; font-style: italic">
+              <span class="tline-time">···</span>
+              <span class="tline-body"
+                ><span class="tline-text">{{ partialText }}</span></span
+              >
+            </div>
           </template>
 
           <template v-else-if="activeTab === 'minutes'">
@@ -2946,6 +2966,30 @@ async function downloadChatFile(filePath) {
   color: var(--dark-card);
   min-width: 200px;
   line-height: 1.5;
+}
+/* 화자 라벨 (P6) */
+.tline-speaker {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(96, 165, 250, 0.12);
+  padding: 1px 7px;
+  border-radius: 99px;
+  flex-shrink: 0;
+  margin-right: 6px;
+  align-self: center;
+  white-space: nowrap;
+}
+.tline-edit-speaker {
+  width: 96px;
+  flex-shrink: 0;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  outline: none;
+  background: var(--bg-card);
+  color: var(--dark-card);
 }
 .tline-edit-btns {
   display: flex;

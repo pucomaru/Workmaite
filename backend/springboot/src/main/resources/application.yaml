@@ -2,10 +2,6 @@ spring:
   application:
     name: workmaite-server
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
   profiles:
     active: local
 

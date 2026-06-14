@@ -2,7 +2,10 @@ package com.workmaite.global.auth;
 
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
@@ -60,14 +63,12 @@ public class JwtTokenProvider {
     Date expiredAt = new Date(now.getTime() + expiration);
 
     return Jwts.builder()
-        .setSubject(String.valueOf(userId)) // payload 에 userId 저장
+        .subject(String.valueOf(userId))
         .claim(CLAIM_TYPE, type)
-        // jti: iat가 초 단위라 같은 초에 발급된 토큰이 byte-identical해지는 것 방지
-        // (refresh 회전 시 신구 토큰이 같아지면 폐기가 무력화됨)
-        .setId(UUID.randomUUID().toString())
-        .setIssuedAt(now) // 발급 시간
-        .setExpiration(expiredAt) // 만료 시간
-        .signWith(key, SignatureAlgorithm.HS256)
+        .id(UUID.randomUUID().toString())
+        .issuedAt(now)
+        .expiration(expiredAt)
+        .signWith(key) // HS256은 256비트 HMAC 키에서 자동 추론됨
         .compact();
   }
 

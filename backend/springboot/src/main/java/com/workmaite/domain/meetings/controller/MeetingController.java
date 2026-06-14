@@ -1,6 +1,13 @@
 package com.workmaite.domain.meetings.controller;
 
-import com.workmaite.domain.meetings.dto.*;
+import com.workmaite.domain.meetings.dto.ActiveMeetingResponse;
+import com.workmaite.domain.meetings.dto.MeetingCreateRequest;
+import com.workmaite.domain.meetings.dto.MeetingDetailResponse;
+import com.workmaite.domain.meetings.dto.MeetingMemberAddRequest;
+import com.workmaite.domain.meetings.dto.MeetingMemberResponse;
+import com.workmaite.domain.meetings.dto.MeetingMemberUpdateRequest;
+import com.workmaite.domain.meetings.dto.MeetingResponse;
+import com.workmaite.domain.meetings.dto.MeetingUpdateRequest;
 import com.workmaite.domain.meetings.service.MeetingService;
 import com.workmaite.global.common.ApiResponse;
 import jakarta.validation.Valid;
@@ -9,7 +16,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 회의체 관련 API GET /api/v1/me/meetings - 내 진행중인 회의체 목록 조회 GET /api/v1/meetings - 전체 회의체 목록 조회 / 키워드

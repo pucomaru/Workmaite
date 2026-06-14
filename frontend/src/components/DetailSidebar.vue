@@ -39,7 +39,6 @@ const {
   onCtxFilesAdded,
   removeCtxFile,
   runExtract,
-  addExtractItem,
   finishExtract,
   addDirectAgenda,
   detailMemberDepts,

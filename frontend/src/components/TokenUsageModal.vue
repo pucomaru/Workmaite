@@ -186,7 +186,7 @@ const sec = computed(() => data.value?.sections || null)
                   class="tum-m-row tum-ctx-row"
                 >
                   <span class="tum-ctx-indent" />
-                  <span class="tum-chip" :class="`ctx-${ctx.section}`">{{ ctx.label }}</span>
+                  <span class="tum-chip" :class="`ctx-${ctx.group}`">{{ ctx.label }}</span>
                   <span class="tum-m-desc">{{ fmtNum(ctx.total_tokens) }} tokens</span>
                   <span class="tum-m-cost">{{ fmtCost(ctx.cost) }}</span>
                 </div>
@@ -194,6 +194,19 @@ const sec = computed(() => data.value?.sections || null)
               <div v-if="sec.ai_model.by_model.length" class="tum-m-total">
                 <span>AI 비용 합계</span>
                 <span class="tum-accent">{{ fmtCost(sec.ai_model.cost) }}</span>
+              </div>
+            </div>
+
+            <!-- 에이전트(그룹)별 요약 — supervisor/서브에이전트 구분 (P3) -->
+            <div
+              v-if="sec.ai_model.by_agent && sec.ai_model.by_agent.length"
+              class="app-modal-field"
+            >
+              <label>🧩 에이전트별</label>
+              <div v-for="a in sec.ai_model.by_agent" :key="a.key" class="tum-m-row">
+                <span class="tum-chip" :class="`ctx-${a.key}`">{{ a.label }}</span>
+                <span class="tum-m-desc">{{ fmtNum(a.total_tokens) }} tokens</span>
+                <span class="tum-m-cost">{{ fmtCost(a.cost) }}</span>
               </div>
             </div>
 
@@ -206,7 +219,7 @@ const sec = computed(() => data.value?.sections || null)
                 >
               </div>
               <div v-for="p in sec.stt.by_provider" :key="p.provider" class="tum-m-row">
-                <span class="tum-chip" :class="`stt-${p.provider}`">{{ p.label }}</span>
+                <span class="tum-chip tum-chip-stt">{{ p.label }}</span>
                 <span class="tum-m-desc">{{ fmtMin(p.seconds) }}</span>
                 <span class="tum-m-note">
                   {{ p.minutes.toFixed(1) }}분 ·
@@ -328,35 +341,35 @@ const sec = computed(() => data.value?.sections || null)
   flex-shrink: 0;
   white-space: nowrap;
 }
-/* 컨텍스트 칩 */
-.tum-chip.ctx-task_extraction {
+/* 에이전트 그룹 칩 (P3) */
+.tum-chip.ctx-supervisor {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.tum-chip.ctx-agenda {
   background: #d1fae5;
   color: #065f46;
 }
-.tum-chip.ctx-report_analysis {
+.tum-chip.ctx-report {
   background: #ede9fe;
   color: #5b21b6;
 }
-.tum-chip.ctx-meeting {
+.tum-chip.ctx-minutes {
   background: var(--warning-bg);
   color: #92400e;
+}
+.tum-chip.ctx-embedding {
+  background: #ccfbf1;
+  color: #115e59;
 }
 .tum-chip.ctx-other {
   background: var(--surface-2);
   color: var(--text-muted);
 }
-/* STT 칩 */
-.tum-chip.stt-gcapi {
+/* STT 칩 (provider=모델명) */
+.tum-chip-stt {
   background: var(--accent-bg-2);
   color: var(--accent-strong);
-}
-.tum-chip.stt-whisperapi {
-  background: var(--warning-bg);
-  color: #92400e;
-}
-.tum-chip.stt-localwhisper {
-  background: #d1fae5;
-  color: #065f46;
 }
 
 /* ── 행 내 텍스트 ── */
@@ -397,28 +410,28 @@ html.night-mode .tum-stats-bar {
 html.night-mode .tum-ctx-row {
   background: rgba(255, 255, 255, 0.02) !important;
 }
-html.night-mode .tum-chip.ctx-task_extraction {
+html.night-mode .tum-chip.ctx-supervisor {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #93c5fd !important;
+}
+html.night-mode .tum-chip.ctx-agenda {
   background: rgba(16, 185, 129, 0.15) !important;
   color: #6ee7b7 !important;
 }
-html.night-mode .tum-chip.ctx-report_analysis {
+html.night-mode .tum-chip.ctx-report {
   background: rgba(139, 92, 246, 0.15) !important;
   color: #c4b5fd !important;
 }
-html.night-mode .tum-chip.ctx-meeting {
+html.night-mode .tum-chip.ctx-minutes {
   background: rgba(245, 158, 11, 0.15) !important;
   color: #fcd34d !important;
 }
-html.night-mode .tum-chip.stt-gcapi {
+html.night-mode .tum-chip.ctx-embedding {
+  background: rgba(20, 184, 166, 0.15) !important;
+  color: #5eead4 !important;
+}
+html.night-mode .tum-chip-stt {
   background: rgba(147, 197, 253, 0.15) !important;
   color: var(--accent-soft) !important;
-}
-html.night-mode .tum-chip.stt-whisperapi {
-  background: rgba(251, 191, 36, 0.15) !important;
-  color: #fcd34d !important;
-}
-html.night-mode .tum-chip.stt-localwhisper {
-  background: rgba(16, 185, 129, 0.15) !important;
-  color: #6ee7b7 !important;
 }
 </style>

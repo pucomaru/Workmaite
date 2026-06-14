@@ -1407,7 +1407,7 @@ watch(
 )
 
 // ─── 파일 노드 AI 검토 패널 ────────────────────────────────────
-// ─── 관계 스키마 (SSOT: backend/ai/rel_schema.py, 프런트 모듈로 단일화) ──────
+// ─── 관계 스키마 (SSOT: backend/fastapi/rel_schema.py, 프런트 모듈로 단일화) ──────
 // REL_COLORS·REL_MATRIX·autoRelByType는 src/graph/relSchema.js에서 가져온다.
 function autoRel(sourceNodeId, targetType) {
   const srcNode = gNodes.find(n => n.id === sourceNodeId)

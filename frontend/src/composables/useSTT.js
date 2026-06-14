@@ -48,6 +48,7 @@ export function useSTT({ onResult, onError = null, getLang = null, getSessionId 
         if (e.data.size > 0) chunks.push(e.data)
       }
 
+      const recStartedAt = Date.now() // 청크 길이 측정 → STT 비용 산정 (P4)
       await new Promise(resolve => {
         recorder.onstop = resolve
         recorder.start()
@@ -90,9 +91,11 @@ export function useSTT({ onResult, onError = null, getLang = null, getSessionId 
       const lang = rawLang.split('-')[0].toLowerCase()
       const sessionId = typeof getSessionId === 'function' ? getSessionId() : null
 
+      const durationSec = Math.max(0, (Date.now() - recStartedAt) / 1000)
       const formData = new FormData()
       formData.append('audio', blob, 'audio.webm')
       formData.append('lang', lang)
+      formData.append('duration_sec', durationSec.toFixed(2)) // STT 비용 산정 (P4)
       if (sessionId) formData.append('session_id', String(sessionId))
 
       try {

@@ -1,7 +1,17 @@
 package com.workmaite.domain.meetings.service;
 
-import com.workmaite.domain.meetings.dto.*;
-import com.workmaite.domain.meetings.entity.*;
+import com.workmaite.domain.meetings.dto.ActiveMeetingResponse;
+import com.workmaite.domain.meetings.dto.MeetingCreateRequest;
+import com.workmaite.domain.meetings.dto.MeetingDetailResponse;
+import com.workmaite.domain.meetings.dto.MeetingMemberAddRequest;
+import com.workmaite.domain.meetings.dto.MeetingMemberResponse;
+import com.workmaite.domain.meetings.dto.MeetingMemberUpdateRequest;
+import com.workmaite.domain.meetings.dto.MeetingResponse;
+import com.workmaite.domain.meetings.dto.MeetingUpdateRequest;
+import com.workmaite.domain.meetings.entity.Meeting;
+import com.workmaite.domain.meetings.entity.MeetingMember;
+import com.workmaite.domain.meetings.entity.MeetingMemberRole;
+import com.workmaite.domain.meetings.entity.MeetingStatus;
 import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.user.entity.User;

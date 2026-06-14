@@ -1,6 +1,11 @@
 package com.workmaite.domain.reports.service;
 
-import com.workmaite.domain.reports.dto.*;
+import com.workmaite.domain.reports.dto.ReportResponse;
+import com.workmaite.domain.reports.dto.ReportResubmitRequest;
+import com.workmaite.domain.reports.dto.ReportReviewResultResponse;
+import com.workmaite.domain.reports.dto.ReportSessionSubmitRequest;
+import com.workmaite.domain.reports.dto.ReportStatusUpdateRequest;
+import com.workmaite.domain.reports.dto.ReportSubmitRequest;
 import com.workmaite.domain.reports.entity.Report;
 import com.workmaite.domain.reports.entity.ReportScore;
 import com.workmaite.domain.reports.repository.ReportRepository;

@@ -38,19 +38,19 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 | ID | 심각도 | 위치 | 문제 |
 |----|------|------|------|
 | SEC-1 | 🔴 | `k8s/backend.yaml`, `backend/springboot/.../application.yaml`, `k8s/postgres/deployment.yaml`, `neo4j/k8s/secret.yaml` | DB/Redis/Neo4j 비밀번호, JWT 시크릿이 **평문으로 git에 커밋**됨. 로컬 `.env`에는 실제 OpenAI/LangSmith 키 존재(미커밋이나 유출 시 전체 장악). |
-| SEC-2 | 🔴 | `backend/ai/routers/stt.py` (172, 207) | `/api/stt/save`, `/api/stt/transcribe`에 **인증 없음** + 공개 Ingress 노출. 누구나 임의 session_id에 STT 세그먼트 주입/오디오 변환(GC STT 비용 발생) 가능. |
-| SEC-3 | 🔴 | `backend/ai/routers/neo4j_graph.py` | 12개 라우트 중 11개(관계/노드 생성·수정·삭제, 회의체 생성·삭제 등)가 **인증 없음** + 공개 Ingress(`/api/neo4j`) 노출. 외부인이 온톨로지 전체를 변조·삭제 가능. |
-| SEC-4 | 🔴 | `backend/ai/main.py:121-138`, `websocket_manager.py` | WebSocket(`/ws/meetings/{id}/agenda`, `/ws/sessions/{id}/minutes`) 무인증 — 아무나 회의 실시간 데이터 수신 가능. |
+| SEC-2 | 🔴 | `backend/fastapi/routers/stt.py` (172, 207) | `/api/stt/save`, `/api/stt/transcribe`에 **인증 없음** + 공개 Ingress 노출. 누구나 임의 session_id에 STT 세그먼트 주입/오디오 변환(GC STT 비용 발생) 가능. |
+| SEC-3 | 🔴 | `backend/fastapi/routers/neo4j_graph.py` | 12개 라우트 중 11개(관계/노드 생성·수정·삭제, 회의체 생성·삭제 등)가 **인증 없음** + 공개 Ingress(`/api/neo4j`) 노출. 외부인이 온톨로지 전체를 변조·삭제 가능. |
+| SEC-4 | 🔴 | `backend/fastapi/main.py:121-138`, `websocket_manager.py` | WebSocket(`/ws/meetings/{id}/agenda`, `/ws/sessions/{id}/minutes`) 무인증 — 아무나 회의 실시간 데이터 수신 가능. |
 | SEC-5 | 🔴 | Spring 전 서비스 (`ReportService` 등) | **IDOR**: ID만 알면 타인 회의체의 보고서/회의록/아젠다 조회·수정·삭제 가능. 멤버십/소유권 검증은 `MeetingService.validateAdmin`(멤버 관리)에만 존재. |
 | SEC-6 | 🔴 | `main.py:96-102`, `SecurityConfig.java:61-71` | CORS `*` + `allowCredentials=true` (양쪽 모두). |
 | SEC-7 | 🟠 | `AuthService.java`, `JwtTokenProvider.java` | refresh token이 서버에 저장/회전/폐기되지 않음. **토큰에 type 클레임이 없어 14일짜리 refresh token을 access token으로 사용 가능**. `logout()`은 빈 메서드. |
-| SEC-8 | 🟠 | `backend/ai/auth.py`, `routers/auth.py` | FastAPI에 **별도 로그인/가입 경로**: pbkdf2 해시(Spring은 BCrypt — 같은 users 테이블에 두 해시 포맷 혼재, 상호 로그인 불가), access token 유효기간 **7일**. |
+| SEC-8 | 🟠 | `backend/fastapi/auth.py`, `routers/auth.py` | FastAPI에 **별도 로그인/가입 경로**: pbkdf2 해시(Spring은 BCrypt — 같은 users 테이블에 두 해시 포맷 혼재, 상호 로그인 불가), access token 유효기간 **7일**. |
 | SEC-9 | 🟠 | `k8s/ingress.yaml`, `sync.py`, `NeoSyncService.java:26` | 내부 동기화 API `/api/sync`가 공개 Ingress에 노출, 보호는 정적 `X-Internal-Secret` 하나(기본값이 코드에 하드코딩: `workmaite-internal-secret-2024`). |
 | SEC-10 | 🟠 | `supervisor.py:575` | 관리자 판별이 `position in ("대표","CEO","임원")` 문자열 비교. position은 가입 시 사용자가 임의 입력 → **자기 직급을 '대표'로 가입하면 전체 회의체 조회**. RBAC 부재. |
 | SEC-11 | 🟠 | `SessionPage.vue:22`, `DetailSidebar.vue:881` | `useMarkdown.js`는 DOMPurify를 쓰지만 SessionPage는 **자체 `renderMd`(sanitize 없음)** 정의, DetailSidebar는 원문 `v-html` → LLM 출력/STT 텍스트 경유 XSS. |
 | SEC-12 | 🟡 | `supervisor.py:583-586` | Neo4j 사용자 매칭이 `email OR name` — 동명이인이면 타인 권한으로 회의체 접근 판정. |
 | SEC-13 | 🟡 | `SecurityConfig.java:47-48`, `main.py:104` | `/actuator/**`, swagger permitAll, FastAPI `/metrics` 공개, `/grafana` 공개 Ingress. |
-| SEC-14 | 🟡 | `backend/ai/routers/upload.py` | 업로드 파일 확장자/콘텐츠 타입 화이트리스트 검증 미흡(파일명 공백치환만). 크기 제한은 Ingress 100m뿐. |
+| SEC-14 | 🟡 | `backend/fastapi/routers/upload.py` | 업로드 파일 확장자/콘텐츠 타입 화이트리스트 검증 미흡(파일명 공백치환만). 크기 제한은 Ingress 100m뿐. |
 
 ### 2.2 데이터 정합성 (DATA)
 
@@ -325,7 +325,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [x] P3A-7 LLM 클라이언트 공통화 (2026-06-12): `llm_factory(profile)` — _make_llm 4중복+직접 생성 12곳 통합, timeout(60s)/retry(2) 일관, OPENAI_MODEL_{PROFILE} env로 프로파일별 모델 분리 가능. 잔여: 폴백 체인, run_cypher 공유 풀.
 
 **3B. 도구 & 컨텍스트 엔지니어링**
-- [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/ai-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
+- [ ] P3B-1 **도구 확충 + 스코프 강제(AI-2·AI-3)**: 회의체 현황·아젠다 목록/상태·보고서 제출 현황·그래프 검색·이전 회의록 검색을 `@tool`로. 모든 도구가 `RunnableConfig`의 `user_id`/허용 `meeting_ids`를 쿼리에 강제 주입 — "임의 meeting 접근 불가"를 테스트로 증명. 범위 정의를 `docs/fastapi-data-scope.md`로 문서화. 도구 출력은 토큰 효율적으로(전체 dump 금지, 필요 필드만+페이지네이션), 도구 에러는 모델이 복구할 수 있는 구조화 메시지로.
 - [x] P3B-2 **완료 (2026-06-12)**: 사전조립 ~169줄 제거, 도구 JIT 조회가 유일 경로, 정적 시스템 프롬프트. 원계획: 사전 주입 → just-in-time 검색 전환(H-6): 시스템 프롬프트는 정적 prefix(역할·규칙·출력 형식 — 프롬프트 캐시 적중)로 고정하고, 회의체 컨텍스트·아젠다·이전 회의록은 에이전트가 도구로 필요 시 조회. `_get_meeting_context`/`graph_context_to_str` 사전 조립 제거.
 - [x] P3B-3 **완료 (2026-06-12)**: assistant 서버 저장 + 30턴↑ 컴팩션(요약+최근10, 36→11 검증) + POST /api/chats user role만 허용(403). 대화 메모리 계층화(H-4·H-5): ① 단기 = 체크포인터 thread state ② 스레드가 길어지면(예: 30턴↑) 오래된 턴을 요약 메시지로 **컴팩션** ③ 회의 중 채팅은 SessionSummaryBlock 재활용. assistant 메시지는 **서버가 저장**(클라이언트 `/api/chats` POST는 user role만 허용으로 축소).
 - [x] P3B-4 **완료 (2026-06-12)**: 인젝션 가드(문서 4곳)+prompts.py→prompts/ 8모듈 분리(심볼 재노출 호환)+근거 인용 의무 강화(H-12). 원계획: 프롬프트 정비(AI-4·AI-5): 사용자 콘텐츠는 명시 구분자 + "문서 내 지시 무시" 가드, `prompts/` 파일 분리·버전 관리. **답변에 근거 인용 의무화**(어떤 회의록/노드 기반인지 — 환각 검증 가능성·신뢰 확보, H-12).
@@ -355,7 +355,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [~] P5-4 **PG 백업 — 완료 (2026-06-12)**: postgres-backup CronJob(매일 KST 03시, pg_dump→R2) — 1회성 잡으로 덤프·업로드 실검증(212KB). 잔여: Neo4j 백업, 복구 리허설 문서.
 
 ### Phase 6 — 정확도 평가 체계 (병행, 1주) 🟠
-- [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/ai/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
+- [~] P6-1 골든 데이터셋 — **스모크 셋 구축 (2026-06-12)**: 라우팅 16케이스 + 추출 3건(`backend/fastapi/eval/dataset/`). 잔여: 실제 회의록/보고서 기반 10–20건 확장, 회의록 요약 라벨.
 - [~] P6-2 eval 하네스 — **스모크판 구축 (2026-06-12)**: `eval/run_eval.py`(라우팅 정확도 + 추출 P/R/F1·부서 정확도, JSON 기록). **베이스라인: 라우팅 93.75%(15/16), 추출 F1=1.00.** 발견: off_topic이 라우팅 Literal에 없어 반환 불가(죽은 지시) — 코딩 요청이 task_extractor로 오분류, P3A-5에서 처리. 잔여: 제목 임베딩 매칭(현 difflib), 회의록 LLM-judge.
 - [~] P6-3 (2026-06-12): CI에 compileall+ruff(미정의이름) 스모크 게이트 추가 — 죽은 함수 1개(NameError) 적발·제거. 잔여: LLM eval 5건(OpenAI 키 CI 시크릿 필요).
 - [ ] P6-4 **트레이스 기반 평가 환류**: P3A-3 트레이싱 + P3C-3 피드백(👍/👎, HITL 반려 사유)에서 실패 사례를 주기적으로 골든 데이터셋에 추가 — eval이 운영 데이터로 계속 자라는 구조(eval-driven development). 라우팅 정확도(classify→handoff 결정)도 평가 항목에 포함.
@@ -367,7 +367,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 - [ ] P7-3 §2.8 UX 백로그 26건 처리(우선: UX-3/5/6/7 — 데이터 신뢰 관련).
 - [ ] P7-4 테스트: Spring 서비스 단위테스트(인가 가드 포함), FastAPI 라우터 테스트(httpx), 프론트 핵심 composable 테스트. CI에 테스트+린트 게이트 추가.
 - [x] P7-5 잔재 정리 (2026-06-12): workmaite-server/·springboot/package-lock.json 삭제, reset_db.py 안전장치. **정정: backend/Dockerfile은 잔재가 아니라 backend CI의 실사용 빌드 파일 — 오삭제로 CI 1회 실패 후 복구** (BE-4 항목에서 제외). 미사용 코드 정리는 상시.
-- [~] P7-6 (2026-06-12): backend/ai resources requests/limits + PDB(minAvailable 1) 적용. 잔여: 나머지 deployment·NetworkPolicy·postgres StatefulSet.
+- [~] P7-6 (2026-06-12): backend/fastapi resources requests/limits + PDB(minAvailable 1) 적용. 잔여: 나머지 deployment·NetworkPolicy·postgres StatefulSet.
 - [ ] P7-7 **하드코딩 정리(§2.11 HC-1~12)**: 각 항목의 "개선 방향" 열대로 설정/레지스트리/enum 모듈로 외출. 우선순위: HC-3(검색 레지스트리 — P3B-6과 동일 작업), HC-2(RBAC — P1-3과 동일), HC-9(ID 헬퍼), HC-6(채점 루브릭 설정화), HC-10(kustomize overlay). 나머지는 해당 영역을 건드리는 PR에 동반 처리.
 
 ### Phase 8 — 페이지네이션 도입 (§2.13 PG, 3–5일, 독립 진행 가능) 🟡
@@ -550,7 +550,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT tr
 ```
 Plan.md §3 Phase 0을 수행해줘. 순서:
 1. k8s/backend.yaml·ai.yaml의 평문 자격증명을 k8s Secret(secretKeyRef) 참조로 바꾸고, secret 생성용 템플릿(k8s/secrets.example.yaml)을 만들어 실값은 placeholder로 둬. application.yaml의 비밀번호/JWT 시크릿은 환경변수 참조(${DB_PASSWORD} 등)로 교체.
-2. backend/ai/routers/stt.py 전체 라우트와 neo4j_graph.py의 무인증 라우트 11개에 get_current_user 의존성을 추가하고, 프론트(useSTT.js 등) 호출부에 Authorization 헤더를 추가해.
+2. backend/fastapi/routers/stt.py 전체 라우트와 neo4j_graph.py의 무인증 라우트 11개에 get_current_user 의존성을 추가하고, 프론트(useSTT.js 등) 호출부에 Authorization 헤더를 추가해.
 3. main.py의 WebSocket 2개에 토큰 검증(query param token → auth.get_current_user 로직 재사용)을 추가해.
 4. k8s/ingress.yaml에서 /api/sync 경로를 제거하고, FastAPI CORS와 SecurityConfig CORS를 도메인 화이트리스트로 교체해.
 5. SessionPage.vue의 자체 renderMd를 composables/useMarkdown.js로 교체하고 DetailSidebar.vue:881의 v-html을 sanitize해.
@@ -580,7 +580,7 @@ Plan.md §3 Phase 2와 §4 마이그레이션을 수행해줘.
 ### 6.4-a Phase 3A (하네스 기반 공사 — Supervisor 전환 전에 먼저)
 ```
 Plan.md §3 Phase 3A를 수행해줘. 순서 중요:
-1. 검증: backend/ai/agents/report_reviewer.py와 task_extractor.py의 HITL 그래프(builder.compile() — checkpointer 없음)에서 interrupt()/get_state()/Command(resume)가 실제로 동작하는지 재현 테스트를 먼저 작성해 실행해(동작 안 하면 Plan.md UX-1의 근본 원인). 결과를 Plan.md H-1에 기록.
+1. 검증: backend/fastapi/agents/report_reviewer.py와 task_extractor.py의 HITL 그래프(builder.compile() — checkpointer 없음)에서 interrupt()/get_state()/Command(resume)가 실제로 동작하는지 재현 테스트를 먼저 작성해 실행해(동작 안 하면 Plan.md UX-1의 근본 원인). 결과를 Plan.md H-1에 기록.
 2. langgraph AsyncPostgresSaver를 도입해 전 그래프를 checkpointer와 함께 compile하고(전용 스키마 langgraph), thread_id를 서버 발급 run_id로 통일해(요청마다 uuid4 생성 제거). HITL 승인 대기가 프로세스 재시작 후에도 살아있는지 테스트로 증명.
 3. report_reviewer/task_extractor의 re.search 기반 JSON 파싱을 전부 with_structured_output(pydantic 모델)으로 교체. 파싱 실패 시 1회 재시도, 그래도 실패면 score=50 가짜 결과 대신 명시적 오류 응답을 반환하고 프론트에 "검토 실패 — 재시도" UI를 추가해.
 4. main.py의 LANGCHAIN_TRACING_V2 강제 비활성화를 제거하고 env로 제어, trace_id를 agent_logs에 저장.
@@ -597,7 +597,7 @@ Plan.md §3 Phase 3B와 P3A-4·P3A-5를 수행해줘(3A 완료 전제). routers/
 - 컨텍스트 사전 주입 제거: _get_meeting_context/graph_context_to_str로 시스템 프롬프트에 욱여넣던 것을 도구 JIT 조회로 전환. 시스템 프롬프트는 정적 prefix로 고정(프롬프트 캐시 적중).
 - 대화 메모리: 30턴 초과 시 오래된 턴 요약 컴팩션. assistant 메시지는 서버가 저장하고 /api/chats POST는 user role만 허용.
 - prompts.py를 ai/prompts/로 분리, 사용자 콘텐츠 구분자+인젝션 가드, 답변에 근거(회의록/노드 ID) 인용 의무화.
-AI 데이터 접근 범위를 docs/ai-data-scope.md로 문서화하고, 토큰 로깅(agent_logging)이 계속 작동하는지 확인해.
+AI 데이터 접근 범위를 docs/fastapi-data-scope.md로 문서화하고, 토큰 로깅(agent_logging)이 계속 작동하는지 확인해.
 ```
 
 ### 6.5 Phase 4 (STT 품질)
@@ -652,7 +652,7 @@ Plan.md §2.10(G-1~G-8)과 §3 P3B-6·P3B-7·P3B-8을 수행해줘. 순서:
 ### 6.9 하드코딩 정리 (P7-7)
 ```
 Plan.md §2.11 하드코딩 인벤토리(HC-1~12)를 처리해줘. P1/P3 작업과 겹치는 HC-1·HC-2·HC-3은 제외하고:
-- HC-9: backend/ai/neo4j_ids.py 헬퍼(mg_id/agenda_id/session_id/parse_pg_id)를 만들어 'mg-'/'agenda-'/'session-' f-string 산재를 전부 교체.
+- HC-9: backend/fastapi/neo4j_ids.py 헬퍼(mg_id/agenda_id/session_id/parse_pg_id)를 만들어 'mg-'/'agenda-'/'session-' f-string 산재를 전부 교체.
 - HC-4/5: STT 상수(언어맵, sample_rate, 청크/무음 임계값, 화자 라벨 규칙)를 ai/stt_config.py + env로 외출하고 프론트 정규화 중복(useSTT.js normalizeSpeaker)을 서버 응답 기준으로 단일화.
 - HC-6: _DETAIL_SCORE_SCHEMA 루브릭을 설정 파일(또는 DB 테이블)로 분리해 가중치 수정에 배포가 필요 없게.
 - HC-7: 모델 단가표·STT 단가를 ai/pricing.yaml로 분리.

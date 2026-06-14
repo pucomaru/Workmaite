@@ -1,13 +1,24 @@
 package com.workmaite.domain.minutes.controller;
 
-import com.workmaite.domain.minutes.dto.*;
+import com.workmaite.domain.minutes.dto.MinutesConfirmRequest;
+import com.workmaite.domain.minutes.dto.MinutesGenerateRequest;
+import com.workmaite.domain.minutes.dto.MinutesResponse;
+import com.workmaite.domain.minutes.dto.MinutesSummaryRequest;
+import com.workmaite.domain.minutes.dto.MinutesSummaryResponse;
+import com.workmaite.domain.minutes.dto.MinutesUpdateRequest;
 import com.workmaite.domain.minutes.service.MinutesService;
 import com.workmaite.global.common.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 회의록 관련 API POST /api/v1/sessions/{sessionId}/minutes/generate - 회의록 생성 GET

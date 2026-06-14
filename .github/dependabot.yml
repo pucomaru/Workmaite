@@ -13,7 +13,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: "uv"
-    directory: "/backend/ai"
+    directory: "/backend/fastapi"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 5

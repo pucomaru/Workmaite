@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { apiAI } from '../api'
 
 /**
@@ -8,7 +8,15 @@ import { apiAI } from '../api'
  */
 export const availableModels = ref([])
 export const defaultModel = ref('')
-export const selectedModel = ref(null) // null = 서버 기본 모델 사용
+// null = 서버 기본 모델 사용. 새로고침 후에도 헤더와 표시가 일치하도록 sessionStorage에서 복원.
+export const selectedModel = ref(sessionStorage.getItem('llm_model') || null)
+
+// 선택 모델을 sessionStorage에 동기화 — api 인터셉터/streamPost가 모든 요청에
+// X-LLM-Model 헤더로 실어 보낸다(순환 import 회피). null이면 헤더 미부착(서버 기본).
+watch(selectedModel, v => {
+  if (v) sessionStorage.setItem('llm_model', v)
+  else sessionStorage.removeItem('llm_model')
+})
 
 let _loaded = false
 

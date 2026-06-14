@@ -121,6 +121,9 @@ export const apiAI = axios.create({ baseURL: AI_BASE_URL, timeout: 30000 })
 apiAI.interceptors.request.use(config => {
   const token = sessionStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // 사용자가 고른 LLM 모델을 모든 AI 요청에 적용 (P1)
+  const model = sessionStorage.getItem('llm_model')
+  if (model) config.headers['X-LLM-Model'] = model
   return config
 })
 
@@ -258,10 +261,15 @@ export async function streamPost(
   // 만료 임박 시 미리 갱신 (스트림 도중 토큰 만료 방지)
   await ensureFreshToken()
 
+  const _model = sessionStorage.getItem('llm_model')
   const doFetch = tok =>
     fetch(`${AI_BASE_URL}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tok}`,
+        ...(_model ? { 'X-LLM-Model': _model } : {}),
+      },
       body: JSON.stringify(body),
       signal: options.signal, // 중단 버튼 (P3A-6) — abort 시 서버 generator도 취소됨
     })
@@ -298,10 +306,14 @@ export async function streamPost(
 export async function streamPostForm(path, formData, onEvent) {
   await ensureFreshToken()
 
+  const _model = sessionStorage.getItem('llm_model')
   const doFetch = tok =>
     fetch(`${AI_BASE_URL}${path}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${tok}` },
+      headers: {
+        Authorization: `Bearer ${tok}`,
+        ...(_model ? { 'X-LLM-Model': _model } : {}),
+      },
       body: formData,
     })
 

@@ -1,6 +1,11 @@
 package com.workmaite.domain.minutes.service;
 
-import com.workmaite.domain.minutes.dto.*;
+import com.workmaite.domain.minutes.dto.MinutesConfirmRequest;
+import com.workmaite.domain.minutes.dto.MinutesGenerateRequest;
+import com.workmaite.domain.minutes.dto.MinutesResponse;
+import com.workmaite.domain.minutes.dto.MinutesSummaryRequest;
+import com.workmaite.domain.minutes.dto.MinutesSummaryResponse;
+import com.workmaite.domain.minutes.dto.MinutesUpdateRequest;
 import com.workmaite.domain.minutes.entity.Minutes;
 import com.workmaite.domain.minutes.entity.MinutesStatus;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
