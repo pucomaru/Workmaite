@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import re
@@ -26,6 +27,7 @@ from routers.prompts import (
 from llm.agent_logging import log_agent_run
 
 MODEL = os.environ["OPENAI_MODEL"]
+logger = logging.getLogger(__name__)
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -95,6 +97,41 @@ class DirectReview(BaseModel):
     element_scores: List[ElementScore] = Field(default_factory=list)
     principles: ReviewPrinciples = Field(default_factory=ReviewPrinciples)
     missing_elements: List[str] = Field(default_factory=list)
+
+
+# ── Archive Analysis Schemas ───────────────────────────────────────────────
+class ArchiveSubScore(BaseModel):
+    score: int = Field(0, ge=0)
+    max: int = Field(0, ge=0)
+
+
+class ArchiveCategoryResult(BaseModel):
+    score: int = Field(0, ge=0, le=100)
+    max: int = Field(0)
+    sub_scores: dict[str, ArchiveSubScore] = Field(default_factory=dict)
+    strengths: List[str] = Field(default_factory=list)
+    improvements: List[str] = Field(default_factory=list)
+
+
+class ArchiveTopImprovement(BaseModel):
+    category: str = Field("")
+    action: str = Field("")
+
+
+class ArchiveMatchedAgenda(BaseModel):
+    id: str = Field("")
+    content: str = Field("")
+    reason: str = Field("")
+
+
+class ArchiveAnalysisResult(BaseModel):
+    score: int = Field(0, ge=0, le=100)
+    detail_scores: dict[str, ArchiveCategoryResult] = Field(default_factory=dict)
+    top_improvements: List[ArchiveTopImprovement] = Field(default_factory=list)
+    feedback: List[str] = Field(default_factory=list)
+    matched_agendas: List[ArchiveMatchedAgenda] = Field(default_factory=list)
+    agendas: List[dict] = Field(default_factory=list)
+    related_depts: List[str] = Field(default_factory=list)
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────
@@ -424,15 +461,14 @@ def _candidate_agendas_to_str(candidate_agendas: List[dict]) -> str:
 async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
     from agents.knowledge_manager import search_knowledge
 
-    query = " ".join(
-        filter(
-            None,
-            [
-                state.get("file_name", ""),
-                (state.get("file_content", "") or "")[:500],
-            ],
-        )
-    ).strip()
+    file_name = state.get("file_name", "")
+    dept_name = state.get("dept_name", "")
+    content = state.get("file_content", "") or ""
+    # 파일명이 "보고자료_최종.pdf"처럼 내용을 담지 않는 경우를 보완하기 위해
+    # 단순 content[:500] 대신 의미 있는 단락 우선 추출
+    paragraphs = [p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 15]
+    content_excerpt = " ".join(paragraphs[:5])[:600] if paragraphs else content[:500]
+    query = " ".join(filter(None, [dept_name, file_name, content_excerpt])).strip()
     if not query:
         return {"retrieved_context": ""}
 
@@ -451,32 +487,37 @@ async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
 
 
 async def _archive_analyze_node(state: ArchiveFileState) -> dict:
-    llm = _make_llm(temperature=0.2)
-
     candidate_str = _candidate_agendas_to_str(state.get("candidate_agendas", []))
     graph_context = state.get("graph_context", "") or ""
     retrieved = state.get("retrieved_context", "")
     if retrieved:
         graph_context = f"{graph_context}\n\n[관련 지식 검색 결과]\n{retrieved}".strip()
 
-    response = await llm.ainvoke(
-        [
-            SystemMessage(content=ANALYZE_FILE_SYSTEM),
-            HumanMessage(
-                content=analyze_file_human(
-                    state.get("file_name", ""),
-                    state.get("file_type", ""),
-                    state.get("dept_name", ""),
-                    state.get("file_content", ""),
-                    graph_context,
-                    candidate_str,
-                )
-            ),
-        ]
-    )
+    messages = [
+        SystemMessage(content=ANALYZE_FILE_SYSTEM),
+        HumanMessage(
+            content=analyze_file_human(
+                state.get("file_name", ""),
+                state.get("file_type", ""),
+                state.get("dept_name", ""),
+                state.get("file_content", ""),
+                graph_context,
+                candidate_str,
+            )
+        ),
+    ]
+    candidate_agendas = state.get("candidate_agendas", [])
 
-    text = cast(str, response.content or "").strip()
-    return {"result": _parse_archive_result(text, state.get("candidate_agendas", []))}
+    try:
+        llm = llm_factory("review", temperature=0.1, streaming=False)
+        structured = await ainvoke_structured(llm, ArchiveAnalysisResult, messages, retries=1)
+        return {"result": _format_archive_result(structured.model_dump(), candidate_agendas)}
+    except StructuredOutputError as e:
+        logger.warning(f"[archive-analyze] structured output 실패, 자유 텍스트 폴백: {e}")
+        llm_fallback = _make_llm(temperature=0.2)
+        response = await llm_fallback.ainvoke(messages)
+        text = cast(str, response.content or "").strip()
+        return {"result": _parse_archive_result(text, candidate_agendas)}
 
 
 _DETAIL_SCORE_SCHEMA: dict[str, dict[str, Any]] = {
@@ -552,47 +593,41 @@ def _validate_detail_scores(raw: dict) -> dict:
     return result
 
 
-def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
-    match = re.search(r"\{[\s\S]*\}", text or "")
-    parsed = {}
-    if match:
-        try:
-            parsed = json.loads(match.group(0))
-        except Exception:
-            parsed = {}
+def _format_archive_result(parsed: dict, candidate_agendas: List[dict]) -> dict:
+    """dict (structured output model_dump 또는 regex 파싱 결과) → 검증된 최종 결과.
 
+    _validate_detail_scores가 sub_score 합계를 재계산하고 max 값을 스키마 기준으로 교정한다.
+    """
     raw_detail = parsed.get("detail_scores", {})
     detail_scores = _validate_detail_scores(raw_detail)
     computed_score = sum(v["score"] for v in detail_scores.values())
-    score = computed_score if raw_detail else int(parsed.get("score", 70))
+    score = computed_score if raw_detail else max(0, min(int(parsed.get("score", 0)), 100))
 
     valid_ids = {
         str(ag.get("id"))
         for ag in candidate_agendas or []
         if isinstance(ag, dict) and ag.get("id") is not None
     }
-    raw_matched = parsed.get("matched_agendas")
-    if raw_matched is None:
-        single = parsed.get("matched_agenda")
-        raw_matched = [single] if isinstance(single, dict) else []
-    matched_agendas = []
-    seen_ids = set()
-    for m in raw_matched if isinstance(raw_matched, list) else []:
+    raw_matched = parsed.get("matched_agendas") or []
+    if not isinstance(raw_matched, list):
+        raw_matched = []
+    matched_agendas: List[dict] = []
+    seen_ids: set[str] = set()
+    for m in raw_matched:
         if not isinstance(m, dict):
             continue
-        mid = str(m.get("id"))
+        mid = str(m.get("id", ""))
         if mid in valid_ids and mid not in seen_ids:
             seen_ids.add(mid)
             matched_agendas.append(
-                {
-                    "id": mid,
-                    "content": m.get("content"),
-                    "reason": m.get("reason", ""),
-                }
+                {"id": mid, "content": m.get("content"), "reason": m.get("reason", "")}
             )
 
+    raw_top = parsed.get("top_improvements") or []
     top_improvements = [
-        t for t in parsed.get("top_improvements", []) if isinstance(t, dict)
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in raw_top
+        if t and (isinstance(t, dict) or hasattr(t, "model_dump"))
     ]
 
     return {
@@ -604,6 +639,22 @@ def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
         "agendas": parsed.get("agendas", []),
         "related_depts": parsed.get("related_depts", []),
     }
+
+
+def _parse_archive_result(text: str, candidate_agendas: List[dict]) -> dict:
+    """자유 텍스트에서 JSON 추출 → _format_archive_result (regex 폴백 전용)."""
+    match = re.search(r"\{[\s\S]*\}", text or "")
+    parsed: dict = {}
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+        except Exception:
+            parsed = {}
+    # 레거시 단수 키 처리
+    if "matched_agendas" not in parsed:
+        single = parsed.get("matched_agenda")
+        parsed["matched_agendas"] = [single] if isinstance(single, dict) else []
+    return _format_archive_result(parsed, candidate_agendas)
 
 
 def _build_archive_file_graph():
@@ -650,7 +701,8 @@ async def analyze_archive_file(
         config,
     )
     return final_state.get("result") or {
-        "score": 70,
+        "score": 0,
+        "detail_scores": {},
         "feedback": ["검토 결과를 생성하지 못했습니다."],
         "matched_agendas": [],
         "agendas": [],
@@ -706,7 +758,6 @@ async def analyze_archive_file_stream(
     if retrieved_ctx:
         ctx = f"{ctx}\n\n[관련 지식 검색 결과]\n{retrieved_ctx}".strip()
 
-    llm = _make_llm(temperature=0.2)
     messages = [
         SystemMessage(content=ANALYZE_FILE_SYSTEM),
         HumanMessage(
@@ -721,9 +772,10 @@ async def analyze_archive_file_stream(
         ),
     ]
 
+    # 1단계: 스트리밍으로 토큰 전달 (사용자 UX — 실시간 응답 경험)
     full_text = ""
     try:
-        async for chunk in llm.astream(messages):
+        async for chunk in _make_llm(temperature=0.2).astream(messages):
             token = cast(str, chunk.content or "")
             if token:
                 full_text += token
@@ -732,7 +784,8 @@ async def analyze_archive_file_stream(
         yield {
             "type": "result",
             "data": {
-                "score": 70,
+                "score": 0,
+                "detail_scores": {},
                 "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
                 "matched_agendas": [],
                 "agendas": [
@@ -743,5 +796,16 @@ async def analyze_archive_file_stream(
         }
         return
 
-    result = _parse_archive_result(full_text, candidate_agendas)
+    # 2단계: structured output으로 신뢰할 수 있는 채점 결과 추출
+    # (스트리밍 자유 텍스트는 regex 파싱에 의존해 채점 오류가 무음 발생하므로 별도 호출)
+    try:
+        llm_structured = llm_factory("review", temperature=0.1, streaming=False)
+        structured = await ainvoke_structured(
+            llm_structured, ArchiveAnalysisResult, messages, retries=1
+        )
+        result = _format_archive_result(structured.model_dump(), candidate_agendas)
+    except StructuredOutputError:
+        # structured output 실패 시 스트리밍 텍스트에서 regex 폴백
+        result = _parse_archive_result(full_text, candidate_agendas)
+
     yield {"type": "result", "data": result}

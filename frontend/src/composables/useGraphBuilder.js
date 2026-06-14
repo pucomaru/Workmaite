@@ -1,6 +1,7 @@
 export function useGraphBuilder({
   meetings,
   currentCompany,
+  currentPerson,
   neo4jDepts,
   relatedAgendas,
   manualRelations,
@@ -28,7 +29,34 @@ export function useGraphBuilder({
       return idx
     }
 
-    if (!data.length) return { nodes, edges }
+    if (!data.length) {
+      // 신규 유저(소속 회의체 없음)도 회사·부서·본인만은 시각화한다(빈 화면 방지).
+      const person = currentPerson?.value
+      const coName = currentCompany?.value?.name || person?.company || ''
+      let coIdx = -1
+      if (coName) {
+        coIdx = nodes.length
+        nodes.push({ id: `company-${coName}`, label: coName, type: 'company', data: { name: coName } })
+      }
+      let fbDeptIdx = -1
+      if (person?.department) {
+        fbDeptIdx = nodes.length
+        nodes.push({ id: `dept-${person.department}`, label: person.department, type: 'dept' })
+        if (coIdx >= 0) edges.push({ from: fbDeptIdx, to: coIdx, rel: '소속' })
+      }
+      if (person?.name) {
+        const pIdx = nodes.length
+        nodes.push({
+          id: `person-${person.id || person.email || person.name}`,
+          label: person.name,
+          type: 'person',
+          data: person,
+        })
+        if (fbDeptIdx >= 0) edges.push({ from: pIdx, to: fbDeptIdx, rel: '소속' })
+        else if (coIdx >= 0) edges.push({ from: pIdx, to: coIdx, rel: '소속' })
+      }
+      return { nodes, edges }
+    }
 
     data.forEach((g, gi) => {
       const rawId = g.id || gi
@@ -133,29 +161,10 @@ export function useGraphBuilder({
           meetingId: mgNodeId,
           neo4jId: task.id || null,
         })
+        // 아젠다는 '부서(관할)'에 연결한다. depts가 있으면 connIdx=부서 노드라 agenda→부서 관할이 그려진다.
+        // (이전에 그리던 사람→아젠다 '담당' 엣지는 제거 — 담당자 정보는 노드 상세에서 확인)
         edges.push({ from: agIdx, to: connIdx, rel: '관할' })
         if (connIdx !== mgIdx) edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
-        const assigneeNames = task.assignee_names?.length
-          ? task.assignee_names
-          : task.assignee_name
-            ? [task.assignee_name]
-            : []
-        if (assigneeNames.length > 0) {
-          for (const aName of assigneeNames) {
-            const pIdx = personIdxByKey.get(aName) ?? -1
-            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
-          }
-        } else {
-          const assigneeDept = task.assignee_dept || depts[0]
-          const fallbackMembers = membersByDept.get(assigneeDept) || []
-          if (fallbackMembers.length > 0) {
-            const fb = fallbackMembers[0]
-            const fbKey = fb.userId || fb.email || fb.userName || fb.name || 0
-            const pIdx =
-              personIdxByKey.get(String(fbKey)) ?? personIdxByKey.get(fb.userName || fb.name) ?? -1
-            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
-          }
-        }
         agendaIdxById.set(String(task.id), agIdx)
         if (task.id != null) globalAgendaIdxMap.set(String(task.id), agIdx)
       }
@@ -191,7 +200,7 @@ export function useGraphBuilder({
           data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
         })
-        edges.push({ from: sIdx, to: mgIdx, rel: '개최' })
+        // 회의(session)는 회의체(meetings)에 직접 연결하지 않는다(요청) — 회의록/아젠다를 통해 연결됨
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)

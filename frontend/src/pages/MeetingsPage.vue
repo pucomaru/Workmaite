@@ -14,14 +14,13 @@ import DateInput from '../components/DateInput.vue'
 import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 
 const mgColumns = [
-  { label: '', width: '28px' },
   { label: '회의체명', sortKey: 'title' },
-  { label: '역할', width: '60px', sortKey: '_role' },
-  { label: '유형', width: '100px', sortKey: 'meeting_type' },
-  { label: '간사', width: '60px', sortKey: '_adminName' },
-  { label: '참여조직', width: '100px', sortKey: '_companyCount' },
-  { label: '참여자', width: '60px', sortKey: '_memberCount' },
-  { label: '', width: '72px', noResize: true },
+  { label: '역할', width: '100px', sortKey: '_role' },
+  { label: '유형', width: '130px', sortKey: 'meeting_type' },
+  { label: '간사', width: '120px', sortKey: '_adminName' },
+  { label: '참여조직', width: '150px', sortKey: '_companyCount' },
+  { label: '참여자', width: '100px', sortKey: '_memberCount' },
+  { label: '', width: '170px', noResize: true },
 ]
 
 const meetingsStore = useMeetingsStore()
@@ -142,6 +141,7 @@ async function submitCreate() {
       if (mb.userId === myId) continue // 생성 시 서버가 자동으로 admin 추가
       await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
     }
+    await loadMembers(meeting.id)
     showCreate.value = false
   } catch (e) {
     toast.error(e.response?.data?.detail || '생성 실패')
@@ -152,7 +152,18 @@ async function submitCreate() {
 
 // ── End (종료 처리) ──────────────────────────────────────────
 const endingId = ref(null)
-async function endMeeting(m) {
+const endTarget = ref(null)
+
+function confirmEnd(m) {
+  endTarget.value = m
+}
+function cancelEnd() {
+  endTarget.value = null
+}
+async function executeEnd() {
+  const m = endTarget.value
+  if (!m) return
+  endTarget.value = null
   endingId.value = m.id
   try {
     await meetingsStore.terminateMeeting(m.id)
@@ -405,9 +416,6 @@ onMounted(async () => {
         >
           <tr v-for="g in pagedGroups" :key="g.id" class="mg-row">
             <td>
-              <div class="mg-status-dot" :class="g.status === 'ended' ? 'ended' : 'active'"></div>
-            </td>
-            <td>
               <div class="mg-row-title">{{ g.title }}</div>
             </td>
             <td>
@@ -484,7 +492,7 @@ onMounted(async () => {
                 <button
                   v-if="canManage(g) && statusTab === 'active'"
                   class="mg-action-btn mg-btn-end"
-                  @click.stop="endMeeting(g)"
+                  @click.stop="confirmEnd(g)"
                   :disabled="endingId === g.id"
                 >
                   <svg
@@ -525,7 +533,7 @@ onMounted(async () => {
             </td>
           </tr>
           <tr v-for="i in mgFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in mgColumns" :key="ci">&nbsp;</td>
+            <td v-for="(c, ci) in mgColumns" :key="ci"></td>
           </tr>
         </AppTable>
       </template>
@@ -579,11 +587,11 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>시작일</label>
-                <DateInput v-model="createForm.start_date" class="app-modal-input" />
+                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
                 <label>종료일</label>
-                <DateInput v-model="createForm.end_date" class="app-modal-input" />
+                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">
@@ -624,6 +632,38 @@ onMounted(async () => {
       />
     </Teleport>
 
+    <!-- 종료 확인 모달 -->
+    <Teleport to="body">
+      <div v-if="endTarget" class="app-modal-backdrop" @click.self="cancelEnd">
+        <div class="app-modal delete-confirm-modal">
+          <div class="app-modal-header">
+            <span class="app-modal-title">회의체 종료</span>
+            <button class="app-modal-close" @click="cancelEnd">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="delete-confirm-body">
+            <div class="delete-confirm-icon">
+              <svg width="28" height="28" fill="none" stroke="#f59e0b" stroke-width="1.8" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 8v4M12 16h.01" />
+              </svg>
+            </div>
+            <p class="delete-confirm-msg">
+              {{ endTarget.title }} 회의체를 종료합니다.<br />
+              <span class="delete-confirm-sub">종료된 회의체는 더 이상 회의를 진행할 수 없습니다.</span>
+            </p>
+          </div>
+          <div class="app-modal-footer">
+            <button class="app-btn-cancel" @click="cancelEnd">취소</button>
+            <button class="app-btn-danger" @click="executeEnd">종료</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- 삭제 확인 모달 -->
     <Teleport to="body">
       <div v-if="deleteTarget" class="app-modal-backdrop" @click.self="cancelDelete">
@@ -658,7 +698,7 @@ onMounted(async () => {
               </svg>
             </div>
             <p class="delete-confirm-msg">
-              <strong>{{ deleteTarget.title }}</strong> 회의체를 삭제합니다.<br />
+              {{ deleteTarget.title }} 회의체를 삭제합니다.<br />
               <span class="delete-confirm-sub"
                 >보고서, 아젠다, 회의록 등 관련 데이터가 모두 삭제되며<br />이 작업은 되돌릴 수
                 없습니다.</span
@@ -679,7 +719,6 @@ onMounted(async () => {
 .mg-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
 }
 
 /* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용
@@ -843,13 +882,13 @@ onMounted(async () => {
 }
 .delete-confirm-msg {
   font-size: 13px;
-  color: var(--dark-text);
+  color: #111827;
   line-height: 1.6;
   margin: 0;
 }
 .delete-confirm-sub {
   font-size: 11.5px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 .app-btn-danger {
   padding: 7px 18px;

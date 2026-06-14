@@ -9,6 +9,7 @@ Ingress: /api/upload → FastAPI (workmaite-ai:8000)
 """
 
 import logging
+import re
 import uuid
 from typing import Optional
 
@@ -547,6 +548,27 @@ async def delete_report(
 # ── 회의록 HTML → PDF 변환 후 R2 저장 ───────────────────────────────────────
 
 
+def _first_sentence_title(html: str) -> str:
+    """회의록 본문(Tiptap HTML/마크다운)에서 첫 문장을 제목으로 추출한다.
+
+    태그·마크다운 머리표를 제거하고 첫 종결부호(. ! ? 。) 또는 줄바꿈까지를 취한다.
+    맨 앞이 '회의록' 같은 일반 머리글이면 다음 의미있는 문장을 사용한다. 최대 60자.
+    """
+    text = re.sub(r"<[^>]+>", " ", html or "")  # HTML 태그 제거
+    text = text.replace("&nbsp;", " ")
+    # 줄 단위로 보며 의미있는 첫 줄을 찾는다
+    for raw_line in re.split(r"[\r\n]+", text):
+        line = re.sub(r"^[#>*\-\s]+", "", raw_line).strip()  # 마크다운 머리표 제거
+        line = re.sub(r"\s+", " ", line)
+        if not line or line in ("회의록", "회의록.", "# 회의록"):
+            continue
+        # 첫 문장만 (종결부호까지)
+        m = re.match(r"^(.+?[.!?。])(\s|$)", line)
+        first = (m.group(1) if m else line).strip()
+        return first[:60]
+    return ""
+
+
 @router.post("/minutes/{session_id}")
 async def upload_minutes(
     session_id: int,
@@ -578,10 +600,10 @@ async def upload_minutes(
         )
         raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
 
-    safe_title = (
-        (session.title or f"회의_{session_id}").replace("/", "_").replace(" ", "_")
-    )
-    clean_name = f"{safe_title}_회의록.pdf"
+    # 저장되는 회의록 제목 = 본문 첫 문장. 없으면 세션 제목으로 폴백.
+    doc_title = _first_sentence_title(content) or (session.title or f"회의_{session_id}")
+    safe_title = doc_title.replace("/", "_").replace(" ", "_")[:60]
+    clean_name = f"{safe_title}.pdf"
     key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{clean_name}"
     stored_name = clean_name
     r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
@@ -608,12 +630,13 @@ async def upload_minutes(
         result = db.execute(
             text("""
             INSERT INTO minutes (session_id, file_name, file_path, recorder_id, content_summary, status, generated_at)
-            VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, 'DRAFT', NOW())
+            VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, 'completed', NOW())
             ON CONFLICT (session_id) DO UPDATE SET
                 file_name        = EXCLUDED.file_name,
                 file_path        = EXCLUDED.file_path,
                 recorder_id      = EXCLUDED.recorder_id,
                 content_summary  = EXCLUDED.content_summary,
+                status           = 'completed',
                 generated_at     = NOW()
             RETURNING id
         """),
@@ -644,6 +667,9 @@ async def upload_minutes(
             minutes_id=minutes_id,
             session_id=session_id,
             content_summary=content[:500],
+            file_name=stored_name,
+            file_path=r2_url,
+            status="completed",
         )
 
         # ── commit 후 SELECT로 실제 저장 값 검증 ──────────────────

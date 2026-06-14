@@ -31,7 +31,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       조직
     </div> -->
     <div class="legend-onto-item" style="cursor: default">
-      <div class="legend-onto-dot legend-dot-circle" style="background: #3b82f6"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #60a5fa, #2563eb)"
+      ></div>
       회의체
     </div>
     <div
@@ -39,7 +42,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('company') }"
       @click="toggleNodeType('company')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #0d9488"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #5eead4, #0d9488)"
+      ></div>
       조직
       <svg
         class="legend-eye"
@@ -67,7 +73,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('dept') }"
       @click="toggleNodeType('dept')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #8b5cf6"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed)"
+      ></div>
       부서
       <svg
         class="legend-eye"
@@ -95,7 +104,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('agenda') }"
       @click="toggleNodeType('agenda')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #f59e0b"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706)"
+      ></div>
       아젠다
       <svg
         class="legend-eye"
@@ -123,7 +135,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('session') }"
       @click="toggleNodeType('session')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #f97316"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #fdba74, #ea580c)"
+      ></div>
       회의
       <svg
         class="legend-eye"
@@ -151,7 +166,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('minutes') }"
       @click="toggleNodeType('minutes')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #60a5fa"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #67e8f9, #0891b2)"
+      ></div>
       회의록
       <svg
         class="legend-eye"
@@ -179,7 +197,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('report') }"
       @click="toggleNodeType('report')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #34d399"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #6ee7b7, #059669)"
+      ></div>
       보고자료
       <svg
         class="legend-eye"
@@ -207,7 +228,10 @@ const { loading, viewMode, detailOpen, sidebarW, isHiddenType, toggleNodeType } 
       :class="{ 'legend-item-hidden': isHiddenType('person') }"
       @click="toggleNodeType('person')"
     >
-      <div class="legend-onto-dot legend-dot-circle" style="background: #f472b6"></div>
+      <div
+        class="legend-onto-dot legend-dot-circle"
+        style="background: radial-gradient(circle at 38% 38%, #f9a8d4, #db2777)"
+      ></div>
       인원
       <svg
         class="legend-eye"

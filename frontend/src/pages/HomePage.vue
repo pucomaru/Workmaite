@@ -237,6 +237,14 @@ const displayActiveMeetings = computed(() =>
   })),
 )
 
+// 예정된 회의 행 클릭 → 회의 탭으로 이동(해당 회의체 expanded + 회의 선택 + AI 실시간 요약)
+function goToSession(s) {
+  router.push({
+    path: '/session-record',
+    query: { meetingId: s.meetingId, sessionId: s.id },
+  })
+}
+
 // 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const sessionColumns = [
   { label: '회의명', sortKey: 'title' },
@@ -324,7 +332,12 @@ const {
               :sortDir="sessionSortDir"
               @sort="handleSessionSort"
             >
-              <tr v-for="s in pagedSessions" :key="s.id" style="cursor: pointer">
+              <tr
+                v-for="s in pagedSessions"
+                :key="s.id"
+                style="cursor: pointer"
+                @click="goToSession(s)"
+              >
                 <td>
                   <div class="fw-semibold">{{ s.title }}</div>
                 </td>

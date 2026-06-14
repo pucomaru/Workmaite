@@ -10,11 +10,6 @@ const emit = defineEmits(['close', 'save', 'delete'])
 
 // 부모 소유 편집 draft를 로컬 별칭으로 in-place 편집 (동일 참조)
 const form = computed(() => props.modal?.form || {})
-
-const STATUS_OPTIONS = [
-  { value: 'DRAFT', label: '초안' },
-  { value: 'completed', label: '완료' },
-]
 </script>
 
 <template>
@@ -48,16 +43,6 @@ const STATUS_OPTIONS = [
               class="app-modal-input"
               placeholder="파일명을 입력하세요"
             />
-          </div>
-
-          <!-- 상태 -->
-          <div class="app-modal-field">
-            <label>상태</label>
-            <select v-model="form.status" class="app-modal-input">
-              <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
-                {{ s.label }}
-              </option>
-            </select>
           </div>
         </div>
 

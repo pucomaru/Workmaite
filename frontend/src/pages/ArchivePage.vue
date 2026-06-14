@@ -22,6 +22,7 @@ import GraphLegend from '../components/GraphLegend.vue'
 import GraphView from '../components/GraphView.vue'
 import MeetingListView from '../components/MeetingListView.vue'
 import MinutesEditModal from '../components/MinutesEditModal.vue'
+import MemberEditModal from '../components/MemberEditModal.vue'
 import RenameModal from '../components/RenameModal.vue'
 import ReportEditModal from '../components/ReportEditModal.vue'
 import SessionEditModal from '../components/SessionEditModal.vue'
@@ -551,11 +552,8 @@ async function startNodeReview(reportId) {
 
   const fileName = detailNode.value?.data?.file_name || '보고자료'
 
-  // 에이전트 사이드바 열기
-  if (!agentSidebarOpen.value) {
-    agentSidebarOpen.value = true
-    initAgentGreeting()
-  }
+  // 에이전트 사이드바 열기 — watch의 자동 히스토리 로드가 아래 push 메시지를 덮어쓰지 않게 managed open
+  if (openSidebarManaged()) initAgentGreeting()
   await nextTick()
 
   allMessages.value['supervisor'].push({
@@ -899,8 +897,9 @@ async function runExtract() {
   const mgTitle = detailMeeting.value?.title || '회의체'
 
   // 채팅 초기화 후 사용자 메시지 + 사고 과정 + 에이전트 응답 슬롯을 순서대로 추가
+  // managed open: watch 자동 히스토리 로드가 방금 세팅한 extract greeting/메시지를 덮어쓰지 않게 함
+  openSidebarManaged()
   allMessages.value['supervisor'] = [{ role: 'agent', content: SUPERVISOR_EXTRACT.greeting }]
-  agentSidebarOpen.value = true
   showExtractFlow.value = true
   extractPhase.value = 'result'
   detailTab.value = 'extract'
@@ -2136,6 +2135,7 @@ const {
   _runPlanningSteps,
   initAgentGreeting,
   runRelationshipAnalysis,
+  openSidebarManaged,
 } = agentChat
 provide('agentSidebar', agentChat)
 
@@ -3109,6 +3109,105 @@ async function saveMinutesEdit() {
   }
 }
 
+// ─── 구성원 정보 수정 모달 (CompanyPage와 동일한 공용 모달 사용) ──────────
+// 공용 MemberEditModal에 넘길 통합 구성원 객체:
+//   { id(=PostgreSQL user id), name, email, company, department, position, role(조직권한), meetings:[{id, member_id, title}] }
+const memberEditModal = ref(null)
+
+async function openMemberEditModal() {
+  const node = detailNode.value
+  if (!node || node.type !== 'person') return
+  const mb = node.data || {}
+  const rawUserId = mb.userId ?? node.neo4jId
+  const numId = toNumericId(node.meetingId)
+
+  // 1) 노드 데이터 기반 1차 표시값 (멤버십/조직권한 조회 실패 시 폴백)
+  memberEditModal.value = {
+    id: toNumericId(rawUserId) || null,
+    name: mb.userName || mb.name || '?',
+    email: mb.email || '',
+    company: mb.company || currentCompany.value?.name || '',
+    department: mb.department || mb.dept || '',
+    position: mb.position || '',
+    role: 'USER',
+    meetings: [],
+  }
+
+  // 2) 회의체 멤버 목록에서 멤버십(member_id)·PostgreSQL user id·프로필을 best-effort 매칭
+  let pgUserId = memberEditModal.value.id
+  if (numId) {
+    try {
+      const res = await api.get(`/api/v1/meetings/${numId}/members`)
+      const list = Array.isArray(res.data) ? res.data : res.data?.data || []
+      const uidNum = toNumericId(rawUserId)
+      const memUid = m => toNumericId(m.user?.id ?? m.user_id ?? m.userId)
+      const found =
+        (uidNum ? list.find(m => memUid(m) === uidNum) : null) ||
+        list.find(m => (m.user?.name || m.userName || m.name) === memberEditModal.value?.name)
+      if (found && memberEditModal.value) {
+        pgUserId = toNumericId(found.user?.id ?? found.user_id) || pgUserId
+        memberEditModal.value = {
+          ...memberEditModal.value,
+          id: pgUserId,
+          name: found.user?.name || memberEditModal.value.name,
+          email: found.user?.email || memberEditModal.value.email,
+          company: found.user?.company || memberEditModal.value.company,
+          department: found.user?.department || memberEditModal.value.department,
+          position: found.user?.position || memberEditModal.value.position,
+          meetings: [
+            { id: numId, member_id: found.id, title: detailMeeting.value?.title || node.label || '' },
+          ],
+        }
+      }
+    } catch {
+      /* 멤버 조회 실패해도 모달은 유지 — 노드 데이터로 표시 */
+    }
+  }
+
+  // 3) 조직 권한(company role)은 회의체 멤버 응답에 없으므로 by-ids로 별도 조회
+  if (pgUserId && memberEditModal.value) {
+    try {
+      const r = await api.get(`/api/v1/users/by-ids?ids=${pgUserId}`)
+      const u = (r.data?.data || r.data || [])[0]
+      if (u && memberEditModal.value) {
+        memberEditModal.value = {
+          ...memberEditModal.value,
+          role: u.role || memberEditModal.value.role,
+          company: u.company || memberEditModal.value.company,
+          department: u.department ?? memberEditModal.value.department,
+          position: u.position ?? memberEditModal.value.position,
+        }
+      }
+    } catch {
+      /* 조직 권한 조회 실패 시 기본값(USER) 유지 */
+    }
+  }
+}
+
+function closeMemberEdit() {
+  memberEditModal.value = null
+}
+
+// 저장 성공: 상세 노드를 새 권한으로 즉시 반영하고 그래프를 갱신
+function onMemberSaved() {
+  const newRole = memberEditModal.value?.role
+  if (detailNode.value?.type === 'person' && newRole) {
+    detailNode.value = {
+      ...detailNode.value,
+      data: { ...detailNode.value.data, role: newRole },
+    }
+  }
+  memberEditModal.value = null
+  setTimeout(refreshArchive, 600)
+}
+
+// 제거 성공: 상세 패널을 닫고 그래프를 갱신
+function onMemberDeleted() {
+  memberEditModal.value = null
+  detailOpen.value = false
+  setTimeout(refreshArchive, 600)
+}
+
 const showSessionEdit = ref(false)
 const sessionEditData = ref(null)
 
@@ -3241,6 +3340,10 @@ async function openNodeGroupSetting() {
   }
   if (detailNode.value.type === 'dept') {
     renameDeptNode()
+    return
+  }
+  if (detailNode.value.type === 'person') {
+    await openMemberEditModal()
     return
   }
   const mgId = detailNode.value.meetingId || detailNode.value.neo4jId
@@ -3677,6 +3780,13 @@ provide('archiveSidebar', {
     @close="closeMinutesEdit"
     @save="saveMinutesEdit"
     @delete="deleteMinutesFromModal"
+  />
+  <MemberEditModal
+    :member="memberEditModal"
+    :night-mode="nightMode"
+    @close="closeMemberEdit"
+    @saved="onMemberSaved"
+    @deleted="onMemberDeleted"
   />
   <RenameModal
     :modal="companyRenameModal"

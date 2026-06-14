@@ -19,7 +19,7 @@ from agents import (
     knowledge_manager as knowledge_agent,
 )
 from core.auth import get_current_user
-from db.database import get_db
+from db.database import get_db, SessionLocal
 from graphdb.neo4j_client import run_cypher
 from services.supervisor_helpers import (
     _log_activity,
@@ -490,6 +490,7 @@ async def analyze_relationships_stream(
             input_data=None,
         )
         _stream_error: BaseException | None = None
+        _assistant_chunks: list[str] = []  # 채팅 영속화용 — 요약 토큰 누적
         try:
             import asyncio as _asyncio
 
@@ -678,6 +679,7 @@ async def analyze_relationships_stream(
                 },
             }
             async for chunk in knowledge_agent.summarize_relationship_analysis(report):
+                _assistant_chunks.append(chunk)
                 yield sse_token(chunk)
 
         except Exception as e:
@@ -689,6 +691,39 @@ async def analyze_relationships_stream(
         finally:
             _token_collector_var.reset(_tok_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
+            # 채팅 기록 영속화 — archive 스레드(archive_<uid>)에 user 요청 + assistant 요약 저장.
+            # 저장하지 않으면 supervisor 채팅과 달리 새로고침/사이드바 재열기 시 분석 대화가 사라진다.
+            try:
+                _assistant_text = "".join(_assistant_chunks).strip()
+                _thread_id = f"archive_{current_user.id}"
+                _save_db = SessionLocal()
+                try:
+                    _save_db.add(
+                        models.ChatMessage(
+                            thread_id=_thread_id,
+                            user_id=current_user.id,
+                            role="user",
+                            content="회의별로 흩어진 지식을 분석해서 연관된 안건·문서를 서로 연결해줘",
+                            context_type="supervisor",
+                        )
+                    )
+                    if _assistant_text:
+                        _save_db.add(
+                            models.ChatMessage(
+                                thread_id=_thread_id,
+                                user_id=current_user.id,
+                                role="assistant",
+                                content=_assistant_text,
+                                context_type="supervisor",
+                            )
+                        )
+                    _save_db.commit()
+                finally:
+                    _save_db.close()
+            except Exception as _persist_err:
+                logger.warning(
+                    f"[analyze-relationships] 채팅 기록 저장 실패: {_persist_err}"
+                )
         yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
