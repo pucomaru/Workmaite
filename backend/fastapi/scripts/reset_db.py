@@ -65,4 +65,4 @@ if __name__ == "__main__":
     if confirm.strip().lower() != "yes":
         print("취소됨.")
     # else:
-        # reset() # 정말 필요한경우에만 주석 제거 후 실행
+    # reset() # 정말 필요한경우에만 주석 제거 후 실행

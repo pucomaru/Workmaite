@@ -39,24 +39,17 @@ async def get_archive(
     user_email = current_user.email or ""
 
     # ── Postgres: 그래프에 포함할 meeting_id 범위 (조회 스코프) ──
-    _raw_ids = {
-        row.meeting_id
-        for row in db.query(models.MeetingMember.meeting_id)
-        .filter(models.MeetingMember.user_id == current_user.id)
-        .all()
-    }
-    # 회사 관리자는 자사 구성원이 참여한 회의체까지 그래프에 포함 (SEC-5/MT)
-    if (
-        current_user.company_role == "COMPANY_ADMIN"
-        and current_user.company_id is not None
-    ):
-        _raw_ids |= {
-            row.meeting_id
-            for row in db.query(models.MeetingMember.meeting_id)
-            .join(models.User, models.User.id == models.MeetingMember.user_id)
-            .filter(models.User.company_id == current_user.company_id)
-            .all()
-        }
+    # access_guard.viewable_meeting_ids로 일원화 — company_role 규칙을 단일 정의에서 따른다.
+    #   SYSTEM_ADMIN → None(전체 회의체), COMPANY_ADMIN → 자사 구성원 참여 회의체, USER → 본인 소속.
+    # (기존엔 SYSTEM_ADMIN을 따로 처리하지 않아 시스템 관리자도 본인 소속 회의체만 보였다 → 전체
+    #  연결관계가 안 보이는 버그.)
+    from core.access_guard import viewable_meeting_ids
+
+    _vis = viewable_meeting_ids(db, current_user)
+    if _vis is None:  # SYSTEM_ADMIN — 전체 회의체
+        _raw_ids = {row.id for row in db.query(models.Meeting.id).all()}
+    else:
+        _raw_ids = set(_vis)
     pg_meeting_ids = {to_mg_id(mid) for mid in _raw_ids}
 
     # ── Step 1+2: User 조회 / company / dept — 동시에 시작 ──────
@@ -145,7 +138,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings) WHERE mg.id IN $ids
+                MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings)
+                WHERE mg.id IN $ids AND coalesce(ag.status, '') <> 'draft'
                 OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
@@ -250,6 +244,46 @@ async def get_archive(
                         "company": row.get("company") or "",
                     }
                 )
+
+    # ── PG meeting_members로 멤버 보완 (권위 소스) ───────────────────────────────
+    # Neo4j 구성원/간사 엣지는 User 동기화 누락 시 빠질 수 있어 참여자(member)가 그래프에서
+    # 사라진다 → PG meeting_members 기준으로 누락 멤버를 채운다. 스코프(allowed_mg_ids)는 이미 적용됨.
+    _mgid_by_pg: dict[int, str] = {}
+    for _mgid in meetings_map:
+        try:
+            _mgid_by_pg[int(str(_mgid).split("-")[-1])] = _mgid
+        except (ValueError, IndexError):
+            pass
+    if _mgid_by_pg:
+        _co_names = {c.id: c.name for c in db.query(models.Company).all()}
+        _mem_rows = (
+            db.query(models.MeetingMember, models.User)
+            .join(models.User, models.User.id == models.MeetingMember.user_id)
+            .filter(
+                models.MeetingMember.meeting_id.in_(list(_mgid_by_pg.keys())),
+                models.User.is_active.is_(True),
+            )
+            .all()
+        )
+        for _mm, _u in _mem_rows:
+            _mk = _mgid_by_pg.get(_mm.meeting_id)
+            if not _mk:
+                continue
+            _members = meetings_map[_mk]["members"]
+            if any(str(m["userId"]) == str(_u.id) for m in _members):
+                continue
+            _members.append(
+                {
+                    "meetingId": _mk,
+                    "userId": _u.id,
+                    "userName": _u.name,
+                    "email": _u.email or "",
+                    "position": _u.position or "",
+                    "role": "admin" if _mm.meeting_role == "admin" else "member",
+                    "department": _u.department or "",
+                    "company": _co_names.get(_u.company_id, "") or "",
+                }
+            )
 
     # 동일 Agenda에 담당 관계가 여러 개면 중복 row가 생기므로 id 기준으로 병합
     agenda_map: dict[str, dict] = {}

@@ -490,8 +490,10 @@ async def sync_session(
         s.description  = $description,
         s.updated_at   = $updated_at
     WITH s
-    MATCH (mg:Meetings {id: $mg_id})
-    MERGE (s)-[:소속]->(mg)
+    OPTIONAL MATCH (mg:Meetings {id: $mg_id})
+    FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (s)-[:소속]->(mg)
+    )
     """
     emb_text = " ".join(filter(None, [title, description, location]))
     embedding, content_hash = await _embed_if_changed("Session", "id", s_id, emb_text)
@@ -589,8 +591,10 @@ async def sync_agenda(
         ag.hitl_reviewed_at = $hitl_reviewed_at,
         ag.updated_at   = $updated_at
     WITH ag
-    MATCH (mg:Meetings {id: $mg_id})
-    MERGE (ag)-[:`관할`]->(mg)
+    OPTIONAL MATCH (mg:Meetings {id: $mg_id})
+    FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (ag)-[:`관할`]->(mg)
+    )
     WITH ag
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
@@ -691,8 +695,10 @@ async def sync_minutes(
         mn.generated_at     = $generated_at,
         mn.updated_at       = $updated_at
     WITH mn
-    MATCH (s:Session {id: $s_id})
-    MERGE (mn)-[:기록]->(s)
+    OPTIONAL MATCH (s:Session {id: $s_id})
+    FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (mn)-[:기록]->(s)
+    )
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
     FOREACH (_ IN CASE WHEN recorder IS NOT NULL THEN [1] ELSE [] END |
@@ -770,8 +776,10 @@ async def sync_report(
         r.hitl_reviewed_at     = $hitl_reviewed_at,
         r.updated_at           = $updated_at
     WITH r
-    MATCH (mg:Meetings {id: $mg_id})
-    MERGE (r)-[:`첨부`]->(mg)
+    OPTIONAL MATCH (mg:Meetings {id: $mg_id})
+    FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (r)-[:`첨부`]->(mg)
+    )
     """
     if related_agenda_ids:
         for ag_id in related_agenda_ids:
@@ -1069,14 +1077,40 @@ async def sync_meeting_relation(
 # 삭제 전파는 실패를 호출자에게 알려야 아웃박스가 재시도할 수 있다 (P2-4)
 # — 예외를 삼키지 않고 전파한다. fire-and-forget이 필요한 호출자는 스스로 감싼다.
 async def delete_meeting(meeting_id: int) -> None:
+    # 회의체 삭제 시 자식 노드(Session/Minutes/Agenda/Report + 청크)까지 함께 제거한다.
+    # Meetings 노드만 DETACH DELETE하면 자식들이 orphan으로 그래프에 남는다(아카이브 ghost).
     await run_cypher(
-        "MATCH (mg:Meetings {id: $id}) DETACH DELETE mg", {"id": to_mg_id(meeting_id)}
+        """
+        MATCH (mg:Meetings {id: $id})
+        OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
+        OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
+        OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg)
+        OPTIONAL MATCH (r:Report)-[:`첨부`]->(mg)
+        OPTIONAL MATCH (rc:ReportChunk)-[:`청크`]->(r)
+        OPTIONAL MATCH (mc:MinutesChunk)-[:`청크`]->(mn)
+        WITH collect(DISTINCT mg) + collect(DISTINCT s) + collect(DISTINCT mn)
+           + collect(DISTINCT ag) + collect(DISTINCT r) + collect(DISTINCT rc)
+           + collect(DISTINCT mc) AS nodes
+        UNWIND nodes AS n
+        DETACH DELETE n
+        """,
+        {"id": to_mg_id(meeting_id)},
     )
 
 
 async def delete_session(session_id: int) -> None:
+    # 세션 삭제 시 그 세션의 회의록(Minutes)+청크도 함께 제거한다. PG 캐스케이드로 minutes가
+    # 지워지면 Neo4j Minutes가 orphan으로 남는다. Minutes는 session_id 속성 또는 `기록` 관계로 연결.
     await run_cypher(
-        "MATCH (s:Session {id: $id}) DETACH DELETE s", {"id": to_session_id(session_id)}
+        """
+        OPTIONAL MATCH (s:Session {id: $id})
+        OPTIONAL MATCH (mn:Minutes) WHERE mn.session_id = $pg_id
+        OPTIONAL MATCH (mc:MinutesChunk)-[:`청크`]->(mn)
+        WITH collect(DISTINCT s) + collect(DISTINCT mn) + collect(DISTINCT mc) AS nodes
+        UNWIND nodes AS n
+        DETACH DELETE n
+        """,
+        {"id": to_session_id(session_id), "pg_id": session_id},
     )
 
 

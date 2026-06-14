@@ -1,14 +1,14 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMeetingsStore } from '../stores/meetings'
 import api from '../api'
+import { useMeetingsStore } from '../stores/meetings'
 
-import AppTable from '../components/AppTable.vue'
 import AppPagination from '../components/AppPagination.vue'
-import { useTableSort } from '../composables/useTableSort'
+import AppTable from '../components/AppTable.vue'
 import { usePagination } from '../composables/usePagination'
-import { fmtISO, getDday, formatDateShort as formatDate } from '../utils/date'
+import { useTableSort } from '../composables/useTableSort'
+import { fmtISO, formatDateShort as formatDate, getDday } from '../utils/date'
 
 const router = useRouter()
 const meetingsStore = useMeetingsStore()
@@ -185,7 +185,7 @@ async function hydrateMeetingMeta() {
   try {
     const { data: activeMeetingsData } = await api.get('/api/v1/me/meetings')
     ;(activeMeetingsData ?? []).forEach(r => {
-      adminMap[r.meetingId] = { adminName: r.adminName || '-', memberCount: r.memberCount ?? 0 }
+      adminMap[r.meetingId] = { adminName: r.adminName || '', memberCount: r.memberCount ?? 0 }
     })
   } catch {}
 
@@ -193,7 +193,7 @@ async function hydrateMeetingMeta() {
   const initial = {}
   active.forEach(m => {
     initial[m.id] = {
-      owner_name: adminMap[m.id]?.adminName ?? '-',
+      owner_name: adminMap[m.id]?.adminName ?? '',
       member_count: adminMap[m.id]?.memberCount ?? 0,
       due_date: null,
     }
@@ -206,7 +206,7 @@ const activeMeetings = computed(() => meetingsStore.meetings.filter(m => m.statu
 const displayActiveMeetings = computed(() =>
   activeMeetings.value.map(m => ({
     ...m,
-    owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '-',
+    owner_name: meetingMeta.value[m.id]?.owner_name ?? m.owner_name ?? '',
     member_count: meetingMeta.value[m.id]?.member_count ?? 0,
     role: meetingsStore.meetingRoles[m.id] ?? null,
   })),
@@ -281,8 +281,9 @@ const {
                 style="vertical-align: -2px"
               >
                 <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" /></svg
-              >예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span>
+                <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+              </svg>
+              예정된 회의 <span class="section-count">({{ upcomingSessions.length }}건)</span>
             </h6>
           </div>
           <div v-if="initialLoading" class="table-loading">
@@ -302,8 +303,8 @@ const {
                 <td>
                   <div class="fw-semibold">{{ s.title }}</div>
                 </td>
-                <td class="text-muted">{{ s.meeting_title || '-' }}</td>
-                <td class="text-muted">{{ s.location || '-' }}</td>
+                <td class="text-muted">{{ s.meeting_title || '' }}</td>
+                <td class="text-muted">{{ s.location || '' }}</td>
                 <td class="text-muted">{{ formatDate(s.date) }}</td>
                 <td class="text-muted">
                   <span
@@ -315,7 +316,7 @@ const {
                 </td>
               </tr>
               <tr v-for="i in sessionFillerCount" :key="`filler-${i}`" class="filler-row">
-                <td v-for="(c, ci) in sessionColumns" :key="ci">&nbsp;</td>
+                <td v-for="(c, ci) in sessionColumns" :key="ci"></td>
               </tr>
             </AppTable>
             <AppPagination
@@ -378,19 +379,19 @@ const {
                   </td>
                   <td>
                     <span class="text-muted" style="font-size: 12px">{{
-                      m.meeting_type || '-'
+                      m.meeting_type || ''
                     }}</span>
                   </td>
                   <td>
                     <span class="text-muted" style="font-size: 12px">{{
-                      m.role === 'admin' ? '간사' : m.role ? '참여자' : '-'
+                      m.role === 'admin' ? '간사' : m.role ? '참여자' : ''
                     }}</span>
                   </td>
-                  <td class="text-muted">{{ m.owner_name || '-' }}</td>
+                  <td class="text-muted">{{ m.owner_name || '' }}</td>
                   <td class="text-muted">{{ m.member_count }}명</td>
                 </tr>
                 <tr v-for="i in meetingFillerCount" :key="`filler-${i}`" class="filler-row">
-                  <td v-for="(c, ci) in meetingColumns" :key="ci">&nbsp;</td>
+                  <td v-for="(c, ci) in meetingColumns" :key="ci"></td>
                 </tr>
               </AppTable>
               <AppPagination

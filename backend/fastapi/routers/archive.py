@@ -55,6 +55,9 @@ router = APIRouter(prefix="/api/agent", tags=["agents"])
 @router.post("/archive/extract-agendas")
 async def archive_extract_agendas(
     meeting_id: int = Form(...),
+    session_id: int | None = Form(
+        None
+    ),  # 출처 회의록 세션(B안) — 추출 아젠다↔회의록 연결 근거
     selected_file_ids: str = Form("[]"),
     selected_similar_docs: str = Form("[]"),
     files: List[UploadFile] = File(default=[]),
@@ -196,6 +199,8 @@ async def archive_extract_agendas(
                 dept_json = [dept_raw] if dept_raw and dept_raw != "null" else None
                 db_agenda = models.Agenda(
                     meeting_id=meeting_id,
+                    # 출처 회의록 세션 — minutes(session_id 1:1)↔agenda 조인/발제세션 근거(B안, DDL 없이).
+                    session_id=session_id,
                     title=title,
                     status="draft",
                     department=dept_json,
@@ -653,6 +658,7 @@ async def commit_draft_agendas(
                     ag.meeting_id,
                     title=ag.title,
                     status=ag.status,
+                    session_id=ag.session_id,  # 출처 회의록 세션 → 발제세션 엣지(minutes↔agenda 조인)
                     assignee_id=ag.assignee_id,
                     priority=ag.priority or "medium",
                     due_date=ag.due_date.isoformat() + "Z" if ag.due_date else None,
@@ -796,6 +802,7 @@ async def update_agenda(
         meeting_id=agenda.meeting_id,
         title=agenda.title,
         status=agenda.status or "ongoing",
+        session_id=agenda.session_id,  # 출처 회의록 세션 유지(발제세션 엣지)
         priority=agenda.priority or "medium",
         due_date=agenda.due_date.isoformat() if agenda.due_date else None,
         department=dept_str,

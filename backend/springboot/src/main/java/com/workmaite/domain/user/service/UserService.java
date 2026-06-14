@@ -12,6 +12,7 @@ import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
+import com.workmaite.global.sync.NeoSyncService;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ public class UserService {
   private final MeetingMemberRepository meetingMemberRepository;
   private final MeetingRepository meetingRepository;
   private final CompanyService companyService;
+  private final NeoSyncService neoSyncService;
 
   public UserResponse getMe(Long userId) {
     User user =
@@ -57,6 +59,7 @@ public class UserService {
     if (request.getPassword() != null && !request.getPassword().isBlank()) {
       user.updatePassword(passwordEncoder.encode(request.getPassword()));
     }
+    neoSyncService.syncUser(userId); // 프로필(이름/부서/회사) 변경을 Neo4j User 노드에 반영
     return UserResponse.from(user);
   }
 
@@ -149,6 +152,7 @@ public class UserService {
 
     user.update(request.getName(), request.getDepartment(), request.getPosition());
     user.assignCompany(companyService.getOrCreate(request.getCompany()));
+    neoSyncService.syncUser(userId); // 프로필(이름/부서/회사) 변경을 Neo4j User 노드에 반영
     return UserResponse.from(user);
   }
 
@@ -208,16 +212,18 @@ public class UserService {
         r.put("ok", false);
         r.put("reason", "이미 가입된 이메일");
       } else {
-        userRepository.save(
-            User.builder()
-                .email(email)
-                .name(name)
-                .passwordHash(passwordEncoder.encode(password))
-                .company(caller.getCompany()) // 관리자와 같은 회사 (정규화 엔티티)
-                .department(blankToNull(row.get("department")))
-                .position(blankToNull(row.get("position")))
-                .mustChangePassword(true) // 최초 로그인 시 변경 강제
-                .build());
+        User saved =
+            userRepository.save(
+                User.builder()
+                    .email(email)
+                    .name(name)
+                    .passwordHash(passwordEncoder.encode(password))
+                    .company(caller.getCompany()) // 관리자와 같은 회사 (정규화 엔티티)
+                    .department(blankToNull(row.get("department")))
+                    .position(blankToNull(row.get("position")))
+                    .mustChangePassword(true) // 최초 로그인 시 변경 강제
+                    .build());
+        neoSyncService.syncUser(saved.getId()); // 새 사용자를 Neo4j User 노드로 동기화
         r.put("ok", true);
       }
       results.add(r);
@@ -230,9 +236,9 @@ public class UserService {
   }
 
   /**
-   * 호출자가 볼 수 있는 사용자 ID 집합 — 본인 + 공유 회의체 인원 + (COMPANY_ADMIN이면) 회사 전원. null이면
-   * 전체(SYSTEM_ADMIN). 활성 여부는 거르지 않는다(by-ids 이름 해석은 비활성도 필요). 회사 전체 디렉터리는
-   * COMPANY_ADMIN/SYSTEM_ADMIN만 — 일반 USER는 회사 전원 노출 금지 (MT-3).
+   * 호출자가 볼 수 있는 사용자 ID 집합 — 본인 + 공유 회의체 인원 + (COMPANY_ADMIN이면) 회사 전원. null이면 전체(SYSTEM_ADMIN). 활성
+   * 여부는 거르지 않는다(by-ids 이름 해석은 비활성도 필요). 회사 전체 디렉터리는 COMPANY_ADMIN/SYSTEM_ADMIN만 — 일반 USER는 회사 전원 노출
+   * 금지 (MT-3).
    */
   private Set<Long> visibleScope(User caller) {
     if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiAI } from '../api'
 import DateInput from './DateInput.vue'
 
@@ -161,8 +161,11 @@ const sec = computed(() => data.value?.sections || null)
           </div>
 
           <div class="app-modal-body">
-            <div class="app-modal-field">
-              <label>🤖 AI 사용</label>
+            <div class="app-modal-field" style="padding: 0px 0px 28px">
+              <label class="tum-m-total"
+                >🤖 LLM 모델별 사용량
+                <span class="tum-accent">총합 {{ fmtCost(sec.ai_model.cost) }}</span>
+              </label>
               <div v-if="!sec.ai_model.by_model.length" class="tum-m-row">
                 <span style="font-size: 12px; color: var(--text-muted, #94a3b8)"
                   >사용 내역 없음</span
@@ -176,7 +179,7 @@ const sec = computed(() => data.value?.sections || null)
                     :style="{ background: modelColor(model.model_name) }"
                   />
                   <span class="tum-m-desc" style="font-weight: 600">{{ model.model_name }}</span>
-                  <span class="tum-m-note">{{ fmtNum(model.total_tokens) }} tokens</span>
+                  <span class="tum-m-note">{{ fmtNum(model.total_tokens) }} 토큰</span>
                   <span class="tum-m-cost">{{ fmtCost(model.cost) }}</span>
                 </div>
                 <!-- 컨텍스트 하위 행 -->
@@ -187,32 +190,18 @@ const sec = computed(() => data.value?.sections || null)
                 >
                   <span class="tum-ctx-indent" />
                   <span class="tum-chip" :class="`ctx-${ctx.group}`">{{ ctx.label }}</span>
-                  <span class="tum-m-desc">{{ fmtNum(ctx.total_tokens) }} tokens</span>
+                  <span class="tum-m-desc">{{ fmtNum(ctx.total_tokens) }} 토큰</span>
                   <span class="tum-m-cost">{{ fmtCost(ctx.cost) }}</span>
                 </div>
               </template>
-              <div v-if="sec.ai_model.by_model.length" class="tum-m-total">
-                <span>AI 비용 합계</span>
-                <span class="tum-accent">{{ fmtCost(sec.ai_model.cost) }}</span>
-              </div>
-            </div>
-
-            <!-- 에이전트(그룹)별 요약 — supervisor/서브에이전트 구분 (P3) -->
-            <div
-              v-if="sec.ai_model.by_agent && sec.ai_model.by_agent.length"
-              class="app-modal-field"
-            >
-              <label>🧩 에이전트별</label>
-              <div v-for="a in sec.ai_model.by_agent" :key="a.key" class="tum-m-row">
-                <span class="tum-chip" :class="`ctx-${a.key}`">{{ a.label }}</span>
-                <span class="tum-m-desc">{{ fmtNum(a.total_tokens) }} tokens</span>
-                <span class="tum-m-cost">{{ fmtCost(a.cost) }}</span>
-              </div>
             </div>
 
             <!-- ② STT (제공자별) -->
-            <div class="app-modal-field">
-              <label>🎙️ 회의</label>
+            <div class="app-modal-field" style="padding: 0px 0px 28px">
+              <label class="tum-m-total"
+                >🎙️ STT 모델별 사용량
+                <span class="tum-accent">총합 {{ fmtCost(sec.stt.total_cost) }}</span>
+              </label>
               <div v-if="!sec.stt.by_provider.length" class="tum-m-row">
                 <span style="font-size: 12px; color: var(--text-muted, #94a3b8)"
                   >사용 내역 없음</span
@@ -222,14 +211,23 @@ const sec = computed(() => data.value?.sections || null)
                 <span class="tum-chip tum-chip-stt">{{ p.label }}</span>
                 <span class="tum-m-desc">{{ fmtMin(p.seconds) }}</span>
                 <span class="tum-m-note">
-                  {{ p.minutes.toFixed(1) }}분 ·
-                  {{ p.cost_per_min > 0 ? `$${p.cost_per_min}/분` : '무료' }}
+                  {{ p.cost_per_min > 0 ? `$${p.cost_per_min}` : '무료' }} ·
+                  {{ p.minutes.toFixed(1) }}분
                 </span>
                 <span class="tum-m-cost">{{ fmtCost(p.cost) }}</span>
               </div>
-              <div v-if="sec.stt.by_provider.length" class="tum-m-total">
-                <span>STT 비용 합계</span>
-                <span class="tum-accent">{{ fmtCost(sec.stt.total_cost) }}</span>
+            </div>
+
+            <!-- 에이전트(그룹)별 요약 — supervisor/서브에이전트 구분 (P3) -->
+            <div
+              v-if="sec.ai_model.by_agent && sec.ai_model.by_agent.length"
+              class="app-modal-field"
+            >
+              <label class="tum-m-total">🧩 에이전트별 사용량</label>
+              <div v-for="a in sec.ai_model.by_agent" :key="a.key" class="tum-m-row">
+                <span class="tum-chip" :class="`ctx-${a.key}`">{{ a.label }}</span>
+                <span class="tum-m-desc">{{ fmtNum(a.total_tokens) }} tokens</span>
+                <span class="tum-m-cost">{{ fmtCost(a.cost) }}</span>
               </div>
             </div>
           </div>

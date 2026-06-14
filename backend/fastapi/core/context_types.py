@@ -42,15 +42,15 @@ def section_of(ctx: str) -> str:
 # ── 에이전트별 사용량 표시 (P3) — supervisor와 서브에이전트를 구분해서 노출 ──────
 # context_type 별 사람이 읽는 라벨 (4섹션 축약 없이 그대로 표시)
 CONTEXT_LABELS = {
-    SUPERVISOR: "Supervisor",
+    SUPERVISOR: "오케스트레이션",
     TASK_EXTRACT: "아젠다 추출",
-    AGENDA_EXTRACTION: "아젠다 추출(분석)",
+    AGENDA_EXTRACTION: "아젠다 추출",
     AGENDA_COMMIT: "아젠다 확정",
     ARCHIVE_ANALYZE: "보고서 분석",
-    ARCHIVE_ANALYZE_STREAM: "보고서 분석(스트림)",
+    ARCHIVE_ANALYZE_STREAM: "보고서 분석",
     REPORT_REVIEW: "보고서 검토",
     MINUTES_GENERATE: "회의록 생성",
-    MINUTES_STREAM: "회의록 생성(스트림)",
+    MINUTES_STREAM: "회의록 생성",
     FILE_EMBED: "파일 임베딩",
 }
 
@@ -68,10 +68,10 @@ AGENT_GROUPS = {
     FILE_EMBED: "embedding",
 }
 AGENT_LABELS = {
-    "supervisor": "Supervisor",
-    "agenda": "아젠다 추출 Agent",
-    "report": "보고서 검토 Agent",
-    "minutes": "회의록 Agent",
+    "supervisor": "오케스트레이션",
+    "agenda": "아젠다 추출",
+    "report": "보고서 검토",
+    "minutes": "회의록 생성",
     "embedding": "파일 임베딩",
     "other": "기타",
 }

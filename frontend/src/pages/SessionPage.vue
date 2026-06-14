@@ -197,12 +197,20 @@ async function enterSession(s) {
     try {
       const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
       if (data && data.length) {
-        const lines = data.map(seg => ({
-          id: seg.id,
-          time: utcToKst(seg.createdAt),
-          text: seg.content,
-          speaker: seg.speakerLabel || '화자01',
-        }))
+        // 실시간 녹음마다 start_sec가 0부터 재시작할 수 있어 서버의 start_sec 정렬만으론
+        // 여러 번 녹음한 세션의 순서가 꼬인다 → 실제 삽입 시각(createdAt, 동률이면 id)으로 재정렬.
+        const lines = [...data]
+          .sort(
+            (a, b) =>
+              String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+              (a.id || 0) - (b.id || 0),
+          )
+          .map(seg => ({
+            id: seg.id,
+            time: utcToKst(seg.createdAt),
+            text: seg.content,
+            speaker: seg.speakerLabel || '화자01',
+          }))
         rec.transcriptLines.push(...lines)
         transcriptLines.value = rec.transcriptLines
       }
@@ -414,6 +422,11 @@ const stt = useRealtimeSTT({
   },
   onPartial: t => {
     partialText.value = t
+    // 부분 전사(미확정)도 확정 줄처럼 화면 맨 아래로 따라 올라가 항상 보이도록 자동 스크롤
+    nextTick(() => {
+      if (transcriptAreaRef.value)
+        transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight
+    })
   },
   onError: msg => {
     micError.value = msg
@@ -577,6 +590,8 @@ async function generateMinutes() {
 
   let minutesContent = ''
   generatedMinutes.value = { content_summary: '' }
+  // 재생성 시 기존 초안이 아래로 덧붙는 현상 방지 — 에디터를 먼저 비운다.
+  editor.value?.commands.clearContent()
 
   try {
     await streamPost(
@@ -611,6 +626,14 @@ async function generateMinutes() {
             const rec = getOrCreateRecord(activeSession.value.id)
             rec.generatedMinutes = generatedMinutes.value
             rec.showMinutesTab = true
+            // 초안 자동 저장(draft) — 새로고침/탭 이동에도 유지되도록 minutes 테이블에 저장한다.
+            // content_original에 마크다운 원문을 넣어 재진입 시 renderMd로 복원(그래프엔 미노출).
+            apiAI
+              .post(`/api/ai/sessions/${activeSession.value.id}/minutes?draft=true`, {
+                content: minutesContent,
+                content_summary: minutesContent.slice(0, 500),
+              })
+              .catch(e => console.error('초안 자동저장 실패', e))
           }
           agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
           wmLoading.value = false
@@ -730,6 +753,8 @@ async function extractNextAgendas() {
   try {
     const formData = new FormData()
     formData.append('meeting_id', String(meetingId))
+    // 출처 회의록 세션(B안) — 추출 아젠다를 이 세션의 회의록과 연결(minutes↔agenda 조인 근거)
+    if (activeSession.value?.id) formData.append('session_id', String(activeSession.value.id))
 
     // content_summary 있으면 현재 회의록을 파일로 첨부
     if (generatedMinutes.value?.content_summary) {
@@ -1551,14 +1576,14 @@ async function downloadChatFile(filePath) {
               :class="{ active: activeTab === 'transcript' }"
               @click="activeTab = 'transcript'"
             >
-              대화 기록
+              AI 실시간 요약
             </button>
             <button
               class="app-tab"
               :class="{ active: activeTab === 'script' }"
               @click="activeTab = 'script'"
             >
-              스크립트
+              발화
             </button>
             <button
               class="app-tab"
@@ -1616,7 +1641,11 @@ async function downloadChatFile(filePath) {
               <div v-if="editingIdx === idx" class="tline tline-editing">
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
-                  <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="화자" />
+                  <input
+                    v-model="editDraft.speaker"
+                    class="tline-edit-speaker"
+                    placeholder="화자"
+                  />
                 </div>
                 <div class="tline-body">
                   <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
@@ -1647,7 +1676,9 @@ async function downloadChatFile(filePath) {
             <!-- 실시간 부분 전사 (미확정) -->
             <div v-if="partialText" class="tline" style="opacity: 0.55; font-style: italic">
               <div class="tline-head"><span class="tline-time">···</span></div>
-              <div class="tline-body"><span class="tline-text">{{ partialText }}</span></div>
+              <div class="tline-body">
+                <span class="tline-text">{{ partialText }}</span>
+              </div>
             </div>
           </template>
 
@@ -1913,7 +1944,9 @@ async function downloadChatFile(filePath) {
                 title="STT 모델"
               >
                 <i class="bi bi-soundwave"></i>
-                <span>{{ (STT_MODELS.find(m => m.value === sttModel) || STT_MODELS[0]).label }}</span>
+                <span>{{
+                  (STT_MODELS.find(m => m.value === sttModel) || STT_MODELS[0]).label
+                }}</span>
                 <i class="bi bi-chevron-down ctrl-chev"></i>
               </button>
               <div v-if="showPopover === 'stt'" class="ctrl-popover" @click.stop>
@@ -2750,7 +2783,7 @@ async function downloadChatFile(filePath) {
 .sp-tab-body {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 18px;
+  padding: 18px 23px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2778,7 +2811,7 @@ async function downloadChatFile(filePath) {
   background: var(--border);
 }
 .conv-block {
-  padding: 20px 0 16px;
+  padding: 0px 0px 6px;
 }
 .conv-block-header {
   display: flex;
@@ -2970,6 +3003,18 @@ async function downloadChatFile(filePath) {
   font-size: 13px;
   color: var(--dark-card);
   line-height: 1.5;
+}
+/* 야간모드: 텍스트색에 --dark-card(어두운 색)를 쓰는 요소들은 다크 배경에 묻힌다.
+   야간모드에선 --dark-card가 재정의되지 않으므로 명시적으로 밝은 텍스트색으로 덮는다.
+   (.sp-sidebar-title처럼 base=--dark-text + .day-mode 오버라이드로 된 건 제외) */
+html.night-mode .tline-text,
+html.night-mode .tline-edit-text,
+html.night-mode .tline-edit-speaker,
+html.night-mode .sp-panel-title,
+html.night-mode .sp-ms-name,
+html.night-mode .sp-sm-name,
+html.night-mode .sp-ms-input {
+  color: var(--dark-text);
 }
 .tline-edit-btn {
   opacity: 0;
