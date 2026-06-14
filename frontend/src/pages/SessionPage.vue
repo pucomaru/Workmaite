@@ -1616,7 +1616,11 @@ async function downloadChatFile(filePath) {
               <div v-if="editingIdx === idx" class="tline tline-editing">
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
-                  <input v-model="editDraft.speaker" class="tline-edit-speaker" placeholder="화자" />
+                  <input
+                    v-model="editDraft.speaker"
+                    class="tline-edit-speaker"
+                    placeholder="화자"
+                  />
                 </div>
                 <div class="tline-body">
                   <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
@@ -1647,7 +1651,9 @@ async function downloadChatFile(filePath) {
             <!-- 실시간 부분 전사 (미확정) -->
             <div v-if="partialText" class="tline" style="opacity: 0.55; font-style: italic">
               <div class="tline-head"><span class="tline-time">···</span></div>
-              <div class="tline-body"><span class="tline-text">{{ partialText }}</span></div>
+              <div class="tline-body">
+                <span class="tline-text">{{ partialText }}</span>
+              </div>
             </div>
           </template>
 
@@ -1913,7 +1919,9 @@ async function downloadChatFile(filePath) {
                 title="STT 모델"
               >
                 <i class="bi bi-soundwave"></i>
-                <span>{{ (STT_MODELS.find(m => m.value === sttModel) || STT_MODELS[0]).label }}</span>
+                <span>{{
+                  (STT_MODELS.find(m => m.value === sttModel) || STT_MODELS[0]).label
+                }}</span>
                 <i class="bi bi-chevron-down ctrl-chev"></i>
               </button>
               <div v-if="showPopover === 'stt'" class="ctrl-popover" @click.stop>

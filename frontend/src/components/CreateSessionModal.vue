@@ -303,32 +303,76 @@ async function doCreate() {
               <div
                 class="app-modal-input"
                 :style="{ cursor: agendas.length ? 'pointer' : 'default' }"
-                style="display: flex; align-items: center; justify-content: space-between; user-select: none"
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  user-select: none;
+                "
                 @click="agendas.length && (showAgendaDropdown = !showAgendaDropdown)"
               >
                 <span style="color: #9ca3af">
                   {{
-                    !form.meeting_id ? '회의체를 먼저 선택하세요' :
-                    !agendas.length ? '등록된 안건이 없습니다' :
-                    selectedAgendaIds.length ? `${selectedAgendaIds.length}개 선택됨` :
-                    '안건을 선택하세요'
+                    !form.meeting_id
+                      ? '회의체를 먼저 선택하세요'
+                      : !agendas.length
+                        ? '등록된 안건이 없습니다'
+                        : selectedAgendaIds.length
+                          ? `${selectedAgendaIds.length}개 선택됨`
+                          : '안건을 선택하세요'
                   }}
                 </span>
-                <svg v-if="agendas.length" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <svg
+                  v-if="agendas.length"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
                   <path d="M6 9l6 6 6-6" />
                 </svg>
               </div>
-              <div v-if="showAgendaDropdown && agendas.length" style="position: fixed; inset: 0; z-index: 1001" @click="showAgendaDropdown = false"></div>
               <div
                 v-if="showAgendaDropdown && agendas.length"
-                style="position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 1002; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 6px; max-height: 160px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.12)"
+                style="position: fixed; inset: 0; z-index: 1001"
+                @click="showAgendaDropdown = false"
+              ></div>
+              <div
+                v-if="showAgendaDropdown && agendas.length"
+                style="
+                  position: absolute;
+                  top: calc(100% + 4px);
+                  left: 0;
+                  right: 0;
+                  z-index: 1002;
+                  background: var(--bg-card, #fff);
+                  border: 1px solid var(--border, #e5e7eb);
+                  border-radius: 6px;
+                  max-height: 160px;
+                  overflow-y: auto;
+                  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+                "
               >
                 <label
                   v-for="agenda in agendas.filter(a => a.status === 'ongoing')"
                   :key="agenda.id"
-                  style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13px"
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    font-size: 13px;
+                  "
                 >
-                  <input type="checkbox" :value="agenda.id" v-model="selectedAgendaIds" style="width: 14px; height: 14px; cursor: pointer" />
+                  <input
+                    type="checkbox"
+                    :value="agenda.id"
+                    v-model="selectedAgendaIds"
+                    style="width: 14px; height: 14px; cursor: pointer"
+                  />
                   <span>{{ agenda.title }}</span>
                 </label>
               </div>
