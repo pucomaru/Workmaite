@@ -421,7 +421,11 @@ async def analyze_archive_file(
             extracted = _extract_text_from_file(
                 raw, (file.filename or file_name or "").lower()
             )
-            file_content = (extracted or "").strip()[:8000]
+            extracted_clean = (extracted or "").strip()
+            if len(extracted_clean) > 8000:
+                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+            else:
+                file_content = extracted_clean
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
         except Exception as e:
@@ -445,7 +449,8 @@ async def analyze_archive_file(
     except Exception as e:
         logger.warning(f"[analyze-file] LangGraph 검토 실패: {e}")
         return {
-            "score": 70,
+            "score": 0,
+            "detail_scores": {},
             "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
             "matched_agendas": [],
             "agendas": [
@@ -484,7 +489,11 @@ async def analyze_archive_file_stream_ep(
             extracted = _extract_text_from_file(
                 raw, (file.filename or file_name or "").lower()
             )
-            file_content = (extracted or "").strip()[:8000]
+            extracted_clean = (extracted or "").strip()
+            if len(extracted_clean) > 8000:
+                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+            else:
+                file_content = extracted_clean
             if not file_content:
                 file_content = "[파일에서 텍스트를 추출하지 못했습니다 — 이미지 기반 PDF일 수 있음]"
         except Exception as e:
@@ -518,7 +527,8 @@ async def analyze_archive_file_stream_ep(
             err = {
                 "type": "result",
                 "data": {
-                    "score": 70,
+                    "score": 0,
+                    "detail_scores": {},
                     "feedback": [
                         f"AI 분석 중 오류: {str(e)}",
                         "수동으로 검토해 주세요.",
