@@ -912,6 +912,38 @@ async def ai_update_user(
     require_user_update_permission(current_user, user)
     if "name" in data and data["name"] is not None:
         user.name = data["name"]
+    # 이메일(로그인 자격) 변경 — 관리자(SYSTEM_ADMIN/같은 회사 COMPANY_ADMIN)만 허용.
+    # 본인 자가수정으로는 변경 불가(자격 탈취/혼선 방지). 중복은 활성 계정 기준으로 차단.
+    if "email" in data and data["email"] is not None:
+        new_email = str(data["email"]).strip()
+        if new_email and new_email != user.email:
+            is_admin_caller = is_system_admin(current_user) or (
+                current_user.company_role == "COMPANY_ADMIN"
+                and current_user.company_id is not None
+                and current_user.company_id == user.company_id
+            )
+            if not is_admin_caller:
+                raise HTTPException(
+                    status_code=403,
+                    detail="이메일은 관리자만 변경할 수 있습니다.",
+                )
+            if "@" not in new_email or "." not in new_email.split("@")[-1]:
+                raise HTTPException(
+                    status_code=400, detail="올바른 이메일 형식이 아닙니다."
+                )
+            taken = (
+                db.query(models.User.id)
+                .filter(
+                    models.User.email == new_email,
+                    models.User.id != user.id,
+                )
+                .first()
+            )
+            if taken:
+                raise HTTPException(
+                    status_code=409, detail="이미 사용 중인 이메일입니다."
+                )
+            user.email = new_email
     if "company" in data:
         user.company_id = _get_or_create_company_id(db, data["company"])
     if "department" in data:
@@ -932,6 +964,7 @@ async def ai_update_user(
     return {
         "id": user.id,
         "name": user.name,
+        "email": user.email,
         "company": user.company_name,
         "department": user.department,
         "position": user.position,

@@ -44,15 +44,11 @@ from routers import usage as usage_router
 from graphdb.neo4j_sync import (
     ensure_constraints,
     init_vector_index,
-    retry_failed_syncs,
     sync_all_from_pg,
 )
 from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = logging.getLogger(__name__)
-
-# Neo4j 재시도 주기 (초). 환경변수로 조정 가능.
-_RETRY_INTERVAL_SEC = int(os.environ["NEO4J_RETRY_INTERVAL_SEC"])
 
 
 async def _cleanup_stale_neo4j_nodes() -> None:
@@ -91,19 +87,29 @@ async def _startup_sync_task() -> None:
         logger.error(f"[StartupSync] 오류: {e}")
 
 
-async def _periodic_retry_task() -> None:
-    """실패한 Neo4j 동기화를 주기적으로 재시도하는 백그라운드 태스크."""
+async def _periodic_resync_task() -> None:
+    """주기적으로 PostgreSQL 기준 전체 재동기화(orphan 정리 포함)를 수행하는 백그라운드 태스크.
+
+    증분 동기화의 안전망 — 삭제 전파 누락·User 미동기화 등으로 Neo4j가 PG와 어긋나거나
+    잔재(orphan)가 쌓이는 것을 주기적으로 바로잡는다. content_hash 덕에 변경 없는 임베딩은
+    재계산하지 않아 반복 실행 비용이 낮다. 주기는 RESYNC_INTERVAL_SEC(기본 1800초=30분).
+    """
+    interval = int(os.environ.get("RESYNC_INTERVAL_SEC", "1800"))
     while True:
-        await asyncio.sleep(_RETRY_INTERVAL_SEC)
+        await asyncio.sleep(interval)
         try:
-            result = await retry_failed_syncs(max_retries=5)
-            if result["retried"] > 0:
+            result = await sync_all_from_pg()
+            removed = result.get("removed") or {}
+            n_removed = sum(removed.values()) if isinstance(removed, dict) else 0
+            synced = {k: v for k, v in result.items() if k != "removed"}
+            if n_removed > 0:
                 logger.info(
-                    f"[AutoRetry] retried={result['retried']} "
-                    f"recovered={result['recovered']} skipped={result['skipped']}"
+                    f"[AutoResync] 완료 — synced={synced}, removed={n_removed} (orphan 정리)"
                 )
+            else:
+                logger.debug(f"[AutoResync] 완료 — synced={synced}, removed=0")
         except Exception as e:
-            logger.error(f"[AutoRetry] 오류: {e}")
+            logger.error(f"[AutoResync] 오류: {e}")
 
 
 @asynccontextmanager
@@ -118,13 +124,13 @@ async def lifespan(app: FastAPI):
     await ensure_fulltext_indexes()  # 하이브리드 검색용 (P3B-6)
 
     asyncio.create_task(_startup_sync_task())
-    retry_task = asyncio.create_task(_periodic_retry_task())
+    resync_task = asyncio.create_task(_periodic_resync_task())
     try:
         yield
     finally:
-        retry_task.cancel()
+        resync_task.cancel()
         try:
-            await retry_task
+            await resync_task
         except asyncio.CancelledError:
             pass
         await close_checkpointer()

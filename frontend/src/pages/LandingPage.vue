@@ -501,8 +501,7 @@ const trustItems = [
   align-items: center;
 }
 .nav-inner {
-  padding: 0px 16px;
-  height: 10px;
+  padding: 2px 16px 0px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -512,11 +511,13 @@ const trustItems = [
   width: auto;
 }
 .nav-actions {
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 10px; 
 }
 .btn-nav-ghost {
+  height: 34px;
   background: none;
   border: 1px solid var(--white-18);
   border-radius: 8px;
@@ -530,6 +531,7 @@ const trustItems = [
   background: var(--white-08);
 }
 .btn-nav-theme {
+  height: 34px;
   background: none;
   border: 1px solid var(--white-18);
   border-radius: 8px;
@@ -543,6 +545,7 @@ const trustItems = [
   transition: background 0.15s;
 }
 .btn-nav-theme:hover {
+  height: 34px;
   background: var(--white-08);
 }
 
@@ -562,10 +565,9 @@ const trustItems = [
 }
 .btn-cta:hover {
   background: #f59e0b;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(251, 191, 36, 0.35);
 }
 .btn-cta.sm {
+  height: 34px;
   font-size: 13px;
   padding: 8px 16px;
 }

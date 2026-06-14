@@ -12,13 +12,21 @@ export const useMeetingsStore = defineStore('meetings', () => {
   const membersByMeeting = ref({}) // { [meetingId]: MemberResponse[] } — 페이지 로컬 캐시 대신 단일 캐시
 
   async function fetchMeetings() {
-    const { data } = await api.get('/api/v1/meetings')
-    meetings.value = data
-    const roles = {}
-    data.forEach(m => {
-      roles[m.id] = m.my_role ?? null
-    })
-    meetingRoles.value = roles
+    try {
+      const { data } = await api.get('/api/v1/meetings')
+      meetings.value = data
+      const roles = {}
+      data.forEach(m => {
+        roles[m.id] = m.my_role ?? null
+      })
+      meetingRoles.value = roles
+    } catch (e) {
+      // 신규 유저(소속 회의체 없음) 등은 403/빈 응답일 수 있다 — 빈 목록으로 처리해
+      // 콘솔 에러·미처리 예외(mounted hook)가 폭주하지 않게 한다.
+      meetings.value = []
+      meetingRoles.value = {}
+      if (e?.response?.status !== 403) console.error('회의체 목록 조회 실패', e)
+    }
   }
 
   async function fetchMeeting(id) {

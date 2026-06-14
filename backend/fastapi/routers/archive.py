@@ -556,6 +556,98 @@ async def analyze_archive_file_stream_ep(
 
 
 # ─── 아젠다 commit (승인→ongoing 업데이트 / 반려→삭제) ────────────────────────
+async def _compose_next_agenda_lines(titles: list[str]) -> list[str]:
+    """다음 회의 안건 제목들을 회의록 본문에 넣을 자연스러운 한 줄 문장으로 다듬는다(LLM)."""
+    import re as _re
+    from llm.llm_factory import llm_factory
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    titles = [t for t in titles if t]
+    if not titles:
+        return []
+    sys = (
+        "당신은 회의록 작성 보조 AI입니다. 주어진 '다음 회의 안건' 제목들을 회의록의 "
+        "'다음 회의 아젠다' 항목으로 자연스러운 한 문장씩으로 다듬으세요. "
+        "각 항목은 명사형(예: '~ 검토', '~ 방안 논의')으로 간결하게. "
+        "출력은 항목별 한 줄, 번호·기호·마크다운 없이 줄바꿈으로만 구분하세요."
+    )
+    human = "다음 회의 안건 제목:\n" + "\n".join(f"- {t}" for t in titles)
+    try:
+        llm = llm_factory("extract", temperature=0.3)
+        resp = await llm.ainvoke(
+            [SystemMessage(content=sys), HumanMessage(content=human)]
+        )
+        text = resp.content if isinstance(resp.content, str) else str(resp.content)
+        lines = [
+            _re.sub(r"^[\-\*\d\.\)\s]+", "", ln).strip()
+            for ln in text.splitlines()
+            if ln.strip()
+        ]
+        lines = [ln for ln in lines if ln]
+        return lines or titles
+    except Exception as e:
+        logger.warning(f"[commit] 다음 안건 문장 구성 실패, 제목 그대로 사용: {e}")
+        return titles
+
+
+async def _update_next_agenda_section(
+    db: Session, session_id: int, titles: list[str]
+) -> None:
+    """출처 회의록(content_original)의 '다음 회의 아젠다' 섹션을 저장된 안건으로 갱신한다.
+
+    본문이 HTML(에디터 저장)인지 마크다운(생성 직후)인지 감지해 같은 형식으로 섹션을 재작성한다.
+    기존 '다음 회의 아젠다' 섹션은 제거 후 새로 추가해 중복을 막는다.
+    """
+    import re as _re
+
+    mn = (
+        db.query(models.Minutes)
+        .filter(models.Minutes.session_id == session_id)
+        .first()
+    )
+    if not mn or not mn.content_original:
+        return
+    lines = await _compose_next_agenda_lines(titles)
+    if not lines:
+        return
+    content = mn.content_original
+    is_html = bool(_re.search(r"<(p|h[1-6]|ul|ol|div|br)\b", content, _re.IGNORECASE))
+
+    if is_html:
+        def _esc(s: str) -> str:
+            return (
+                s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+
+        items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
+        section = (
+            '<h2 data-next-agenda="1">다음 회의 아젠다</h2>'
+            f'<ul data-next-agenda="1">{items}</ul>'
+        )
+        # 이전에 자동 삽입한 블록 제거
+        content = _re.sub(
+            r'<h2 data-next-agenda="1">.*?</ul>',
+            "",
+            content,
+            flags=_re.DOTALL,
+        )
+        new_content = content.rstrip() + section
+    else:
+        items = "\n".join(f"- {ln}" for ln in lines)
+        section = f"\n\n## 다음 회의 아젠다\n{items}\n"
+        # 기존 '## N. 다음 회의 아젠다' 섹션 제거 (다음 헤딩 전까지)
+        content = _re.sub(
+            r"\n#{1,3}\s*\d*\.?\s*다음 회의 아젠다.*?(?=\n#{1,3}\s|\Z)",
+            "",
+            content,
+            flags=_re.DOTALL,
+        )
+        new_content = content.rstrip() + section
+
+    mn.content_original = new_content
+    db.commit()
+
+
 @router.post("/archive/agendas/commit")
 async def commit_draft_agendas(
     data: dict,
@@ -684,6 +776,18 @@ async def commit_draft_agendas(
             await _del_ag(ag_id)
         except Exception as e:
             logger.warning(f"[commit] Neo4j 삭제 실패 (agenda {ag_id}): {e}")
+
+    # 저장된 다음 회의 아젠다를 출처 회의록 본문 '다음 회의 아젠다' 섹션에 LLM 문장으로 반영
+    try:
+        sess_titles: dict[int, list[str]] = {}
+        for ag_id in updated_ids:
+            ag = db.query(models.Agenda).filter(models.Agenda.id == ag_id).first()
+            if ag and ag.session_id and ag.title:
+                sess_titles.setdefault(ag.session_id, []).append(ag.title)
+        for sid, titles in sess_titles.items():
+            await _update_next_agenda_section(db, sid, titles)
+    except Exception as e:
+        logger.warning(f"[commit] 회의록 다음 안건 섹션 갱신 실패: {e}")
 
     return {"updated": updated_ids, "deleted": rejected_ids}
 

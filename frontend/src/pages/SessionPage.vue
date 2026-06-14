@@ -9,6 +9,7 @@ import {
   nextTick,
   watch,
 } from 'vue'
+import { useRoute } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -33,6 +34,7 @@ const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const meetingsStore = useMeetingsStore()
 const sessionsStore = useSessionsStore()
+const route = useRoute()
 
 import { renderMd } from '../composables/useMarkdown'
 
@@ -225,7 +227,8 @@ async function enterSession(s) {
       const { data } = await apiAI.get(`/api/ai/sessions/${s.id}/minutes`)
       const minutesContent = data?.content_original || data?.content_summary
       if (minutesContent) {
-        const html = renderMd(minutesContent)
+        // 초안 편집본은 에디터 HTML로 저장됨 → HTML이면 그대로, (생성직후/레거시) 마크다운이면 변환
+        const html = minutesContent.startsWith('<') ? minutesContent : renderMd(minutesContent)
         generatedMinutes.value = { content_summary: html }
         showMinutesTab.value = true
         rec.generatedMinutes = generatedMinutes.value
@@ -281,6 +284,7 @@ const editor = useEditor({
       if (activeSession.value) {
         getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
       }
+      _scheduleDraftSave() // 편집 내용도 DB에 draft로 자동저장 — 닫아도 유지
     }
   },
 })
@@ -293,6 +297,24 @@ function loadMinutesToEditor(content) {
   }
   const html = content.startsWith('<') ? content : renderMd(content)
   editor.value.commands.setContent(html, false)
+}
+
+// 초안 편집 자동저장(디바운스) — 에디터 HTML을 minutes 테이블에 draft로 저장(그래프 미노출).
+// 닫거나 새로고침해도 다시 조회되도록. schedule 시점에 내용을 캡처해 unmount 후 타이머가 떠도 안전.
+let _draftSaveTimer = null
+function _scheduleDraftSave() {
+  const sid = activeSession.value?.id
+  const html = generatedMinutes.value?.content_summary || '' // onUpdate가 에디터 HTML로 갱신함
+  if (!sid || !html.trim()) return
+  clearTimeout(_draftSaveTimer)
+  _draftSaveTimer = setTimeout(() => {
+    apiAI
+      .post(`/api/ai/sessions/${sid}/minutes?draft=true`, {
+        content: html,
+        content_summary: html.replace(/<[^>]+>/g, '').slice(0, 500),
+      })
+      .catch(e => console.error('초안 자동저장 실패', e))
+  }, 1000)
 }
 
 onUnmounted(() => editor.value?.destroy())
@@ -930,6 +952,23 @@ async function saveApprovedNextAgendas() {
       })),
       rejected_ids: rejected.map(a => a.db_id),
     })
+    // 저장된 다음 안건은 백엔드에서 회의록 본문 '다음 회의 아젠다' 섹션에 LLM 문장으로 반영된다.
+    // 에디터를 갱신해 사용자가 즉시 확인하고, 이후 '아카이브 저장' 시 덮어쓰이지 않게 한다.
+    if (generatedMinutes.value && activeSession.value) {
+      try {
+        const { data: mn } = await apiAI.get(
+          `/api/ai/sessions/${activeSession.value.id}/minutes`,
+        )
+        const refreshed = mn?.content_original || mn?.content_summary
+        if (refreshed) {
+          generatedMinutes.value = { ...generatedMinutes.value, content_summary: refreshed }
+          loadMinutesToEditor(refreshed)
+          getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
+        }
+      } catch {
+        /* 본문 새로고침 실패는 치명적이지 않음 */
+      }
+    }
     nextAgendaItems.value = nextAgendaItems.value.filter(
       a => a._state !== 'approved' && a._state !== 'rejected',
     )
@@ -1298,9 +1337,24 @@ async function onSessionCreated({ meetingId }) {
   await loadSessions(meetingId)
 }
 
-onMounted(() => {
-  fetchMeetings()
+onMounted(async () => {
+  await fetchMeetings()
   loadMentionGraph()
+
+  // 홈 '예정된 회의' 등에서 ?meetingId=&sessionId= 로 진입 시:
+  // 해당 회의체를 펼치고(expanded) 회의를 선택해 'AI 실시간 요약' 탭을 띄운다.
+  const mid = route.query.meetingId ? Number(route.query.meetingId) : null
+  const sid = route.query.sessionId ? Number(route.query.sessionId) : null
+  if (mid) {
+    const m = meetings.value.find(x => x.id === mid)
+    if (m) {
+      expandedMeetingIds.value = new Set([...expandedMeetingIds.value, mid])
+      selectedMeetingId.value = mid
+      const list = await loadSessions(mid)
+      const s = sid ? (list || []).find(x => x.id === sid) : null
+      if (s) await enterSession(s) // enterSession이 activeTab='transcript'(실시간 요약)로 설정
+    }
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1899,7 +1953,7 @@ async function downloadChatFile(filePath) {
           </template>
         </div>
 
-        <!-- Control bar (대화기록/스크립트 탭) -->
+        <!-- Control bar (AI 실시간 요약/발화 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
           <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
             <!-- Language selector -->
@@ -3232,12 +3286,13 @@ html.night-mode .sp-ms-input {
 .tiptap-content :deep(.ProseMirror) {
   outline: none;
   min-height: 380px;
+  color: var(--text-muted);
 }
 .tiptap-content :deep(.ProseMirror p) {
   margin: 0 0 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--dark-card);
+  color: var(--text-muted);
 }
 .tiptap-content :deep(.ProseMirror h1) {
   font-size: 17px;

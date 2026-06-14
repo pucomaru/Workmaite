@@ -3,14 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import api, { apiAI } from '../api'
 import AppTable from '../components/AppTable.vue'
 import AppTableSection from '../components/AppTableSection.vue'
+import MemberEditModal from '../components/MemberEditModal.vue'
 import { confirmDialog, promptDialog } from '../composables/useConfirm'
 import { usePagination } from '../composables/usePagination'
 import { useTableSort } from '../composables/useTableSort'
 import { toast } from '../composables/useToast'
-import { useAuthStore } from '../stores/auth'
 import { useThemeStore } from '../stores/theme'
 
-const auth = useAuthStore()
 const companyColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
   { label: '회사', width: '110px', sortKey: 'company' },
@@ -173,26 +172,9 @@ async function removeMember(member) {
 }
 
 function openEdit(member) {
-  editModal.value = { ...member, _origRole: member.role }
-}
-
-async function saveEdit() {
-  const m = editModal.value
-  try {
-    await apiAI.patch(`/api/ai/users/${m.id}`, {
-      name: m.name,
-      company: m.company || null,
-      department: m.department || null,
-      position: m.position || null,
-    })
-    if (auth.user?.role === 'SYSTEM_ADMIN' && m.role && m.role !== m._origRole) {
-      await api.patch(`/api/v1/users/${m.id}/role`, { role: m.role }) // COMPANY_ADMIN 부여/회수 (P1-7②)
-    }
-    await fetchAllMembers()
-  } catch (e) {
-    toast.error(e.response?.data?.detail || e.response?.data?.message || '변경 실패')
-  }
-  editModal.value = null
+  // member는 /api/ai/company/members 응답 형태({ id, name, email, company, department, position, role, meetings })
+  // 그대로 공용 모달이 받는 구성원 객체와 호환된다.
+  editModal.value = { ...member }
 }
 
 const expandedRows = ref(new Set())
@@ -732,83 +714,14 @@ const {
         </div>
       </div>
 
-      <!-- Edit member modal -->
-      <div v-if="editModal" class="app-modal-backdrop">
-        <div class="app-modal app-modal-sm">
-          <div class="app-modal-header">
-            <span class="app-modal-title">구성원 정보 수정</span>
-            <button class="app-modal-close" @click="editModal = null">
-              <svg
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                viewBox="0 0 24 24"
-              >
-                <path d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="app-modal-body">
-            <div class="app-modal-field-row">
-              <div class="app-modal-field">
-                <label>이름</label>
-                <input v-model="editModal.name" class="app-modal-input" placeholder="홍길동" />
-              </div>
-              <div class="app-modal-field">
-                <label>이메일</label>
-                <input
-                  :value="editModal.email"
-                  class="app-modal-input"
-                  disabled
-                  style="background: var(--surface); color: var(--dark-muted)"
-                />
-              </div>
-            </div>
-            <div v-if="auth.user?.role === 'SYSTEM_ADMIN'" class="app-modal-field">
-              <label>역할 (관리자 전용)</label>
-              <select v-model="editModal.role" class="app-modal-input">
-                <option value="USER">일반 사용자</option>
-                <option value="COMPANY_ADMIN">회사 관리자 (자사 구성원 관리)</option>
-                <option value="SYSTEM_ADMIN">시스템 관리자 (전체 관리)</option>
-              </select>
-            </div>
-            <div class="app-modal-field-row">
-              <div class="app-modal-field">
-                <label>회사명</label>
-                <input
-                  v-model="editModal.company"
-                  class="app-modal-input"
-                  placeholder="예: SK AX"
-                />
-              </div>
-              <div class="app-modal-field">
-                <label>부서명</label>
-                <input
-                  v-model="editModal.department"
-                  class="app-modal-input"
-                  placeholder="예: 전략기획팀"
-                />
-              </div>
-            </div>
-            <div class="app-modal-field-row">
-              <div class="app-modal-field">
-                <label>직책</label>
-                <input
-                  v-model="editModal.position"
-                  class="app-modal-input"
-                  placeholder="예: 팀장"
-                />
-              </div>
-            </div>
-          </div>
-          <div class="app-modal-footer">
-            <button class="app-btn-cancel" @click="editModal = null">취소</button>
-            <button class="app-btn-primary" @click="saveEdit">저장</button>
-          </div>
-        </div>
-      </div>
+      <!-- Edit member modal (공용 컴포넌트 — ArchivePage와 동일 동작/권한 로직) -->
+      <MemberEditModal
+        :member="editModal"
+        :night-mode="nightMode"
+        @close="editModal = null"
+        @saved="fetchAllMembers"
+        @deleted="fetchAllMembers"
+      />
     </Teleport>
   </div>
 </template>

@@ -68,6 +68,7 @@ function versionKey(groupId, itemIdx) {
         :dark="nightMode"
         :sortKey="lvSortKey"
         :sortDir="lvSortDir"
+        fixed
         @sort="handleLvSort"
       >
         <tr v-if="!filteredGroups.length">

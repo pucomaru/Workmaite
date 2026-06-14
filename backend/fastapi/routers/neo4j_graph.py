@@ -158,7 +158,9 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (s:Session)-[:`소속`]->(mg:Meetings) WHERE mg.id IN $ids
+                // 아카이브에 저장(확정)된 회의록만 노출 — DRAFT 회의록은 시각화하지 않는다
                 OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
+                WHERE toLower(coalesce(mn.status, '')) = 'completed'
                 OPTIONAL MATCH (u:User)-[:참석]->(s)
                 WITH mg, s, mn,
                      collect(CASE WHEN u IS NOT NULL THEN {userId: u.pg_id, userName: u.name, department: u.department} END) AS participants
@@ -403,7 +405,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (mn:Minutes)-[:`기록`]->(s:Session)<-[:`발제세션`]-(ag:Agenda)-[:`관할`]->(mg:Meetings)
-                WHERE mg.id IN $ids
+                WHERE mg.id IN $ids AND toLower(coalesce(mn.status, '')) = 'completed'
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
                        coalesce(ag.id, toString(ag.pg_id)) AS agenda_id

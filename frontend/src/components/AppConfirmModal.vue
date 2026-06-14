@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="confirmState" class="app-modal-backdrop" @click.self="cancel">
+    <div v-if="confirmState" class="app-modal-backdrop app-confirm-backdrop" @click.self="cancel">
       <div class="app-modal app-confirm-modal" role="dialog" aria-modal="true">
         <div class="app-modal-body">
           <p class="confirm-msg">{{ confirmState.message }}</p>
@@ -50,6 +50,10 @@ function cancel() {
 </script>
 
 <style scoped>
+/* 다른 app-modal(z-index 1000)·modal-overlay(1050) 위에 항상 뜨도록 — 모달 위 확인창 */
+.app-confirm-backdrop {
+  z-index: 1200;
+}
 .app-confirm-modal {
   max-width: 380px;
   width: 100%;
