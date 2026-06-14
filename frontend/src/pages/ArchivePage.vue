@@ -1,14 +1,14 @@
 <script setup>
 import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  provide,
-  reactive,
-  ref,
-  shallowRef,
-  watch,
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    provide,
+    reactive,
+    ref,
+    shallowRef,
+    watch,
 } from 'vue'
 import api, { apiAI, streamPostForm } from '../api'
 import AgendaEditModal from '../components/AgendaEditModal.vue'
@@ -21,8 +21,8 @@ import GraphFloatBtns from '../components/GraphFloatBtns.vue'
 import GraphLegend from '../components/GraphLegend.vue'
 import GraphView from '../components/GraphView.vue'
 import MeetingListView from '../components/MeetingListView.vue'
-import MinutesEditModal from '../components/MinutesEditModal.vue'
 import MemberEditModal from '../components/MemberEditModal.vue'
+import MinutesEditModal from '../components/MinutesEditModal.vue'
 import RenameModal from '../components/RenameModal.vue'
 import ReportEditModal from '../components/ReportEditModal.vue'
 import SessionEditModal from '../components/SessionEditModal.vue'
@@ -1059,7 +1059,10 @@ async function finishExtract() {
       meeting_id: toNumericId(detailMeeting.value.id),
       approved: approved.map(a => ({
         db_id: a.db_id,
+        title: a.title,
+        company: a.company || null,
         dept: a.dept || null,
+        start_date: a.start_date || null,
         due_date: a.end_date || null,
       })),
       rejected_ids: rejected.map(a => a.db_id),
@@ -1120,8 +1123,9 @@ const NODE_TYPE_COLORS = {
 }
 
 function goToProcessStep(step) {
-  if (step === 'context' && extractPhase.value === 'result') {
+  if (step === 'context') {
     extractPhase.value = 'context'
+    extractResult.value = []
   }
 }
 
@@ -2910,17 +2914,31 @@ provide('archiveModals', {
 const agendaEditModal = ref(null) // { agendaId, form: { title, department, due_date, priority } }
 const savingAgendaEdit = ref(false)
 
+// 검색 가능한 부서명 목록 — Neo4j Department 노드 + 구성원 부서 합집합
+const deptOptionNames = computed(() => {
+  const names = [
+    ...(neo4jDepts.value || []).map(d => d.name),
+    ...(membersData.value || []).map(m => m.department || m.dept),
+  ].filter(Boolean)
+  return [...new Set(names)]
+})
+
 function openAgendaEditModal() {
   if (!detailNode.value || detailNode.value.type !== 'agenda') return
   const d = detailNode.value.data || {}
-  const deptVal = Array.isArray(d.department)
-    ? d.department[0] || ''
-    : d.department || d.assignee_dept || ''
+  // 담당부서를 '참여 부서' 배열로 — 검색 다중선택 UI(DeptSelect)와 형식 일치
+  const deptArr = Array.isArray(d.department)
+    ? d.department.filter(Boolean)
+    : d.department
+      ? [d.department]
+      : d.assignee_dept
+        ? [d.assignee_dept]
+        : []
   agendaEditModal.value = {
     agendaId: d.id || detailNode.value.neo4jId,
     form: {
       title: d.content || d.title || detailNode.value.label || '',
-      department: deptVal,
+      department: deptArr,
       due_date: d.due_date ? String(d.due_date).slice(0, 10) : '',
       priority: d.priority || 'medium',
       status: ['pending', 'ongoing', 'done'].includes(d.status) ? d.status : 'pending',
@@ -2959,7 +2977,11 @@ async function saveAgendaEdit() {
   try {
     const { data } = await apiAI.patch(`/api/agent/archive/agendas/${numId}`, {
       title: form.title.trim(),
-      department: form.department.trim() || null,
+      department: Array.isArray(form.department)
+        ? form.department.filter(Boolean)
+        : form.department
+          ? [form.department]
+          : null,
       due_date: form.due_date || null,
       priority: form.priority || 'medium',
       status: form.status || 'ongoing',
@@ -3762,6 +3784,7 @@ provide('archiveSidebar', {
     :modal="agendaEditModal"
     :night-mode="nightMode"
     :saving="savingAgendaEdit"
+    :dept-options="deptOptionNames"
     @close="closeAgendaEdit"
     @save="saveAgendaEdit"
     @delete="deleteAgendaEdit"

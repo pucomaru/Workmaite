@@ -31,8 +31,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agents"])
 
 # ─── Supervisor 그래프 분석 ───────────────────────────────────────────────────
-_AGENDA_LINK_THRESHOLD = 0.80
-_DOC_LINK_THRESHOLD = 0.78
+# 유사도 임계값은 core.ai_config로 집약(env로 튜닝 가능, 하드코딩 금지)
+from core.ai_config import (  # noqa: E402
+    AGENDA_LINK_THRESHOLD as _AGENDA_LINK_THRESHOLD,
+    DOC_LINK_THRESHOLD as _DOC_LINK_THRESHOLD,
+    PRUNE_THRESHOLD as _PRUNE_THRESHOLD,
+)
 
 
 async def _count_nodes(label: str) -> int:
@@ -276,8 +280,7 @@ async def _analyze_graph() -> dict:
         except Exception:
             pass
 
-    # ① 불필요 연결 탐지
-    _PRUNE_THRESHOLD = 0.70
+    # ① 불필요 연결 탐지 — 임계값은 모듈 상단의 _PRUNE_THRESHOLD(core.ai_config) 사용
 
     # stale carry-forward: 완료된 안건에 달린 세션 도출(이월) 관계
     try:

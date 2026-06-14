@@ -58,7 +58,10 @@ REGISTRY: dict[str, dict] = {
     "MinutesChunk": {
         "index": "minutesChunkEmbedding",
         "legacy": [],
-        "scope": None,
+        # 청크 노드도 meeting_id를 가짐(file_embedder) → 타 회의체 청크 누수 차단.
+        # 회의 무관 청크(meeting_id NULL)는 공유 지식이므로 유지.
+        "scope": "custom",
+        "scope_cypher": "WHERE node.meeting_id IN $mids OR node.meeting_id IS NULL ",
         "fields": "node.text AS content",
     },
     "Report": {
@@ -71,7 +74,9 @@ REGISTRY: dict[str, dict] = {
     "ReportChunk": {
         "index": "reportChunkEmbedding",
         "legacy": [],
-        "scope": None,
+        # 청크 노드도 meeting_id를 가짐 → 타 회의체 청크 누수 차단. 회의 무관(NULL) 공유 지식은 유지.
+        "scope": "custom",
+        "scope_cypher": "WHERE node.meeting_id IN $mids OR node.meeting_id IS NULL ",
         "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
         "fields": "node.text AS content, node.title AS title",
     },

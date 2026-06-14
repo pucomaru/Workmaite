@@ -29,7 +29,11 @@ function startApprove(i) {
 
 function startReject(i) {
   const ag = props.items[i]
-  if (!props.removeOnApprove && ag._state === 'rejected') {
+  if (props.removeOnApprove) {
+    emit('rejected', i)
+    return
+  }
+  if (ag._state === 'rejected') {
     ag._state = null
     ag._showReason = false
     return
@@ -41,7 +45,7 @@ function startReject(i) {
   ag._origEndDate = ag.end_date
   ag._feedbackAction = 'rejected'
   ag._showReason = true
-  if (!props.removeOnApprove) ag._state = 'rejected'
+  ag._state = 'rejected'
   scrollReasonIntoView(i)
 }
 
@@ -86,7 +90,7 @@ function saveEdit(i) {
 function cancelEdit(i) {
   const ag = props.items[i]
   ag._editing = false
-  if (!ag.title) emit('remove', i)
+  if (!ag.title || ag._directAdd) emit('remove', i)
 }
 
 async function saveFeedback(i) {
@@ -359,9 +363,6 @@ function deptList(dept) {
   background: rgba(255, 255, 255, 0.035);
   border-radius: 8px;
   border: 1px solid var(--white-07);
-  transition:
-    border-color 0.18s,
-    background 0.18s;
   overflow: hidden;
 }
 .arl-item.arl-approved {
@@ -387,7 +388,6 @@ function deptList(dept) {
   width: 3px;
   flex-shrink: 0;
   background: rgba(99, 102, 241, 0.45);
-  transition: background 0.18s;
 }
 .arl-item.arl-approved .arl-accent {
   background: rgba(16, 185, 129, 0.6);
@@ -638,7 +638,6 @@ function deptList(dept) {
   outline: none;
   resize: none;
   font-family: inherit;
-  transition: border-color 0.15s;
   box-sizing: border-box;
 }
 .dei-feedback-input:focus {
@@ -673,7 +672,6 @@ function deptList(dept) {
   align-items: center;
   justify-content: center;
   color: var(--text-muted, #666);
-  transition: all 0.12s;
 }
 .gm-ei-btn:hover {
   background: var(--surface-raised, var(--white-06));

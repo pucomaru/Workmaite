@@ -192,6 +192,46 @@ async def search_with_context(query: str, config: RunnableConfig) -> str:
         return f"검색 중 오류: {e}"
 
 
+_TRANSCRIPT_LIMIT = 80
+
+
+@tool
+def get_meeting_transcript(meeting_id: int, config: RunnableConfig) -> str:
+    """회의체의 가장 최근 회의(세션)에서 기록된 STT 발화(누가 무엇을 말했는지)를 순서대로 반환한다.
+    "회의에서 무슨 얘기가 오갔는지 / 누가 무엇을 말했는지 / 어떤 발언이 있었는지" 류 질문에 사용한다.
+
+    Args:
+        meeting_id: 회의체 ID
+    """
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
+    if not _check(meeting_id, allowed, is_admin):
+        return _denied(meeting_id)
+    db = SessionLocal()
+    try:
+        sess = (
+            db.query(models.MeetingSession)
+            .filter(models.MeetingSession.meeting_id == meeting_id)
+            .order_by(models.MeetingSession.id.desc())
+            .first()
+        )
+        if not sess:
+            return "이 회의체에는 진행된 회의(세션)가 없습니다."
+        segs = (
+            db.query(models.SttSegment)
+            .filter(models.SttSegment.session_id == sess.id)
+            .order_by(models.SttSegment.start_sec.asc())
+            .limit(_TRANSCRIPT_LIMIT)
+            .all()
+        )
+        if not segs:
+            return f"'{sess.title or '최근 회의'}'의 발화(전사) 기록이 없습니다."
+        body = "\n".join(f"{s.speaker_label}: {s.content}" for s in segs if s.content)
+        more = " …(이하 생략)" if len(segs) >= _TRANSCRIPT_LIMIT else ""
+        return f"[{sess.title or '최근 회의'} 발화 기록]\n{body}{more}"
+    finally:
+        db.close()
+
+
 SUPERVISOR_TOOLS = [
     list_my_meetings,
     get_meeting_status,
@@ -199,4 +239,5 @@ SUPERVISOR_TOOLS = [
     report_submission_status,
     search_minutes,
     search_with_context,
+    get_meeting_transcript,
 ]
