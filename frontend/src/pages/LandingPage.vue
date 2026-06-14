@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import LoginPopup from '../components/LoginPopup.vue'
 import RegisterPopup from '../components/RegisterPopup.vue'
 import { useThemeStore } from '../stores/theme'
@@ -488,16 +488,21 @@ const trustItems = [
 /* ── Nav ── */
 .landing-nav {
   position: fixed;
+  padding: 0px;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  padding: 14px 0;
   background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--white-08);
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
 }
 .nav-inner {
+  padding: 0px 16px;
+  height: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;

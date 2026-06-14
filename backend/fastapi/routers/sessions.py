@@ -48,12 +48,15 @@ async def save_minutes(
     session_id: int,
     body: MinutesSaveRequest,
     background_tasks: BackgroundTasks,
+    draft: bool = False,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    생성된 회의록을 R2에 업로드하고 PostgreSQL minutes 테이블에 저장합니다.
-    스트리밍으로 생성 완료 후 프론트에서 최종 텍스트를 보내면 이 API를 호출합니다.
+    """생성된 회의록을 PostgreSQL minutes 테이블에 저장합니다.
+
+    draft=true(초안 자동저장): PDF/R2 업로드와 Neo4j 동기화를 건너뛰고 내용만 upsert한다 →
+    생성 직후 새로고침/탭 이동에도 초안이 유지된다(확정 전까지 그래프에는 노출하지 않음).
+    draft=false(확정 저장): PDF 변환→R2 업로드→Neo4j 동기화까지 수행한다.
     """
     require_view_by_session(db, current_user, session_id)
     session = (
@@ -70,22 +73,23 @@ async def save_minutes(
     base_name = base_name.removesuffix(".pdf").removesuffix(".md")
     file_name = base_name + ".pdf"
 
-    # MD → PDF 변환 후 R2 업로드
+    # MD → PDF 변환 후 R2 업로드 (확정 저장 시에만 — 초안은 내용만 빠르게 저장)
     r2_url: Optional[str] = None
-    try:
-        pdf_bytes = _md_to_pdf(body.content)
-        from storage.r2_storage import upload_bytes
+    if not draft:
+        try:
+            pdf_bytes = _md_to_pdf(body.content)
+            from storage.r2_storage import upload_bytes
 
-        r2_url = upload_bytes(
-            pdf_bytes,
-            f"minutes/{session_id}/{file_name}",
-            "application/pdf",
-        )
-        logger.info(
-            f"[sessions/minutes] R2 업로드 완료 — session_id={session_id}, url={r2_url}"
-        )
-    except Exception as e:
-        logger.warning(f"[sessions/minutes] PDF 변환/R2 업로드 실패 (무시): {e}")
+            r2_url = upload_bytes(
+                pdf_bytes,
+                f"minutes/{session_id}/{file_name}",
+                "application/pdf",
+            )
+            logger.info(
+                f"[sessions/minutes] R2 업로드 완료 — session_id={session_id}, url={r2_url}"
+            )
+        except Exception as e:
+            logger.warning(f"[sessions/minutes] PDF 변환/R2 업로드 실패 (무시): {e}")
 
     summary = body.content_summary or body.content[:500]
 
@@ -119,13 +123,14 @@ async def save_minutes(
     db.commit()
     db.refresh(minutes)
 
-    # Neo4j 동기화 (백그라운드)
-    background_tasks.add_task(
-        sync_minutes,
-        minutes_id=minutes.id,
-        session_id=session_id,
-        content_summary=summary,
-    )
+    # Neo4j 동기화 (백그라운드) — 확정 저장 시에만. 초안은 그래프에 노출하지 않는다.
+    if not draft:
+        background_tasks.add_task(
+            sync_minutes,
+            minutes_id=minutes.id,
+            session_id=session_id,
+            content_summary=summary,
+        )
 
     return minutes
 
@@ -133,7 +138,9 @@ async def save_minutes(
 # ─── 회의록 조회 ──────────────────────────────────────────────────────────────
 
 
-@router.get("/sessions/{session_id}/minutes", response_model=Optional[schemas.MinutesOut])
+@router.get(
+    "/sessions/{session_id}/minutes", response_model=Optional[schemas.MinutesOut]
+)
 def get_minutes(
     session_id: int,
     current_user: models.User = Depends(get_current_user),
@@ -207,14 +214,18 @@ async def delete_minutes(
             "MATCH (mn:Minutes {pg_id: $pg_id}) DETACH DELETE mn",
             {"pg_id": _mid},
         )
-    else:
-        # PG에 회의록이 없어도 404가 아니라 idempotent하게 성공 처리한다(삭제의 목표 상태=없음은 이미 달성).
-        # 동시에 세션에 매달린 orphan Minutes 노드(과거 동기화 잔재)를 그래프에서 정리한다.
-        background_tasks.add_task(
-            run_cypher,
-            "MATCH (mn:Minutes)-[:`기록`]->(s:Session {pg_id: $sid}) DETACH DELETE mn",
-            {"sid": session_id},
-        )
+    # PG 행 유무와 무관하게, 세션의 Minutes 노드(과거 orphan·pg_id 불일치 잔재 포함)를 그래프에서
+    # 함께 정리한다 → "삭제 OK인데 아카이브 그래프에 남아있음"을 방지(견고한 삭제).
+    # Minutes 노드는 sync 시 session_id를 '속성'으로 갖는다(neo4j_sync.sync_minutes). Session 노드가
+    # 없어 `기록` 관계가 안 걸린 orphan도 session_id 속성으로 잡아 지운다.
+    # PG에 행이 없어도 404가 아니라 idempotent하게 성공 처리(목표 상태=없음은 이미 달성).
+    background_tasks.add_task(
+        run_cypher,
+        "MATCH (mn:Minutes) "
+        "WHERE mn.session_id = $sid OR (mn)-[:`기록`]->(:Session {pg_id: $sid}) "
+        "DETACH DELETE mn",
+        {"sid": session_id},
+    )
     return {"ok": True}
 
 

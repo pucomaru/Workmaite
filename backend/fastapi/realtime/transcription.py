@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+from typing import Any
 
 import websockets  # uvicorn[standard] 의존성
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -50,24 +51,74 @@ def _resolve_model(requested) -> str:
 
 
 # ── 문장 단위 재조립 ─────────────────────────────────────────────────────────
-# gpt-realtime-whisper는 turn_detection 미지원이라 짧은 조각으로 끊겨 온다. Whisper 계열이
-# 붙여주는 구두점을 기준으로 누적 텍스트를 문장 단위로 끊는다(외부 의존성 0). 더 정확한
-# 한국어 분절이 필요하면 kiwipiepy(Kiwi).split_into_sents로 이 함수만 교체하면 된다.
+# gpt-realtime-whisper는 turn_detection 미지원이라 짧은 조각으로 끊겨 온다. 누적 텍스트를
+# 문장 단위로 끊어 저장/표시한다. 1차로 kiwipiepy(Kiwi)의 형태소 기반 분절을 쓰고(구두점이
+# 없는 한국어 구어체도 분절 가능), 미설치/실패 시 구두점 정규식으로 폴백한다.
 _SENT_RE = re.compile(r"[^.!?。．…！？]*[.!?。．…！？]+['\"”’)\]]*\s*")
+_ENDS_SENT = re.compile(r"[.!?。．…！？]['\"”’)\]]*$")
+_HAS_WORD = re.compile(
+    r"[0-9A-Za-z가-힣]"
+)  # 실제 단어 포함 여부 — 구두점만인 조각 제외용
 _MAX_BUF_CHARS = 160  # 종결부호 없이 길어지면 강제로 한 줄 확정(버퍼 무한증가 방지)
 
+try:
+    from kiwipiepy import Kiwi as _Kiwi
 
-def _split_sentences(text: str):
-    """누적 텍스트를 (완결 문장 리스트, 미완결 꼬리)로 분리한다."""
+    _KIWI = _Kiwi()
+    logger.info("[Realtime STT] kiwipiepy 문장 분절 사용")
+except Exception as _e:  # 미설치/로드 실패 → 정규식 폴백
+    _KIWI = None
+    logger.warning(f"[Realtime STT] kiwipiepy 미사용, 구두점 정규식 폴백: {_e}")
+
+
+def _split_by_regex(text: str, force: bool = False):
+    raw = _SENT_RE.findall(text)
+    if not raw:
+        return (
+            ([text], "") if force else ([], text)
+        )  # 종결부호 없음 → force면 통째 확정
+    tail = text[sum(len(s) for s in raw) :].strip()
+    sents = [s.strip() for s in raw if s.strip()]
+    if force and tail:
+        sents.append(tail)
+        tail = ""
+    return sents, tail
+
+
+def _split_sentences(text: str, allow_ef: bool = False, force: bool = False):
+    """누적 텍스트를 (완결 문장 리스트, 미완결 꼬리)로 분리한다.
+
+    - delta(스트리밍): 마지막 문장은 종결부호(.?!)로 끝날 때만 확정한다. 종결어미로 끝나도
+      바로 뒤에 마침표가 따라올 수 있어("…입니다" 다음 ".") 한 텀 기다린다 → 마침표가 별도
+      줄로 쪼개지는 것을 막는다.
+    - completed(발화 commit=pause, allow_ef=True): 구두점이 없어도 마지막이 종결어미(EF)면
+      확정한다(즉시성 유지). pause 시점이라 문장 중간이면 EF가 아니므로 오분절되지 않는다.
+    - stop(force=True): 버퍼 전체를 한 번에 확정한다.
+    """
     text = (text or "").strip()
     if not text:
         return [], ""
-    raw = _SENT_RE.findall(text)
-    if not raw:
-        return [], text  # 종결부호 없음 → 전부 아직 말하는 중
-    tail = text[sum(len(s) for s in raw):].strip()
-    sents = [s.strip() for s in raw if s.strip()]
-    return sents, tail
+    if _KIWI is None:
+        return _split_by_regex(text, force)
+    try:
+        sents = [
+            s
+            for s in _KIWI.split_into_sents(text, return_tokens=allow_ef)
+            if s.text.strip()
+        ]
+    except Exception:
+        return _split_by_regex(text, force)
+    if not sents:
+        return [], ""
+    texts = [s.text.strip() for s in sents]
+    if force:
+        return texts, ""
+    last_done = bool(_ENDS_SENT.search(texts[-1]))
+    if not last_done and allow_ef and sents[-1].tokens:
+        last_done = sents[-1].tokens[-1].tag == "EF"
+    if last_done:
+        return texts, ""
+    return texts[:-1], texts[-1]  # 마지막은 아직 말하는 중 → 꼬리
 
 
 def _user_id_from_token(token: str):
@@ -168,12 +219,11 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
     elif first.get("bytes"):
         pending_audio = first["bytes"]
 
-    state = {
+    state: dict[str, Any] = {
         "bytes_since_final": 0,
         "offset": 0.0,
-        "sent_buf": "",  # 완료됐지만 아직 문장으로 확정 안 된 텍스트
-        "live": "",  # 현재 발화 중 delta 누적(미확정)
-        "buf_bytes": 0,  # sent_buf에 대응하는 오디오 바이트(문장별 시간 배분용)
+        "buf": "",  # delta로 누적되는 미확정 전사 텍스트(문장 확정 시 비워짐)
+        "buf_bytes": 0,  # buf에 대응하는 오디오 바이트(문장별 시간 배분용)
     }
 
     try:
@@ -224,15 +274,15 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
             if pending_audio:
                 await _append(pending_audio)
 
-            def _live_text():
-                # 확정전 버퍼 + 현재 발화중 텍스트 = 화면에 보여줄 라이브 텍스트
-                return " ".join(
-                    p for p in (state["sent_buf"], state["live"]) if p
-                ).strip()
-
             async def _emit_complete(sentences, tail):
                 """완결 문장들을 각각 stt_segment로 저장하고 final로 전송한다. buf_bytes를
                 글자수 비율로 배분해 문장별 시간(start/end)을 추정한다(총합=실제 오디오 길이)."""
+                sentences = [
+                    s for s in sentences if _HAS_WORD.search(s)
+                ]  # 구두점만인 조각 제외
+                if not sentences:
+                    state["buf"] = tail
+                    return
                 total = sum(len(s) for s in sentences) + len(tail)
                 fchars = sum(len(s) for s in sentences)
                 fbytes = (
@@ -241,7 +291,7 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     else int(state["buf_bytes"] * fchars / total)
                 )
                 state["buf_bytes"] = max(0, state["buf_bytes"] - fbytes)
-                state["sent_buf"] = tail
+                state["buf"] = tail
                 dur_total = fbytes / (2 * _SAMPLE_RATE)
                 for s in sentences:
                     sdur = dur_total * (len(s) / fchars) if fchars else 0.0
@@ -253,6 +303,7 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                         sid = await asyncio.to_thread(
                             _save_segment, session_id, user_id, s, model, start, end
                         )
+                    logger.info(f"[Realtime STT] 문장 확정: {s!r}")
                     await websocket.send_json(
                         {"type": "final", "text": s, "text_id": sid}
                     )
@@ -296,37 +347,49 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     if t == "conversation.item.input_audio_transcription.delta":
                         delta = ev.get("delta") or ""
                         if delta:
-                            # 발화중 누적 → 전체 라이브 텍스트(확정전 버퍼+발화중)를 보낸다.
-                            state["live"] += delta
-                            await websocket.send_json(
-                                {"type": "partial", "text": _live_text()}
+                            # delta마다 버퍼에 누적하고 문장 단위 확정을 시도한다. 마지막 문장은
+                            # 종결부호가 붙어야 확정 → 뒤따라오는 마침표가 별도 줄로 쪼개지지 않게.
+                            state["buf_bytes"] += state["bytes_since_final"]
+                            state["bytes_since_final"] = 0
+                            state["buf"] += delta
+                            complete, tail = await asyncio.to_thread(
+                                _split_sentences, state["buf"]
                             )
-                    elif t == "conversation.item.input_audio_transcription.completed":
-                        frag = (ev.get("transcript") or "").strip()
-                        state["buf_bytes"] += state["bytes_since_final"]
-                        state["bytes_since_final"] = 0
-                        state["live"] = ""
-                        if frag:
-                            state["sent_buf"] = (
-                                f"{state['sent_buf']} {frag}".strip()
-                                if state["sent_buf"]
-                                else frag
-                            )
-                            complete, tail = _split_sentences(state["sent_buf"])
                             if not complete and len(tail) > _MAX_BUF_CHARS:
                                 complete, tail = [tail], ""
                             if complete:
-                                # 완결 문장만 확정 저장, 미완결 꼬리는 버퍼에 남긴다.
                                 await _emit_complete(complete, tail)
-                        # 라이브 표시를 남은 꼬리로 갱신
+                            # 직전 문장 뒤에 떨어진 구두점만 남으면 비운다(별도 줄 생성 방지)
+                            if state["buf"] and not _HAS_WORD.search(state["buf"]):
+                                state["buf"] = ""
+                            await websocket.send_json(
+                                {"type": "partial", "text": state["buf"]}
+                            )
+                    elif t == "conversation.item.input_audio_transcription.completed":
+                        # 발화 종료(pause) 시점 — 구두점이 없어도 종결어미(EF)로 확정 허용
+                        # (allow_ef=True). pause라 문장 중간이면 EF가 아니라 오분절되지 않는다.
+                        state["buf_bytes"] += state["bytes_since_final"]
+                        state["bytes_since_final"] = 0
+                        complete, tail = await asyncio.to_thread(
+                            _split_sentences, state["buf"], True
+                        )
+                        if not complete and len(tail) > _MAX_BUF_CHARS:
+                            complete, tail = [tail], ""
+                        if complete:
+                            await _emit_complete(complete, tail)
+                        if state["buf"] and not _HAS_WORD.search(state["buf"]):
+                            state["buf"] = ""
                         await websocket.send_json(
-                            {"type": "partial", "text": _live_text()}
+                            {"type": "partial", "text": state["buf"]}
                         )
                     elif t == "error":
                         err = ev.get("error") or {}
                         logger.warning(f"[Realtime STT] OpenAI 오류 이벤트: {err}")
                         await websocket.send_json(
-                            {"type": "error", "message": err.get("message", "전사 오류")}
+                            {
+                                "type": "error",
+                                "message": err.get("message", "전사 오류"),
+                            }
                         )
                     elif t in (
                         "session.created",
@@ -361,9 +424,9 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                 except BaseException:
                     pass
             # 종료 시 버퍼에 남은 미완결 텍스트도 한 문장으로 확정 저장한다.
-            if state["sent_buf"].strip():
+            if state["buf"].strip():
                 try:
-                    await _emit_complete([state["sent_buf"].strip()], "")
+                    await _emit_complete([state["buf"].strip()], "")
                 except Exception:
                     pass
             try:

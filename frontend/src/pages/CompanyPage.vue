@@ -1,14 +1,14 @@
 <script setup>
-import { useAuthStore } from '../stores/auth'
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import api, { apiAI } from '../api'
-import { useThemeStore } from '../stores/theme'
 import AppTable from '../components/AppTable.vue'
 import AppTableSection from '../components/AppTableSection.vue'
-import { useTableSort } from '../composables/useTableSort'
-import { usePagination } from '../composables/usePagination'
-import { toast } from '../composables/useToast'
 import { confirmDialog, promptDialog } from '../composables/useConfirm'
+import { usePagination } from '../composables/usePagination'
+import { useTableSort } from '../composables/useTableSort'
+import { toast } from '../composables/useToast'
+import { useAuthStore } from '../stores/auth'
+import { useThemeStore } from '../stores/theme'
 
 const auth = useAuthStore()
 const companyColumns = [
@@ -526,7 +526,7 @@ const {
             <td class="text-muted">{{ member.company || '-' }}</td>
             <td class="text-muted">{{ member.department || '-' }}</td>
             <td class="text-muted">{{ member.position || '-' }}</td>
-            <td>{{ roleLabel(member.role) }}</td>
+            <td class="text-muted">{{ roleLabel(member.role) }}</td>
             <td class="text-muted">{{ member.email || '-' }}</td>
             <td>
               <div class="cell-meetings">
@@ -537,11 +537,17 @@ const {
                   }}</span>
                 </template>
                 <template v-else>
-                  <span class="meeting-tag">{{ member.meetings[0]?.title || '-' }}</span>
-                  <template v-if="member.meetings.length > 1">
+                  <span v-if="!member.meetings.length"></span>
+                  <span
+                    v-for="mg in member.meetings.slice(0, 5)"
+                    :key="mg.id"
+                    class="meeting-tag"
+                    >{{ mg.title }}</span
+                  >
+                  <template v-if="member.meetings.length > 5">
                     <template v-if="expandedRows.has(member.email || member.name)">
                       <span
-                        v-for="mg in member.meetings.slice(1)"
+                        v-for="mg in member.meetings.slice(5)"
                         :key="mg.id"
                         class="meeting-tag"
                         >{{ mg.title }}</span
@@ -558,7 +564,7 @@ const {
                       class="meeting-more-btn"
                       @click.stop="toggleExpand(member.email || member.name)"
                     >
-                      +{{ member.meetings.length - 1 }}개 더보기
+                      +{{ member.meetings.length - 5 }}개 더보기
                     </button>
                   </template>
                 </template>
@@ -598,7 +604,7 @@ const {
             </td>
           </tr>
           <tr v-for="i in memberFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in companyColumns" :key="ci">&nbsp;</td>
+            <td v-for="(c, ci) in companyColumns" :key="ci"></td>
           </tr>
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">

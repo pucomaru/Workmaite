@@ -719,7 +719,7 @@ async function saveProfileSettings() {
   flex-shrink: 0;
 }
 .logo-img {
-  height: 15px;
+  height: 16px;
   width: auto;
 }
 .header-divider {

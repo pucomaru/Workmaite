@@ -12,14 +12,14 @@ load_dotenv(os.path.join(_base, "..", "..", ".env"), override=True)
 
 # 로깅 설정 — 기본 INFO. 미설정 시 파이썬 기본은 WARNING이라 앱의 INFO 로그(예: [Realtime STT]
 # 이벤트 추적)가 콘솔에 안 보인다. LOG_LEVEL env(DEBUG/INFO/WARNING)로 조정.
-_log_level = getattr(
-    logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO
-)
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
     level=_log_level,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
-logging.getLogger().setLevel(_log_level)  # uvicorn이 root 핸들러를 이미 붙였어도 레벨 보장
+logging.getLogger().setLevel(
+    _log_level
+)  # uvicorn이 root 핸들러를 이미 붙였어도 레벨 보장
 
 # LangSmith 트레이싱: API 키가 있고 LANGSMITH_TRACING=true일 때만 활성화 (키 없이 켜면 403 스팸)
 _tracing_on = os.environ.get("LANGSMITH_TRACING", "").lower() == "true" and bool(

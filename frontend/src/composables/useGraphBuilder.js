@@ -196,36 +196,41 @@ export function useGraphBuilder({
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)
 
-        const dIdx = nodes.length
-        nodes.push({
-          id: `minutes-${g.id || gi}-${mi}`,
-          label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`,
-          type: 'minutes',
-          groupIdx: gi,
-          data: {
-            title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
-            doc_type: '회의록',
-            author: m.doc_author,
-            created_at: m.doc_created_at || m.ended_at || m.date,
-            file_name: m.minutes_file_name || m.file_name,
-            session_neo_id: m.id,
-            session_title: m.session_title,
-            session_number: m.session_number,
-            date: m.date,
-            started_at: m.started_at,
-            ended_at: m.ended_at,
-            session_type: m.session_type,
-            description: m.description,
-            location: m.location,
-            session_status: m.session_status,
-            content_summary: m.content_summary,
-            minutes_status: m.minutes_status,
-            minutes_pg_id: m.minutes_pg_id,
-            generated_at: m.generated_at,
-          },
-        })
-        edges.push({ from: sIdx, to: dIdx, rel: '산출' })
-        if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
+        // 회의록 노드는 '실제 저장된 회의록(minutes_pg_id 존재)'이 있을 때만 생성한다.
+        // archive 쿼리가 OPTIONAL MATCH라 회의록 없는 세션도 한 행씩(minutes_pg_id=null) 반환하는데,
+        // 이전엔 세션마다 무조건 minutes 노드를 만들어 회의록 없는 세션에도 'N차 회의록' 유령 노드가 떴다.
+        if (m.minutes_pg_id != null) {
+          const dIdx = nodes.length
+          nodes.push({
+            id: `minutes-${g.id || gi}-${mi}`,
+            label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`,
+            type: 'minutes',
+            groupIdx: gi,
+            data: {
+              title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
+              doc_type: '회의록',
+              author: m.doc_author,
+              created_at: m.doc_created_at || m.ended_at || m.date,
+              file_name: m.minutes_file_name || m.file_name,
+              session_neo_id: m.id,
+              session_title: m.session_title,
+              session_number: m.session_number,
+              date: m.date,
+              started_at: m.started_at,
+              ended_at: m.ended_at,
+              session_type: m.session_type,
+              description: m.description,
+              location: m.location,
+              session_status: m.session_status,
+              content_summary: m.content_summary,
+              minutes_status: m.minutes_status,
+              minutes_pg_id: m.minutes_pg_id,
+              generated_at: m.generated_at,
+            },
+          })
+          edges.push({ from: sIdx, to: dIdx, rel: '산출' })
+          if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
+        }
       })
 
       // ── Report nodes ─────────────────────────────────────────
@@ -265,7 +270,8 @@ export function useGraphBuilder({
             ? minutesFileIdxBySessionNeoId.get(String(ma.session_id))
             : undefined
         const agIdx = ma.agenda_id != null ? agendaIdxById.get(String(ma.agenda_id)) : undefined
-        if (mIdx != null && agIdx != null) edges.push({ from: agIdx, to: mIdx, rel: '도출' })
+        // 회의록 → 아젠다 방향 (canonical: minutes-[도출]->agenda)
+        if (mIdx != null && agIdx != null) edges.push({ from: mIdx, to: agIdx, rel: '도출' })
       })
       ;(g.session_agendas || []).forEach(sa => {
         const sIdx =
