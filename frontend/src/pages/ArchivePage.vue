@@ -514,6 +514,21 @@ async function openNodeDetail(n) {
   nodeDetailTab.value = 'basic'
   relAddActive.value = false
 
+  if (n.type === 'agenda' && n.neo4jId && n.meetingId) {
+    const meetingNumId = _toNumericId(n.meetingId)
+    if (meetingNumId) {
+      try {
+        const { data: agendas } = await apiAI.get(`/api/agent/meetings/${meetingNumId}/agendas`)
+        const fresh = agendas.find(a => String(a.id) === String(n.neo4jId))
+        if (fresh) {
+          detailNode.value = { ...n, data: { ...n.data, ...fresh } }
+        }
+      } catch (e) {
+        console.warn('[openNodeDetail] agenda status refresh failed', e)
+      }
+    }
+  }
+
   if (n.type === 'report' && n.data?.id) {
     const rawId = n.data.id
     const reportId =
