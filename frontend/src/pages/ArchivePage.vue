@@ -495,6 +495,7 @@ function _onFloatDragEnd() {
 const detailMeeting = ref(null)
 const detailOpen = ref(false)
 const detailAgendas = ref([])
+const deletedAgendaLogs = ref([]) // { meetingId, agendaId, title, deletedAt } — API + 세션 추가분 병합
 const detailNode = ref(null) // 회의체 외 노드 (부서/과제/회의/파일/사람 등)
 const nodeDetailTab = ref('basic') // 'basic' | 'rel'
 
@@ -708,6 +709,16 @@ async function deleteAgenda(agenda) {
   try {
     await apiAI.delete(`/api/agent/archive/agendas/${agenda.id}`)
     detailAgendas.value = detailAgendas.value.filter(t => t.id !== agenda.id)
+    const meetingId = detailMeeting.value?.id
+    if (meetingId) {
+      deletedAgendaLogs.value.push({
+        meetingId: String(meetingId),
+        agendaId: agenda.id,
+        title: agenda.title || agenda.content || '',
+        agendaCreatedAt: agenda.created_at || null,
+        deletedAt: new Date().toISOString(),
+      })
+    }
   } catch (e) {
     console.error('삭제 실패:', e)
   }
@@ -1271,13 +1282,33 @@ async function openDetail(groupData) {
   const numId = _toNumericId(groupData.id)
 
   if (numId > 0) {
-    try {
-      const res = await apiAI.get(`/api/agent/meetings/${numId}/agendas`)
-      detailAgendas.value = res.data || []
-    } catch (e) {
-      console.error(`[Task] 과제 로드 실패 (meeting=${numId}):`, e?.response?.status)
-      detailAgendas.value = (groupData.tasks || []).filter(t => t.status !== 'draft')
+    const [agendasRes, deleteLogsRes] = await Promise.allSettled([
+      apiAI.get(`/api/agent/meetings/${numId}/agendas`),
+      apiAI.get(`/api/agent/meetings/${numId}/agenda-delete-logs`),
+    ])
+    detailAgendas.value =
+      agendasRes.status === 'fulfilled' ? agendasRes.value.data || [] :
+      (groupData.tasks || []).filter(t => t.status !== 'draft')
+    if (agendasRes.status === 'rejected') {
+      console.error(`[Task] 과제 로드 실패 (meeting=${numId}):`, agendasRes.reason?.response?.status)
     }
+    const meetingKey = String(groupData.id)
+    const sessionLogs = deletedAgendaLogs.value.filter(l => l.meetingId === meetingKey)
+    const apiLogs = deleteLogsRes.status === 'fulfilled'
+      ? (deleteLogsRes.value.data || []).map(r => ({
+          meetingId: meetingKey,
+          agendaId: r.agenda_id,
+          title: r.title,
+          agendaCreatedAt: r.agenda_created_at || null,
+          deletedAt: r.deleted_at,
+        }))
+      : []
+    const apiIds = new Set(apiLogs.map(l => l.agendaId))
+    deletedAgendaLogs.value = [
+      ...deletedAgendaLogs.value.filter(l => l.meetingId !== meetingKey),
+      ...apiLogs,
+      ...sessionLogs.filter(l => !apiIds.has(l.agendaId)),
+    ]
   } else {
     detailAgendas.value = (groupData.tasks || []).filter(t => t.status !== 'draft')
   }
@@ -2231,6 +2262,13 @@ const groupHistoryMap = computed(() => {
         date: r.created_at || r.submitted_at,
       })
     })
+    // g.tasks에 있는 아젠다 pg_id 집합 (삭제되어 g.tasks에서 사라진 것들은 별도 재구성)
+    const existingPgIds = new Set(
+      (g.tasks || []).map(t => t.pg_id ?? (typeof t.id === 'string' && t.id.startsWith('agenda-') ? Number(t.id.slice(7)) : t.id))
+    )
+    const meetingDeletedLogs = deletedAgendaLogs.value.filter(l => String(l.meetingId) === String(g.id))
+
+    // g.tasks 기반 추가 로그 (현존하는 아젠다)
     const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
     if (ongoingTasks.length > 0) {
       // created_at 기준 오래된순 정렬 후 2분 간격으로 배치 묶기
@@ -2264,6 +2302,45 @@ const groupHistoryMap = computed(() => {
           desc: count === 1 ? '아젠다 1개 추가' : `아젠다 ${count}개 등록`,
           manager: managerName,
           date: first.created_at || first.due_date || null,
+        })
+      })
+    }
+    // 삭제된 아젠다 중 g.tasks에 없는 것: agendaCreatedAt으로 추가 로그 재구성
+    const ghostAddLogs = meetingDeletedLogs
+      .filter(l => !existingPgIds.has(l.agendaId) && l.agendaCreatedAt)
+      .sort((a, b) => new Date(a.agendaCreatedAt) - new Date(b.agendaCreatedAt))
+    ghostAddLogs.forEach(l => {
+      items.push({
+        type: 'agenda',
+        desc: '아젠다 1개 추가',
+        manager: managerName,
+        date: l.agendaCreatedAt,
+      })
+    })
+    const deletedLogs = deletedAgendaLogs.value
+      .filter(l => String(l.meetingId) === String(g.id))
+      .sort((a, b) => new Date(a.deletedAt) - new Date(b.deletedAt))
+    if (deletedLogs.length > 0) {
+      const BATCH_GAP_MS = 2 * 60 * 1000
+      const delBatches = []
+      let delBatch = [deletedLogs[0]]
+      for (let i = 1; i < deletedLogs.length; i++) {
+        const gap = new Date(deletedLogs[i].deletedAt) - new Date(deletedLogs[i - 1].deletedAt)
+        if (gap <= BATCH_GAP_MS) {
+          delBatch.push(deletedLogs[i])
+        } else {
+          delBatches.push(delBatch)
+          delBatch = [deletedLogs[i]]
+        }
+      }
+      delBatches.push(delBatch)
+      delBatches.forEach(batch => {
+        const count = batch.length
+        items.push({
+          type: 'agenda',
+          desc: count === 1 ? '아젠다 1개 삭제' : `아젠다 ${count}개 삭제`,
+          manager: managerName,
+          date: batch[0].deletedAt,
         })
       })
     }
@@ -2834,10 +2911,10 @@ async function deleteAgendaEdit() {
   const numId =
     typeof agendaId === 'string' ? parseInt(agendaId.replace('agenda-', ''), 10) : Number(agendaId)
   if (!numId || isNaN(numId)) return
+  agendaEditModal.value = null
   if (!(await confirmDialog('이 아젠다를 삭제하시겠습니까?', { danger: true }))) return
   try {
     await apiAI.delete(`/api/agent/archive/agendas/${numId}`)
-    agendaEditModal.value = null
     detailNode.value = null
     setTimeout(refreshArchive, 600)
   } catch (e) {
