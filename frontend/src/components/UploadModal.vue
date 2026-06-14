@@ -258,12 +258,11 @@ function toggleAgendaDropdown() {
             <label class="resubmit-toggle">
               <input type="checkbox" v-model="isResubmit" @change="onResubmitToggle" />
               <span class="resubmit-toggle-label">자료 재검토</span>
-              <span class="resubmit-toggle-desc">반려된 보고서를 수정해서 재제출합니다</span>
             </label>
 
             <!-- 반려 보고서 선택 -->
             <div v-if="isResubmit" class="app-modal-field">
-              <label>재검토할 보고서 선택 <span class="req">*</span></label>
+              <label>반려된 보고서 선택 <span class="req">*</span></label>
               <select v-model="selectedParentId" class="app-modal-input" @change="onParentSelect">
                 <option :value="null">반려된 보고서 선택...</option>
                 <option v-for="r in rejectedReports" :key="r.id" :value="r.id">
@@ -621,7 +620,7 @@ function toggleAgendaDropdown() {
                 >
                   <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                 </svg>
-                우선 개선 아젠다
+                우선 개선사항
               </div>
               <div v-for="(imp, i) in aiResult.top_improvements" :key="i" class="ai-top-item">
                 <span class="ai-top-num">{{ i + 1 }}</span>

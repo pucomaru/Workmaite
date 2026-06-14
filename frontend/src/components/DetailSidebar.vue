@@ -1687,7 +1687,7 @@ function parseAiEvidence(val) {
                 </div>
               </div>
 
-              <!-- 우선 개선 아젠다 -->
+              <!-- 우선 개선사항 -->
               <div
                 v-if="detailNode.type === 'report' && sbTopImprovements.length"
                 class="detail-section"
@@ -1704,7 +1704,7 @@ function parseAiEvidence(val) {
                   >
                     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
                   </svg>
-                  우선 개선 아젠다
+                  우선 개선사항
                 </div>
                 <div class="sb-top-improvements">
                   <div v-for="(imp, i) in sbTopImprovements" :key="i" class="sb-top-item">
