@@ -173,7 +173,10 @@ from services.supervisor_helpers import (  # noqa: F401, E402
     _get_previous_minutes,
     _log_activity,
     _stream_plan,
+    _build_session_context,
+    _format_session_context_str,
 )
+from core.access_guard import require_view_by_session
 
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
@@ -463,6 +466,147 @@ async def minutes_generate_minutes(
     return StreamingResponse(
         instrument_stream(stream(), "minutes_generate"), media_type="text/event-stream"
     )  # TTFT 측정 (P5-1)
+
+
+# ─── 세션 전용 챗 ────────────────────────────────────────────────────────────
+@router.post("/session/chat")
+async def session_chat(
+    data: schemas.AgentChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """세션 상태에 따라 분기하는 회의 전용 챗봇.
+
+    scheduled → 기본 정보(일정·참석자·안건)만 안내
+    ongoing   → 진행 중 안내
+    ended     → 회의록 미생성 안내
+    archived  → Neo4j RAG로 회의록 기반 답변
+    """
+    if not data.session_id:
+        # 세션 미선택 시 supervisor 로직으로 fallback
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+
+    require_view_by_session(db, current_user, data.session_id)
+
+    ctx = _build_session_context(db, data.session_id)
+    if not ctx:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    session = ctx["session"]
+    status = session.status
+
+    # 상태별 추가 컨텍스트
+    if status == "archived":
+        # Neo4j RAG — 회의록 임베딩 검색
+        try:
+            from graphdb.retrieval_registry import vector_search
+            rag_rows = await vector_search(
+                "Minutes",
+                data.message,
+                k=3,
+                meeting_ids=[session.meeting_id],
+            )
+            rag_text = "\n\n".join(
+                r.get("summary") or r.get("content") or ""
+                for r in rag_rows
+                if r.get("summary") or r.get("content")
+            )
+        except Exception as e:
+            logger.warning(f"[session_chat] RAG 검색 실패 (무시): {e}")
+            rag_text = ""
+    else:
+        rag_text = ""
+
+    base_context = _format_session_context_str(ctx)
+
+    status_guide = {
+        "scheduled": (
+            "이 회의는 아직 시작되지 않았습니다.\n"
+            "대화 내용·발언·결정사항 등 진행 관련 질문에는 "
+            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요.\n"
+            "일정·장소·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+        ),
+        "ongoing": (
+            "이 회의는 현재 진행 중입니다.\n"
+            "회의록·요약·결정사항은 회의 종료 후 확인 가능하다고 안내하세요.\n"
+            "일정·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+        ),
+        "ended": (
+            "이 회의는 종료됐지만 회의록이 아직 생성되지 않았습니다.\n"
+            "회의 내용·요약 관련 질문에는 '회의록이 아직 생성되지 않아 내용을 확인할 수 없습니다'라고 답변하세요.\n"
+            "일정·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+        ),
+        "archived": "이 회의는 완료된 회의입니다. 아래 회의록 데이터를 바탕으로 답변하세요.",
+    }.get(status, "")
+
+    system_prompt = f"""당신은 [{session.title}] 회의 전용 AI 어시스턴트입니다.
+{status_guide}
+
+답변 규칙:
+- 이 회의체·회의 세션과 관련된 질문에만 답변합니다.
+- 날씨, 코딩, 일반 상식 등 회의와 완전히 무관한 질문에는 "이 회의와 관련된 질문만 답변할 수 있습니다."라고 안내하세요.
+- 회의 관련 질문이지만 현재 상태상 정보가 없는 경우, 위 상태 안내에 따라 이유를 설명하세요. off-topic으로 처리하지 마세요.
+
+{base_context}"""
+
+    if rag_text:
+        system_prompt += f"\n\n[검색된 관련 회의록 내용]\n{rag_text}"
+
+    def _to_messages(history: list) -> list:
+        result = []
+        for m in (history or [])[-10:]:
+            role, content = m.get("role", ""), m.get("content", "") or ""
+            if role == "user":
+                result.append(HumanMessage(content=content))
+            elif role in ("assistant", "agent"):
+                result.append(AIMessage(content=content))
+        return result
+
+    async def stream():
+        messages = (
+            [SystemMessage(content=system_prompt)]
+            + _to_messages(data.chat_history)
+            + [HumanMessage(content=data.message)]
+        )
+        full_response = ""
+        try:
+            async for chunk in make_llm(temperature=0.3, streaming=True).astream(messages):
+                if chunk.content:
+                    full_response += chunk.content
+                    yield sse_token(chunk.content)
+        finally:
+            # 대화 기록 저장
+            thread_id = f"sessions-{data.session_id}"
+            try:
+                db_local = SessionLocal()
+                try:
+                    db_local.add(models.ChatMessage(
+                        thread_id=thread_id,
+                        user_id=current_user.id,
+                        context_type="sessions",
+                        role="user",
+                        content=data.message,
+                        session_id=data.session_id,
+                    ))
+                    if full_response:
+                        db_local.add(models.ChatMessage(
+                            thread_id=thread_id,
+                            user_id=current_user.id,
+                            context_type="sessions",
+                            role="agent",
+                            content=full_response,
+                            session_id=data.session_id,
+                        ))
+                    db_local.commit()
+                finally:
+                    db_local.close()
+            except Exception as e:
+                logger.warning(f"[session_chat] 대화 기록 저장 실패 (무시): {e}")
+            yield sse_done()
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ─── 모델 목록 ────────────────────────────────────────────────────────────────

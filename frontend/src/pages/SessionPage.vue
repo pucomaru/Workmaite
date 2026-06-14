@@ -1220,7 +1220,7 @@ async function _runThinkingSteps(thinkingMsg, steps, delayMs = 380) {
   thinkingMsg.open = false // 완료 후 자동 접힘
 }
 
-async function sendAra() {
+async function sendSessionChat() {
   const text = wmInput.value.trim()
   if (!text || wmLoading.value) return
   wmInput.value = ''
@@ -1248,11 +1248,15 @@ async function sendAra() {
     .slice(0, -1)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
+    const endpoint = activeSession.value?.id
+      ? '/api/agent/session/chat'
+      : '/api/agent/supervisor/chat'
     await streamPost(
-      '/api/agent/supervisor/chat',
+      endpoint,
       {
         thread_id: _wmThreadId(),
         meeting_id: selectedMeeting.value?.id || 0,
+        session_id: activeSession.value?.id || null,
         message: content,
         chat_history: history,
         model: selectedModel.value || undefined,
@@ -1285,7 +1289,7 @@ function onWmKeydown(e) {
   if (handleWmMentionKeydown(e)) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    sendAra()
+    sendSessionChat()
   }
 }
 
@@ -2288,7 +2292,7 @@ async function downloadChatFile(filePath) {
                 :key="s"
                 class="wm-suggested-btn"
                 :disabled="wmLoading"
-                @click="wmInput = s; sendAra()"
+                @click="wmInput = s; sendSessionChat()"
               >
                 {{ s }}
               </button>
@@ -2349,7 +2353,7 @@ async function downloadChatFile(filePath) {
         :multiple-files="false"
         @input="onWmInput"
         @keydown="onWmKeydown"
-        @send="sendAra"
+        @send="sendSessionChat"
         @select-at-item="selectWmAtItem"
         @remove-ctx="removeWmCtx"
         @file-change="e => sendChatFile(e.target.files[0])"
