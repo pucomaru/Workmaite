@@ -2101,7 +2101,7 @@
 }
 /* 추가 버튼 */
 .gm-add-btn {
-  align-self: flex-start;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 5px;

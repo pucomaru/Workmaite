@@ -39,6 +39,7 @@ const {
   onCtxFilesAdded,
   removeCtxFile,
   runExtract,
+  goToProcessStep,
   finishExtract,
   addDirectAgenda,
   detailMemberDepts,
@@ -69,6 +70,7 @@ function pushDirectAddItem() {
     db_id: null,
     _state: null,
     _editing: true,
+    _directAdd: true,
     _editTitle: '',
     _editCompany: '',
     _editDept: '',
@@ -562,7 +564,7 @@ function parseAiEvidence(val) {
             />
 
             <!-- 진행중 아젠다 목록 -->
-            <div class="detail-section" style="margin-top: 12px">
+            <div class="detail-section" style="margin-top: 4px">
               <div class="detail-section-label-row">
                 <span class="detail-section-label">진행중 아젠다</span>
                 <span class="detail-section-label" style="font-weight: 400"
@@ -936,6 +938,11 @@ function parseAiEvidence(val) {
                 <div class="detail-extract-meta">
                   AI가 {{ extractResult.length }}개 아젠다를 추천했습니다.
                 </div>
+                <!-- prettier-ignore -->
+                <button class="ctx-run-btn" style="margin-top:6px;margin-bottom:6px" @click="goToProcessStep('context')">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z" /></svg>
+                  아젠다 재추출하기
+                </button>
                 <AgendaReviewList
                   :items="extractResult"
                   :memberCompanies="detailMemberCompanies"

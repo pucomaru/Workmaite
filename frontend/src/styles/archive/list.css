@@ -337,9 +337,8 @@
   margin-top: 3px;
 }
 .lv-type-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 12px;
+  color: var(--text-muted);
 }
 .day-mode .lv-group-name {
   color: var(--dark-card);
@@ -617,24 +616,8 @@
   border: 1px solid rgba(100, 116, 139, 0.2);
 }
 .lv-role-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  margin-left: 5px;
-}
-.lv-role-badge.role-admin {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--accent-light);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-}
-.lv-role-badge.role-member {
-  background: rgba(100, 116, 139, 0.1);
-  color: var(--dark-muted);
-  border: 1px solid rgba(100, 116, 139, 0.18);
+  font-size: 12px;
+  color: var(--text-muted);
 }
 .day-mode .detail-role-badge.role-admin {
   background: rgba(59, 130, 246, 0.1);
@@ -646,15 +629,8 @@
   color: var(--text-muted);
   border-color: var(--border);
 }
-.day-mode .lv-role-badge.role-admin {
-  background: rgba(59, 130, 246, 0.08);
-  color: #2563eb;
-  border-color: rgba(59, 130, 246, 0.2);
-}
-.day-mode .lv-role-badge.role-member {
-  background: var(--surface);
+.day-mode .lv-role-badge {
   color: var(--text-muted);
-  border-color: var(--border);
 }
 /* ── Node detail styles ── */
 .node-member-list {
