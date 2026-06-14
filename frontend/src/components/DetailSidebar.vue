@@ -261,9 +261,6 @@ function parseAiEvidence(val) {
               v-if="isDetailAdmin"
               class="detail-icon-btn"
               @click="openGroupSetting"
-              data-bs-toggle="tooltip"
-              data-bs-placement="bottom"
-              data-bs-title="설정"
             >
               <svg
                 width="13"
@@ -1093,15 +1090,6 @@ function parseAiEvidence(val) {
               "
               class="detail-icon-btn"
               @click="openNodeGroupSetting"
-              data-bs-toggle="tooltip"
-              data-bs-placement="bottom"
-              :data-bs-title="
-                detailNode.type === 'company'
-                  ? ' 설정'
-                  : detailNode.type === 'dept'
-                    ? ' 설정'
-                    : '설정'
-              "
             >
               <svg
                 width="13"

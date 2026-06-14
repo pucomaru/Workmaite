@@ -472,7 +472,6 @@ onMounted(async () => {
                   v-if="canManage(g)"
                   class="mg-icon-btn settings"
                   @click.stop="openSettings(g)"
-                  title="설정"
                 >
                   <svg
                     width="14"
