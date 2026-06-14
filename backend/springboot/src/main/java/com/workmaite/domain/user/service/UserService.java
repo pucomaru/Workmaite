@@ -230,9 +230,9 @@ public class UserService {
   }
 
   /**
-   * 호출자가 볼 수 있는 사용자 ID 집합 — 본인 + 공유 회의체 인원 + (COMPANY_ADMIN이면) 회사 전원. null이면
-   * 전체(SYSTEM_ADMIN). 활성 여부는 거르지 않는다(by-ids 이름 해석은 비활성도 필요). 회사 전체 디렉터리는
-   * COMPANY_ADMIN/SYSTEM_ADMIN만 — 일반 USER는 회사 전원 노출 금지 (MT-3).
+   * 호출자가 볼 수 있는 사용자 ID 집합 — 본인 + 공유 회의체 인원 + (COMPANY_ADMIN이면) 회사 전원. null이면 전체(SYSTEM_ADMIN). 활성
+   * 여부는 거르지 않는다(by-ids 이름 해석은 비활성도 필요). 회사 전체 디렉터리는 COMPANY_ADMIN/SYSTEM_ADMIN만 — 일반 USER는 회사 전원 노출
+   * 금지 (MT-3).
    */
   private Set<Long> visibleScope(User caller) {
     if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {

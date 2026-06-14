@@ -11,9 +11,9 @@ import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
 import com.workmaite.domain.sessions.dto.SummaryBlockResponse;
 import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.MeetingSession;
+import com.workmaite.domain.sessions.entity.SessionAgenda;
 import com.workmaite.domain.sessions.entity.SessionMember;
 import com.workmaite.domain.sessions.entity.SessionStatus;
-import com.workmaite.domain.sessions.entity.SessionAgenda;
 import com.workmaite.domain.sessions.repository.SessionAgendaRepository;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
@@ -108,9 +108,7 @@ public class SessionService {
     List<Long> agendaIds = request.getAgendaIds();
     if (agendaIds != null && !agendaIds.isEmpty()) {
       List<SessionAgenda> sessionAgendas =
-          agendaIds.stream()
-              .map(agendaId -> SessionAgenda.of(session.getId(), agendaId))
-              .toList();
+          agendaIds.stream().map(agendaId -> SessionAgenda.of(session.getId(), agendaId)).toList();
       sessionAgendaRepository.saveAll(sessionAgendas);
     }
 
