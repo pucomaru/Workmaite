@@ -5,7 +5,7 @@ plugins {
 	id("com.diffplug.spotless") version "8.6.0"
 	checkstyle
     pmd
-    id("com.github.spotbugs") version "6.0.7"
+    id("com.github.spotbugs") version "6.5.6"
 }
 
 spotless {
