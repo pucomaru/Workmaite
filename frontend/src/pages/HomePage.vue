@@ -858,8 +858,9 @@ const {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  min-width: 130px;
+  width: 190px;
   text-align: center;
+  flex-shrink: 0;
 }
 .cal-nav {
   display: flex;
@@ -983,7 +984,7 @@ const {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  min-height: 160px;
+  height: 220px;
 }
 .week-col {
   border-radius: 6px;
@@ -1040,6 +1041,8 @@ const {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .week-empty-slot {
   flex: 1;
