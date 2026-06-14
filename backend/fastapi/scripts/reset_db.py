@@ -64,5 +64,5 @@ if __name__ == "__main__":
     confirm = input("모든 테이블과 데이터가 삭제됩니다. 계속하시겠습니까? (yes 입력): ")
     if confirm.strip().lower() != "yes":
         print("취소됨.")
-    else:
-        reset()
+    # else:
+        # reset() # 정말 필요한경우에만 주석 제거 후 실행

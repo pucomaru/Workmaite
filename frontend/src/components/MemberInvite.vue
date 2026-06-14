@@ -156,7 +156,7 @@ function updateRole(idx, role) {
 .mi-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--bs-body-color);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   display: flex;
@@ -311,7 +311,7 @@ function updateRole(idx, role) {
 
 /* Dark */
 .mi-section.dark .mi-title {
-  color: var(--text-muted);
+  color: var(--dark-text);
 }
 .mi-section.dark .mi-search-wrap {
   border-color: var(--white-12);

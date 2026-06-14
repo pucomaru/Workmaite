@@ -17,6 +17,7 @@ from core.access_guard import (
     meeting_id_of_session,
 )
 from graphdb.neo4j_sync import sync_minutes
+from graphdb.neo4j_client import run_cypher
 
 _openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -186,6 +187,7 @@ async def update_minutes_content(
 @router.delete("/sessions/{session_id}/minutes")
 async def delete_minutes(
     session_id: int,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -198,8 +200,15 @@ async def delete_minutes(
     require_owned_edit(
         db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
     )
+    _mid = minutes.id
     db.delete(minutes)
     db.commit()
+    # Neo4j Minutes 노드도 제거 — PG만 지우면 그래프에 orphan으로 남는다 (회의록이 계속 보이는 원인)
+    background_tasks.add_task(
+        run_cypher,
+        "MATCH (mn:Minutes {pg_id: $pg_id}) DETACH DELETE mn",
+        {"pg_id": _mid},
+    )
     return {"ok": True}
 
 

@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # SpringBoot와 동일한 시크릿 사용
 SECRET_KEY = os.environ["JWT_SECRET"]
 ALGORITHM = "HS256"
+# 검증은 HMAC 계열 모두 허용 — Spring(jjwt)이 JWT_SECRET 키 길이에 따라 HS256/384/512를
+# 자동 선택한다(긴 시크릿이면 HS512). 같은 대칭 시크릿이라 안전하고, HS만 명시하므로
+# alg=none/RS 혼동(키 혼용 공격) 여지가 없다.
+ALGORITHMS = ["HS256", "HS384", "HS512"]
 
 bearer_scheme = HTTPBearer()
 
@@ -28,7 +32,7 @@ def get_current_user(
     """SpringBoot에서 발급된 JWT를 검증하고 사용자 정보를 반환."""
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=ALGORITHMS)
         sub = payload.get("sub")
         if sub is None:
             logger.warning("[Auth] JWT에 sub 없음")

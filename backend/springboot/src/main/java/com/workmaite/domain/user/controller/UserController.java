@@ -59,16 +59,18 @@ public class UserController {
     return ResponseEntity.ok(ApiResponse.ok(userService.searchUsers(callerId, q, page, size)));
   }
 
-  // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용
+  // ID 목록으로 사용자 조회 - 편집 모달 참석자 미리채우기용 (가시성 범위로 제한)
   @GetMapping("/by-ids")
-  public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByIds(@RequestParam String ids) {
+  public ResponseEntity<ApiResponse<List<UserResponse>>> getUsersByIds(
+      Authentication authentication, @RequestParam String ids) {
+    Long callerId = Long.parseLong(authentication.getName());
     List<Long> idList =
         Arrays.stream(ids.split(","))
             .map(String::trim)
             .filter(s -> !s.isEmpty())
             .map(Long::parseLong)
             .collect(Collectors.toList());
-    return ResponseEntity.ok(ApiResponse.ok(userService.getUsersByIds(idList)));
+    return ResponseEntity.ok(ApiResponse.ok(userService.getUsersByIds(callerId, idList)));
   }
 
   // 사용자 목록 (내 회사 + 공유 회의체 스코프, MT-3)

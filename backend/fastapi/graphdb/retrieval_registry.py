@@ -259,7 +259,7 @@ async def graph_expanded_search(
     meeting_ids: list[int] | None = None,
     k: int = 3,
 ) -> list[dict]:
-    """시드 벡터 검색 → 1-hop 그래프 확장 → 경로 근거 반환 (P3B-7, G-2).
+    """시드 벡터 검색 → 경로 근거 반환 (P3B-7, G-2).
 
     아젠다를 시드로 찾고 연결된 세션·보고서·판단으로 확장해, 답변이 인용할 수 있는
     "아젠다 → 세션/보고서" 경로를 함께 돌려준다.

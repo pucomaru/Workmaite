@@ -24,7 +24,7 @@ import websockets  # uvicorn[standard] 의존성
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 
-from core.auth import SECRET_KEY, ALGORITHM
+from core.auth import SECRET_KEY, ALGORITHMS
 from core.access_guard import require_meeting_member_by_session
 from db.database import SessionLocal
 from db import models
@@ -52,7 +52,7 @@ def _user_id_from_token(token: str):
     if not token:
         return None
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=ALGORITHMS)
         if payload.get("type") == "refresh":  # refresh 토큰으로 WS 인증 불가 (SEC-7)
             return None
         sub = payload.get("sub")

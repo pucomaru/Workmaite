@@ -66,7 +66,11 @@ def require_user_update_permission(
 
 
 def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
-    """디렉터리 가시성 (MT-3): 본인 + 내 회사 + 공유 회의체 인원. None이면 전체(SYSTEM_ADMIN)."""
+    """디렉터리 가시성 (MT-3): 본인 + 공유 회의체 인원. COMPANY_ADMIN은 회사 전원 추가.
+
+    None이면 전체(SYSTEM_ADMIN). 일반 USER는 회사 전체 디렉터리를 보지 못한다 — 회사 전원
+    검색·열람은 COMPANY_ADMIN/SYSTEM_ADMIN 전용(company_role로 가시성을 가른다).
+    """
     if is_system_admin(user):
         return None
     ids = {user.id}
@@ -83,7 +87,8 @@ def visible_user_ids(db: Session, user: models.User) -> set[int] | None:
             .filter(models.MeetingMember.meeting_id.in_(my_meetings))
             .all()
         }
-    if user.company_id is not None:
+    # 회사 전체 디렉터리는 COMPANY_ADMIN(+SYSTEM_ADMIN)만 — 일반 USER는 본인+공유 회의체로 한정 (MT-3)
+    if user.company_role == "COMPANY_ADMIN" and user.company_id is not None:
         ids |= {
             r.id
             for r in db.query(models.User.id)

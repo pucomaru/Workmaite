@@ -2,7 +2,9 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import LoginPopup from '../components/LoginPopup.vue'
 import RegisterPopup from '../components/RegisterPopup.vue'
+import { useThemeStore } from '../stores/theme'
 
+const themeStore = useThemeStore() // 주/야간 토글 — 헤더와 동일 store 재사용
 const showLogin = ref(false)
 const showRegister = ref(false)
 function openLogin() {
@@ -298,6 +300,14 @@ const trustItems = [
       <div class="container nav-inner">
         <img src="../assets/workmaite-logo-white.png" class="nav-logo-img" alt="Workma!te" />
         <div class="nav-actions">
+          <button
+            class="btn-nav-theme"
+            @click="themeStore.toggle()"
+            :title="themeStore.nightMode ? '주간 모드로 전환' : '야간 모드로 전환'"
+            aria-label="주야간 모드 전환"
+          >
+            <i :class="themeStore.nightMode ? 'bi bi-sun' : 'bi bi-moon-stars'"></i>
+          </button>
           <button class="btn-nav-ghost" @click="openLogin">로그인</button>
           <button class="btn-cta sm" @click="openRegister">회원가입</button>
         </div>
@@ -512,6 +522,22 @@ const trustItems = [
   transition: background 0.15s;
 }
 .btn-nav-ghost:hover {
+  background: var(--white-08);
+}
+.btn-nav-theme {
+  background: none;
+  border: 1px solid var(--white-18);
+  border-radius: 8px;
+  color: var(--dark-text);
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.15s;
+}
+.btn-nav-theme:hover {
   background: var(--white-08);
 }
 

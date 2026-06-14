@@ -52,7 +52,7 @@ spec:
                   name: backend-secret
                   key: JWT_SECRET
             - name: AI_URL
-              value: "http://workmaite-ai-agent:8000"
+              value: "http://workmaite-ai:8000"
           readinessProbe:
             httpGet:
               path: /actuator/health

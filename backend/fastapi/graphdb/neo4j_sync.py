@@ -33,7 +33,9 @@ from db.database import SessionLocal
 from graphdb.neo4j_client import run_cypher
 from graphdb.neo4j_ids import to_agenda_id, to_mg_id, to_report_id, to_session_id
 
-EMBED_DIM = 1536
+# 임베딩 차원은 file_embedder에서 모델 기반으로 자동 도출 (단일 소스 — init_vector_index가 사용)
+from graphdb.file_embedder import EMBED_DIM  # noqa: E402
+
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
 logger = logging.getLogger(__name__)
 

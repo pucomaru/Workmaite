@@ -6,120 +6,47 @@ metadata:
 data:
   init.cypher: |
     // =============================================================
-    // init.cypher  —  Schema Constraints & Indexes
-    // PostgreSQL Source of Truth → Neo4j 동기화 노드 기반
-    // 노드: User / Department / Meetings / Session / Agenda /
-    //       Minutes / MinutesChunk / Report / ReportChunk / HumanJudgment
+    // init.cypher  —  Neo4j Schema (Constraints / Vector / Fulltext)
+    // 코드베이스가 시작 시 생성하는 스키마와 1:1 일치하도록 정의 (재정의 2026-06-14).
+    //   - 제약:       graphdb/neo4j_sync.py  _UNIQUE_CONSTRAINTS  (ensure_constraints)
+    //   - 풀텍스트:    graphdb/retrieval_registry.py REGISTRY[*].fulltext (ensure_fulltext_indexes)
+    // 벡터 인덱스는 앱(neo4j_sync.init_vector_index)이 EMBED_MODEL에서 도출한 차원으로 시작 시
+    // 생성한다 — 여기에 정적 차원을 박으면 모델 변경 시 IF NOT EXISTS가 잘못된 차원을 선점해
+    // 임베딩(예: 3-large=3072)과 인덱스 차원이 어긋나는 사고가 나므로 정의하지 않는다.
+    // 노드: User / Department / Company / Meetings / Session / Agenda /
+    //       Minutes / MinutesChunk / Report / ReportChunk
+    // 주의: HumanJudgment 노드는 폐지됨 — HITL 검토결과는 Agenda/Report 노드의
+    //       hitl_* 속성·임베딩으로 흡수된다(별도 노드/인덱스 없음).
     // =============================================================
 
-    // ── Uniqueness Constraints ────────────────────────────────────
-
-    // User (PG users)
-    CREATE CONSTRAINT user_pg_id IF NOT EXISTS
-      FOR (n:User) REQUIRE n.pg_id IS UNIQUE;
-    CREATE CONSTRAINT user_email IF NOT EXISTS
-      FOR (n:User) REQUIRE n.email IS UNIQUE;
-
-    // Department (파생 노드 — name이 PK)
-    CREATE CONSTRAINT department_name IF NOT EXISTS
-      FOR (n:Department) REQUIRE n.name IS UNIQUE;
-
-    // Company (파생 노드 — name이 PK)
-    CREATE CONSTRAINT company_name IF NOT EXISTS
-      FOR (n:Company) REQUIRE n.name IS UNIQUE;
-
-    // Meetings (PG meetings)
-    CREATE CONSTRAINT meetings_id IF NOT EXISTS
-      FOR (n:Meetings) REQUIRE n.id IS UNIQUE;
-
-    // Session (PG meeting_sessions)
-    CREATE CONSTRAINT session_id IF NOT EXISTS
-      FOR (n:Session) REQUIRE n.id IS UNIQUE;
-
-    // Agenda (PG agenda)
-    CREATE CONSTRAINT agenda_id IF NOT EXISTS
-      FOR (n:Agenda) REQUIRE n.id IS UNIQUE;
-
-    // Minutes (PG minutes)
-    CREATE CONSTRAINT minutes_pg_id IF NOT EXISTS
-      FOR (n:Minutes) REQUIRE n.pg_id IS UNIQUE;
-
-    // MinutesChunk (file_embedder — minutes 파일 청킹)
-    CREATE CONSTRAINT minuteschunk_id IF NOT EXISTS
-      FOR (n:MinutesChunk) REQUIRE n.id IS UNIQUE;
-
-    // Report (PG reports)
-    CREATE CONSTRAINT report_id IF NOT EXISTS
-      FOR (n:Report) REQUIRE n.id IS UNIQUE;
-
-    // ReportChunk (file_embedder — report 파일 청킹 + AI 리뷰 저장)
-    CREATE CONSTRAINT reportchunk_id IF NOT EXISTS
-      FOR (n:ReportChunk) REQUIRE n.id IS UNIQUE;
-
-    // HumanJudgment (PG hitl_reviews)
-    CREATE CONSTRAINT humanjudgment_id IF NOT EXISTS
-      FOR (n:HumanJudgment) REQUIRE n.id IS UNIQUE;
+    // ── Uniqueness Constraints (ensure_constraints) ───────────────
+    CREATE CONSTRAINT user_pg_id    IF NOT EXISTS FOR (n:User)       REQUIRE n.pg_id IS UNIQUE;
+    CREATE CONSTRAINT meetings_id   IF NOT EXISTS FOR (n:Meetings)   REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT session_id    IF NOT EXISTS FOR (n:Session)    REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT agenda_id     IF NOT EXISTS FOR (n:Agenda)     REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT minutes_id    IF NOT EXISTS FOR (n:Minutes)    REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT report_id     IF NOT EXISTS FOR (n:Report)     REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT dept_name     IF NOT EXISTS FOR (n:Department) REQUIRE n.name  IS UNIQUE;
+    CREATE CONSTRAINT company_name  IF NOT EXISTS FOR (n:Company)    REQUIRE n.name  IS UNIQUE;
 
 
-    // ── Lookup Indexes ────────────────────────────────────────────
-
-    CREATE INDEX user_name              IF NOT EXISTS FOR (n:User)          ON (n.name);
-    CREATE INDEX user_department        IF NOT EXISTS FOR (n:User)          ON (n.department);
-    CREATE INDEX meetings_status        IF NOT EXISTS FOR (n:Meetings)      ON (n.status);
-    CREATE INDEX meetings_type          IF NOT EXISTS FOR (n:Meetings)      ON (n.type);
-    CREATE INDEX session_status         IF NOT EXISTS FOR (n:Session)       ON (n.status);
-    CREATE INDEX session_scheduled_at   IF NOT EXISTS FOR (n:Session)       ON (n.scheduled_at);
-    CREATE INDEX agenda_status          IF NOT EXISTS FOR (n:Agenda)        ON (n.status);
-    CREATE INDEX agenda_priority        IF NOT EXISTS FOR (n:Agenda)        ON (n.priority);
-    CREATE INDEX agenda_due_date        IF NOT EXISTS FOR (n:Agenda)        ON (n.due_date);
-    CREATE INDEX report_human_status    IF NOT EXISTS FOR (n:Report)        ON (n.human_status);
-    CREATE INDEX report_created_at      IF NOT EXISTS FOR (n:Report)        ON (n.created_at);
-    CREATE INDEX humanjudgment_judged   IF NOT EXISTS FOR (n:HumanJudgment) ON (n.judged_at);
-    CREATE INDEX humanjudgment_target   IF NOT EXISTS FOR (n:HumanJudgment) ON (n.target_type);
+    // ── Vector Indexes ───────────────────────────────────────────
+    // 앱(neo4j_sync.init_vector_index)이 시작 시 EMBED_MODEL에서 도출한 차원(EMBED_DIM)으로
+    // 생성한다. 정적 차원이 모델과 어긋나면 IF NOT EXISTS가 선점해 사고가 나므로 여기 두지 않는다.
 
 
-    // ── Vector Indexes (임베딩 유사도 검색) ───────────────────────
+    // ── Fulltext Indexes (ensure_fulltext_indexes) ───────────────
+    CREATE FULLTEXT INDEX agendaFulltext IF NOT EXISTS
+      FOR (n:Agenda) ON EACH [n.title];
 
-    CREATE VECTOR INDEX meetingsEmbedding IF NOT EXISTS
-      FOR (n:Meetings) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+    CREATE FULLTEXT INDEX minutesFulltext IF NOT EXISTS
+      FOR (n:Minutes) ON EACH [n.title, n.content_summary];
 
-    CREATE VECTOR INDEX agendaEmbedding IF NOT EXISTS
-      FOR (n:Agenda) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+    CREATE FULLTEXT INDEX reportFulltext IF NOT EXISTS
+      FOR (n:Report) ON EACH [n.file_name];
 
-    CREATE VECTOR INDEX sessionEmbedding IF NOT EXISTS
-      FOR (n:Session) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE VECTOR INDEX minutesEmbedding IF NOT EXISTS
-      FOR (n:Minutes) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE VECTOR INDEX minutesChunkEmbedding IF NOT EXISTS
-      FOR (n:MinutesChunk) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE VECTOR INDEX reportEmbedding IF NOT EXISTS
-      FOR (n:Report) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE VECTOR INDEX reportChunkEmbedding IF NOT EXISTS
-      FOR (n:ReportChunk) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE VECTOR INDEX humanJudgmentEmbedding IF NOT EXISTS
-      FOR (n:HumanJudgment) ON (n.embedding)
-      OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
-
-    CREATE CONSTRAINT user_pg_id    IF NOT EXISTS FOR (u:User)          REQUIRE u.pg_id IS UNIQUE;
-    CREATE CONSTRAINT meetings_id   IF NOT EXISTS FOR (m:Meetings)      REQUIRE m.id    IS UNIQUE;
-    CREATE CONSTRAINT session_id    IF NOT EXISTS FOR (s:Session)       REQUIRE s.id    IS UNIQUE;
-    CREATE CONSTRAINT agenda_id     IF NOT EXISTS FOR (a:Agenda)        REQUIRE a.id    IS UNIQUE;
-    CREATE CONSTRAINT minutes_id    IF NOT EXISTS FOR (m:Minutes)       REQUIRE m.id    IS UNIQUE;
-    CREATE CONSTRAINT report_id     IF NOT EXISTS FOR (r:Report)        REQUIRE r.id    IS UNIQUE;
-    CREATE CONSTRAINT dept_name     IF NOT EXISTS FOR (d:Department)    REQUIRE d.name  IS UNIQUE;
-    CREATE CONSTRAINT company_name  IF NOT EXISTS FOR (c:Company)       REQUIRE c.name  IS UNIQUE;
+    CREATE FULLTEXT INDEX reportChunkFulltext IF NOT EXISTS
+      FOR (n:ReportChunk) ON EACH [n.text, n.title];
 
   entrypoint.sh: |
     #!/bin/bash

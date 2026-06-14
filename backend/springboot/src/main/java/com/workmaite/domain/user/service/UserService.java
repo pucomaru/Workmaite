@@ -12,6 +12,7 @@ import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.exception.BusinessException;
 import com.workmaite.global.exception.ErrorCode;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -76,8 +77,17 @@ public class UserService {
     return list.subList(from, Math.min(from + s, list.size()));
   }
 
-  public List<UserResponse> getUsersByIds(List<Long> ids) {
-    return userRepository.findAllById(ids).stream().map(UserResponse::from).toList();
+  public List<UserResponse> getUsersByIds(Long callerId, List<Long> ids) {
+    User caller =
+        userRepository
+            .findById(callerId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    Set<Long> visible = visibleScope(caller);
+    // by-ids는 작성자·참석자 이름 해석용 — 비활성 포함하되 가시성 범위로 제한해 열거 누수 차단
+    return userRepository.findAllById(ids).stream()
+        .filter(u -> visible == null || visible.contains(u.getId()))
+        .map(UserResponse::from)
+        .toList();
   }
 
   /** 사용자 목록 조회 (참여 회의체 title 포함) — 디렉터리 가시성 스코프 적용 (MT-3) */
@@ -219,37 +229,45 @@ public class UserService {
     return s == null || s.isBlank() ? null : s.trim();
   }
 
-  /** 디렉터리 가시성 (MT-3): 본인 + 내 회사 구성원 + 나와 같은 회의체에 속한 인원만. SYSTEM_ADMIN은 전체. */
+  /**
+   * 호출자가 볼 수 있는 사용자 ID 집합 — 본인 + 공유 회의체 인원 + (COMPANY_ADMIN이면) 회사 전원. null이면
+   * 전체(SYSTEM_ADMIN). 활성 여부는 거르지 않는다(by-ids 이름 해석은 비활성도 필요). 회사 전체 디렉터리는
+   * COMPANY_ADMIN/SYSTEM_ADMIN만 — 일반 USER는 회사 전원 노출 금지 (MT-3).
+   */
+  private Set<Long> visibleScope(User caller) {
+    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
+      return null;
+    }
+    Set<Long> ids = new HashSet<>();
+    ids.add(caller.getId());
+    List<Long> myMeetingIds =
+        meetingMemberRepository.findByUserId(caller.getId()).stream()
+            .map(MeetingMember::getMeetingId)
+            .toList();
+    if (!myMeetingIds.isEmpty()) {
+      meetingMemberRepository.findByMeetingIdIn(myMeetingIds).stream()
+          .map(MeetingMember::getUserId)
+          .forEach(ids::add);
+    }
+    if (caller.getCompanyRole() == UserRole.COMPANY_ADMIN && caller.getCompanyId() != null) {
+      userRepository.findAll().stream()
+          .filter(u -> caller.getCompanyId().equals(u.getCompanyId()))
+          .forEach(u -> ids.add(u.getId()));
+    }
+    return ids;
+  }
+
+  /** 디렉터리 가시성 (MT-3): visibleScope 적용 + 탈퇴(소프트 삭제) 계정 제외. */
   private List<User> scopeVisible(Long callerId, List<User> users) {
     User caller =
         userRepository
             .findById(callerId)
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-    // 탈퇴(소프트 삭제) 계정은 디렉터리 목록·검색에서 제외 (MT-6).
-    // by-ids 조회(getUsersByIds)는 작성자·참석자 이름 해석용이라 비활성도 포함한다.
-    users = users.stream().filter(User::isActive).toList();
-    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
-      return users;
+    List<User> active = users.stream().filter(User::isActive).toList();
+    Set<Long> visible = visibleScope(caller);
+    if (visible == null) {
+      return active;
     }
-
-    Long companyId = caller.getCompanyId();
-    List<Long> myMeetingIds =
-        meetingMemberRepository.findByUserId(callerId).stream()
-            .map(MeetingMember::getMeetingId)
-            .toList();
-    Set<Long> sharedUserIds =
-        myMeetingIds.isEmpty()
-            ? Set.of()
-            : meetingMemberRepository.findByMeetingIdIn(myMeetingIds).stream()
-                .map(MeetingMember::getUserId)
-                .collect(Collectors.toSet());
-
-    return users.stream()
-        .filter(
-            u ->
-                u.getId().equals(callerId)
-                    || (companyId != null && companyId.equals(u.getCompanyId()))
-                    || sharedUserIds.contains(u.getId()))
-        .toList();
+    return active.stream().filter(u -> visible.contains(u.getId())).toList();
   }
 }

@@ -462,45 +462,8 @@ async def minutes_generate_minutes(
             ):
                 collected_parts.append(chunk)
                 yield sse_token(chunk)
-            try:
-                if data.session_id and collected_parts:
-                    full_content = "".join(collected_parts)
-                    _save_db = SessionLocal()
-                    try:
-                        existing = (
-                            _save_db.query(models.Minutes)
-                            .filter(models.Minutes.session_id == data.session_id)
-                            .first()
-                        )
-                        if existing:
-                            existing.content_original = full_content
-                            existing.content_summary = full_content[:500]
-                            existing.recorder_id = current_user.id
-                            existing.generated_at = datetime.utcnow()
-                        else:
-                            _save_db.add(
-                                models.Minutes(
-                                    session_id=data.session_id,
-                                    content_original=full_content,
-                                    content_summary=full_content[:500],
-                                    recorder_id=current_user.id,
-                                )
-                            )
-                        _save_db.commit()
-                    except Exception as e:
-                        logger.warning(f"[generate-minutes] PostgreSQL 저장 실패: {e}")
-                        try:
-                            _save_db.rollback()
-                        except Exception:
-                            pass
-                    finally:
-                        try:
-                            _save_db.close()
-                        except Exception:
-                            pass
-            except Exception as e:
-                logger.warning(f"[generate-minutes] 저장 블록 예외: {e}")
-
+            # 생성은 미리보기만 — PG/Neo4j 영속화는 사용자가 '아카이브 저장'(/api/upload/minutes)을
+            # 누를 때만 한다. 생성만으로 DB·그래프에 박히면 사용자 의도와 어긋나므로 자동 저장 제거.
             yield sse_done()
         except BaseException as _e:
             _stream_error = _e
