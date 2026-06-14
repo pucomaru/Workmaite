@@ -3,7 +3,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 
-RUN npm ci --no-fund
+RUN npm install --no-fund
 COPY . .
 ARG VITE_API_URL
 ARG VITE_AI_URL
