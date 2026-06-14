@@ -37,7 +37,7 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 
 | ID | 심각도 | 위치 | 문제 |
 |----|------|------|------|
-| SEC-1 | 🔴 | `k8s/backend.yaml`, `backend/springboot/.../application.yaml`, `k8s/postgres/deployment.yaml`, `neo4j/k8s/secret.yaml` | DB/Redis/Neo4j 비밀번호, JWT 시크릿이 **평문으로 git에 커밋**됨. 로컬 `.env`에는 실제 OpenAI/LangSmith 키 존재(미커밋이나 유출 시 전체 장악). |
+| SEC-1 | 🔴 | `k8s/springboot.yaml`, `backend/springboot/.../application.yaml`, `k8s/postgres/deployment.yaml`, `neo4j/k8s/secret.yaml` | DB/Redis/Neo4j 비밀번호, JWT 시크릿이 **평문으로 git에 커밋**됨. 로컬 `.env`에는 실제 OpenAI/LangSmith 키 존재(미커밋이나 유출 시 전체 장악). |
 | SEC-2 | 🔴 | `backend/fastapi/routers/stt.py` (172, 207) | `/api/stt/save`, `/api/stt/transcribe`에 **인증 없음** + 공개 Ingress 노출. 누구나 임의 session_id에 STT 세그먼트 주입/오디오 변환(GC STT 비용 발생) 가능. |
 | SEC-3 | 🔴 | `backend/fastapi/routers/neo4j_graph.py` | 12개 라우트 중 11개(관계/노드 생성·수정·삭제, 회의체 생성·삭제 등)가 **인증 없음** + 공개 Ingress(`/api/neo4j`) 노출. 외부인이 온톨로지 전체를 변조·삭제 가능. |
 | SEC-4 | 🔴 | `backend/fastapi/main.py:121-138`, `websocket_manager.py` | WebSocket(`/ws/meetings/{id}/agenda`, `/ws/sessions/{id}/minutes`) 무인증 — 아무나 회의 실시간 데이터 수신 가능. |
@@ -270,8 +270,8 @@ CI: GitHub Actions(develop push → Harbor 이미지 → k8s yaml tag 갱신 →
 목표: 외부에서 악용 가능한 구멍부터 차단. 코드 변경 최소.
 
 - [x] P0-1 **유출 키 회전** — 완료 (2026-06-12, 수동 수행). 이로써 LangSmith 트레이싱 활성화 가능: ai-secret에 `LANGSMITH_TRACING=true`+새 키 설정 시 agent_logs.trace_id(P3A-3)로 트레이스 점프 동작.
-- [x] P0-2 **시크릿을 k8s Secret으로 이전** (2026-06-12): `k8s/backend.yaml` DB 비번 → `backend-secret` secretKeyRef + JWT_SECRET 주입 추가, `application.yaml` 전 시크릿 `${ENV}` 참조화, `k8s/postgres/deployment.yaml` → `postgres-secret`, `neo4j/k8s/secret.yaml` placeholder화. 템플릿 `k8s/secrets.example.yaml` 생성, **시크릿 위치별 매뉴얼(`SECURITY_ROTATION.md` §0~2)** 작성. **⚠ develop 머지 전 클러스터에 `backend-secret` 생성 필수 + ai-secret의 JWT_SECRET 동일값 확인.**
-- [x] (추가) **Redis 완전 제거** (2026-06-12): 코드에서 Redis 미사용 확인(주석의 "도입 예정"뿐) → `spring-boot-starter-data-redis` 의존성, `application.yaml` redis 블록, `k8s/backend.yaml` REDIS env 3종 제거. 의존성만 남겨두면 actuator health가 Redis 연결을 검사해 probe 실패를 유발하므로 의존성째 제거. 컴파일 검증 통과.
+- [x] P0-2 **시크릿을 k8s Secret으로 이전** (2026-06-12): `k8s/springboot.yaml` DB 비번 → `backend-secret` secretKeyRef + JWT_SECRET 주입 추가, `application.yaml` 전 시크릿 `${ENV}` 참조화, `k8s/postgres/deployment.yaml` → `postgres-secret`, `neo4j/k8s/secret.yaml` placeholder화. 템플릿 `k8s/secrets.example.yaml` 생성, **시크릿 위치별 매뉴얼(`SECURITY_ROTATION.md` §0~2)** 작성. **⚠ develop 머지 전 클러스터에 `backend-secret` 생성 필수 + ai-secret의 JWT_SECRET 동일값 확인.**
+- [x] (추가) **Redis 완전 제거** (2026-06-12): 코드에서 Redis 미사용 확인(주석의 "도입 예정"뿐) → `spring-boot-starter-data-redis` 의존성, `application.yaml` redis 블록, `k8s/springboot.yaml` REDIS env 3종 제거. 의존성만 남겨두면 actuator health가 Redis 연결을 검사해 probe 실패를 유발하므로 의존성째 제거. 컴파일 검증 통과.
 - [x] P0-3 **무인증 라우터 봉쇄** (2026-06-12): `stt.py` 2개, `neo4j_graph.py` 11개 라우트에 `get_current_user` 추가. `main.py` WebSocket 2개에 JWT 쿼리파라미터 검증(`_ws_user_id`, 실패 시 4401). `useSTT.js` fetch에 Authorization 헤더, `api.js toWsUrl`에 토큰 자동 부착. **잔여: WLK(`/wlk/asr`) WebSocket은 별도 서비스(whisperlivekit)라 미적용 — P4에서 프록시/게이트웨이로 처리.**
 - [x] P0-4 **`/api/sync` 공개 Ingress 제거** (2026-06-12): `k8s/ingress.yaml`에서 경로 삭제(내부 Service 호출은 영향 없음). **잔여: `/grafana` 노출과 actuator permitAll은 운영 결정 필요(Grafana 자체 로그인 사용 중인지 확인) — P1으로 이월.**
 - [x] P0-5 CORS 화이트리스트 교체 (2026-06-12): FastAPI(`main.py`, `CORS_ALLOWED_ORIGINS` env로 확장 가능) + Spring(`SecurityConfig.java`) 모두 `workmaite.project.skala-ai.com`+로컬 dev로 제한.
@@ -549,7 +549,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT tr
 ### 6.1 Phase 0 (보안 응급조치)
 ```
 Plan.md §3 Phase 0을 수행해줘. 순서:
-1. k8s/backend.yaml·ai.yaml의 평문 자격증명을 k8s Secret(secretKeyRef) 참조로 바꾸고, secret 생성용 템플릿(k8s/secrets.example.yaml)을 만들어 실값은 placeholder로 둬. application.yaml의 비밀번호/JWT 시크릿은 환경변수 참조(${DB_PASSWORD} 등)로 교체.
+1. k8s/springboot.yaml·ai.yaml의 평문 자격증명을 k8s Secret(secretKeyRef) 참조로 바꾸고, secret 생성용 템플릿(k8s/secrets.example.yaml)을 만들어 실값은 placeholder로 둬. application.yaml의 비밀번호/JWT 시크릿은 환경변수 참조(${DB_PASSWORD} 등)로 교체.
 2. backend/fastapi/routers/stt.py 전체 라우트와 neo4j_graph.py의 무인증 라우트 11개에 get_current_user 의존성을 추가하고, 프론트(useSTT.js 등) 호출부에 Authorization 헤더를 추가해.
 3. main.py의 WebSocket 2개에 토큰 검증(query param token → auth.get_current_user 로직 재사용)을 추가해.
 4. k8s/ingress.yaml에서 /api/sync 경로를 제거하고, FastAPI CORS와 SecurityConfig CORS를 도메인 화이트리스트로 교체해.

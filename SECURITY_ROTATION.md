@@ -75,11 +75,11 @@ kubectl rollout restart deploy/workmaite-backend -n skala3-finalproj-class2-team
 
 | 자격증명 | 노출 위치였던 곳 | 회전 절차 |
 |---|---|---|
-| PostgreSQL 비번 (`team9postgres1234`) | `k8s/backend.yaml`, `application.yaml` | DB에서 `ALTER USER team9 WITH PASSWORD '...'` → ①의 backend-secret·ai-secret 갱신 → rollout restart |
+| PostgreSQL 비번 (`team9postgres1234`) | `k8s/springboot.yaml`, `application.yaml` | DB에서 `ALTER USER team9 WITH PASSWORD '...'` → ①의 backend-secret·ai-secret 갱신 → rollout restart |
 | JWT 시크릿 | `application.yaml` | 새 값 생성(`openssl rand -base64 48`) → backend-secret과 ai-secret에 **동일 값** 반영 → 전 사용자 재로그인 발생하므로 공지 후 점검 시간대에 |
 | INTERNAL_SECRET | `NeoSyncService.java` 기본값, `.env` | 새 랜덤값 → ai-secret 갱신 + backend 환경변수(INTERNAL_SECRET) 추가 → 코드 기본값 제거(P1) |
 | Neo4j 비번 (`skala-2-team9`) | `neo4j/k8s/secret.yaml` | Neo4j에서 `ALTER USER neo4j SET PASSWORD '...'` → neo4j-secret·ai-secret 갱신 |
-| ~~Redis 비번~~ | `k8s/backend.yaml`(과거 커밋) | **서비스에서 Redis 미사용 확정 — 의존성·설정 제거됨(2026-06-12).** 다만 노출된 비번은 팀 공유 인프라(redis-1-master)의 것이므로 **인프라 관리자에게 노출 사실 통지** |
+| ~~Redis 비번~~ | `k8s/springboot.yaml`(과거 커밋) | **서비스에서 Redis 미사용 확정 — 의존성·설정 제거됨(2026-06-12).** 다만 노출된 비번은 팀 공유 인프라(redis-1-master)의 것이므로 **인프라 관리자에게 노출 사실 통지** |
 | OpenAI / LangSmith 키 | 로컬 `.env` (미커밋) | 각 콘솔에서 재발급 → ai-secret(OPENAI_API_KEY 등) 갱신, 로컬 .env 교체 |
 
 회전 후 확인: 로그인 → AI 챗 → 회의체 생성(Neo4j 동기화 로그) → STT 1회.
