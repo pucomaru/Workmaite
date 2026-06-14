@@ -355,8 +355,8 @@ const trustItems = [
     <!-- ── 1. 문제 제기: 사용자의 상황을 그대로 ── -->
     <section class="section pains-section">
       <div class="container">
-        <p class="section-eyebrow">힘들지 않으세요?</p>
-        <h2 class="section-title">회의는 끊났는데… 왜 일은 끊나지 않죠?</h2>
+        <p class="section-eyebrow">아직도 회의 후 정리에 시간을 쓰고 있나요?</p>
+        <h2 class="section-title">회의가 끝나면, 업무도 끝나야죠.</h2>
         <div class="pains-grid">
           <div v-for="p in pains" :key="p.title" class="pain-card">
             <i :class="p.icon" class="pain-icon"></i>
