@@ -16,10 +16,19 @@ const companyColumns = [
   { label: '회사', width: '110px', sortKey: 'company' },
   { label: '부서', width: '110px', sortKey: 'department' },
   { label: '직책', width: '80px', sortKey: 'position' },
+  { label: '권한', width: '90px', sortKey: 'role' },
   { label: '이메일', width: '180px', sortKey: 'email' },
   { label: '참여 회의체' },
   { label: '', width: '72px', noResize: true },
 ]
+
+// company_role → 한글 라벨 (조직 권한 표시)
+function roleLabel(role) {
+  return (
+    { SYSTEM_ADMIN: '시스템 관리자', COMPANY_ADMIN: '회사 관리자', USER: '일반 사용자' }[role] ||
+    '일반 사용자'
+  )
+}
 
 const themeStore = useThemeStore()
 const nightMode = computed(() => themeStore.nightMode)
@@ -517,6 +526,7 @@ const {
             <td class="text-muted">{{ member.company || '-' }}</td>
             <td class="text-muted">{{ member.department || '-' }}</td>
             <td class="text-muted">{{ member.position || '-' }}</td>
+            <td>{{ roleLabel(member.role) }}</td>
             <td class="text-muted">{{ member.email || '-' }}</td>
             <td>
               <div class="cell-meetings">

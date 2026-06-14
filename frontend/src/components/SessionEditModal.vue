@@ -18,7 +18,7 @@ const form = ref({
   location: '',
   dateOnly: '',
   timeOnly: '',
-  type: 'localwhisper',
+  type: 'gpt-realtime-whisper',
   context: '',
 })
 const members = ref([])
@@ -35,7 +35,7 @@ watch(
       location: s.location || '',
       dateOnly: s.scheduled_at ? s.scheduled_at.slice(0, 10) : '',
       timeOnly: s.scheduled_at ? s.scheduled_at.slice(11, 16) : '',
-      type: s.type || 'localwhisper',
+      type: s.type || 'gpt-realtime-whisper',
       context: s.context || '',
     }
     // members가 직접 주어진 경우 (archive 등) 바로 사용, 아니면 attendee_ids로 API 조회

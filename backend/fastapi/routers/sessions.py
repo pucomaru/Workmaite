@@ -133,19 +133,18 @@ async def save_minutes(
 # ─── 회의록 조회 ──────────────────────────────────────────────────────────────
 
 
-@router.get("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+@router.get("/sessions/{session_id}/minutes", response_model=Optional[schemas.MinutesOut])
 def get_minutes(
     session_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_view_by_session(db, current_user, session_id)
-    minutes = (
+    # 회의록이 없으면 404가 아니라 200 + null — "아직 생성/저장 안 함"은 에러가 아닌 정상 빈 상태.
+    # (#3 수정 후 '생성'만으론 저장 안 되므로 미저장 세션이 흔해 404 소음만 났다.)
+    return (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
-    if not minutes:
-        raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
-    return minutes
 
 
 # ─── 회의록 내용 수정 ─────────────────────────────────────────────────────────
@@ -195,20 +194,27 @@ async def delete_minutes(
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
-    if not minutes:
-        raise HTTPException(status_code=404, detail="회의록을 찾을 수 없습니다.")
-    require_owned_edit(
-        db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
-    )
-    _mid = minutes.id
-    db.delete(minutes)
-    db.commit()
-    # Neo4j Minutes 노드도 제거 — PG만 지우면 그래프에 orphan으로 남는다 (회의록이 계속 보이는 원인)
-    background_tasks.add_task(
-        run_cypher,
-        "MATCH (mn:Minutes {pg_id: $pg_id}) DETACH DELETE mn",
-        {"pg_id": _mid},
-    )
+    if minutes:
+        require_owned_edit(
+            db, current_user, meeting_id_of_session(db, session_id), minutes.recorder_id
+        )
+        _mid = minutes.id
+        db.delete(minutes)
+        db.commit()
+        # Neo4j Minutes 노드도 pg_id로 제거 (PG만 지우면 그래프에 orphan으로 남음)
+        background_tasks.add_task(
+            run_cypher,
+            "MATCH (mn:Minutes {pg_id: $pg_id}) DETACH DELETE mn",
+            {"pg_id": _mid},
+        )
+    else:
+        # PG에 회의록이 없어도 404가 아니라 idempotent하게 성공 처리한다(삭제의 목표 상태=없음은 이미 달성).
+        # 동시에 세션에 매달린 orphan Minutes 노드(과거 동기화 잔재)를 그래프에서 정리한다.
+        background_tasks.add_task(
+            run_cypher,
+            "MATCH (mn:Minutes)-[:`기록`]->(s:Session {pg_id: $sid}) DETACH DELETE mn",
+            {"sid": session_id},
+        )
     return {"ok": True}
 
 

@@ -15,7 +15,9 @@ export const useSessionsStore = defineStore('sessions', () => {
     try {
       const res = await api.get(`/api/v1/meetings/${meetingId}/sessions`)
       sessionsByMeeting.value[meetingId] = res.data ?? []
-    } catch {
+    } catch (e) {
+      // 조용히 빈 목록으로 두면 500/403을 못 보게 된다 — 디버깅용 로그 (UX는 그대로 빈 목록)
+      console.error(`[sessions] 회의 ${meetingId} 세션 조회 실패`, e?.response?.status, e)
       sessionsByMeeting.value[meetingId] = []
     }
     return sessionsByMeeting.value[meetingId]

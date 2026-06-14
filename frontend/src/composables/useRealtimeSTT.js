@@ -62,6 +62,9 @@ export function useRealtimeSTT({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     })
     audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE })
+    // 사용자 제스처로 생성해도 suspended일 수 있다 — resume 안 하면 ScriptProcessor의
+    // onaudioprocess가 돌지 않아 오디오가 전혀 전송되지 않는다(녹음 버튼만 바뀌고 전사 0).
+    if (audioCtx.state === 'suspended') await audioCtx.resume()
     active = true
     partial = ''
 
@@ -87,11 +90,11 @@ export function useRealtimeSTT({
         return
       }
       if (data.type === 'partial') {
-        partial += data.text || ''
+        // 백엔드가 전체 라이브 텍스트(확정전 버퍼+발화중)를 보낸다 → 교체(누적 아님)
+        partial = data.text || ''
         onPartial?.(partial)
       } else if (data.type === 'final') {
-        partial = ''
-        onPartial?.('')
+        // 문장 단위 확정 — partial은 후속 partial 메시지(남은 꼬리)가 갱신한다
         if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
       } else if (data.type === 'error') {
         onError?.(data.message || '실시간 전사 오류')

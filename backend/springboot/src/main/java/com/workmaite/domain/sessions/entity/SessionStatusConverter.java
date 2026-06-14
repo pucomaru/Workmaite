@@ -14,13 +14,15 @@ public class SessionStatusConverter implements AttributeConverter<SessionStatus,
 
   @Override
   public SessionStatus convertToEntityAttribute(String dbValue) {
-    if (dbValue == null) return null;
-    return switch (dbValue.toLowerCase()) {
+    // 알 수 없거나 NULL인 status 한 건이 회의체 전체 세션 목록 조회를 500으로 깨뜨리지 않도록
+    // 예외를 던지지 않고 안전 기본값(SCHEDULED)으로 폴백한다.
+    if (dbValue == null) return SessionStatus.SCHEDULED;
+    return switch (dbValue.trim().toLowerCase()) {
       case "scheduled" -> SessionStatus.SCHEDULED;
       case "ongoing" -> SessionStatus.ONGOING;
       case "ended" -> SessionStatus.ENDED;
       case "archived" -> SessionStatus.ARCHIVED;
-      default -> throw new IllegalArgumentException("Unknown SessionStatus: " + dbValue);
+      default -> SessionStatus.SCHEDULED;
     };
   }
 }

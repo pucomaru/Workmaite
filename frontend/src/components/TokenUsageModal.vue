@@ -212,7 +212,7 @@ const sec = computed(() => data.value?.sections || null)
 
             <!-- ② STT (제공자별) -->
             <div class="app-modal-field">
-              <label>🎙️ STT</label>
+              <label>🎙️ 회의</label>
               <div v-if="!sec.stt.by_provider.length" class="tum-m-row">
                 <span style="font-size: 12px; color: var(--text-muted, #94a3b8)"
                   >사용 내역 없음</span

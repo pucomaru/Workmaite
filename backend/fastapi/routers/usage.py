@@ -23,11 +23,10 @@ from llm.pricing import stt_cost, stt_cost_per_min  # noqa: E402
 
 # STT provider/모델 → 표시 라벨. provider에 실제 STT 모델명이 저장된다(P4).
 _STT_LABELS = {
-    "openai": "OpenAI",  # legacy 행
-    "gpt-4o-transcribe": "GPT-4o Transcribe",
-    "gpt-4o-mini-transcribe": "GPT-4o mini Transcribe",
-    "gpt-realtime-whisper": "Realtime Whisper",
-    "whisper-1": "Whisper",
+    "gpt-realtime-whisper": "gpt-realtime-whisper",
+    "gpt-4o-transcribe": "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe": "gpt-4o-mini-transcribe",
+    "whisper-1": "whisper-1",
 }
 
 

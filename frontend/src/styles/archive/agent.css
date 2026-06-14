@@ -1013,6 +1013,5 @@ html.night-mode .agent-bubble.agent.theme-naon {
   border-radius: 8px;
 }
 .refresh-map-btn.analyzing .refresh-icon {
-  animation: spin 0.9s linear infinite;
   transform: none;
 }

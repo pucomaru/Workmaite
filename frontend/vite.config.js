@@ -23,16 +23,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      '/wlk': {
-        target: 'https://workmaite.project.skala-ai.com',
+      // FastAPI WebSocket 엔드포인트(/ws/sessions/{id}/transcribe, /ws/meetings/{id}/agenda).
+      '/ws': {
+        target: 'http://localhost:8000',
         changeOrigin: true,
-        ws: true,
-      },
-      // LiveKit 신호 서버 프록시 (CORS 우회)
-      '/livekit-signal': {
-        target: 'http://localhost:7880',
-        changeOrigin: true,
-        rewrite: path => path.replace(/^\/livekit-signal/, ''),
         ws: true,
       },
     },

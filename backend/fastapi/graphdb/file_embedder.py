@@ -36,7 +36,7 @@ def _get_openai() -> AsyncOpenAI:
 # 청킹 설정 (token 수 기준)
 CHUNK_TOKENS = int(os.environ["EMBED_CHUNK_TOKENS"])
 CHUNK_OVERLAP = int(os.environ["EMBED_CHUNK_OVERLAP"])
-EMBED_MODEL = os.environ["EMBED_MODEL"]
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-large")
 
 # 임베딩 차원은 모델에서 자동 도출 — 벡터 인덱스 차원과 임베딩 출력 차원을 일치시킨다.
 # text-embedding-3-* 는 dimensions 파라미터로 축소 가능. EMBED_DIM env로 명시하면 그 값으로
