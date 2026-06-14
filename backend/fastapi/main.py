@@ -178,13 +178,13 @@ app.include_router(transcription_ws.router)  # 실시간 전사 WS (P5)
 def _ws_user_id(websocket: WebSocket) -> int | None:
     """쿼리 파라미터 token의 JWT를 검증해 user id를 반환합니다 (실패 시 None)."""
     from jose import jwt as _jwt, JWTError as _JWTError
-    from core.auth import SECRET_KEY, ALGORITHM
+    from core.auth import SECRET_KEY, ALGORITHMS
 
     token = websocket.query_params.get("token", "")
     if not token:
         return None
     try:
-        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = _jwt.decode(token, SECRET_KEY, algorithms=ALGORITHMS)
         if payload.get("type") == "refresh":
             return None  # refresh token으로 WS 인증 불가 (SEC-7)
         sub = payload.get("sub")

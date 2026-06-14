@@ -39,11 +39,12 @@ const loadingMembers = ref({})
 const filteredGroups = computed(() => {
   const q = search.value.trim().toLowerCase()
   return meetingsStore.meetings.filter(m => {
-    const matchRole = meetingsStore.meetingRoles[m.id] != null
+    // 가시성 스코프는 백엔드 getMeetings가 이미 적용(SYSTEM_ADMIN=전체·COMPANY_ADMIN=자사·USER=멤버).
+    // 프런트에서 my_role(멤버십)로 재필터하면 관리자가 비멤버 회의체를 못 본다 → 멤버십 막 제거.
     const matchStatus =
       statusTab.value === 'active' ? !m.status || m.status === 'active' : m.status === 'ended'
     const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
-    return matchRole && matchStatus && matchSearch
+    return matchStatus && matchSearch
   })
 })
 

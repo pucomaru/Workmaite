@@ -37,7 +37,34 @@ def _get_openai() -> AsyncOpenAI:
 CHUNK_TOKENS = int(os.environ["EMBED_CHUNK_TOKENS"])
 CHUNK_OVERLAP = int(os.environ["EMBED_CHUNK_OVERLAP"])
 EMBED_MODEL = os.environ["EMBED_MODEL"]
-EMBED_DIM = 1536  # text-embedding-3-small 차원
+
+# 임베딩 차원은 모델에서 자동 도출 — 벡터 인덱스 차원과 임베딩 출력 차원을 일치시킨다.
+# text-embedding-3-* 는 dimensions 파라미터로 축소 가능. EMBED_DIM env로 명시하면 그 값으로
+# API 호출(dimensions)과 인덱스 차원을 함께 맞춘다(예: 3-large를 1536으로 축소해 사용).
+_NATIVE_EMBED_DIMS = {
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+    "text-embedding-ada-002": 1536,
+}
+
+
+def _resolve_embed_dim() -> int:
+    override = os.environ.get("EMBED_DIM")
+    if override:
+        return int(override)
+    for name, dim in _NATIVE_EMBED_DIMS.items():
+        if EMBED_MODEL == name or EMBED_MODEL.startswith(name):
+            return dim
+    logger.warning(
+        f"[Embedder] 알 수 없는 임베딩 모델 '{EMBED_MODEL}' — EMBED_DIM 기본 1536 사용. "
+        "필요하면 EMBED_DIM env로 지정하세요."
+    )
+    return 1536
+
+
+EMBED_DIM = _resolve_embed_dim()
+# text-embedding-3-* 만 dimensions 파라미터 지원 (ada-002 등은 미지원 → native 차원 사용)
+_SUPPORTS_DIMENSIONS = EMBED_MODEL.startswith("text-embedding-3")
 
 
 # ─── 텍스트 추출 ─────────────────────────────────────────────────────────────
@@ -150,10 +177,10 @@ async def embed_chunks(chunks: list[str], batch_size: int = 20) -> list[list[flo
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
         try:
-            resp = await _get_openai().embeddings.create(
-                model=EMBED_MODEL,
-                input=batch,
-            )
+            _kwargs: dict = {"model": EMBED_MODEL, "input": batch}
+            if _SUPPORTS_DIMENSIONS:
+                _kwargs["dimensions"] = EMBED_DIM
+            resp = await _get_openai().embeddings.create(**_kwargs)
             _u = getattr(resp, "usage", None)
             if _u is not None:  # 임베딩 사용량 기록 (P2) — 활성 AgentLog에 합산
                 record_token_usage(
@@ -177,7 +204,10 @@ async def embed_chunks(chunks: list[str], batch_size: int = 20) -> list[list[flo
 async def embed_query(text: str) -> list[float]:
     """검색 쿼리 한 건을 임베딩합니다."""
     try:
-        resp = await _get_openai().embeddings.create(model=EMBED_MODEL, input=[text])
+        _kwargs: dict = {"model": EMBED_MODEL, "input": [text]}
+        if _SUPPORTS_DIMENSIONS:
+            _kwargs["dimensions"] = EMBED_DIM
+        resp = await _get_openai().embeddings.create(**_kwargs)
         _u = getattr(resp, "usage", None)
         if _u is not None:  # 임베딩 사용량 기록 (P2)
             record_token_usage(

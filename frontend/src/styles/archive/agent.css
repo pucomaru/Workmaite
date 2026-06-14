@@ -1005,9 +1005,6 @@ html.night-mode .agent-bubble.agent.theme-naon {
 .refresh-icon {
   display: block;
 }
-.refresh-map-btn:hover .refresh-icon {
-  transform: rotate(180deg);
-}
 .refresh-map-btn:disabled {
   cursor: progress;
 }

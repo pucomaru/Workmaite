@@ -1,42 +1,42 @@
 <script setup>
 import {
-  ref,
   computed,
-  reactive,
-  shallowRef,
-  onMounted,
-  onBeforeUnmount,
-  watch,
   nextTick,
+  onBeforeUnmount,
+  onMounted,
   provide,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
 } from 'vue'
-import GraphView from '../components/GraphView.vue'
-import DetailSidebar from '../components/DetailSidebar.vue'
+import api, { apiAI, streamPostForm } from '../api'
+import AgendaEditModal from '../components/AgendaEditModal.vue'
 import AgentSidebar from '../components/AgentSidebar.vue'
-import GraphLegend from '../components/GraphLegend.vue'
-import GraphFloatBtns from '../components/GraphFloatBtns.vue'
-import FloatDragPreview from '../components/FloatDragPreview.vue'
-import MeetingListView from '../components/MeetingListView.vue'
 import CreateMeetingModal from '../components/CreateMeetingModal.vue'
 import CreateSessionModal from '../components/CreateSessionModal.vue'
-import UploadModal from '../components/UploadModal.vue'
-import SettingsModal from '../components/SettingsModal.vue'
-import AgendaEditModal from '../components/AgendaEditModal.vue'
-import ReportEditModal from '../components/ReportEditModal.vue'
+import DetailSidebar from '../components/DetailSidebar.vue'
+import FloatDragPreview from '../components/FloatDragPreview.vue'
+import GraphFloatBtns from '../components/GraphFloatBtns.vue'
+import GraphLegend from '../components/GraphLegend.vue'
+import GraphView from '../components/GraphView.vue'
+import MeetingListView from '../components/MeetingListView.vue'
 import MinutesEditModal from '../components/MinutesEditModal.vue'
 import RenameModal from '../components/RenameModal.vue'
+import ReportEditModal from '../components/ReportEditModal.vue'
 import SessionEditModal from '../components/SessionEditModal.vue'
-import api, { apiAI, streamPostForm } from '../api'
-import { useMeetingsStore } from '../stores/meetings'
-import { useAuthStore } from '../stores/auth'
-import { useThemeStore } from '../stores/theme'
+import SettingsModal from '../components/SettingsModal.vue'
+import UploadModal from '../components/UploadModal.vue'
 import { useAgentChat } from '../composables/useAgentChat'
-import { useGraphBuilder } from '../composables/useGraphBuilder'
-import { toast } from '../composables/useToast'
 import { confirmDialog } from '../composables/useConfirm'
+import { useGraphBuilder } from '../composables/useGraphBuilder'
 import { useTableSort } from '../composables/useTableSort'
+import { toast } from '../composables/useToast'
+import { REL_COLORS, autoRelByType, fetchRelSchema, resolveCanonical } from '../graph/relSchema'
+import { useAuthStore } from '../stores/auth'
+import { useMeetingsStore } from '../stores/meetings'
+import { useThemeStore } from '../stores/theme'
 import { formatDateTimeFull as formatDate, formatDateLong as formatDateOnly } from '../utils/date'
-import { REL_COLORS, autoRelByType, resolveCanonical, fetchRelSchema } from '../graph/relSchema'
 
 const lvColumns = [
   { label: '회의체명', width: '480px', sortKey: 'title' },
@@ -2962,6 +2962,13 @@ function openMinutesEditModal() {
   }
 }
 
+// 편집 모달의 '삭제' 버튼 배선 — 모달은 delete를 emit하지만 부모(ArchivePage)가 안 받고 있어 무동작이었음
+async function deleteMinutesFromModal() {
+  const sid = minutesEditModal.value?.sessionId
+  closeMinutesEdit()
+  if (sid) await deleteMinutes(sid) // 확인 다이얼로그 + Neo4j 노드까지 삭제 + 목록 새로고침
+}
+
 function closeMinutesEdit() {
   minutesEditModal.value = null
 }
@@ -3333,15 +3340,9 @@ provide('archiveSidebar', {
             </linearGradient>
           </defs>
           <path
-            d="M4.5 12a7.5 7.5 0 0 1 12.52-5.59l1.48-1.98"
+            d="M7.5 5.6L10 7L8.6 4.5L10 2L7.5 3.4L5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29a.996.996 0 0 0-1.41 0L1.29 18.96a.996.996 0 0 0 0 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05a.996.996 0 0 0 0-1.41zm-1.03 5.49l-2.12-2.12l2.44-2.44l2.12 2.12z"
             stroke="url(#refreshGrad)"
-            stroke-width="2"
-            stroke-linecap="round"
-          />
-          <path
-            d="M19.5 12a7.5 7.5 0 0 1-12.52 5.59L5.5 19.57"
-            stroke="url(#refreshGrad)"
-            stroke-width="2"
+            stroke-width="1"
             stroke-linecap="round"
           />
           <polyline
@@ -3572,6 +3573,7 @@ provide('archiveSidebar', {
     :saving="savingMinutesEdit"
     @close="closeMinutesEdit"
     @save="saveMinutesEdit"
+    @delete="deleteMinutesFromModal"
   />
   <RenameModal
     :modal="companyRenameModal"

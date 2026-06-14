@@ -100,5 +100,6 @@ AWSCLIV2.pkg
 backend/fastapi/uploads/*
 !backend/fastapi/uploads/.gitkeep
 
-# Secret
-k8s/secrets.yaml
+# Secrets
+k8s/k8s-secrets.yaml
+k8s/neo4j/secret.yaml

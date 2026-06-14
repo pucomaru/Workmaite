@@ -11,7 +11,7 @@ from jose import jwt, JWTError
 from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.auth import SECRET_KEY, ALGORITHM
+from core.auth import SECRET_KEY, ALGORITHMS
 from db.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ def _actor_id_from(request) -> int | None:
     if not auth.startswith("Bearer "):
         return None
     try:
-        payload = jwt.decode(auth[7:], SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(auth[7:], SECRET_KEY, algorithms=ALGORITHMS)
         sub = payload.get("sub")
         return int(sub) if sub is not None else None
     except (JWTError, ValueError):
