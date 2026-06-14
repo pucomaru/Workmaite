@@ -259,17 +259,23 @@ async def refine_chunk(
     )
 
     agenda_titles = []
-    if session and session.meeting_id:
-        agenda_titles = (
-            db.query(models.Agenda.title)
-            .filter(
-                models.Agenda.meeting_id == session.meeting_id,
-                models.Agenda.title.isnot(None),
-            )
-            .order_by(models.Agenda.created_at)
-            .limit(10)
+    if session:
+        selected_agenda_ids = [
+            row.agenda_id
+            for row in db.query(models.SessionAgenda.agenda_id)
+            .filter(models.SessionAgenda.session_id == body.session_id)
             .all()
-        )
+        ]
+        if selected_agenda_ids:
+            agenda_titles = (
+                db.query(models.Agenda.title)
+                .filter(
+                    models.Agenda.id.in_(selected_agenda_ids),
+                    models.Agenda.title.isnot(None),
+                )
+                .order_by(models.Agenda.created_at)
+                .all()
+            )
 
     context_line = f"회의 맥락: {body.context}\n" if body.context else ""
     if agenda_titles:

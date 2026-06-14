@@ -20,4 +20,7 @@ public class SessionUpdateRequest {
   private LocalDateTime scheduledAt;
 
   private List<AttendeeRequest> attendees;
+
+  @JsonProperty("agenda_ids")
+  private List<Long> agendaIds;
 }

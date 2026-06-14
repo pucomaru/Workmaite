@@ -25,4 +25,7 @@ public class SessionCreateRequest {
   private LocalDateTime scheduledAt;
 
   private List<AttendeeRequest> attendees;
+
+  @JsonProperty("agenda_ids")
+  private List<Long> agendaIds;
 }

@@ -23,6 +23,9 @@ const form = ref({
 })
 const members = ref([])
 const saving = ref(false)
+const agendas = ref([])
+const selectedAgendaIds = ref([])
+const showAgendaDropdown = ref(false)
 
 watch(
   () => props.session,
@@ -56,9 +59,35 @@ watch(
         } catch {}
       }
     }
+
+    agendas.value = []
+    selectedAgendaIds.value = []
+    showAgendaDropdown.value = false
+    const meetingId = s.meetingId ?? s.meeting_id
+    if (meetingId) {
+      await Promise.all([loadAgendas(meetingId), loadSelectedAgendas(s.id)])
+    }
   },
   { immediate: true },
 )
+
+async function loadAgendas(meetingId) {
+  try {
+    const { data } = await api.get(`/api/v1/meetings/${meetingId}/agendas`)
+    agendas.value = data.data ?? data
+  } catch (e) {
+    agendas.value = []
+  }
+}
+
+async function loadSelectedAgendas(sessionId) {
+  try {
+    const { data } = await api.get(`/api/v1/sessions/${sessionId}/agendas`)
+    selectedAgendaIds.value = data.data ?? data
+  } catch (e) {
+    selectedAgendaIds.value = []
+  }
+}
 
 const canSubmit = computed(() => {
   const f = form.value
@@ -99,6 +128,7 @@ async function doSave() {
       type: form.value.type,
       context: form.value.context || null,
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+      agenda_ids: selectedAgendaIds.value,
     })
     emit('saved', { meetingId: form.value.meetingId })
     emit('close')
@@ -168,6 +198,43 @@ async function doSave() {
               rows="4"
               placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"
             ></textarea>
+          </div>
+          <div class="app-modal-field">
+            <label>관련 안건</label>
+            <div style="position: relative">
+              <div
+                class="app-modal-input"
+                :style="{ cursor: agendas.filter(a => a.status === 'ongoing').length ? 'pointer' : 'default' }"
+                style="display: flex; align-items: center; justify-content: space-between; user-select: none"
+                @click="agendas.filter(a => a.status === 'ongoing').length && (showAgendaDropdown = !showAgendaDropdown)"
+              >
+                <span style="color: #9ca3af">
+                  {{
+                    !agendas.length ? '등록된 안건이 없습니다' :
+                    !agendas.filter(a => a.status === 'ongoing').length ? '진행 중인 안건이 없습니다' :
+                    selectedAgendaIds.length ? `${selectedAgendaIds.length}개 선택됨` :
+                    '안건을 선택하세요'
+                  }}
+                </span>
+                <svg v-if="agendas.filter(a => a.status === 'ongoing').length" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+              <div v-if="showAgendaDropdown" style="position: fixed; inset: 0; z-index: 1001" @click="showAgendaDropdown = false"></div>
+              <div
+                v-if="showAgendaDropdown"
+                style="position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 1002; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 6px; max-height: 160px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.12)"
+              >
+                <label
+                  v-for="agenda in agendas.filter(a => a.status === 'ongoing')"
+                  :key="agenda.id"
+                  style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 13px"
+                >
+                  <input type="checkbox" :value="agenda.id" v-model="selectedAgendaIds" style="width: 14px; height: 14px; cursor: pointer" />
+                  <span>{{ agenda.title }}</span>
+                </label>
+              </div>
+            </div>
           </div>
           <div class="app-modal-field">
             <MemberInvite v-model="members" />
