@@ -1289,22 +1289,27 @@ async function openDetail(groupData) {
       apiAI.get(`/api/agent/meetings/${numId}/agenda-delete-logs`),
     ])
     detailAgendas.value =
-      agendasRes.status === 'fulfilled' ? agendasRes.value.data || [] :
-      (groupData.tasks || []).filter(t => t.status !== 'draft')
+      agendasRes.status === 'fulfilled'
+        ? agendasRes.value.data || []
+        : (groupData.tasks || []).filter(t => t.status !== 'draft')
     if (agendasRes.status === 'rejected') {
-      console.error(`[Task] 과제 로드 실패 (meeting=${numId}):`, agendasRes.reason?.response?.status)
+      console.error(
+        `[Task] 과제 로드 실패 (meeting=${numId}):`,
+        agendasRes.reason?.response?.status,
+      )
     }
     const meetingKey = String(groupData.id)
     const sessionLogs = deletedAgendaLogs.value.filter(l => l.meetingId === meetingKey)
-    const apiLogs = deleteLogsRes.status === 'fulfilled'
-      ? (deleteLogsRes.value.data || []).map(r => ({
-          meetingId: meetingKey,
-          agendaId: r.agenda_id,
-          title: r.title,
-          agendaCreatedAt: r.agenda_created_at || null,
-          deletedAt: r.deleted_at,
-        }))
-      : []
+    const apiLogs =
+      deleteLogsRes.status === 'fulfilled'
+        ? (deleteLogsRes.value.data || []).map(r => ({
+            meetingId: meetingKey,
+            agendaId: r.agenda_id,
+            title: r.title,
+            agendaCreatedAt: r.agenda_created_at || null,
+            deletedAt: r.deleted_at,
+          }))
+        : []
     const apiIds = new Set(apiLogs.map(l => l.agendaId))
     deletedAgendaLogs.value = [
       ...deletedAgendaLogs.value.filter(l => l.meetingId !== meetingKey),
@@ -2265,9 +2270,15 @@ const groupHistoryMap = computed(() => {
     })
     // g.tasks에 있는 아젠다 pg_id 집합 (삭제되어 g.tasks에서 사라진 것들은 별도 재구성)
     const existingPgIds = new Set(
-      (g.tasks || []).map(t => t.pg_id ?? (typeof t.id === 'string' && t.id.startsWith('agenda-') ? Number(t.id.slice(7)) : t.id))
+      (g.tasks || []).map(
+        t =>
+          t.pg_id ??
+          (typeof t.id === 'string' && t.id.startsWith('agenda-') ? Number(t.id.slice(7)) : t.id),
+      ),
     )
-    const meetingDeletedLogs = deletedAgendaLogs.value.filter(l => String(l.meetingId) === String(g.id))
+    const meetingDeletedLogs = deletedAgendaLogs.value.filter(
+      l => String(l.meetingId) === String(g.id),
+    )
 
     // g.tasks 기반 추가 로그 (현존하는 아젠다)
     const ongoingTasks = (g.tasks || []).filter(t => t.status !== 'draft')
