@@ -20,15 +20,65 @@ const props = defineProps({
 const emit = defineEmits(['nodeClick', 'nodeDblClick', 'bgClick'])
 
 // ─── Constants ────────────────────────────────────────────────
+// 노드 타입별 [중심(밝음), 외곽(진함)] 라디얼 그라데이션 색.
+// 중심은 너무 희지 않게(흰 배경서도 보이게), 외곽은 채도 높게(어두운 배경서도 또렷하게) — 주간/야간 공통.
+const NODE_GRADIENTS = {
+  Meetings: [0x60a5fa, 0x2563eb], // 파랑
+  company: [0x5eead4, 0x0d9488], // 청록
+  dept: [0xc4b5fd, 0x7c3aed], // 보라
+  agenda: [0xfcd34d, 0xd97706], // 앰버
+  session: [0xfdba74, 0xea580c], // 주황
+  minutes: [0x67e8f9, 0x0891b2], // 시안
+  report: [0x6ee7b7, 0x059669], // 에메랄드
+  person: [0xf9a8d4, 0xdb2777], // 핑크
+}
+// 외곽(진한) 색 — 단색 fallback·기타 참조용
 const NODE_COLORS = {
-  Meetings: 0x3b82f6,
-  agenda: 0xf59e0b,
-  session: 0xf97316,
-  minutes: 0x60a5fa,
-  report: 0x34d399,
-  dept: 0x8b5cf6,
-  person: 0xf472b6,
+  Meetings: 0x2563eb,
+  agenda: 0xd97706,
+  session: 0xea580c,
+  minutes: 0x0891b2,
+  report: 0x059669,
+  dept: 0x7c3aed,
+  person: 0xdb2777,
   company: 0x0d9488,
+}
+
+// 라디얼 그라데이션 캐시 — textureSpace:'local'이라 같은 색 조합은 모든 노드가 재사용.
+const _gradientCache = new Map()
+function _lighten(hex, amt = 0.45) {
+  const r = (hex >> 16) & 0xff,
+    g = (hex >> 8) & 0xff,
+    b = hex & 0xff
+  return (
+    (Math.round(r + (255 - r) * amt) << 16) |
+    (Math.round(g + (255 - g) * amt) << 8) |
+    Math.round(b + (255 - b) * amt)
+  )
+}
+// 라디얼 그라데이션 생성(실패 시 null → 호출부가 단색 폴백). 살짝 위쪽 광원으로 입체감.
+function getNodeGradient(centerHex, edgeHex) {
+  const key = centerHex * 0x1000000 + edgeHex
+  if (_gradientCache.has(key)) return _gradientCache.get(key)
+  let grad = null
+  try {
+    grad = new PIXI.FillGradient({
+      type: 'radial',
+      center: { x: 0.5, y: 0.38 },
+      innerRadius: 0,
+      outerCenter: { x: 0.5, y: 0.5 },
+      outerRadius: 0.55,
+      colorStops: [
+        { offset: 0, color: centerHex },
+        { offset: 1, color: edgeHex },
+      ],
+      textureSpace: 'local',
+    })
+  } catch {
+    grad = null
+  }
+  _gradientCache.set(key, grad)
+  return grad
 }
 const NODE_RADIUS = {
   Meetings: 11,
@@ -403,12 +453,16 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: 0xfbbf24, width: 3, alpha: 1 })
   }
 
-  // Main circle
+  // Main circle — 라디얼 그라데이션(중심 밝음 → 외곽 진함). 실패 시 단색 폴백.
   gfx.circle(0, 0, r)
   if (type === 'Meetings') {
-    gfx.fill({ color: hubColor, alpha: urgency === 'critical' ? 0.95 : 0.88 })
+    // 회의체는 긴급도 색(hubColor) 유지 — 밝게 한 중심 → hubColor 그라데이션
+    const grad = getNodeGradient(_lighten(hubColor, 0.5), hubColor)
+    gfx.fill(grad || { color: hubColor, alpha: urgency === 'critical' ? 0.95 : 0.88 })
   } else {
-    gfx.fill({ color: NODE_COLORS[type] ?? 0x60a5fa, alpha: 1 })
+    const g = NODE_GRADIENTS[type]
+    const grad = g ? getNodeGradient(g[0], g[1]) : null
+    gfx.fill(grad || { color: (g && g[1]) || NODE_COLORS[type] || 0x60a5fa, alpha: 1 })
   }
 
   // 자신 노드 — 검정 테두리로 구분
@@ -1024,7 +1078,17 @@ watch(
     nodeObjs.forEach(obj => {
       obj.label.style.fill = props.nightMode ? 0xe2e8f0 : 0x0f172a
     })
+    _simDirty = true // 야간/주간 전환 시 노드 색도 다시 그린다
   },
+)
+// 범례에서 노드 타입 표시/숨김 토글 시 그래프를 다시 그린다 — 시뮬레이션 안정 후
+// tick이 _simDirty=false면 조기 반환해 재렌더가 멈추므로, 토글을 반영하려면 dirty 표시 필요.
+watch(
+  () => props.hiddenNodeTypes,
+  () => {
+    _simDirty = true
+  },
+  { deep: true },
 )
 
 // ─── Lifecycle ────────────────────────────────────────────────

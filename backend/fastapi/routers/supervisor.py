@@ -560,6 +560,31 @@ async def supervisor_chat(
         )
     )
 
+    def _save_assistant_msg(text: str) -> None:
+        """조기 종료 분기(off_topic·접근거부 등)의 assistant 응답도 chat_messages에 저장한다.
+        메인 경로는 stream()의 finally에서 저장하지만, 이 분기들은 그 try에 닿기 전에 return해
+        저장이 누락됐다(회의체와 무관한 질문의 답변이 기록되지 않던 원인)."""
+        if not text or not text.strip():
+            return
+        _sdb = SessionLocal()
+        try:
+            _sdb.add(
+                models.ChatMessage(
+                    thread_id=_thread_id,
+                    user_id=current_user.id,
+                    role="assistant",
+                    content=text,
+                    context_type="supervisor",
+                    meeting_id=data.meeting_id or None,
+                )
+            )
+            _sdb.commit()
+        except Exception as _e:
+            logger.warning(f"[supervisor_chat] assistant(조기응답) 저장 실패: {_e}")
+            _sdb.rollback()
+        finally:
+            _sdb.close()
+
     async def stream():
         _collector = TokenUsageCollector()
         _tok_ctx_token = _token_collector_var.set(_collector)
@@ -617,6 +642,7 @@ async def supervisor_chat(
                     '- "최근 보고서 제출 현황은?"'
                 )
                 yield sse_token(_off_msg)
+                _save_assistant_msg(_off_msg)
                 yield sse_done()
                 return
             if data.meeting_id:
@@ -634,6 +660,7 @@ async def supervisor_chat(
                             f"접근 권한 없음 — {current_user.name}님은 이 회의체에 대한 접근 권한이 없습니다",
                         )
                         yield sse_token("이 회의체에 대한 접근 권한이 없습니다.")
+                        _save_assistant_msg("이 회의체에 대한 접근 권한이 없습니다.")
                         yield sse_done()
                         return
 
@@ -985,8 +1012,12 @@ async def supervisor_chat(
             if _model_ctx_token is not None:
                 model_override_var.reset(_model_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)
-            _assistant_text = "".join(_assistant_chunks)
-            if _assistant_text:
+            # chunk.content가 문자열이 아닌(리스트 등) 경우 "".join이 TypeError로 깨져 저장이 통째로
+            # 실패하던 문제 방지 — 모든 조각을 str로 강제 변환 후 결합한다.
+            _assistant_text = "".join(
+                c if isinstance(c, str) else str(c) for c in _assistant_chunks
+            )
+            if _assistant_text.strip():
                 _save_db = SessionLocal()
                 try:
                     _save_db.add(

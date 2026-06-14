@@ -525,7 +525,7 @@ onMounted(async () => {
             </td>
           </tr>
           <tr v-for="i in mgFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in mgColumns" :key="ci">&nbsp;</td>
+            <td v-for="(c, ci) in mgColumns" :key="ci"></td>
           </tr>
         </AppTable>
       </template>

@@ -161,29 +161,10 @@ export function useGraphBuilder({
           meetingId: mgNodeId,
           neo4jId: task.id || null,
         })
+        // 아젠다는 '부서(관할)'에 연결한다. depts가 있으면 connIdx=부서 노드라 agenda→부서 관할이 그려진다.
+        // (이전에 그리던 사람→아젠다 '담당' 엣지는 제거 — 담당자 정보는 노드 상세에서 확인)
         edges.push({ from: agIdx, to: connIdx, rel: '관할' })
         if (connIdx !== mgIdx) edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
-        const assigneeNames = task.assignee_names?.length
-          ? task.assignee_names
-          : task.assignee_name
-            ? [task.assignee_name]
-            : []
-        if (assigneeNames.length > 0) {
-          for (const aName of assigneeNames) {
-            const pIdx = personIdxByKey.get(aName) ?? -1
-            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
-          }
-        } else {
-          const assigneeDept = task.assignee_dept || depts[0]
-          const fallbackMembers = membersByDept.get(assigneeDept) || []
-          if (fallbackMembers.length > 0) {
-            const fb = fallbackMembers[0]
-            const fbKey = fb.userId || fb.email || fb.userName || fb.name || 0
-            const pIdx =
-              personIdxByKey.get(String(fbKey)) ?? personIdxByKey.get(fb.userName || fb.name) ?? -1
-            if (pIdx >= 0) edges.push({ from: pIdx, to: agIdx, rel: '담당' })
-          }
-        }
         agendaIdxById.set(String(task.id), agIdx)
         if (task.id != null) globalAgendaIdxMap.set(String(task.id), agIdx)
       }

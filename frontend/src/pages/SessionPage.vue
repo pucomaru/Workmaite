@@ -9,6 +9,7 @@ import {
   nextTick,
   watch,
 } from 'vue'
+import { useRoute } from 'vue-router'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -33,6 +34,7 @@ const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const meetingsStore = useMeetingsStore()
 const sessionsStore = useSessionsStore()
+const route = useRoute()
 
 import { renderMd } from '../composables/useMarkdown'
 
@@ -950,6 +952,23 @@ async function saveApprovedNextAgendas() {
       })),
       rejected_ids: rejected.map(a => a.db_id),
     })
+    // 저장된 다음 안건은 백엔드에서 회의록 본문 '다음 회의 아젠다' 섹션에 LLM 문장으로 반영된다.
+    // 에디터를 갱신해 사용자가 즉시 확인하고, 이후 '아카이브 저장' 시 덮어쓰이지 않게 한다.
+    if (generatedMinutes.value && activeSession.value) {
+      try {
+        const { data: mn } = await apiAI.get(
+          `/api/ai/sessions/${activeSession.value.id}/minutes`,
+        )
+        const refreshed = mn?.content_original || mn?.content_summary
+        if (refreshed) {
+          generatedMinutes.value = { ...generatedMinutes.value, content_summary: refreshed }
+          loadMinutesToEditor(refreshed)
+          getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
+        }
+      } catch {
+        /* 본문 새로고침 실패는 치명적이지 않음 */
+      }
+    }
     nextAgendaItems.value = nextAgendaItems.value.filter(
       a => a._state !== 'approved' && a._state !== 'rejected',
     )
@@ -1318,9 +1337,24 @@ async function onSessionCreated({ meetingId }) {
   await loadSessions(meetingId)
 }
 
-onMounted(() => {
-  fetchMeetings()
+onMounted(async () => {
+  await fetchMeetings()
   loadMentionGraph()
+
+  // 홈 '예정된 회의' 등에서 ?meetingId=&sessionId= 로 진입 시:
+  // 해당 회의체를 펼치고(expanded) 회의를 선택해 'AI 실시간 요약' 탭을 띄운다.
+  const mid = route.query.meetingId ? Number(route.query.meetingId) : null
+  const sid = route.query.sessionId ? Number(route.query.sessionId) : null
+  if (mid) {
+    const m = meetings.value.find(x => x.id === mid)
+    if (m) {
+      expandedMeetingIds.value = new Set([...expandedMeetingIds.value, mid])
+      selectedMeetingId.value = mid
+      const list = await loadSessions(mid)
+      const s = sid ? (list || []).find(x => x.id === sid) : null
+      if (s) await enterSession(s) // enterSession이 activeTab='transcript'(실시간 요약)로 설정
+    }
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1919,7 +1953,7 @@ async function downloadChatFile(filePath) {
           </template>
         </div>
 
-        <!-- Control bar (대화기록/스크립트 탭) -->
+        <!-- Control bar (AI 실시간 요약/발화 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
           <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
             <!-- Language selector -->
