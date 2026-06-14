@@ -75,7 +75,10 @@ async def archive_extract_agendas(
     )  # 아젠다 추출은 간사/회사관리자/시스템관리자만
     meeting_context = _get_meeting_context(db, meeting_id)
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
-    previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
+    # 현재 세션(session_id)은 제외 — 다른 세션 회의록이 현재 회의로 오인돼 아젠다가 새는 것을 막는다.
+    previous_minutes = _get_previous_minutes(
+        db, meeting_id, exclude_session_id=session_id
+    )[:3]
 
     current_agendas = (
         db.query(models.Agenda)
@@ -145,16 +148,16 @@ async def archive_extract_agendas(
         except Exception as e:
             logger.warning(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
 
-    # 현재 회의록을 이전 회의록보다 앞에 배치 (가장 최신 = 가장 높은 우선순위)
-    all_minutes = current_minutes_texts + previous_minutes
-
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:
         context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
-    if all_minutes:
+    # 현재 회의록(아젠다 추출의 유일한 근거)과 과거 회의록(배경 참고용)을 명확히 분리 — 교차세션 오염 방지.
+    if current_minutes_texts:
+        context_parts.append("[현재 회의록]\n" + "\n\n".join(current_minutes_texts))
+    if previous_minutes:
         context_parts.append(
-            "[최근 회의록]\n"
-            + "\n\n".join(f"[회의록 {i + 1}]\n{m}" for i, m in enumerate(all_minutes))
+            "[과거 회의록 — 배경 참고용. 다음 아젠다는 반드시 위 '현재 회의록' 기준으로만 도출하세요]\n"
+            + "\n\n".join(f"[과거 {i + 1}]\n{m}" for i, m in enumerate(previous_minutes))
         )
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")

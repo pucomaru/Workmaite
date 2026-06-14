@@ -91,16 +91,18 @@ def _get_member_org_depts(db: Session, meeting_id: int) -> List[dict]:
     return result
 
 
-def _get_previous_minutes(db: Session, meeting_id: int) -> List[str]:
-    sessions = (
-        db.query(models.MeetingSession)
-        .filter(
-            models.MeetingSession.meeting_id == meeting_id,
-            models.MeetingSession.status.in_(["ended", "ENDED"]),
-        )
-        .order_by(models.MeetingSession.ended_at.desc())
-        .all()
+def _get_previous_minutes(
+    db: Session, meeting_id: int, exclude_session_id: int | None = None
+) -> List[str]:
+    """회의체의 종료된 세션 회의록 요약 목록. exclude_session_id로 현재 세션을 배제해
+    (예: 후속 아젠다 추출 시) 다른 세션 데이터가 현재 회의로 오인되는 것을 막는다."""
+    q = db.query(models.MeetingSession).filter(
+        models.MeetingSession.meeting_id == meeting_id,
+        models.MeetingSession.status.in_(["ended", "ENDED"]),
     )
+    if exclude_session_id is not None:
+        q = q.filter(models.MeetingSession.id != exclude_session_id)
+    sessions = q.order_by(models.MeetingSession.ended_at.desc()).all()
 
     result = []
     for s in sessions:
