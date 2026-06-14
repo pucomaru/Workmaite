@@ -162,6 +162,16 @@ class Agenda(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SessionAgenda(Base):
+    __tablename__ = "session_agendas"
+    session_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("meeting_sessions.id"), primary_key=True
+    )
+    agenda_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("agenda.id"), primary_key=True
+    )
+
+
 class Report(Base):
     __tablename__ = "reports"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)

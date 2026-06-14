@@ -67,7 +67,7 @@ public class Agenda {
     agenda.meetingId = meetingId;
     agenda.sessionId = sessionId;
     agenda.title = title;
-    agenda.status = AgendaStatus.ON_HOLD;
+    agenda.status = AgendaStatus.draft;
     agenda.priority = priority != null ? priority : "medium";
     return agenda;
   }

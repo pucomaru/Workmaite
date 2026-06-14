@@ -11,8 +11,10 @@ import com.workmaite.domain.sessions.dto.SessionUpdateRequest;
 import com.workmaite.domain.sessions.dto.SummaryBlockResponse;
 import com.workmaite.domain.sessions.dto.UpcomingSessionResponse;
 import com.workmaite.domain.sessions.entity.MeetingSession;
+import com.workmaite.domain.sessions.entity.SessionAgenda;
 import com.workmaite.domain.sessions.entity.SessionMember;
 import com.workmaite.domain.sessions.entity.SessionStatus;
+import com.workmaite.domain.sessions.repository.SessionAgendaRepository;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import com.workmaite.domain.sessions.repository.SessionSummaryBlockRepository;
@@ -42,6 +44,7 @@ public class SessionService {
   private final SessionRepository sessionRepository;
   private final SessionMemberRepository sessionMemberRepository;
   private final SessionSummaryBlockRepository summaryBlockRepository;
+  private final SessionAgendaRepository sessionAgendaRepository;
   private final MeetingRepository meetingRepository;
   private final NeoSyncService neoSyncService;
   private final ScriptRepository scriptRepository;
@@ -101,8 +104,23 @@ public class SessionService {
             .collect(Collectors.toList());
     sessionMemberRepository.saveAll(members);
 
+    // 선택된 안건 저장
+    List<Long> agendaIds = request.getAgendaIds();
+    if (agendaIds != null && !agendaIds.isEmpty()) {
+      List<SessionAgenda> sessionAgendas =
+          agendaIds.stream().map(agendaId -> SessionAgenda.of(session.getId(), agendaId)).toList();
+      sessionAgendaRepository.saveAll(sessionAgendas);
+    }
+
     neoSyncService.syncSession(session.getId());
     return SessionResponse.from(session, members);
+  }
+
+  public List<Long> getSessionAgendaIds(Long sessionId) {
+    findSessionById(sessionId);
+    return sessionAgendaRepository.findBySessionId(sessionId).stream()
+        .map(SessionAgenda::getAgendaId)
+        .toList();
   }
 
   public SessionResponse getSession(Long sessionId) {
@@ -140,6 +158,16 @@ public class SessionService {
       }
     }
 
+    List<Long> agendaIds = request.getAgendaIds();
+    if (agendaIds != null) {
+      sessionAgendaRepository.deleteBySessionId(sessionId);
+      if (!agendaIds.isEmpty()) {
+        List<SessionAgenda> sessionAgendas =
+            agendaIds.stream().map(id -> SessionAgenda.of(sessionId, id)).toList();
+        sessionAgendaRepository.saveAll(sessionAgendas);
+      }
+    }
+
     return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId));
   }
 
@@ -150,6 +178,7 @@ public class SessionService {
     scriptRepository.deleteAllBySessionId(sessionId);
     summaryBlockRepository.deleteAllBySessionId(sessionId);
     sessionMemberRepository.deleteBySessionId(sessionId);
+    sessionAgendaRepository.deleteBySessionId(sessionId);
     minutesRepository.deleteBySessionId(sessionId);
     sessionRepository.delete(session);
     neoSyncService.deleteSession(sessionId); // 삭제 전파 (DATA-4)

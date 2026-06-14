@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
 import MemberInvite from './MemberInvite.vue'
@@ -28,6 +28,9 @@ const creating = ref(false)
 const showPastDateAlert = ref(false)
 const showTimePicker = ref(false)
 const timePickerListEl = ref(null)
+const agendas = ref([])
+const selectedAgendaIds = ref([])
+const showAgendaDropdown = ref(false)
 
 function selectTime(t) {
   form.value.timeOnly = t
@@ -55,7 +58,7 @@ function toNumericId(id) {
 
 watch(
   () => props.show,
-  v => {
+  async v => {
     if (!v) return
     const now = new Date()
     const minutes = now.getMinutes() < 30 ? 30 : 0
@@ -72,8 +75,32 @@ watch(
     const me = authStore.user
     members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
     showPastDateAlert.value = false
+    agendas.value = []
+    selectedAgendaIds.value = []
+    showAgendaDropdown.value = false
+    if (form.value.meeting_id) await loadAgendas(form.value.meeting_id)
   },
 )
+
+watch(
+  () => form.value.meeting_id,
+  async id => {
+    agendas.value = []
+    selectedAgendaIds.value = []
+    showAgendaDropdown.value = false
+    if (id) await loadAgendas(id)
+  },
+)
+
+async function loadAgendas(meetingId) {
+  try {
+    const { data } = await api.get(`/api/v1/meetings/${meetingId}/agendas`)
+    agendas.value = data.data ?? data
+  } catch (e) {
+    console.error('[agendas] 로드 실패:', e)
+    agendas.value = []
+  }
+}
 
 const timeOptions = computed(() => {
   const options = []
@@ -118,6 +145,7 @@ async function doCreate() {
       type: 'gpt-realtime-whisper',
       context: f.context || null,
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
+      agenda_ids: selectedAgendaIds.value.length ? selectedAgendaIds.value : null,
     })
     emit('saved', { meetingId: f.meeting_id })
     emit('close')
@@ -268,6 +296,87 @@ async function doCreate() {
               rows="4"
               placeholder="대화 상황, 주제, 고유명사 등 회의와 관련된 맥락을 입력하면 AI 응답 정확도가 높아져요.&#10;예: 분기별 성과 검토 회의, 주요 KPI: 전환율·CAC, 팀: 마케팅/영업/기획"
             ></textarea>
+          </div>
+          <div class="app-modal-field">
+            <label>관련 안건</label>
+            <div style="position: relative">
+              <div
+                class="app-modal-input"
+                :style="{ cursor: agendas.length ? 'pointer' : 'default' }"
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  user-select: none;
+                "
+                @click="agendas.length && (showAgendaDropdown = !showAgendaDropdown)"
+              >
+                <span style="color: #9ca3af">
+                  {{
+                    !form.meeting_id
+                      ? '회의체를 먼저 선택하세요'
+                      : !agendas.length
+                        ? '등록된 안건이 없습니다'
+                        : selectedAgendaIds.length
+                          ? `${selectedAgendaIds.length}개 선택됨`
+                          : '안건을 선택하세요'
+                  }}
+                </span>
+                <svg
+                  v-if="agendas.length"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+              <div
+                v-if="showAgendaDropdown && agendas.length"
+                style="position: fixed; inset: 0; z-index: 1001"
+                @click="showAgendaDropdown = false"
+              ></div>
+              <div
+                v-if="showAgendaDropdown && agendas.length"
+                style="
+                  position: absolute;
+                  top: calc(100% + 4px);
+                  left: 0;
+                  right: 0;
+                  z-index: 1002;
+                  background: var(--bg-card, #fff);
+                  border: 1px solid var(--border, #e5e7eb);
+                  border-radius: 6px;
+                  max-height: 160px;
+                  overflow-y: auto;
+                  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+                "
+              >
+                <label
+                  v-for="agenda in agendas.filter(a => a.status === 'ongoing')"
+                  :key="agenda.id"
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    font-size: 13px;
+                  "
+                >
+                  <input
+                    type="checkbox"
+                    :value="agenda.id"
+                    v-model="selectedAgendaIds"
+                    style="width: 14px; height: 14px; cursor: pointer"
+                  />
+                  <span>{{ agenda.title }}</span>
+                </label>
+              </div>
+            </div>
           </div>
           <div class="app-modal-field">
             <MemberInvite v-model="members" :lockedUserId="lockedUserId" />
