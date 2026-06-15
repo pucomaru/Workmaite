@@ -695,6 +695,7 @@ async def sync_minutes(
     minutes_id: int,
     session_id: int,
     content_summary: str | None = None,
+    short_summary: str | None = None,
     content_original: str | None = None,
     file_name: str | None = None,
     file_path: str | None = None,
@@ -720,6 +721,7 @@ async def sync_minutes(
     MERGE (mn:Minutes {pg_id: $pg_id})
     SET mn.session_id       = $session_id,
         mn.content_summary  = $content_summary,
+        mn.short_summary    = $short_summary,
         mn.content_original = $content_original,
         mn.file_name        = $file_name,
         mn.file_path        = $file_path,
@@ -730,7 +732,7 @@ async def sync_minutes(
     WITH mn
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (mn)-[:`기록`]<-(s)
+        MERGE (s)-[:`기록`]->(mn)
     )
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
@@ -749,6 +751,7 @@ async def sync_minutes(
         "session_id": session_id,
         "s_id": s_id,
         "content_summary": content_summary or "",
+        "short_summary": short_summary or "",
         "content_original": content_original or "",
         "file_name": file_name or "",
         "file_path": file_path or "",
