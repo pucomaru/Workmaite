@@ -3,6 +3,8 @@ package com.workmaite.domain.home.service;
 import com.workmaite.domain.agendas.entity.Agenda;
 import com.workmaite.domain.agendas.repository.AgendaRepository;
 import com.workmaite.domain.home.dto.CalendarAgendaItem;
+import com.workmaite.domain.meetings.entity.MeetingMember;
+import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.home.dto.CalendarResponse;
 import com.workmaite.domain.home.dto.CalendarSessionItem;
 import com.workmaite.domain.meetings.entity.Meeting;
@@ -29,6 +31,7 @@ public class HomeService {
   private final MeetingRepository meetingRepository;
   private final SessionRepository sessionRepository;
   private final AgendaRepository agendaRepository;
+  private final MeetingMemberRepository meetingMemberRepository;
 
   public CalendarResponse getCalendar(Long userId, String view, String dateStr) {
     LocalDate date = LocalDate.parse(dateStr);
@@ -53,8 +56,15 @@ public class HomeService {
 
     List<MeetingSession> sessions =
         sessionRepository.findByUserIdAndScheduledAtBetween(userId, start, end);
+    List<Long> meetingIds =
+        meetingMemberRepository.findByUserId(userId).stream()
+            .map(MeetingMember::getMeetingId)
+            .toList();
+
     List<Agenda> agendas =
-        agendaRepository.findByAssigneeIdAndDueDateBetween(userId, start, end);
+        meetingIds.isEmpty()
+            ? List.of()
+            : agendaRepository.findByMeetingIdInAndDueDateBetween(meetingIds, start, end);
 
     List<Long> allMeetingIds =
         Stream.concat(
