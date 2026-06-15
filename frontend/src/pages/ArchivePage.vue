@@ -103,38 +103,34 @@ function toggleGraphPanOnly() {
 
 // ─── Search highlight (Meetings nodes containing match) ──
 const searchHitMgIdxs = ref([])
+const searchHitCurrentIdx = ref(-1)
+
+const SEARCH_NODE_TYPES = new Set(['Meetings', 'report', 'person', 'session', 'minutes'])
 
 function _recomputeSearchHits() {
   const q = search.value
   if (!q || !q.trim()) {
     searchHitMgIdxs.value = []
+    searchHitCurrentIdx.value = -1
     graphViewRef.value?.focusSearchHits([])
     return
   }
   const lower = q.toLowerCase()
   const hits = []
   gNodes.forEach((n, i) => {
-    const label = (n.label || '').toLowerCase()
-    if (label.includes(lower)) {
-      hits.push(i)
-      return
-    }
-    if (n.type === 'Meetings' && n.data) {
-      const g = n.data
-      const inMinutes = (g.minutes || []).some(m =>
-        (m.session_title || '').toLowerCase().includes(lower),
-      )
-      const inReports = (g.reports || []).some(r =>
-        (r.file_name || r.title || '').toLowerCase().includes(lower),
-      )
-      const inMembers = (g.members || []).some(m =>
-        (m.userName || m.name || '').toLowerCase().includes(lower),
-      )
-      if (inMinutes || inReports || inMembers) hits.push(i)
-    }
+    if (!SEARCH_NODE_TYPES.has(n.type)) return
+    if ((n.label || '').toLowerCase().includes(lower)) hits.push(i)
   })
   searchHitMgIdxs.value = hits
+  searchHitCurrentIdx.value = -1
   graphViewRef.value?.focusSearchHits(hits)
+}
+
+function onSearchEnter() {
+  const hits = searchHitMgIdxs.value
+  if (!hits.length) return
+  searchHitCurrentIdx.value = (searchHitCurrentIdx.value + 1) % hits.length
+  graphViewRef.value?.focusSearchHits([hits[searchHitCurrentIdx.value]])
 }
 
 watch(search, _recomputeSearchHits)
@@ -3572,10 +3568,15 @@ provide('archiveSidebar', {
         </svg>
         <input
           v-model="search"
-          class="search-input"
+          :class="['search-input', { 'with-counter': searchHitMgIdxs.length > 1 }]"
           name="search"
           placeholder="회의체명, 회의록, 보고서, 인물 검색..."
+          @keydown.enter="onSearchEnter"
         />
+        <span
+          v-if="searchHitMgIdxs.length > 1"
+          class="search-hit-counter"
+        >{{ searchHitCurrentIdx >= 0 ? searchHitCurrentIdx + 1 : 1 }} / {{ searchHitMgIdxs.length }}</span>
         <button v-if="search" class="search-clear" @click="search = ''">
           <svg
             width="11"
