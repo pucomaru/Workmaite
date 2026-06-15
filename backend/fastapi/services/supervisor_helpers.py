@@ -280,3 +280,142 @@ async def _stream_plan(system_content: str, human_content: str):
     tail = buf.strip().lstrip("-•·▪▸◦*0123456789.").strip()
     if tail:
         yield tail
+
+
+# ─── 세션 컨텍스트 빌더 ───────────────────────────────────────────────────────
+
+
+def _build_session_context(db: Session, session_id: int) -> dict:
+    """session_id 기준으로 DB 데이터를 조립해 반환합니다."""
+    session = (
+        db.query(models.MeetingSession)
+        .filter(models.MeetingSession.id == session_id)
+        .first()
+    )
+    if not session:
+        return {}
+
+    # 참석자 (SessionMember → User 조인)
+    member_rows = (
+        db.query(models.SessionMember)
+        .filter(models.SessionMember.session_id == session_id)
+        .all()
+    )
+    user_ids = [m.user_id for m in member_rows]
+    role_map = {m.user_id: m.role for m in member_rows}
+    users = db.query(models.User).filter(models.User.id.in_(user_ids)).all() if user_ids else []
+
+    # 안건 (SessionAgenda → Agenda)
+    sa_rows = (
+        db.query(models.SessionAgenda)
+        .filter(models.SessionAgenda.session_id == session_id)
+        .all()
+    )
+    agenda_ids = [sa.agenda_id for sa in sa_rows]
+    agendas = (
+        db.query(models.Agenda).filter(models.Agenda.id.in_(agenda_ids)).all()
+        if agenda_ids
+        else []
+    )
+
+    # 부모 회의체
+    meeting = (
+        db.query(models.Meeting)
+        .filter(models.Meeting.id == session.meeting_id)
+        .first()
+    )
+
+    # 회의록
+    minutes = (
+        db.query(models.Minutes)
+        .filter(models.Minutes.session_id == session_id)
+        .first()
+    )
+
+    # 실시간 요약 블록 (ongoing 상태에서 활용)
+    summary_blocks = (
+        db.query(models.SessionSummaryBlock)
+        .filter(models.SessionSummaryBlock.session_id == session_id)
+        .order_by(models.SessionSummaryBlock.block_index)
+        .all()
+    )
+
+    return {
+        "session": session,
+        "meeting": meeting,
+        "members": [(u, role_map.get(u.id, "member")) for u in users],
+        "agendas": agendas,
+        "minutes": minutes,
+        "summary_blocks": summary_blocks,
+    }
+
+
+def _format_session_context_str(ctx: dict) -> str:
+    """조립된 세션 컨텍스트를 LLM 프롬프트용 텍스트로 변환합니다."""
+    if not ctx:
+        return ""
+
+    parts = []
+    session = ctx["session"]
+
+    # 회의체 정보
+    meeting = ctx.get("meeting")
+    if meeting:
+        mg_lines = [f"회의체명: {meeting.title}"]
+        if meeting.description:
+            mg_lines.append(f"설명: {meeting.description}")
+        if meeting.type:
+            mg_lines.append(f"유형: {meeting.type}")
+        parts.append("[회의체 정보]\n" + "\n".join(mg_lines))
+
+    # 기본 정보
+    lines = [f"회의명: {session.title}"]
+    if session.scheduled_at:
+        lines.append(f"일정: {session.scheduled_at.strftime('%Y-%m-%d %H:%M')}")
+    if session.started_at:
+        lines.append(f"시작: {session.started_at.strftime('%Y-%m-%d %H:%M')}")
+    if session.ended_at:
+        lines.append(f"종료: {session.ended_at.strftime('%Y-%m-%d %H:%M')}")
+    if session.location:
+        lines.append(f"장소: {session.location}")
+    lines.append(f"상태: {session.status}")
+    parts.append("[회의 기본 정보]\n" + "\n".join(lines))
+
+    # 참석자
+    if ctx["members"]:
+        member_parts = [
+            f"- {u.name}({u.department or ''}), 역할: {role}"
+            for u, role in ctx["members"]
+        ]
+        parts.append("[참석자]\n" + "\n".join(member_parts))
+
+    # 안건
+    if ctx["agendas"]:
+        agenda_parts = [
+            f"- {a.title} (상태: {a.status})" for a in ctx["agendas"]
+        ]
+        parts.append("[안건]\n" + "\n".join(agenda_parts))
+
+    # 회의록 요약 (archived일 때만 존재)
+    minutes = ctx.get("minutes")
+    if minutes and minutes.content_summary:
+        parts.append("[회의록 요약]\n" + minutes.content_summary[:3000])
+
+    # 실시간 요약 블록 — summary_text_override가 있으면 그걸 우선 사용 (rolling summary)
+    summary_text = ctx.get("summary_text_override")
+    if summary_text:
+        parts.append(f"[실시간 요약 블록]\n{summary_text}")
+    else:
+        summary_blocks = ctx.get("summary_blocks", [])
+        if summary_blocks:
+            block_parts = []
+            for b in summary_blocks:
+                bullets = (
+                    "\n".join(f"  • {bl}" for bl in (b.bullets or []))
+                    if b.bullets
+                    else ""
+                )
+                block_parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+            parts.append("[실시간 요약 블록]\n" + "\n\n".join(block_parts))
+
+    return "\n\n".join(parts)

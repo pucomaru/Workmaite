@@ -883,7 +883,7 @@ async function extractNextAgendas() {
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({
+  nextAgendaItems.value.unshift({
     title: '',
     company: '',
     dept: '',
@@ -895,6 +895,7 @@ function addNextAgendaItem() {
     _reason: '',
     _showReason: false,
     _editing: true,
+    _directAdd: true,
     _editTitle: '',
     _editCompany: '',
     _editDept: '',
@@ -1135,8 +1136,16 @@ const {
 const _WM_GREETING =
   '안녕하세요! 워크메이트 AI입니다 😊\n회의 내용에 대해 무엇이든 질문하세요.\n예: "오늘 회의를 요약해줘", "결정 사항 정리해줘"'
 
-// 회의 채팅 추천 문구 (아카이브 탭과 동일 UX)
-const WM_SUGGESTIONS = ['오늘 회의를 요약해줘', '결정 사항만 정리해줘', '액션 아이템 알려줘']
+// 회의 채팅 추천 문구 — 세션 status별로 다름
+const WM_SUGGESTIONS = computed(() => {
+  switch (activeSession.value?.status) {
+    case 'scheduled': return ['참석자 알려줘', '안건이 뭐야?', '언제 어디서 해?']
+    case 'ongoing':   return ['지금까지 뭐 얘기했어?', '현재 안건이 뭐야?']
+    case 'ended':     return ['지금까지 뭐 얘기했어?', '안건이 뭐였어?', '참석자 알려줘']
+    case 'archived':  return ['회의 요약해줘', '결정사항 뭐야?', '액션아이템 알려줘']
+    default:          return ['회의 정보 알려줘', '참석자 알려줘']
+  }
+})
 
 // 피드백 버튼 시각 상태 (active 시 색·배경) — AgentSidebar와 동일 방식
 function fbBtnStyle(active, color) {
@@ -1176,14 +1185,14 @@ function _wmThreadId() {
 }
 
 async function wmLoadHistory() {
-  const threadId = _wmThreadId()
-  if (!threadId) {
+  const sid = activeSession.value?.id
+  if (!sid) {
     wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
     return
   }
   try {
-    const res = await api.get('/api/v1/chat/messages', { params: { threadId, limit: 100 } }) // P8-2: 초기 로드 상한
-    const messages = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+    const res = await apiAI.get(`/api/chats/sessions/${sid}`)
+    const messages = Array.isArray(res.data) ? res.data : []
     wmMessages.value = messages.length
       ? messages.map(m => ({ role: m.role === 'assistant' ? 'agent' : m.role, content: m.content }))
       : [{ role: 'agent', content: _WM_GREETING }]
@@ -1197,10 +1206,10 @@ async function wmLoadHistory() {
 }
 
 async function wmClearHistory() {
-  const threadId = _wmThreadId()
-  if (threadId) {
+  const sid = activeSession.value?.id
+  if (sid) {
     try {
-      await api.delete('/api/v1/chat/messages', { params: { threadId } })
+      await apiAI.delete(`/api/chats/sessions/${sid}`)
     } catch {}
   }
   wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
@@ -1223,7 +1232,7 @@ async function _runThinkingSteps(thinkingMsg, steps, delayMs = 380) {
   thinkingMsg.open = false // 완료 후 자동 접힘
 }
 
-async function sendAra() {
+async function sendSessionChat() {
   const text = wmInput.value.trim()
   if (!text || wmLoading.value) return
   wmInput.value = ''
@@ -1251,11 +1260,15 @@ async function sendAra() {
     .slice(0, -1)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
   try {
+    const endpoint = activeSession.value?.id
+      ? '/api/agent/session/chat'
+      : '/api/agent/supervisor/chat'
     await streamPost(
-      '/api/agent/supervisor/chat',
+      endpoint,
       {
         thread_id: _wmThreadId(),
         meeting_id: selectedMeeting.value?.id || 0,
+        session_id: activeSession.value?.id || null,
         message: content,
         chat_history: history,
         model: selectedModel.value || undefined,
@@ -1288,7 +1301,7 @@ function onWmKeydown(e) {
   if (handleWmMentionKeydown(e)) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    sendAra()
+    sendSessionChat()
   }
 }
 
@@ -1916,6 +1929,12 @@ async function downloadChatFile(filePath) {
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
+                  <button class="nab-direct-add-btn" @click="addNextAgendaItem">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    아젠다 직접 추가
+                  </button>
                   <AgendaReviewList
                     :items="nextAgendaItems"
                     :memberCompanies="sessionMemberCompanies"
@@ -1926,23 +1945,7 @@ async function downloadChatFile(filePath) {
                     @rejected="() => {}"
                     @remove="removeNextAgendaItem"
                     @save="saveApprovedNextAgendas"
-                  >
-                    <template #footer-left>
-                      <button class="nab-add-btn" @click="addNextAgendaItem">
-                        <svg
-                          width="10"
-                          height="10"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M12 5v14M5 12h14" />
-                        </svg>
-                        아젠다 직접 추가
-                      </button>
-                    </template>
-                  </AgendaReviewList>
+                  />
                 </div>
               </template>
             </div>
@@ -2299,7 +2302,7 @@ async function downloadChatFile(filePath) {
                 :key="s"
                 class="wm-suggested-btn"
                 :disabled="wmLoading"
-                @click="wmInput = s; sendAra()"
+                @click="wmInput = s; sendSessionChat()"
               >
                 {{ s }}
               </button>
@@ -2360,7 +2363,7 @@ async function downloadChatFile(filePath) {
         :multiple-files="false"
         @input="onWmInput"
         @keydown="onWmKeydown"
-        @send="sendAra"
+        @send="sendSessionChat"
         @select-at-item="selectWmAtItem"
         @remove-ctx="removeWmCtx"
         @file-change="e => sendChatFile(e.target.files[0])"
@@ -4003,6 +4006,25 @@ html.night-mode .sp-ms-input {
 }
 .nab-list {
   padding: 8px;
+}
+.nab-direct-add-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.12s;
+  margin-bottom: 6px;
+}
+.nab-direct-add-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 .wm-suggested {
   display: flex;

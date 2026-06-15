@@ -173,7 +173,10 @@ from services.supervisor_helpers import (  # noqa: F401, E402
     _get_previous_minutes,
     _log_activity,
     _stream_plan,
+    _build_session_context,
+    _format_session_context_str,
 )
+from core.access_guard import require_view_by_session
 
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
@@ -467,6 +470,204 @@ async def minutes_generate_minutes(
     return StreamingResponse(
         instrument_stream(stream(), "minutes_generate"), media_type="text/event-stream"
     )  # TTFT 측정 (P5-1)
+
+
+# ─── 롤링 요약 캐시 (session_id + 마지막 블록 id → 압축 텍스트) ─────────────
+_rolling_summary_cache: dict[tuple, str] = {}
+_ROLLING_THRESHOLD = 5   # 이 블록 수 초과 시 오래된 블록 압축
+_ROLLING_KEEP_RECENT = 3  # 최근 N개 블록은 항상 전문 유지
+
+
+async def _get_rolling_summary_text(summary_blocks: list) -> str:
+    """블록이 THRESHOLD 초과 시 오래된 블록을 LLM으로 압축, 최근 블록은 전문 유지."""
+    if len(summary_blocks) <= _ROLLING_THRESHOLD:
+        # 전부 그대로 렌더링
+        parts = []
+        for b in summary_blocks:
+            bullets = "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+            parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+        return "\n\n".join(parts)
+
+    old_blocks = summary_blocks[:-_ROLLING_KEEP_RECENT]
+    recent_blocks = summary_blocks[-_ROLLING_KEEP_RECENT:]
+    cache_key = (summary_blocks[0].session_id, summary_blocks[-1].id)
+
+    if cache_key not in _rolling_summary_cache:
+        old_text = "\n\n".join(
+            f"[{b.title}]\n" + "\n".join(f"• {bl}" for bl in (b.bullets or []))
+            for b in old_blocks
+        )
+        try:
+            from langchain_core.messages import HumanMessage as _HM
+            _llm = make_llm(temperature=0.1, streaming=False)
+            _res = await _llm.ainvoke([
+                _HM(content=(
+                    "아래는 회의 진행 중 생성된 실시간 요약 블록들입니다. "
+                    "핵심 결정사항과 액션아이템만 남겨 3~5줄로 압축하세요. "
+                    "불필요한 설명 없이 bullet 형식으로만 작성하세요.\n\n" + old_text
+                ))
+            ])
+            merged = f"[전반부 요약]\n{_res.content.strip()}"
+        except Exception:
+            merged = "\n".join(f"[{b.title}]" for b in old_blocks)
+        _rolling_summary_cache[cache_key] = merged
+
+    recent_parts = []
+    for b in recent_blocks:
+        bullets = "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+        recent_parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+
+    return _rolling_summary_cache[cache_key] + "\n\n" + "\n\n".join(recent_parts)
+
+
+# ─── 세션 전용 챗 ────────────────────────────────────────────────────────────
+@router.post("/session/chat")
+async def session_chat(
+    data: schemas.AgentChatRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """세션 상태에 따라 분기하는 회의 전용 챗봇.
+
+    scheduled → 기본 정보(일정·참석자·안건)만 안내
+    ongoing   → 진행 중 안내
+    ended     → 회의록 미생성 안내
+    archived  → Neo4j RAG로 회의록 기반 답변
+    """
+    if not data.session_id:
+        # 세션 미선택 시 supervisor 로직으로 fallback
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+
+    require_view_by_session(db, current_user, data.session_id)
+
+    ctx = _build_session_context(db, data.session_id)
+    if not ctx:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    session = ctx["session"]
+    status = session.status
+
+    # 상태별 추가 컨텍스트
+    if status == "archived":
+        # Neo4j RAG — 회의록 임베딩 검색
+        try:
+            from graphdb.retrieval_registry import vector_search
+            rag_rows = await vector_search(
+                "Minutes",
+                data.message,
+                k=3,
+                meeting_ids=[session.meeting_id],
+            )
+            rag_text = "\n\n".join(
+                r.get("summary") or r.get("content") or ""
+                for r in rag_rows
+                if r.get("summary") or r.get("content")
+            )
+        except Exception as e:
+            logger.warning(f"[session_chat] RAG 검색 실패 (무시): {e}")
+            rag_text = ""
+    else:
+        rag_text = ""
+
+    # 블록이 THRESHOLD 초과 시 오래된 블록을 LLM으로 압축 (rolling summary)
+    summary_blocks = ctx.get("summary_blocks", [])
+    if summary_blocks:
+        ctx["summary_text_override"] = await _get_rolling_summary_text(summary_blocks)
+
+    base_context = _format_session_context_str(ctx)
+
+    status_guide = {
+        "scheduled": (
+            "이 회의는 아직 시작되지 않았습니다.\n"
+            "대화 내용·발언·결정사항 등 진행 관련 질문에는 "
+            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요.\n"
+            "일정·장소·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+        ),
+        "ongoing": (
+            "이 회의는 현재 진행 중입니다.\n"
+            "확정 회의록은 회의 종료 후 확인 가능하다고 안내하세요.\n"
+            "일정·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다.\n"
+            "실시간 요약 블록이 있으면 그것을 바탕으로 '지금까지의 내용'을 답변할 수 있습니다."
+        ),
+        "ended": (
+            "이 회의는 종료됐지만 확정 회의록이 아직 생성되지 않았습니다.\n"
+            "아래에 [실시간 요약 블록]이 있으면 그것을 바탕으로 회의 내용을 부분적으로 답변할 수 있습니다.\n"
+            "요약 블록도 없는 경우에는 '확정 회의록이 아직 생성되지 않아 정확한 내용을 확인하기 어렵습니다'라고 안내하세요.\n"
+            "일정·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+        ),
+        "archived": "이 회의는 완료된 회의입니다. 아래 회의록 데이터를 바탕으로 답변하세요.",
+    }.get(status, "")
+
+    system_prompt = f"""당신은 [{session.title}] 회의 전용 AI 어시스턴트입니다.
+{status_guide}
+
+[답변 형식 — 반드시 지킬 것]
+- 답변은 도입 문구 없이 바로 시작하세요. "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 문장은 절대 쓰지 마세요.
+- "추가 질문이 있으시면 말씀해 주세요", "도움이 필요하시면 언제든지 말씀해 주세요" 같은 마무리 문장은 절대 쓰지 마세요.
+- 회의 내용 요약 시 핵심 결정사항·액션아이템만 bullet로 간결하게 정리하세요. 같은 내용 중복 금지.
+- 이 회의와 무관한 질문에는 "이 회의와 관련된 질문만 답변할 수 있습니다."라고만 답하세요.
+- 회의 관련 질문이지만 데이터가 없는 경우 off-topic으로 처리하지 말고 이유를 설명하세요.
+
+{base_context}"""
+
+    if rag_text:
+        system_prompt += f"\n\n[검색된 관련 회의록 내용]\n{rag_text}"
+
+    def _to_messages(history: list) -> list:
+        result = []
+        for m in (history or [])[-10:]:
+            role, content = m.get("role", ""), m.get("content", "") or ""
+            if role == "user":
+                result.append(HumanMessage(content=content))
+            elif role in ("assistant", "agent"):
+                result.append(AIMessage(content=content))
+        return result
+
+    async def stream():
+        messages = (
+            [SystemMessage(content=system_prompt)]
+            + _to_messages(data.chat_history)
+            + [HumanMessage(content=data.message)]
+        )
+        full_response = ""
+        try:
+            async for chunk in make_llm(temperature=0.3, streaming=True).astream(messages):
+                if chunk.content:
+                    full_response += chunk.content
+                    yield sse_token(chunk.content)
+        finally:
+            # 대화 기록 저장
+            thread_id = f"sessions-{data.session_id}"
+            try:
+                db_local = SessionLocal()
+                try:
+                    db_local.add(models.ChatMessage(
+                        thread_id=thread_id,
+                        user_id=current_user.id,
+                        context_type="sessions",
+                        role="user",
+                        content=data.message,
+                        session_id=data.session_id,
+                    ))
+                    if full_response:
+                        db_local.add(models.ChatMessage(
+                            thread_id=thread_id,
+                            user_id=current_user.id,
+                            context_type="sessions",
+                            role="agent",
+                            content=full_response,
+                            session_id=data.session_id,
+                        ))
+                    db_local.commit()
+                finally:
+                    db_local.close()
+            except Exception as e:
+                logger.warning(f"[session_chat] 대화 기록 저장 실패 (무시): {e}")
+            yield sse_done()
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ─── 모델 목록 ────────────────────────────────────────────────────────────────
@@ -874,22 +1075,24 @@ async def supervisor_chat(
                                         and _users[m.user_id].department
                                     )
                                 )
-                                _latest_s = (
+                                _sessions = (
                                     db.query(models.MeetingSession)
                                     .filter(
                                         models.MeetingSession.meeting_id == _mg.id,
-                                        models.MeetingSession.status.in_(
-                                            ["ended", "ENDED"]
-                                        ),
                                     )
-                                    .order_by(models.MeetingSession.ended_at.desc())
-                                    .first()
+                                    .order_by(models.MeetingSession.scheduled_at.desc())
+                                    .limit(5)
+                                    .all()
                                 )
                                 _rcount = (
                                     db.query(models.Report)
                                     .filter(models.Report.meeting_id == _mg.id)
                                     .count()
                                 )
+                                _status_ko_map = {
+                                    "scheduled": "예정됨", "ongoing": "진행 중",
+                                    "ended": "종료됨", "archived": "완료",
+                                }
                                 _type_label = f" — {_mg.type}" if _mg.type else ""
                                 ctx_lines.append(f"\n📋 {_mg.title}{_type_label}")
                                 if _sec:
@@ -908,12 +1111,19 @@ async def supervisor_chat(
                                     if _depts
                                     else "  - 참여부서: 없음"
                                 )
-                                if _latest_s and _latest_s.ended_at:
-                                    ctx_lines.append(
-                                        f"  - 최근 회의: {_latest_s.ended_at.strftime('%Y.%m.%d')}"
-                                    )
+                                if _sessions:
+                                    ctx_lines.append("  - 회의 목록:")
+                                    for _s in _sessions:
+                                        _s_status = _status_ko_map.get(_s.status, _s.status)
+                                        _s_date = (
+                                            _s.scheduled_at.strftime("%Y.%m.%d")
+                                            if _s.scheduled_at else "일정 미정"
+                                        )
+                                        ctx_lines.append(
+                                            f"    · {_s.title} ({_s_date}, {_s_status})"
+                                        )
                                 else:
-                                    ctx_lines.append("  - 최근 회의: 없음")
+                                    ctx_lines.append("  - 예정된 회의가 없습니다")
                                 ctx_lines.append(f"  - 보고자료: {_rcount}건 제출")
                                 if _mg.title not in hl_candidates:
                                     hl_candidates.append(_mg.title)
