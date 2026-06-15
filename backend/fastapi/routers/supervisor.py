@@ -582,9 +582,10 @@ async def session_chat(
     status_guide = {
         "scheduled": (
             "이 회의는 아직 시작되지 않았습니다.\n"
-            "대화 내용·발언·결정사항 등 진행 관련 질문에는 "
-            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요.\n"
-            "일정·장소·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+            "아래 데이터에 있는 일정·장소·참석자·안건은 그대로 답변하세요.\n"
+            "안건([안건] 섹션)이 비어 있으면 '이 회의에 등록된 안건이 없습니다'라고 답변하세요.\n"
+            "회의 중 발언·대화 내용·결정사항·요약처럼 회의가 시작돼야 알 수 있는 정보를 물을 때만 "
+            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요."
         ),
         "ongoing": (
             "이 회의는 현재 진행 중입니다.\n"
@@ -605,7 +606,8 @@ async def session_chat(
 {status_guide}
 
 [답변 형식 — 반드시 지킬 것]
-- 답변은 도입 문구 없이 바로 시작하세요. "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 문장은 절대 쓰지 마세요.
+- 항상 "~입니다", "~습니다" 형태의 정중한 문장으로 답하세요.
+- "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 불필요한 도입 문구는 쓰지 마세요.
 - "추가 질문이 있으시면 말씀해 주세요", "도움이 필요하시면 언제든지 말씀해 주세요" 같은 마무리 문장은 절대 쓰지 마세요.
 - 회의 내용 요약 시 핵심 결정사항·액션아이템만 bullet로 간결하게 정리하세요. 같은 내용 중복 금지.
 - 이 회의와 무관한 질문에는 "이 회의와 관련된 질문만 답변할 수 있습니다."라고만 답하세요.
@@ -1152,8 +1154,58 @@ async def supervisor_chat(
             "다른 사용자 또는 비소속 회의체의 민감 정보는 노출하지 마세요.\n"
         )
 
+        # 내가 참석자로 등록된 예정·진행 중 세션 목록 (SessionMember 우선, MeetingMember 폴백)
+        _upcoming_ctx = ""
+        try:
+            _status_ko = {"scheduled": "예정됨", "ongoing": "진행 중"}
+            _upcoming = (
+                db.query(models.MeetingSession, models.Meeting.title)
+                .join(models.SessionMember, models.SessionMember.session_id == models.MeetingSession.id)
+                .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                .filter(
+                    models.SessionMember.user_id == current_user.id,
+                    models.MeetingSession.status.in_(["scheduled", "ongoing"]),
+                )
+                .order_by(models.MeetingSession.scheduled_at)
+                .limit(10)
+                .all()
+            )
+            # SessionMember 결과 없으면 MeetingMember 기반으로 폴백
+            if not _upcoming and pg_meeting_ids:
+                _upcoming = (
+                    db.query(models.MeetingSession, models.Meeting.title)
+                    .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                    .filter(
+                        models.MeetingSession.meeting_id.in_(list(pg_meeting_ids)),
+                        models.MeetingSession.status.in_(["scheduled", "ongoing"]),
+                    )
+                    .order_by(models.MeetingSession.scheduled_at)
+                    .limit(10)
+                    .all()
+                )
+            if _upcoming:
+                _lines = ["[내 예정·진행 중 회의]"]
+                for _s, _ in _upcoming:
+                    _date = (
+                        _s.scheduled_at.strftime("%Y.%m.%d %H:%M")
+                        if _s.scheduled_at else "일정 미정"
+                    )
+                    _lines.append(
+                        f"  - 제목: {_s.title} / 일시: {_date}"
+                        + (f" / 장소: {_s.location}" if _s.location else "")
+                        + f" / 상태: {_status_ko.get(_s.status, _s.status)}"
+                    )
+                _upcoming_ctx = "\n".join(_lines)
+            else:
+                _upcoming_ctx = "[내 예정·진행 중 회의]\n  예정된 회의가 없습니다."
+        except Exception as _ue:
+            logger.warning(f"[upcoming_ctx] 조회 실패: {_ue}")
+            _upcoming_ctx = "[내 예정·진행 중 회의]\n  예정된 회의가 없습니다."
+
         def _enrich(base_ctx: str) -> str:
             parts = [_user_scope_header, base_ctx]
+            if _upcoming_ctx:
+                parts.append(_upcoming_ctx)
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
@@ -1165,6 +1217,37 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ("supervisor_direct", "knowledge_manager"):
+                # ── 일정 조회 fast path: Neo4j 도구 없이 DB 데이터로 직접 답변 ──
+                _SCHEDULE_KEYWORDS = ["일정", "곧 시작", "예정된 회의", "다음 회의", "언제 있", "회의 있어", "회의있어", "회의 언제"]
+                _is_schedule_query = any(kw in msg for kw in _SCHEDULE_KEYWORDS)
+                if _is_schedule_query and _upcoming_ctx:
+                    _now_str = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
+                    _sched_system = (
+                        f"현재 시각: {_now_str}\n\n"
+                        "당신은 회의 일정 안내 어시스턴트입니다.\n"
+                        "아래 [내 예정·진행 중 회의] 데이터와 현재 시각을 바탕으로 질문에 맞게 답하세요.\n"
+                        "- '곧 시작하는' → 2시간 이내 시작 예정인 회의\n"
+                        "- '오늘' → 오늘 날짜 기준\n"
+                        "- '이번 주' → 이번 주 월~일 기준\n\n"
+                        "출력 형식 (회의마다):\n"
+                        "IT 인프라 개선 위원회\n"
+                        "6/17 13:30 SK U타워\n"
+                        "예정되어 있습니다.\n\n"
+                        "규칙:\n"
+                        "- 데이터의 '제목' 필드를 그대로 회의명으로 쓰세요. '회의명'이라는 단어를 쓰지 마세요.\n"
+                        "- 조건에 해당하는 회의가 없으면 없다고 명확히 말하고, 가장 가까운 다음 회의를 안내하세요.\n"
+                        "- 여러 개면 빠른 것부터 순서대로 나열하세요.\n"
+                        "- 도입 문구나 마무리 인사 없이 바로 답하세요.\n\n"
+                        + _upcoming_ctx
+                    )
+                    _sched_msgs = [SystemMessage(content=_sched_system), HumanMessage(content=msg)]
+                    async for _chunk in make_llm(temperature=0.2, streaming=True).astream(_sched_msgs):
+                        if _chunk.content:
+                            _assistant_chunks.append(_chunk.content)
+                            yield sse_token(_chunk.content)
+                    yield sse_done()
+                    return
+
                 # 도구 기반 JIT 에이전트 (P3A-5/P3B-2) — 사전조립 컨텍스트 경로는 제거됨.
                 # 스코프는 tools가 RunnableConfig 기준으로 강제, 진행표시는 실제 도구 이벤트에서 파생.
                 from graphs.supervisor_graph import direct_agent_stream
@@ -1176,6 +1259,7 @@ async def supervisor_chat(
                     allowed_meeting_ids=list(pg_meeting_ids),
                     is_admin=is_admin,
                     meeting_id=data.meeting_id or None,
+                    upcoming_ctx=_upcoming_ctx,
                     thread_id=_thread_id,
                 ):
                     if _kind == "planning":

@@ -267,7 +267,7 @@ async function submit() {
       <p class="text-muted mb-4">
         <strong>{{ form.name }}</strong
         >님, 환영합니다!<br />
-        workma!te와 함께 스마트한 회의를 시작하세요.
+        Workma!te와 함께 스마트한 회의를 시작하세요.
       </p>
       <!-- prettier-ignore -->
       <button

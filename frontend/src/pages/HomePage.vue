@@ -365,7 +365,7 @@ const {
                 <td class="text-muted">
                   <span
                     class="upcoming-dday"
-                    :class="getDday(s.date) <= 3 ? 'dday-urgent' : 'dday-normal'"
+                    :class="getDday(s.date) <= 7 ? 'dday-urgent' : 'dday-normal'"
                   >
                     {{ getDday(s.date) === 0 ? 'D-day' : `D-${getDday(s.date)}` }}
                   </span>

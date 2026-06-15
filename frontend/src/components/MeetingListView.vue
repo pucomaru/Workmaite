@@ -25,7 +25,12 @@ const {
   deleteMinutes,
   downloadScript,
   resumePendingReport,
+  searchActive,
 } = inject('archiveList')
+
+function isExpanded(groupId) {
+  return searchActive?.value || expandedMeeting.value === groupId
+}
 
 // ── 이전 버전 토글 ─────────────────────────────────────────────
 const expandedVersionKeys = ref(new Set())
@@ -90,7 +95,7 @@ function versionKey(groupId, itemIdx) {
               <div class="lv-name-cell">
                 <svg
                   class="lv-expand-icon"
-                  :style="{ transform: expandedMeeting === g.id ? 'rotate(90deg)' : '' }"
+                  :style="{ transform: isExpanded(g.id) ? 'rotate(90deg)' : '' }"
                   width="11"
                   height="11"
                   fill="none"
@@ -126,22 +131,22 @@ function versionKey(groupId, itemIdx) {
           </tr>
 
           <!-- 서브헤더 행 -->
-          <tr v-if="expandedMeeting === g.id" class="lv-sub-header-row">
+          <tr v-if="isExpanded(g.id)" class="lv-sub-header-row">
             <td colspan="2" class="lv-sub-th">파일명</td>
             <td class="lv-sub-th">점수</td>
             <td class="lv-sub-th">담당부서</td>
-            <td class="lv-sub-th">진행일시 / 기타</td>
+            <td class="lv-sub-th">진행일시</td>
           </tr>
 
           <!-- 이력 없을 때 -->
-          <tr v-if="expandedMeeting === g.id && !(filteredGroupHistoryMap.get(g.id) || []).length">
+          <tr v-if="isExpanded(g.id) && !(filteredGroupHistoryMap.get(g.id) || []).length">
             <td colspan="5" class="lv-hist-empty">
               {{ selectedHistoryType ? '해당 유형의 이력이 없습니다.' : '이력이 없습니다.' }}
             </td>
           </tr>
 
           <!-- 데이터 행들 -->
-          <template v-if="expandedMeeting === g.id">
+          <template v-if="isExpanded(g.id)">
             <template v-for="(item, i) in filteredGroupHistoryMap.get(g.id) || []" :key="i">
               <!-- 메인 행 -->
               <tr class="lv-sub-row" :class="{ 'lv-hist-rejected': item.rejected }">
@@ -174,35 +179,13 @@ function versionKey(groupId, itemIdx) {
                       "
                       >{{ item.fileName }}</span
                     >
-                    <span v-if="item.type === 'minutes'" class="lv-status-badge lv-badge-minutes"
-                      >회의록</span
-                    >
-                    <span v-else-if="item.isReference" class="lv-status-badge lv-badge-reference"
-                      >참고자료</span
-                    >
                     <span
-                      v-else-if="item.rejected"
+                      v-if="item.rejected"
                       class="lv-status-badge lv-badge-rejected"
                       style="cursor: pointer"
                       @click.stop="resumePendingReport(item.reportId, true)"
                       title="검토 결과 보기"
-                      >보고서 반려</span
-                    >
-                    <span
-                      v-else-if="item.approved"
-                      class="lv-status-badge lv-badge-approved"
-                      style="cursor: pointer"
-                      @click.stop="resumePendingReport(item.reportId, true)"
-                      title="검토 결과 보기"
-                      >보고서 승인</span
-                    >
-                    <span
-                      v-else-if="item.pending && item.reportId"
-                      class="lv-status-badge lv-badge-pending"
-                      style="cursor: pointer"
-                      @click.stop="resumePendingReport(item.reportId)"
-                      title="클릭하여 검토 재개"
-                      >진행중</span
+                      >반려</span
                     >
                   </div>
                 </td>
@@ -302,7 +285,7 @@ function versionKey(groupId, itemIdx) {
                   class="lv-sub-row lv-ver-row"
                   :class="{ 'lv-hist-rejected': ver.rejected }"
                 >
-                  <td colspan="2" class="lv-sub-td-name" style="padding-left: 80px">
+                  <td colspan="2" class="lv-sub-td-name">
                     <div class="lv-hist-desc-inner">
                       <span class="lv-hist-type-dot ht-report"></span>
                       {{ ver.fileName }}
@@ -312,15 +295,7 @@ function versionKey(groupId, itemIdx) {
                         style="cursor: pointer"
                         @click.stop="resumePendingReport(ver.reportId, true)"
                         title="검토 결과 보기"
-                        >보고서 반려</span
-                      >
-                      <span
-                        v-else-if="ver.approved"
-                        class="lv-status-badge lv-badge-approved"
-                        style="cursor: pointer"
-                        @click.stop="resumePendingReport(ver.reportId, true)"
-                        title="검토 결과 보기"
-                        >보고서 승인</span
+                        >반려</span
                       >
                     </div>
                   </td>

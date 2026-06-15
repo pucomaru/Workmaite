@@ -60,7 +60,7 @@ const {
 
 function handleFinishExtract() {
   if (!isDetailAdmin.value) {
-    toast.error('간사만 승인 저장할 수 있습니다')
+    toast.error('간사만 승인 저장할 수 있습니다', { duration: 1500 })
     return
   }
   finishExtract()
@@ -1580,7 +1580,10 @@ function parseAiEvidence(val) {
                       detailNode.data?.submitter_department || detailNode.data?.department || '-'
                     }}</span>
                   </div>
-                  <div v-if="detailNode.type === 'report'" class="detail-info-item">
+                  <div
+                    v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                    class="detail-info-item"
+                  >
                     <span class="detail-info-key">검토상태</span>
                     <span class="detail-info-val">{{
                       { pending: '검토중', approved: '승인', rejected: '반려' }[
@@ -1593,8 +1596,8 @@ function parseAiEvidence(val) {
                 </div>
               </div>
 
-              <!-- AI 검토 결과 — 레이더 차트 (report 타입) -->
-              <div v-if="detailNode.type === 'report'" class="detail-section">
+              <!-- AI 검토 결과 — 레이더 차트 (report 타입, 첫 번째 자료 제외) -->
+              <div v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)" class="detail-section">
                 <div class="detail-section-label">AI 검토 결과</div>
                 <div class="radar-wrap">
                   <div class="radar-svg-pos">
@@ -1719,7 +1722,7 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div
-                v-if="detailNode.type === 'report' && detailNode.data?.feedback"
+                v-if="detailNode.type === 'report' && detailNode.data?.feedback && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
                 class="detail-section"
               >
                 <div class="detail-section-label">AI 피드백</div>
@@ -1734,7 +1737,7 @@ function parseAiEvidence(val) {
 
               <!-- 우선 개선사항 -->
               <div
-                v-if="detailNode.type === 'report' && sbTopImprovements.length"
+                v-if="detailNode.type === 'report' && sbTopImprovements.length && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
                 class="detail-section"
               >
                 <div class="detail-section-label">

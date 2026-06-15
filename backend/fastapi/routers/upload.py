@@ -393,7 +393,9 @@ async def submit_report_review(
         report.related_agenda_ids = data["related_agenda_ids"]
         _replace_report_agendas(db, report.id, data["related_agenda_ids"])  # P2-8
 
-    # approved 시 연결된 아젠다 자동 완료
+    # approved 시 연결된 아젠다 자동 완료 / rejected 시 done 아젠다 되돌리기
+    agendas_to_sync: list = []
+    agendas_to_revert: list = []
     if action == "approved":
         import re as _re
 
@@ -410,10 +412,52 @@ async def submit_report_review(
             if (pid := _parse_agenda_pg_id(i)) is not None
         ]
         if pg_ids:
-            db.query(models.Agenda).filter(
-                models.Agenda.id.in_(pg_ids),
-                models.Agenda.status != "done",
-            ).update({"status": "done"}, synchronize_session=False)
+            agendas_to_sync = (
+                db.query(models.Agenda)
+                .filter(models.Agenda.id.in_(pg_ids), models.Agenda.status != "done")
+                .all()
+            )
+            for ag in agendas_to_sync:
+                ag.status = "done"
+
+    elif action == "rejected":
+        from sqlalchemy import cast as _cast
+        from sqlalchemy.dialects.postgresql import JSONB as _JSONB
+        import re as _re
+
+        def _parse_agenda_pg_id(v):
+            s = str(v)
+            if s.isdigit():
+                return int(s)
+            m = _re.search(r"\d+$", s)
+            return int(m.group()) if m else None
+
+        related_ids = [
+            pid
+            for i in (report.related_agenda_ids or [])
+            if (pid := _parse_agenda_pg_id(i)) is not None
+        ]
+        for ag_id in related_ids:
+            still_approved = (
+                db.query(models.Report)
+                .filter(
+                    models.Report.id != report_id,
+                    models.Report.human_status == "approved",
+                    _cast(models.Report.related_agenda_ids, _JSONB).op("@>")(
+                        _cast([ag_id], _JSONB)
+                    ),
+                )
+                .first()
+            )
+            if not still_approved:
+                agenda = (
+                    db.query(models.Agenda)
+                    .filter(models.Agenda.id == ag_id, models.Agenda.status == "done")
+                    .first()
+                )
+                if agenda:
+                    agenda.status = "ongoing"
+                    agendas_to_revert.append(agenda)
 
     # 가장 최근 agent_log 연결 (archive_analyze_stream)
     agent_log = (
@@ -440,6 +484,73 @@ async def submit_report_review(
     )
 
     db.commit()
+
+    # 완료 처리된 아젠다를 Neo4j에 동기화 (그래프 노드 status 반영)
+    if agendas_to_sync:
+        try:
+            from graphdb.neo4j_sync import sync_agenda as _sync_agenda
+            import asyncio as _asyncio
+            import json as _json
+
+            for ag in agendas_to_sync:
+                dept_str = ""
+                if ag.department:
+                    dept_str = (
+                        _json.dumps(ag.department, ensure_ascii=False)
+                        if isinstance(ag.department, (dict, list))
+                        else str(ag.department)
+                    )
+                _asyncio.create_task(
+                    _sync_agenda(
+                        agenda_id=ag.id,
+                        meeting_id=ag.meeting_id,
+                        title=ag.title or "",
+                        status="done",
+                        assignee_id=ag.assignee_id,
+                        priority=ag.priority or "medium",
+                        due_date=ag.due_date.isoformat() if ag.due_date else None,
+                        session_id=ag.session_id,
+                        department=dept_str,
+                        ai_evidence=ag.ai_evidence,
+                        created_at=ag.created_at.isoformat() if ag.created_at else None,
+                    )
+                )
+        except Exception:
+            pass  # Neo4j 동기화 실패는 주요 흐름에 영향 없음
+
+    # 반려 시 되돌린 아젠다를 Neo4j에 동기화
+    if agendas_to_revert:
+        try:
+            from graphdb.neo4j_sync import sync_agenda as _sync_agenda
+            import asyncio as _asyncio
+            import json as _json
+
+            for ag in agendas_to_revert:
+                dept_str = ""
+                if ag.department:
+                    dept_str = (
+                        _json.dumps(ag.department, ensure_ascii=False)
+                        if isinstance(ag.department, (dict, list))
+                        else str(ag.department)
+                    )
+                _asyncio.create_task(
+                    _sync_agenda(
+                        agenda_id=ag.id,
+                        meeting_id=ag.meeting_id,
+                        title=ag.title or "",
+                        status="ongoing",
+                        assignee_id=ag.assignee_id,
+                        priority=ag.priority or "medium",
+                        due_date=ag.due_date.isoformat() if ag.due_date else None,
+                        session_id=ag.session_id,
+                        department=dept_str,
+                        ai_evidence=ag.ai_evidence,
+                        created_at=ag.created_at.isoformat() if ag.created_at else None,
+                    )
+                )
+        except Exception:
+            pass
+
     return {"status": "ok", "action": action}
 
 
@@ -668,7 +779,7 @@ async def upload_minutes(
             sync_minutes,
             minutes_id=minutes_id,
             session_id=session_id,
-            content_summary=content[:500],
+            content_summary=content,
             file_name=stored_name,
             file_path=r2_url,
             status="completed",

@@ -380,7 +380,6 @@ def _format_session_context_str(ctx: dict) -> str:
         lines.append(f"종료: {session.ended_at.strftime('%Y-%m-%d %H:%M')}")
     if session.location:
         lines.append(f"장소: {session.location}")
-    lines.append(f"상태: {session.status}")
     parts.append("[회의 기본 정보]\n" + "\n".join(lines))
 
     # 참석자
@@ -393,15 +392,13 @@ def _format_session_context_str(ctx: dict) -> str:
 
     # 안건
     if ctx["agendas"]:
-        agenda_parts = [
-            f"- {a.title} (상태: {a.status})" for a in ctx["agendas"]
-        ]
+        agenda_parts = [f"- {a.title}" for a in ctx["agendas"]]
         parts.append("[안건]\n" + "\n".join(agenda_parts))
 
-    # 회의록 요약 (archived일 때만 존재)
+    # 회의록 전문 (archived일 때만 존재) — 다음 회의 아젠다 등 끝 섹션 누락 방지
     minutes = ctx.get("minutes")
     if minutes and minutes.content_summary:
-        parts.append("[회의록 요약]\n" + minutes.content_summary[:3000])
+        parts.append("[회의록]\n" + minutes.content_summary[:8000])
 
     # 실시간 요약 블록 — summary_text_override가 있으면 그걸 우선 사용 (rolling summary)
     summary_text = ctx.get("summary_text_override")

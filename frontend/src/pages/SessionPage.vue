@@ -96,8 +96,9 @@ function onAgentResizeEnd() {
 
 const filteredMeetings = computed(() => {
   const q = sidebarSearch.value.trim().toLowerCase()
-  if (!q) return meetings.value
-  return meetings.value.filter(
+  const active = meetings.value.filter(m => m.status !== 'ended')
+  if (!q) return active
+  return active.filter(
     m =>
       m.title.toLowerCase().includes(q) ||
       (m.sessions || []).some(s => (s.title || '').toLowerCase().includes(q)),
@@ -999,7 +1000,7 @@ async function saveApprovedNextAgendas() {
     0
   const myRole = meetingsStore.meetingRoles?.[selectedMeetingId.value]
   if (!authStore.isStrategicTeam && myRole !== 'admin') {
-    toast.error('간사만 승인 저장할 수 있습니다')
+    toast.error('간사만 승인 저장할 수 있습니다', { duration: 1500 })
     return
   }
   if (!meetingId) {
@@ -1206,7 +1207,7 @@ const WM_SUGGESTIONS = computed(() => {
     case 'ongoing':   return ['지금까지 뭐 얘기했어?', '현재 안건이 뭐야?']
     case 'ended':     return ['지금까지 뭐 얘기했어?', '안건이 뭐였어?', '참석자 알려줘']
     case 'archived':  return ['회의 요약해줘', '결정사항 뭐야?', '액션아이템 알려줘']
-    default:          return ['회의 정보 알려줘', '참석자 알려줘']
+    default:          return ['곧 시작하는 회의 있어?', '내 회의 일정 알려줘']
   }
 })
 
@@ -1616,7 +1617,7 @@ async function downloadChatFile(filePath) {
                 불러오는 중...
               </div>
               <div
-                v-else-if="!mtg.sessions.filter(s => s.status !== 'archived').length"
+                v-else-if="!mtg.sessions.filter(s => s.status !== 'archived').length && !mtg.sessions.filter(s => s.status === 'archived').length"
                 class="sp-session-item"
                 style="justify-content: center; color: var(--dark-muted); font-size: 11px"
               >
@@ -1655,6 +1656,37 @@ async function downloadChatFile(filePath) {
                   </svg>
                 </button>
               </div>
+              <!-- archived 세션 구분선 + 목록 -->
+              <template v-if="mtg.sessions.filter(s => s.status === 'archived').length">
+                <div style="margin: 4px 8px; border-top: 1px solid var(--border-color); opacity: 0.4"></div>
+                <div
+                  v-for="s in mtg.sessions.filter(s => s.status === 'archived')"
+                  :key="s.id"
+                  class="sp-session-item"
+                  :class="{ active: activeSession?.id === s.id }"
+                  style="opacity: 0.6"
+                  @click="enterSession(s)"
+                >
+                  <div class="sp-session-info">
+                    <div class="sp-session-name">
+                      <span class="sp-session-title-text">{{ s.title }}</span>
+                      <span class="sp-session-status">{{ STATUS_LABEL[s.status] }}</span>
+                    </div>
+                    <div class="sp-session-meta">
+                      <span v-if="s.location" class="sp-session-location"
+                        ><i class="bi bi-geo-alt"></i> {{ s.location }}</span
+                      >
+                      <span class="sp-session-date">{{ formatDate(s.scheduled_at) }}</span>
+                    </div>
+                  </div>
+                  <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
         </div>
