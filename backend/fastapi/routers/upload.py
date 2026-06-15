@@ -666,7 +666,7 @@ async def upload_minutes(
             sync_minutes,
             minutes_id=minutes_id,
             session_id=session_id,
-            content_summary=content[:500],
+            content_summary=content,
             file_name=stored_name,
             file_path=r2_url,
             status="completed",
