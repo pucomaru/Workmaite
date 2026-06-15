@@ -286,7 +286,7 @@ CALL db.create.setNodeVectorProperty(c, 'embedding', $embedding)
 WITH c
 OPTIONAL MATCH (mg:Meetings {id: $mg_id})
 FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-    MERGE (c)-[:BELONGS_TO]->(mg)
+    MERGE (c)-[:`청크`]->(mg)
 )"""
             params["mg_id"] = mg_id
 
@@ -296,7 +296,7 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
 WITH c
 OPTIONAL MATCH (r:Report {id: $parent_id})
 FOREACH (_ IN CASE WHEN r IS NOT NULL THEN [1] ELSE [] END |
-    MERGE (c)-[:청크]->(r)
+    MERGE (c)-[:`청크`]->(r)
 )"""
             params["parent_id"] = source_id  # e.g. "report-123"
         elif context_type == "minutes" and source_id:
@@ -306,7 +306,7 @@ FOREACH (_ IN CASE WHEN r IS NOT NULL THEN [1] ELSE [] END |
 WITH c
 OPTIONAL MATCH (mn:Minutes {pg_id: $parent_pg_id})
 FOREACH (_ IN CASE WHEN mn IS NOT NULL THEN [1] ELSE [] END |
-    MERGE (c)-[:청크]->(mn)
+    MERGE (c)-[:`청크`]->(mn)
 )"""
                 params["parent_pg_id"] = parent_pg_id
             except (ValueError, IndexError):

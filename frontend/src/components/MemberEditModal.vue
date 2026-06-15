@@ -17,9 +17,7 @@ const auth = useAuthStore()
 // 조직 권한(company role) 변경은 SYSTEM_ADMIN만 — 백엔드 updateCompanyRole도 동일하게 강제(이중 방어)
 const isSystemAdmin = computed(() => auth.user?.role === 'SYSTEM_ADMIN')
 // 이메일(로그인 자격) 변경은 관리자(SYSTEM_ADMIN 또는 COMPANY_ADMIN)만 — 같은 회사 여부는 백엔드가 최종 검증
-const canEditEmail = computed(
-  () => isSystemAdmin.value || auth.user?.role === 'COMPANY_ADMIN',
-)
+const canEditEmail = computed(() => isSystemAdmin.value || auth.user?.role === 'COMPANY_ADMIN')
 
 const form = ref({ name: '', email: '', company: '', department: '', position: '', role: 'USER' })
 const origRole = ref('USER') // 실제 변경이 있을 때만 권한 PATCH를 쏘기 위한 기준값
@@ -82,7 +80,8 @@ async function remove() {
     toast.error('구성원 식별 정보를 찾을 수 없어 제거할 수 없습니다.')
     return
   }
-  if (!(await confirmDialog(`${m.name || m.email}을(를) 제거하시겠습니까?`, { danger: true }))) return
+  if (!(await confirmDialog(`${m.name || m.email}을(를) 제거하시겠습니까?`, { danger: true })))
+    return
   saving.value = true
   try {
     // CompanyPage 제거 로직과 동일: 회의체 멤버십이 있으면 해당 회의체에서 제외, 없으면 계정 비활성화

@@ -296,21 +296,21 @@ function buildSimulation(nodes, edges) {
   //   최초 로딩       → 1.0 (풀 레이아웃)
   //   새 노드 추가    → 0.3 (신규 노드만 자리 잡도록 살짝)
   //   단순 데이터 갱신 → 0   (노드 이동 없음)
-  const startAlpha = isFirstLoad ? 1 : hasNewNodes ? 0.3 : 0
+  const startAlpha = isFirstLoad ? 1 : hasNewNodes ? 0.3 : 0.15
 
   sim = forceSimulation(simNodes)
     .force(
       'link',
       forceLink(simEdges)
         .id(d => d._idx)
-        .distance(110)
-        .strength(0.4),
+        .distance(15) // 연결된 노드 간 목표 거리 ↑ = 더 퍼짐
+        .strength(0.125), // 링크가 거리를 당기는 강도
     )
-    .force('charge', forceManyBody().strength(-220))
-    .force('center', forceCenter(w / 2, h / 2).strength(0.06))
-    .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 14).strength(0.85))
-    .alphaDecay(0.025)
-    .alpha(startAlpha)
+    .force('charge', forceManyBody().strength(-160)) // 노드 간 반발력 (음수↑ = 더 멀어짐)
+    .force('center', forceCenter(w / 2, h / 2).strength(0.16)) // 중앙으로 모으는 힘
+    .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 7).strength(0.85)) // 충돌 반경(겹침 방지 여백 +14)
+    .alphaDecay(0.025) // 작을수록 천천히 안정(레이아웃 더 풀림)
+    .alpha(startAlpha) // 초기 에너지 (최초 1.0 / 노드추가 0.3 / 갱신 0)
     .on('tick', () => {
       _simDirty = true
     })

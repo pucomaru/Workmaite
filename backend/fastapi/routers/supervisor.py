@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from typing import List, Optional, Literal, cast
@@ -112,22 +113,22 @@ class _RoutingDecision(BaseModel):
 
 _ROUTING_SYSTEM = """\
 당신은 워크메이트 AI 슈퍼바이저입니다.
-사용자의 요청을 분석하여 가장 적합한 에이전트를 선택하고, 처리 계획을 세우세요.
+사용자의 요청 '의도'를 의미적으로 파악해 가장 적합한 에이전트를 선택하고 처리 계획을 세우세요.
+특정 단어의 포함 여부가 아니라 사용자가 실제로 무엇을 원하는지로 판단하세요.
 
 에이전트 선택 기준:
 - task_extractor: 아젠다·과제·할 일·투두·Todo 새로 추출, 다음 회의 준비, 아카이브 파일 분석·추출
 - minutes_generator: 회의록 작성·요약·편집, 회의 진행 보조, 실시간 통역·속기
 - report_reviewer: 보고서·문서 검토·분석, 리뷰·피드백, 파일·자료 평가
 - knowledge_manager: 과거 회의 내용 검색, 지식 베이스 저장·관리, HITL 검토·승인, 관계 그래프 조회
-- supervisor_direct: 회의체 현황·브리핑, 과제 진행 상황 조회, 보고서 제출 현황 조회, 소속 회의체 목록, 구성원 안내, 인사·일반 질문
-- off_topic: 회의체 운영과 전혀 관련 없는 질문 (날씨, 나이, 코딩, 개인 신상, 잡담, 일반 상식 등)
+- supervisor_direct: 회의체 현황·브리핑, 과제 진행 상황 조회, 보고서 제출 현황 조회, 소속 회의체 목록, 구성원 안내, 인사·사용법·그 외 회의체 운영 관련 단순 질의(기본값)
+- off_topic: 회의체 운영과 전혀 관련 없는 질문 (날씨·나이·코딩·개인 신상·잡담·일반 상식 등)
 
-★ supervisor_direct 우선 케이스 (아래 패턴은 반드시 supervisor_direct):
-  "브리핑", "현황", "상황 어때", "속해있어", "소속", "제출 현황", "진행 상황"
-
-★ off_topic 케이스 예시 (반드시 off_topic):
-  "너 몇살이야", "오늘 날씨 어때", "파이썬 코드 짜줘", "주식 어때", "점심 뭐 먹지", "농담 해줘"
-  단, 인사말("안녕하세요", "고마워" 등)과 워크메이트 사용법 질문은 off_topic이 아니라 supervisor_direct.
+참고 (강제 규칙 아님 — 판단 보조용 예시):
+- 회의체 현황·브리핑·소속·진행/제출 현황을 묻는 단순 조회성 질문은 대체로 supervisor_direct가 적합합니다.
+- "오늘 날씨", "농담 해줘"처럼 회의체와 무관한 잡담은 off_topic입니다.
+  단, 인사("안녕하세요", "고마워")와 워크메이트 사용법 질문은 off_topic이 아니라 supervisor_direct입니다.
+- 의도가 모호하면 supervisor_direct를 기본으로 선택하세요(되묻거나 도구로 확인할 수 있습니다).
 
 thinking 필드에 선택 이유를 한국어 1~2문장으로 작성하세요."""
 
@@ -209,6 +210,7 @@ async def minutes_sessions_chat(
         db.query(models.Agenda)
         .filter(
             models.Agenda.meeting_id == data.meeting_id,
+            models.Agenda.status != "draft",
         )
         .all()
     )
@@ -276,7 +278,10 @@ async def minutes_generate_minutes(
     )
     agendas = (
         db.query(models.Agenda)
-        .filter(models.Agenda.meeting_id == data.meeting_id)
+        .filter(
+            models.Agenda.meeting_id == data.meeting_id,
+            models.Agenda.status != "draft",
+        )
         .all()
         if data.meeting_id
         else []
@@ -743,7 +748,7 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:User {id: $pid})-[:`간사`|`구성원`]->(mg) "
+                "MATCH (p:User {id: $pid})-[:`운영`|`참여`]->(mg) "
                 "WHERE mg:Meetings OR mg:Meeting_session "
                 "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id",
                 {"pid": user_person_id},
@@ -806,6 +811,11 @@ async def supervisor_chat(
             },
         )
         _stream_error = None
+        # 멀티테넌트 검색 스코프 — 하위 검색 도구(search_knowledge 등)가 현재 사용자가 볼 수 있는
+        # 회의체만 검색하도록 강제(IDOR 방지). meeting_tools가 못 닿는 sub-agent 도구의 공백을 메움.
+        from core.agent_scope import set_meeting_scope, reset_meeting_scope
+
+        _scope_token = set_meeting_scope(pg_meeting_ids, is_admin)
         # DB에서 최근 20개 대화 이력 조회 (시간 오름차순)
         _db_rows = (
             db.query(models.ChatMessage)
@@ -833,18 +843,38 @@ async def supervisor_chat(
                     "planning", _route_thinking
                 )  # 라우팅 근거 1줄 (steps 연극 제거, H-13)
 
-            # ── off_topic 조기 종료: Neo4j·DB 조회 없이 안내 메시지 반환 ──────────
+            # ── off_topic 조기 종료: 회의체 운영 외 질문 ──────────
+            # 고정 문구 대신 LLM이 사용자 질문 맥락에 맞춰 정중히 안내하도록 생성(하드코딩 제거).
             if _route == "off_topic":
-                _off_msg = (
-                    "저는 회의체 운영 관련 질문에 특화되어 있어요.\n"
-                    "회의체 현황, 아젠다, 보고서, 회의록 관련 질문을 해주세요.\n\n"
-                    "예를 들어:\n"
-                    '- "소속 회의체 현황 브리핑해줘"\n'
-                    '- "아젠다 진행 상황 알려줘"\n'
-                    '- "최근 보고서 제출 현황은?"'
+                _off_sys = (
+                    "당신은 회의체 운영 지원 AI입니다. 사용자의 질문은 회의체 운영(회의체 현황·"
+                    "아젠다·회의록·보고서)과 무관합니다. (1) 회의체 운영 전용 비서임을 한 문장으로 "
+                    "정중하고 친근하게 안내하고, (2) 사용자의 질문 맥락에 맞춰 도울 수 있는 회의체 "
+                    "관련 질문 2가지를 자연스럽게 제안하세요. 짧게, 마크다운·번호기호 없이."
                 )
-                yield sse_token(_off_msg)
-                _save_assistant_msg(_off_msg)
+                _off_chunks: list[str] = []
+                try:
+                    _off_llm = make_llm(temperature=0.5)
+                    async for _c in _off_llm.astream(
+                        [
+                            SystemMessage(content=_off_sys),
+                            HumanMessage(content=msg or ""),
+                        ]
+                    ):
+                        _t = (
+                            _c.content
+                            if isinstance(_c.content, str)
+                            else str(_c.content)
+                        )
+                        if _t:
+                            _off_chunks.append(_t)
+                            yield sse_token(_t)
+                except Exception as _off_err:
+                    logger.warning(f"[off_topic] LLM 생성 실패: {_off_err}")
+                    _fb = "저는 회의체 운영(현황·아젠다·회의록·보고서) 질문을 도와드려요. 무엇을 도와드릴까요?"
+                    _off_chunks = [_fb]
+                    yield sse_token(_fb)
+                _save_assistant_msg("".join(_off_chunks))
                 yield sse_done()
                 return
             if data.meeting_id:
@@ -893,10 +923,10 @@ async def supervisor_chat(
                     mg_detail_rows: list[dict] = []
                     if user_person_id:
                         mg_detail_rows = await run_cypher(
-                            """MATCH (me:User {id: $pid})-[:`구성원`|`간사`]->(mg:Meetings)
+                            """MATCH (me:User {id: $pid})-[:`참여`|`운영`]->(mg:Meetings)
                                WITH DISTINCT mg
-                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
-                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               OPTIONAL MATCH (sec:User)-[:`운영`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`참여`]->(mg)
                                WITH mg,
                                     head(collect(DISTINCT
                                         sec.name + '||' + coalesce(sec.department, '')
@@ -917,8 +947,8 @@ async def supervisor_chat(
                     elif is_admin:
                         mg_detail_rows = await run_cypher(
                             """MATCH (mg:Meetings)
-                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
-                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               OPTIONAL MATCH (sec:User)-[:`운영`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`참여`]->(mg)
                                WITH mg,
                                     head(collect(DISTINCT
                                         sec.name + '||' + coalesce(sec.department, '')
@@ -1205,9 +1235,16 @@ async def supervisor_chat(
                     is_admin=is_admin,
                     meeting_id=data.meeting_id or None,
                     upcoming_ctx=_upcoming_ctx,
+                    thread_id=_thread_id,
                 ):
                     if _kind == "planning":
                         yield sse_event("planning", _text)
+                    elif _kind == "action":
+                        # 쓰기 제안 → 프런트 확인 카드. 실제 실행은 사용자 확인 후 기존 엔드포인트로.
+                        try:
+                            yield sse_event("action_confirm", json.loads(_text))
+                        except Exception:
+                            pass
                     else:
                         _assistant_chunks.append(_text)  # finally에서 DB 저장 (P3B-3)
                         yield sse_token(_text)
@@ -1278,6 +1315,7 @@ async def supervisor_chat(
         finally:
             # GeneratorExit·예외·정상 종료 모두에서 assistant 메시지 저장
             _token_collector_var.reset(_tok_ctx_token)
+            reset_meeting_scope(_scope_token)
             if _model_ctx_token is not None:
                 model_override_var.reset(_model_ctx_token)
             _finalize(_log_id, _collector, _stream_error, None)

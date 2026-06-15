@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
 import MemberInvite from './MemberInvite.vue'
@@ -298,7 +298,7 @@ async function doCreate() {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>관련 안건</label>
+            <label>관련 아젠다</label>
             <div style="position: relative">
               <div
                 class="app-modal-input"

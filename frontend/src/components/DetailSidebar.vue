@@ -1,5 +1,6 @@
 <script setup>
 import { inject, computed, ref, watch } from 'vue'
+import { toast } from '../composables/useToast'
 import DOMPurify from 'dompurify'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
@@ -39,6 +40,7 @@ const {
   onCtxFilesAdded,
   removeCtxFile,
   runExtract,
+  goToProcessStep,
   finishExtract,
   addDirectAgenda,
   detailMemberDepts,
@@ -56,6 +58,14 @@ const {
   startNodeReview,
 } = inject('archiveSidebar')
 
+function handleFinishExtract() {
+  if (!isDetailAdmin.value) {
+    toast.error('간사만 승인 저장할 수 있습니다')
+    return
+  }
+  finishExtract()
+}
+
 // ── 아젠다 직접 추가 ─────────────────────────────────────────────
 const directAddItems = ref([])
 
@@ -69,6 +79,7 @@ function pushDirectAddItem() {
     db_id: null,
     _state: null,
     _editing: true,
+    _directAdd: true,
     _editTitle: '',
     _editCompany: '',
     _editDept: '',
@@ -127,13 +138,21 @@ const doneDisplayItems = computed(() =>
 // ── 최근 로그 더보기 / 필터 ──────────────────────────────────────
 const logExpanded = ref(false)
 const logTypeFilter = ref('')
+const expandedLogIndexes = ref(new Set())
 watch(
   () => detailMeeting?.value?.id,
   () => {
     logExpanded.value = false
     logTypeFilter.value = ''
+    expandedLogIndexes.value = new Set()
   },
 )
+function toggleLogItem(index) {
+  const next = new Set(expandedLogIndexes.value)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  expandedLogIndexes.value = next
+}
 const logAllItems = computed(() => groupHistoryMap.value.get(detailMeeting.value?.id) || [])
 const logFilteredItems = computed(() =>
   logTypeFilter.value
@@ -257,14 +276,7 @@ function parseAiEvidence(val) {
             </div>
           </div>
           <div class="detail-header-actions">
-            <button
-              v-if="isDetailAdmin"
-              class="detail-icon-btn"
-              @click="openGroupSetting"
-              data-bs-toggle="tooltip"
-              data-bs-placement="bottom"
-              data-bs-title="설정"
-            >
+            <button v-if="isDetailAdmin" class="detail-icon-btn" @click="openGroupSetting">
               <svg
                 width="13"
                 height="13"
@@ -503,7 +515,30 @@ function parseAiEvidence(val) {
                       :style="{ background: NODE_TYPE_COLORS[item.type] || '#555' }"
                     ></span>
                     <div class="detail-log-content">
-                      <div class="detail-log-desc">{{ item.desc }}</div>
+                      <div
+                        class="detail-log-desc"
+                        :class="{ 'log-expandable': item.agendas?.length }"
+                        @click="item.agendas?.length && toggleLogItem(i)"
+                      >
+                        <span class="detail-log-desc-text">{{ item.desc }}</span>
+                        <svg
+                          v-if="item.agendas?.length"
+                          class="log-expand-chevron"
+                          :class="{ open: expandedLogIndexes.has(i) }"
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                        >
+                          <path
+                            d="M2 3.5L5 6.5L8 3.5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </div>
                       <div class="detail-log-meta">
                         <template v-if="item.manager && item.date"
                           >{{ item.manager }} · {{ formatDate(item.date) }}</template
@@ -511,6 +546,14 @@ function parseAiEvidence(val) {
                         <template v-else-if="item.date">{{ formatDate(item.date) }}</template>
                         <template v-else-if="item.manager">{{ item.manager }}</template>
                       </div>
+                      <ul
+                        v-if="item.agendas?.length && expandedLogIndexes.has(i)"
+                        class="log-agenda-list"
+                      >
+                        <li v-for="(ag, ai) in item.agendas" :key="ai" class="log-agenda-item">
+                          {{ ag }}
+                        </li>
+                      </ul>
                     </div>
                   </div>
                   <button
@@ -562,7 +605,7 @@ function parseAiEvidence(val) {
             />
 
             <!-- 진행중 아젠다 목록 -->
-            <div class="detail-section" style="margin-top: 12px">
+            <div class="detail-section" style="margin-top: 4px">
               <div class="detail-section-label-row">
                 <span class="detail-section-label">진행중 아젠다</span>
                 <span class="detail-section-label" style="font-weight: 400"
@@ -936,6 +979,11 @@ function parseAiEvidence(val) {
                 <div class="detail-extract-meta">
                   AI가 {{ extractResult.length }}개 아젠다를 추천했습니다.
                 </div>
+                <!-- prettier-ignore -->
+                <button class="ctx-run-btn" style="margin-top:6px;margin-bottom:6px" @click="goToProcessStep('context')">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M4 4l16 8-16 8V4z" /></svg>
+                  아젠다 재추출하기
+                </button>
                 <AgendaReviewList
                   :items="extractResult"
                   :memberCompanies="detailMemberCompanies"
@@ -945,7 +993,7 @@ function parseAiEvidence(val) {
                   @approved="() => {}"
                   @rejected="() => {}"
                   @remove="i => extractResult.splice(i, 1)"
-                  @save="finishExtract"
+                  @save="handleFinishExtract"
                 />
               </template> </template
             ><!-- /추출 결과 --> </template
@@ -1093,15 +1141,6 @@ function parseAiEvidence(val) {
               "
               class="detail-icon-btn"
               @click="openNodeGroupSetting"
-              data-bs-toggle="tooltip"
-              data-bs-placement="bottom"
-              :data-bs-title="
-                detailNode.type === 'company'
-                  ? ' 설정'
-                  : detailNode.type === 'dept'
-                    ? ' 설정'
-                    : '설정'
-              "
             >
               <svg
                 width="13"
@@ -1535,7 +1574,10 @@ function parseAiEvidence(val) {
                       detailNode.data?.submitter_department || detailNode.data?.department || '-'
                     }}</span>
                   </div>
-                  <div v-if="detailNode.type === 'report'" class="detail-info-item">
+                  <div
+                    v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                    class="detail-info-item"
+                  >
                     <span class="detail-info-key">검토상태</span>
                     <span class="detail-info-val">{{
                       { pending: '검토중', approved: '승인', rejected: '반려' }[
@@ -1548,8 +1590,8 @@ function parseAiEvidence(val) {
                 </div>
               </div>
 
-              <!-- AI 검토 결과 — 레이더 차트 (report 타입) -->
-              <div v-if="detailNode.type === 'report'" class="detail-section">
+              <!-- AI 검토 결과 — 레이더 차트 (report 타입, 첫 번째 자료 제외) -->
+              <div v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)" class="detail-section">
                 <div class="detail-section-label">AI 검토 결과</div>
                 <div class="radar-wrap">
                   <div class="radar-svg-pos">
@@ -1674,7 +1716,7 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div
-                v-if="detailNode.type === 'report' && detailNode.data?.feedback"
+                v-if="detailNode.type === 'report' && detailNode.data?.feedback && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
                 class="detail-section"
               >
                 <div class="detail-section-label">AI 피드백</div>
@@ -1689,7 +1731,7 @@ function parseAiEvidence(val) {
 
               <!-- 우선 개선사항 -->
               <div
-                v-if="detailNode.type === 'report' && sbTopImprovements.length"
+                v-if="detailNode.type === 'report' && sbTopImprovements.length && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
                 class="detail-section"
               >
                 <div class="detail-section-label">

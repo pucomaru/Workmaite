@@ -40,7 +40,12 @@ def generate_minutes_system(
         parts.append("[참석자]\n" + "\n".join(lines))
 
     if prev_minutes:
-        parts.append("[이전 회의 흐름]\n" + "\n\n".join(prev_minutes))
+        # 연속성 참고용일 뿐 — 이번 회의록 본문은 반드시 아래 [STT 대화 기록]만으로 작성한다.
+        # (다른 세션 내용을 이번 회의 내용으로 옮겨 적지 말 것)
+        parts.append(
+            "[이전 회의 흐름 — 연속성 참고용. 이번 회의록 본문에 그대로 옮기지 말 것]\n"
+            + "\n\n".join(prev_minutes)
+        )
 
     if agenda_text and agenda_text.strip() not in ("없음", ""):
         parts.append(f"[등록된 안건]\n{agenda_text}")

@@ -200,7 +200,7 @@ async function doSave() {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>관련 안건</label>
+            <label>관련 아젠다</label>
             <div style="position: relative">
               <div
                 class="app-modal-input"

@@ -21,8 +21,8 @@ import GraphFloatBtns from '../components/GraphFloatBtns.vue'
 import GraphLegend from '../components/GraphLegend.vue'
 import GraphView from '../components/GraphView.vue'
 import MeetingListView from '../components/MeetingListView.vue'
-import MinutesEditModal from '../components/MinutesEditModal.vue'
 import MemberEditModal from '../components/MemberEditModal.vue'
+import MinutesEditModal from '../components/MinutesEditModal.vue'
 import RenameModal from '../components/RenameModal.vue'
 import ReportEditModal from '../components/ReportEditModal.vue'
 import SessionEditModal from '../components/SessionEditModal.vue'
@@ -520,7 +520,9 @@ async function openNodeDetail(n) {
     if (meetingNumId) {
       try {
         const { data: agendas } = await apiAI.get(`/api/agent/meetings/${meetingNumId}/agendas`)
-        const fresh = agendas.find(a => String(a.id) === String(n.neo4jId))
+        // neo4jId는 "agenda-263" 형태, PG API는 정수 263을 반환 → 끝 숫자로 비교
+        const neoNumId = _toNumericId(n.neo4jId)
+        const fresh = agendas.find(a => String(a.id) === String(neoNumId))
         if (fresh) {
           detailNode.value = { ...n, data: { ...n.data, ...fresh } }
         }
@@ -537,7 +539,16 @@ async function openNodeDetail(n) {
     if (reportId && !isNaN(reportId)) {
       try {
         const { data: score } = await apiAI.get(`/api/upload/reports/${reportId}/score`)
-        detailNode.value = { ...n, data: { ...n.data, ...score } }
+        detailNode.value = {
+          ...n,
+          data: {
+            ...n.data,
+            ...score,
+            // PG에서 최신 related_agenda_ids 사용 (그래프 캐시 stale 대비)
+            related_agenda_ids:
+              score.report?.related_agenda_ids ?? n.data?.related_agenda_ids ?? [],
+          },
+        }
       } catch (e) {
         console.warn('[score fetch]', e)
       }
@@ -1059,7 +1070,10 @@ async function finishExtract() {
       meeting_id: toNumericId(detailMeeting.value.id),
       approved: approved.map(a => ({
         db_id: a.db_id,
+        title: a.title,
+        company: a.company || null,
         dept: a.dept || null,
+        start_date: a.start_date || null,
         due_date: a.end_date || null,
       })),
       rejected_ids: rejected.map(a => a.db_id),
@@ -1120,8 +1134,9 @@ const NODE_TYPE_COLORS = {
 }
 
 function goToProcessStep(step) {
-  if (step === 'context' && extractPhase.value === 'result') {
+  if (step === 'context') {
     extractPhase.value = 'context'
+    extractResult.value = []
   }
 }
 
@@ -1676,6 +1691,27 @@ const deptConnectableNodes = computed(() => {
 })
 
 // 선택된 회의체 노드에 연결된 과제 목록
+// Neo4j 동기화 전 신규 회의체의 PG 아젠다 폴백용 (모달 열릴 때 채워짐)
+const pgUploadAgendas = ref([])
+
+watch(
+  () => [uploadForm.value.meetingId, showUploadModal.value],
+  async ([meetingId, modalOpen]) => {
+    pgUploadAgendas.value = []
+    if (!modalOpen || !meetingId) return
+    const numId = String(meetingId).replace(/^mg-/, '')
+    if (!numId || !/^\d+$/.test(numId)) return
+    try {
+      const { data } = await apiAI.get(`/api/agent/meetings/${numId}/agendas`)
+      pgUploadAgendas.value = (data || [])
+        .filter(a => a.status !== 'draft')
+        .map(a => ({ id: `agenda-${a.id}`, content: a.title || a.content || '', agenda_id: null }))
+    } catch {
+      pgUploadAgendas.value = []
+    }
+  },
+)
+
 const 업로드회의체과제 = computed(() => {
   const nodes = gNodesRef.value
   if (!uploadForm.value.meetingId) return []
@@ -1691,6 +1727,8 @@ const 업로드회의체과제 = computed(() => {
   }
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'Meetings')
   if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
+  // Neo4j 미동기화 신규 회의체 대비: PG API로 직접 가져온 아젠다 사용
+  if (pgUploadAgendas.value.length) return pgUploadAgendas.value
   return []
 })
 
@@ -2329,6 +2367,7 @@ const groupHistoryMap = computed(() => {
           desc: count === 1 ? '아젠다 1개 추가' : `아젠다 ${count}개 등록`,
           manager: managerName,
           date: first.created_at || first.due_date || null,
+          agendas: batchTasks.map(t => t.content || t.title || '(제목 없음)'),
         })
       })
     }
@@ -2342,6 +2381,7 @@ const groupHistoryMap = computed(() => {
         desc: '아젠다 1개 추가',
         manager: managerName,
         date: l.agendaCreatedAt,
+        agendas: [l.title || '(제목 없음)'],
       })
     })
     const deletedLogs = deletedAgendaLogs.value
@@ -2368,6 +2408,7 @@ const groupHistoryMap = computed(() => {
           desc: count === 1 ? '아젠다 1개 삭제' : `아젠다 ${count}개 삭제`,
           manager: managerName,
           date: batch[0].deletedAt,
+          agendas: batch.map(l => l.title || '(제목 없음)'),
         })
       })
     }
@@ -2910,17 +2951,31 @@ provide('archiveModals', {
 const agendaEditModal = ref(null) // { agendaId, form: { title, department, due_date, priority } }
 const savingAgendaEdit = ref(false)
 
+// 검색 가능한 부서명 목록 — Neo4j Department 노드 + 구성원 부서 합집합
+const deptOptionNames = computed(() => {
+  const names = [
+    ...(neo4jDepts.value || []).map(d => d.name),
+    ...(membersData.value || []).map(m => m.department || m.dept),
+  ].filter(Boolean)
+  return [...new Set(names)]
+})
+
 function openAgendaEditModal() {
   if (!detailNode.value || detailNode.value.type !== 'agenda') return
   const d = detailNode.value.data || {}
-  const deptVal = Array.isArray(d.department)
-    ? d.department[0] || ''
-    : d.department || d.assignee_dept || ''
+  // 담당부서를 '참여 부서' 배열로 — 검색 다중선택 UI(DeptSelect)와 형식 일치
+  const deptArr = Array.isArray(d.department)
+    ? d.department.filter(Boolean)
+    : d.department
+      ? [d.department]
+      : d.assignee_dept
+        ? [d.assignee_dept]
+        : []
   agendaEditModal.value = {
     agendaId: d.id || detailNode.value.neo4jId,
     form: {
       title: d.content || d.title || detailNode.value.label || '',
-      department: deptVal,
+      department: deptArr,
       due_date: d.due_date ? String(d.due_date).slice(0, 10) : '',
       priority: d.priority || 'medium',
       status: ['pending', 'ongoing', 'done'].includes(d.status) ? d.status : 'pending',
@@ -2959,7 +3014,11 @@ async function saveAgendaEdit() {
   try {
     const { data } = await apiAI.patch(`/api/agent/archive/agendas/${numId}`, {
       title: form.title.trim(),
-      department: form.department.trim() || null,
+      department: Array.isArray(form.department)
+        ? form.department.filter(Boolean)
+        : form.department
+          ? [form.department]
+          : null,
       due_date: form.due_date || null,
       priority: form.priority || 'medium',
       status: form.status || 'ongoing',
@@ -3155,7 +3214,11 @@ async function openMemberEditModal() {
           department: found.user?.department || memberEditModal.value.department,
           position: found.user?.position || memberEditModal.value.position,
           meetings: [
-            { id: numId, member_id: found.id, title: detailMeeting.value?.title || node.label || '' },
+            {
+              id: numId,
+              member_id: found.id,
+              title: detailMeeting.value?.title || node.label || '',
+            },
           ],
         }
       }
@@ -3762,6 +3825,7 @@ provide('archiveSidebar', {
     :modal="agendaEditModal"
     :night-mode="nightMode"
     :saving="savingAgendaEdit"
+    :dept-options="deptOptionNames"
     @close="closeAgendaEdit"
     @save="saveAgendaEdit"
     @delete="deleteAgendaEdit"

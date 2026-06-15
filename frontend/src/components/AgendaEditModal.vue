@@ -1,11 +1,13 @@
 <script setup>
 import { computed } from 'vue'
 import DateInput from './DateInput.vue'
+import DeptSelect from './DeptSelect.vue'
 
 const props = defineProps({
-  modal: Object, // { form: { title, department, due_date, priority }, saving }
+  modal: Object, // { form: { title, department(배열), due_date, priority }, saving }
   nightMode: Boolean,
   saving: Boolean,
+  deptOptions: { type: Array, default: () => [] }, // 검색 가능한 부서명 목록
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
@@ -64,16 +66,8 @@ function priorityColor(val) {
             />
           </div>
 
-          <!-- 담당부서 + 우선순위 한 행 -->
+          <!-- 우선순위 + 상태 한 행 -->
           <div class="app-modal-field-row">
-            <div class="app-modal-field">
-              <label>담당 부서</label>
-              <input
-                v-model="form.department"
-                class="app-modal-input"
-                placeholder="예: 전략기획팀"
-              />
-            </div>
             <div class="app-modal-field">
               <label>우선순위</label>
               <select
@@ -86,14 +80,6 @@ function priorityColor(val) {
                 </option>
               </select>
             </div>
-          </div>
-
-          <!-- 마감 + 상태 한 행 -->
-          <div class="app-modal-field-row">
-            <div class="app-modal-field">
-              <label>마감일</label>
-              <DateInput v-model="form.due_date" class="app-modal-input" />
-            </div>
             <div class="app-modal-field">
               <label>상태</label>
               <select v-model="form.status" class="app-modal-input">
@@ -102,6 +88,16 @@ function priorityColor(val) {
                 </option>
               </select>
             </div>
+
+            <!-- 마감일 -->
+            <div class="app-modal-field">
+              <label>마감일</label>
+              <DateInput v-model="form.due_date" class="app-modal-input" />
+            </div>
+          </div>
+          <!-- 참여 부서 (검색 다중선택) — 회의체 편집의 참여자 mi-section과 동일 UX -->
+          <div class="app-modal-field">
+            <DeptSelect v-model="form.department" :options="deptOptions" :night-mode="nightMode" />
           </div>
         </div>
 

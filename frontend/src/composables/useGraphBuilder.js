@@ -36,7 +36,12 @@ export function useGraphBuilder({
       let coIdx = -1
       if (coName) {
         coIdx = nodes.length
-        nodes.push({ id: `company-${coName}`, label: coName, type: 'company', data: { name: coName } })
+        nodes.push({
+          id: `company-${coName}`,
+          label: coName,
+          type: 'company',
+          data: { name: coName },
+        })
       }
       let fbDeptIdx = -1
       if (person?.department) {

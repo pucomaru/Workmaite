@@ -75,7 +75,7 @@ async def get_archive(
             person_id = person_rows[0]["pid"]
             allowed_rows = await _run_cypher(
                 """
-                MATCH (p:User)-[:`구성원`|`간사`]->(mg:Meetings)
+                MATCH (p:User)-[:`참여`|`운영`]->(mg:Meetings)
                 WHERE (p.id = $pid OR toString(p.pg_id) = $pid)
                 RETURN mg.id AS mg_id
                 """,
@@ -115,7 +115,7 @@ async def get_archive(
             _run_cypher(
                 """
                 MATCH (mg:Meetings) WHERE mg.id IN $ids
-                OPTIONAL MATCH (p:User)-[rel:`간사`|`구성원`]->(mg)
+                OPTIONAL MATCH (p:User)-[rel:`운영`|`참여`]->(mg)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
                 RETURN
                     mg.id AS mg_id,
@@ -161,7 +161,7 @@ async def get_archive(
                 // 아카이브에 저장(확정)된 회의록만 노출 — DRAFT 회의록은 시각화하지 않는다
                 OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
                 WHERE toLower(coalesce(mn.status, '')) = 'completed'
-                OPTIONAL MATCH (u:User)-[:참석]->(s)
+                OPTIONAL MATCH (u:User)-[:`참석`]->(s)
                 WITH mg, s, mn,
                      collect(CASE WHEN u IS NOT NULL THEN {userId: u.pg_id, userName: u.name, department: u.department} END) AS participants
                 RETURN
@@ -295,6 +295,13 @@ async def get_archive(
         if not mg_id or mg_id not in meetings_map or not ag_id:
             continue
         if ag_id not in agenda_map:
+            raw_created_at = row.get("created_at")
+            if (
+                raw_created_at
+                and not raw_created_at.endswith("Z")
+                and "+" not in raw_created_at
+            ):
+                raw_created_at = raw_created_at + "Z"
             agenda_map[ag_id] = {
                 "id": ag_id,
                 "meetingId": mg_id,
@@ -304,7 +311,7 @@ async def get_archive(
                 "priority": row.get("priority", "low"),
                 "status": row.get("status", "pending"),
                 "due_date": row.get("due_date"),
-                "created_at": row.get("created_at"),
+                "created_at": raw_created_at,
                 "ai_evidence": row.get("ai_evidence"),
                 "assignee_names": [],  # 담당자 여러 명 지원
                 "assignee_dept": row.get("assignee_dept", ""),
@@ -399,12 +406,12 @@ async def get_archive(
             }
         )
 
-    # ── 회의 생명주기: Agenda→Session(발제세션/다룸/도출) 조회 ──
+    # ── 회의 생명주기: Agenda→Session(논의) 조회 ──
     try:
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`기록`]->(s:Session)<-[:`발제세션`]-(ag:Agenda)-[:`관할`]->(mg:Meetings)
+                MATCH (mn:Minutes)-[:`기록`]->(s:Session)<-[:`논의`]-(ag:Agenda)-[:`관할`]->(mg:Meetings)
                 WHERE mg.id IN $ids AND toLower(coalesce(mn.status, '')) = 'completed'
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -414,7 +421,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`발제세션`]->(s:Session)-[:`소속`]->(mg:Meetings)
+                MATCH (ag:Agenda)-[:`논의`]->(s:Session)-[:`소속`]->(mg:Meetings)
                 WHERE mg.id IN $ids
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -811,7 +818,7 @@ async def create_meeting_group(
             """
             MATCH (mg:Meetings {id: $mg_id})
             MATCH (p:User {pg_id: $pg_id})
-            MERGE (p)-[:`간사`]->(mg)
+            MERGE (p)-[:`운영`]->(mg)
             """,
             {"mg_id": mg_id, "pg_id": current_user.id},
         )
@@ -901,7 +908,7 @@ async def remove_member_from_group(
     try:
         await _run_cypher(
             """
-            MATCH (p:User {pg_id: $pg_id})-[r:`간사`|`구성원`]->(mg:Meetings {id: $mg_id})
+            MATCH (p:User {pg_id: $pg_id})-[r:`운영`|`참여`]->(mg:Meetings {id: $mg_id})
             DELETE r
             """,
             {"mg_id": mg_id, "pg_id": int(user_id)},
@@ -967,6 +974,13 @@ async def create_agenda_node(
     due_date = data.get("due_date", "")
     mg_id = data.get("mg_id", "")
     assignee_name = data.get("assignee_name", "")
+    # Draft는 PostgreSQL에만 보관 — Neo4j 연동 안 함 (기존 노드 있으면 제거)
+    if (status or "").strip().lower() == "draft":
+        try:
+            await _run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id})
+        except Exception:
+            pass
+        return {"ok": True, "skipped": "draft"}
     try:
         await _run_cypher(
             """
@@ -1011,6 +1025,13 @@ async def update_agenda_node(
     fields = {k: v for k, v in data.items() if k in allowed}
     if not fields:
         return {"ok": True}
+    # Draft로 전환되면 PostgreSQL에만 보관 — Neo4j 노드 제거
+    if (fields.get("status") or "").strip().lower() == "draft":
+        try:
+            await _run_cypher("MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id})
+        except Exception:
+            pass
+        return {"ok": True, "skipped": "draft"}
     # content → title (Neo4j 스키마)
     if "content" in fields:
         fields["title"] = fields.pop("content")

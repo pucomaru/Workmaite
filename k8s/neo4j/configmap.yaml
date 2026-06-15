@@ -15,8 +15,7 @@ data:
     // 임베딩(예: 3-large=3072)과 인덱스 차원이 어긋나는 사고가 나므로 정의하지 않는다.
     // 노드: User / Department / Company / Meetings / Session / Agenda /
     //       Minutes / MinutesChunk / Report / ReportChunk
-    // 주의: HumanJudgment 노드는 폐지됨 — HITL 검토결과는 Agenda/Report 노드의
-    //       hitl_* 속성·임베딩으로 흡수된다(별도 노드/인덱스 없음).
+    // ITL 검토결과는 Agenda/Report 노드의 hitl_* 속성·임베딩으로 흡수된다(별도 노드/인덱스 없음).
     // =============================================================
 
     // ── Uniqueness Constraints (ensure_constraints) ───────────────

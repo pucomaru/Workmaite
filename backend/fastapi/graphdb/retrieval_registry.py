@@ -49,7 +49,7 @@ REGISTRY: dict[str, dict] = {
         "scope": "custom",
         "scope_cypher": (
             "WHERE node.meeting_id IN $mids "
-            "OR EXISTS { MATCH (node)-[:기록]->(:Session)--(mg:Meetings) "
+            "OR EXISTS { MATCH (node)<-[:`기록`]-(s:Session)--(mg:Meetings) "
             "WHERE mg.pg_id IN $mids } "
         ),
         "fulltext": {"index": "minutesFulltext", "props": ["title", "content_summary"]},
@@ -58,7 +58,10 @@ REGISTRY: dict[str, dict] = {
     "MinutesChunk": {
         "index": "minutesChunkEmbedding",
         "legacy": [],
-        "scope": None,
+        # 청크 노드도 meeting_id를 가짐(file_embedder) → 타 회의체 청크 누수 차단.
+        # 회의 무관 청크(meeting_id NULL)는 공유 지식이므로 유지.
+        "scope": "custom",
+        "scope_cypher": "WHERE node.meeting_id IN $mids OR node.meeting_id IS NULL ",
         "fields": "node.text AS content",
     },
     "Report": {
@@ -71,7 +74,9 @@ REGISTRY: dict[str, dict] = {
     "ReportChunk": {
         "index": "reportChunkEmbedding",
         "legacy": [],
-        "scope": None,
+        # 청크 노드도 meeting_id를 가짐 → 타 회의체 청크 누수 차단. 회의 무관(NULL) 공유 지식은 유지.
+        "scope": "custom",
+        "scope_cypher": "WHERE node.meeting_id IN $mids OR node.meeting_id IS NULL ",
         "fulltext": {"index": "reportChunkFulltext", "props": ["text", "title"]},
         "fields": "node.text AS content, node.title AS title",
     },
@@ -276,10 +281,15 @@ async def graph_expanded_search(
             paths = await run_cypher(
                 "MATCH (ag:Agenda {title: $title}) "
                 "OPTIONAL MATCH (ag)--(s:Session) "
-                "OPTIONAL MATCH (ag)<-[:첨부|관할]-(r:Report) "
+                "OPTIONAL MATCH (ag)<-[:`첨부`]-(r:Report) "
+                # 관계도 분석(reconcile)이 만든 '관련' 안건·'도출' 회의록을 답변 근거로 함께 노출
+                "OPTIONAL MATCH (ag)-[:`관련`]-(rel:Agenda) "
+                "OPTIONAL MATCH (mn:Minutes)-[:`도출`]->(ag) "
                 "RETURN ag.title AS agenda, ag.status AS status, "
                 "collect(DISTINCT s.title)[..3] AS sessions, "
-                "collect(DISTINCT r.file_name)[..3] AS reports LIMIT 1",
+                "collect(DISTINCT r.file_name)[..3] AS reports, "
+                "collect(DISTINCT rel.title)[..3] AS related, "
+                "collect(DISTINCT mn.file_name)[..2] AS minutes LIMIT 1",
                 {"title": title},
             )
             if paths:
@@ -289,6 +299,10 @@ async def graph_expanded_search(
                     parts.append("세션: " + ", ".join(filter(None, row["sessions"])))
                 if row.get("reports"):
                     parts.append("보고서: " + ", ".join(filter(None, row["reports"])))
+                if row.get("minutes"):
+                    parts.append("회의록: " + ", ".join(filter(None, row["minutes"])))
+                if row.get("related"):
+                    parts.append("관련 안건: " + ", ".join(filter(None, row["related"])))
                 out.append(
                     {"title": title, "path": " → ".join(parts), "score": s.get("score")}
                 )

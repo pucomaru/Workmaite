@@ -75,7 +75,10 @@ async def archive_extract_agendas(
     )  # 아젠다 추출은 간사/회사관리자/시스템관리자만
     meeting_context = _get_meeting_context(db, meeting_id)
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
-    previous_minutes = _get_previous_minutes(db, meeting_id)[:3]
+    # 현재 세션(session_id)은 제외 — 다른 세션 회의록이 현재 회의로 오인돼 아젠다가 새는 것을 막는다.
+    previous_minutes = _get_previous_minutes(
+        db, meeting_id, exclude_session_id=session_id
+    )[:3]
 
     current_agendas = (
         db.query(models.Agenda)
@@ -145,16 +148,16 @@ async def archive_extract_agendas(
         except Exception as e:
             logger.warning(f"[업로드 파일 추출 오류] {upload.filename}: {e}")
 
-    # 현재 회의록을 이전 회의록보다 앞에 배치 (가장 최신 = 가장 높은 우선순위)
-    all_minutes = current_minutes_texts + previous_minutes
-
     context_parts = [f"[회의체 정보]\n{meeting_context}"]
     if meeting.guidelines:
         context_parts.append(f"[회의 지침]\n{meeting.guidelines}")
-    if all_minutes:
+    # 현재 회의록(아젠다 추출의 유일한 근거)과 과거 회의록(배경 참고용)을 명확히 분리 — 교차세션 오염 방지.
+    if current_minutes_texts:
+        context_parts.append("[현재 회의록]\n" + "\n\n".join(current_minutes_texts))
+    if previous_minutes:
         context_parts.append(
-            "[최근 회의록]\n"
-            + "\n\n".join(f"[회의록 {i + 1}]\n{m}" for i, m in enumerate(all_minutes))
+            "[과거 회의록 — 배경 참고용. 다음 아젠다는 반드시 위 '현재 회의록' 기준으로만 도출하세요]\n"
+            + "\n\n".join(f"[과거 {i + 1}]\n{m}" for i, m in enumerate(previous_minutes))
         )
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
@@ -428,7 +431,11 @@ async def analyze_archive_file(
             )
             extracted_clean = (extracted or "").strip()
             if len(extracted_clean) > 8000:
-                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+                file_content = (
+                    extracted_clean[:4000]
+                    + "\n...(중략)...\n"
+                    + extracted_clean[-4000:]
+                )
             else:
                 file_content = extracted_clean
             if not file_content:
@@ -455,8 +462,11 @@ async def analyze_archive_file(
         logger.warning(f"[analyze-file] LangGraph 검토 실패: {e}")
         return {
             "score": 0,
-            "detail_scores": {},
-            "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+            "feedback": [
+                "⚠️ AI 평가에 오류가 발생했습니다.",
+                f"오류: {str(e)}",
+                "다시 시도하거나 수동으로 검토해 주세요.",
+            ],
             "matched_agendas": [],
             "agendas": [
                 {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
@@ -496,7 +506,11 @@ async def analyze_archive_file_stream_ep(
             )
             extracted_clean = (extracted or "").strip()
             if len(extracted_clean) > 8000:
-                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+                file_content = (
+                    extracted_clean[:4000]
+                    + "\n...(중략)...\n"
+                    + extracted_clean[-4000:]
+                )
             else:
                 file_content = extracted_clean
             if not file_content:
@@ -533,10 +547,10 @@ async def analyze_archive_file_stream_ep(
                 "type": "result",
                 "data": {
                     "score": 0,
-                    "detail_scores": {},
                     "feedback": [
-                        f"AI 분석 중 오류: {str(e)}",
-                        "수동으로 검토해 주세요.",
+                        "⚠️ AI 평가에 오류가 발생했습니다.",
+                        f"오류: {str(e)}",
+                        "다시 시도하거나 수동으로 검토해 주세요.",
                     ],
                     "matched_agendas": [],
                     "agendas": [
@@ -601,9 +615,7 @@ async def _update_next_agenda_section(
     import re as _re
 
     mn = (
-        db.query(models.Minutes)
-        .filter(models.Minutes.session_id == session_id)
-        .first()
+        db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
     if not mn or not mn.content_original:
         return
@@ -614,10 +626,9 @@ async def _update_next_agenda_section(
     is_html = bool(_re.search(r"<(p|h[1-6]|ul|ol|div|br)\b", content, _re.IGNORECASE))
 
     if is_html:
+
         def _esc(s: str) -> str:
-            return (
-                s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
         section = (
@@ -885,7 +896,12 @@ async def update_agenda(
         agenda.title = data["title"]
     if "department" in data:
         raw_dept = data["department"]
-        agenda.department = [raw_dept] if raw_dept else None
+        if isinstance(raw_dept, list):
+            # 참여 부서 다중선택 — 비어있지 않은 부서명 리스트로 저장
+            _depts = [str(x).strip() for x in raw_dept if str(x).strip()]
+            agenda.department = _depts or None
+        else:
+            agenda.department = [raw_dept] if raw_dept else None
     if "due_date" in data:
         if data["due_date"]:
             from datetime import datetime as _dt
@@ -904,9 +920,11 @@ async def update_agenda(
     db.refresh(agenda)
     # Neo4j 동기화
     from graphdb.neo4j_sync import sync_agenda as _sync_ag
+    import json as _json
 
+    # 여러 참여 부서를 모두 담당부서 엣지로 동기화 — JSON 리스트로 넘기면 sync가 _parse_dept_names로 분리
     dept_str = (
-        agenda.department[0]
+        _json.dumps(agenda.department, ensure_ascii=False)
         if isinstance(agenda.department, list) and agenda.department
         else (agenda.department or "")
     )
@@ -952,9 +970,11 @@ async def update_agenda_status(
     db.commit()
     db.refresh(agenda)
     from graphdb.neo4j_sync import sync_agenda as _sync_ag
+    import json as _json
 
+    # 여러 참여 부서를 모두 담당부서 엣지로 동기화 — JSON 리스트로 넘기면 sync가 _parse_dept_names로 분리
     dept_str = (
-        agenda.department[0]
+        _json.dumps(agenda.department, ensure_ascii=False)
         if isinstance(agenda.department, list) and agenda.department
         else (agenda.department or "")
     )
@@ -1122,12 +1142,16 @@ async def delete_agenda_item(
     meeting_id_snap = agenda.meeting_id
     title_snap = agenda.title or ""
     created_at_snap = agenda.created_at.isoformat() + "Z" if agenda.created_at else None
+    db.query(models.SessionAgenda).filter(
+        models.SessionAgenda.agenda_id == agenda_id
+    ).delete(synchronize_session=False)
     db.delete(agenda)
     db.commit()
     # audit log는 별도 세션으로 — 실패해도 삭제 결과에 영향 없음
     try:
         from sqlalchemy import text as _text
         from db.database import SessionLocal as _SL
+
         _adb = _SL()
         try:
             _adb.execute(
@@ -1138,9 +1162,13 @@ async def delete_agenda_item(
                 {
                     "actor": current_user.id,
                     "detail": json.dumps(
-                        {"log_type": "agenda_delete", "meeting_id": meeting_id_snap,
-                         "agenda_id": agenda_id, "title": title_snap,
-                         "agenda_created_at": created_at_snap}
+                        {
+                            "log_type": "agenda_delete",
+                            "meeting_id": meeting_id_snap,
+                            "agenda_id": agenda_id,
+                            "title": title_snap,
+                            "agenda_created_at": created_at_snap,
+                        }
                     ),
                 },
             )
@@ -1167,6 +1195,7 @@ async def get_agenda_delete_logs(
 ):
     require_meeting_member(db, current_user, meeting_id)
     from sqlalchemy import text as _text
+
     rows = db.execute(
         _text(
             "SELECT actor_id, detail, created_at FROM audit_logs "

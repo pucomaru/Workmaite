@@ -426,12 +426,12 @@ onMounted(async () => {
               >
                 {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
               </span>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 유형 -->
             <td>
               <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 간사 -->
             <td>
@@ -442,9 +442,9 @@ onMounted(async () => {
                     .slice(0, 2)
                     .join(', ')
                 }}</span>
-                <span v-else class="mg-row-nodates">-</span>
+                <span v-else class="mg-row-nodates"></span>
               </div>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 참여조직 -->
             <td>
@@ -455,16 +455,16 @@ onMounted(async () => {
                     getCompanies(g.id).length > 3 ? ` 외 ${getCompanies(g.id).length - 3}개` : ''
                   }}</span
                 >
-                <span v-else class="mg-row-nodates">-</span>
+                <span v-else class="mg-row-nodates"></span>
               </div>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 참여자 -->
             <td>
               <span v-if="membersCache[g.id]" class="mg-member-count-label"
                 >{{ membersCache[g.id].length }}명</span
               >
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <td>
               <div class="action-btns">
@@ -472,7 +472,6 @@ onMounted(async () => {
                   v-if="canManage(g)"
                   class="mg-icon-btn settings"
                   @click.stop="openSettings(g)"
-                  title="설정"
                 >
                   <svg
                     width="14"
@@ -639,21 +638,37 @@ onMounted(async () => {
           <div class="app-modal-header">
             <span class="app-modal-title">회의체 종료</span>
             <button class="app-modal-close" @click="cancelEnd">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
                 <path d="M18 6L6 18M6 6l12 12" />
               </svg>
             </button>
           </div>
           <div class="delete-confirm-body">
             <div class="delete-confirm-icon">
-              <svg width="28" height="28" fill="none" stroke="#f59e0b" stroke-width="1.8" viewBox="0 0 24 24">
+              <svg
+                width="28"
+                height="28"
+                fill="none"
+                stroke="#f59e0b"
+                stroke-width="1.8"
+                viewBox="0 0 24 24"
+              >
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 8v4M12 16h.01" />
               </svg>
             </div>
             <p class="delete-confirm-msg">
               {{ endTarget.title }} 회의체를 종료합니다.<br />
-              <span class="delete-confirm-sub">종료된 회의체는 더 이상 회의를 진행할 수 없습니다.</span>
+              <span class="delete-confirm-sub"
+                >종료된 회의체는 더 이상 회의를 진행할 수 없습니다.</span
+              >
             </p>
           </div>
           <div class="app-modal-footer">

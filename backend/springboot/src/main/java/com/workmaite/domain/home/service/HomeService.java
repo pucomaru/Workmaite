@@ -1,5 +1,10 @@
 package com.workmaite.domain.home.service;
 
+import com.workmaite.domain.agendas.entity.Agenda;
+import com.workmaite.domain.agendas.repository.AgendaRepository;
+import com.workmaite.domain.home.dto.CalendarAgendaItem;
+import com.workmaite.domain.meetings.entity.MeetingMember;
+import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.home.dto.CalendarResponse;
 import com.workmaite.domain.home.dto.CalendarSessionItem;
 import com.workmaite.domain.meetings.entity.Meeting;
@@ -12,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +30,8 @@ public class HomeService {
 
   private final MeetingRepository meetingRepository;
   private final SessionRepository sessionRepository;
+  private final AgendaRepository agendaRepository;
+  private final MeetingMemberRepository meetingMemberRepository;
 
   public CalendarResponse getCalendar(Long userId, String view, String dateStr) {
     LocalDate date = LocalDate.parse(dateStr);
@@ -48,12 +56,27 @@ public class HomeService {
 
     List<MeetingSession> sessions =
         sessionRepository.findByUserIdAndScheduledAtBetween(userId, start, end);
+    List<Long> meetingIds =
+        meetingMemberRepository.findByUserId(userId).stream()
+            .map(MeetingMember::getMeetingId)
+            .toList();
 
-    List<Long> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
-    Map<Long, String> meetingTitleMap =
+    List<Agenda> agendas =
         meetingIds.isEmpty()
+            ? List.of()
+            : agendaRepository.findByMeetingIdInAndDueDateBetween(meetingIds, start, end);
+
+    List<Long> allMeetingIds =
+        Stream.concat(
+                sessions.stream().map(MeetingSession::getMeetingId),
+                agendas.stream().map(Agenda::getMeetingId))
+            .distinct()
+            .toList();
+
+    Map<Long, String> meetingTitleMap =
+        allMeetingIds.isEmpty()
             ? Map.of()
-            : meetingRepository.findAllById(meetingIds).stream()
+            : meetingRepository.findAllById(allMeetingIds).stream()
                 .collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
 
     List<CalendarSessionItem> sessionItems =
@@ -61,6 +84,11 @@ public class HomeService {
             .map(s -> CalendarSessionItem.from(s, meetingTitleMap.get(s.getMeetingId())))
             .toList();
 
-    return CalendarResponse.of(sessionItems);
+    List<CalendarAgendaItem> agendaItems =
+        agendas.stream()
+            .map(a -> CalendarAgendaItem.from(a, meetingTitleMap.get(a.getMeetingId())))
+            .toList();
+
+    return CalendarResponse.of(sessionItems, agendaItems);
   }
 }

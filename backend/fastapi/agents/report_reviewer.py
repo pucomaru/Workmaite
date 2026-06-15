@@ -466,7 +466,9 @@ async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
     content = state.get("file_content", "") or ""
     # 파일명이 "보고자료_최종.pdf"처럼 내용을 담지 않는 경우를 보완하기 위해
     # 단순 content[:500] 대신 의미 있는 단락 우선 추출
-    paragraphs = [p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 15]
+    paragraphs = [
+        p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 15
+    ]
     content_excerpt = " ".join(paragraphs[:5])[:600] if paragraphs else content[:500]
     query = " ".join(filter(None, [dept_name, file_name, content_excerpt])).strip()
     if not query:
@@ -510,10 +512,16 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
 
     try:
         llm = llm_factory("review", temperature=0.1, streaming=False)
-        structured = await ainvoke_structured(llm, ArchiveAnalysisResult, messages, retries=1)
-        return {"result": _format_archive_result(structured.model_dump(), candidate_agendas)}
+        structured = await ainvoke_structured(
+            llm, ArchiveAnalysisResult, messages, retries=1
+        )
+        return {
+            "result": _format_archive_result(structured.model_dump(), candidate_agendas)
+        }
     except StructuredOutputError as e:
-        logger.warning(f"[archive-analyze] structured output 실패, 자유 텍스트 폴백: {e}")
+        logger.warning(
+            f"[archive-analyze] structured output 실패, 자유 텍스트 폴백: {e}"
+        )
         llm_fallback = _make_llm(temperature=0.2)
         response = await llm_fallback.ainvoke(messages)
         text = cast(str, response.content or "").strip()
@@ -601,7 +609,8 @@ def _format_archive_result(parsed: dict, candidate_agendas: List[dict]) -> dict:
     raw_detail = parsed.get("detail_scores", {})
     detail_scores = _validate_detail_scores(raw_detail)
     computed_score = sum(v["score"] for v in detail_scores.values())
-    score = computed_score if raw_detail else max(0, min(int(parsed.get("score", 0)), 100))
+    # 평가 실패 시 그럴듯한 점수를 주지 않는다 — LLM이 점수를 주면 존중, 없으면 0.
+    score = computed_score if raw_detail else int(parsed.get("score") or 0)
 
     valid_ids = {
         str(ag.get("id"))
@@ -702,8 +711,10 @@ async def analyze_archive_file(
     )
     return final_state.get("result") or {
         "score": 0,
-        "detail_scores": {},
-        "feedback": ["검토 결과를 생성하지 못했습니다."],
+        "feedback": [
+            "⚠️ AI 평가에 오류가 발생했습니다.",
+            "다시 시도하거나 수동으로 검토해 주세요.",
+        ],
         "matched_agendas": [],
         "agendas": [],
         "related_depts": [],
@@ -785,8 +796,11 @@ async def analyze_archive_file_stream(
             "type": "result",
             "data": {
                 "score": 0,
-                "detail_scores": {},
-                "feedback": [f"AI 분석 중 오류: {str(e)}", "수동으로 검토해 주세요."],
+                "feedback": [
+                    "⚠️ AI 평가에 오류가 발생했습니다.",
+                    f"오류: {str(e)}",
+                    "다시 시도하거나 수동으로 검토해 주세요.",
+                ],
                 "matched_agendas": [],
                 "agendas": [
                     {"content": f"{file_name} 관련 안건 검토", "department": dept_name}
