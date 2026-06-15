@@ -281,12 +281,13 @@ export function useAgentChat({
             chat_history: [
               {
                 agendas: extractResult.value.map(
-                  ({ title, department, priority, start_date, due_date }) => ({
+                  ({ title, department, priority, start_date, due_date, db_id }) => ({
                     title,
                     department,
                     priority,
                     start_date,
                     due_date,
+                    db_id,
                   }),
                 ),
               },
@@ -321,7 +322,7 @@ export function useAgentChat({
                   old.department === ag.department &&
                   old.priority === ag.priority
                 return unchanged
-                  ? old
+                  ? { ...old, db_id: ag.db_id ?? null }
                   : {
                       ...ag,
                       _state: null,

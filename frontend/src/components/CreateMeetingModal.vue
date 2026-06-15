@@ -1,6 +1,7 @@
 <script setup>
 import { inject } from 'vue'
 import MemberInvite from './MemberInvite.vue'
+import DateInput from './DateInput.vue'
 import { useAuthStore } from '../stores/auth'
 const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, createMembers } =
   inject('archiveModals')
