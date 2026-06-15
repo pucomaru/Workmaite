@@ -883,7 +883,7 @@ async function extractNextAgendas() {
 }
 
 function addNextAgendaItem() {
-  nextAgendaItems.value.push({
+  nextAgendaItems.value.unshift({
     title: '',
     company: '',
     dept: '',
@@ -895,6 +895,7 @@ function addNextAgendaItem() {
     _reason: '',
     _showReason: false,
     _editing: true,
+    _directAdd: true,
     _editTitle: '',
     _editCompany: '',
     _editDept: '',
@@ -1920,6 +1921,12 @@ async function downloadChatFile(filePath) {
               </div>
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
+                  <button class="nab-direct-add-btn" @click="addNextAgendaItem">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    아젠다 직접 추가
+                  </button>
                   <AgendaReviewList
                     :items="nextAgendaItems"
                     :memberCompanies="sessionMemberCompanies"
@@ -1930,23 +1937,7 @@ async function downloadChatFile(filePath) {
                     @rejected="() => {}"
                     @remove="removeNextAgendaItem"
                     @save="saveApprovedNextAgendas"
-                  >
-                    <template #footer-left>
-                      <button class="nab-add-btn" @click="addNextAgendaItem">
-                        <svg
-                          width="10"
-                          height="10"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          viewBox="0 0 24 24"
-                        >
-                          <path d="M12 5v14M5 12h14" />
-                        </svg>
-                        아젠다 직접 추가
-                      </button>
-                    </template>
-                  </AgendaReviewList>
+                  />
                 </div>
               </template>
             </div>
@@ -3966,6 +3957,25 @@ html.night-mode .sp-ms-input {
 }
 .nab-list {
   padding: 8px;
+}
+.nab-direct-add-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.12s;
+  margin-bottom: 6px;
+}
+.nab-direct-add-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 .wm-suggested {
   display: flex;

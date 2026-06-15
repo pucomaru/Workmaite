@@ -1134,6 +1134,9 @@ async def delete_agenda_item(
     meeting_id_snap = agenda.meeting_id
     title_snap = agenda.title or ""
     created_at_snap = agenda.created_at.isoformat() + "Z" if agenda.created_at else None
+    db.query(models.SessionAgenda).filter(
+        models.SessionAgenda.agenda_id == agenda_id
+    ).delete(synchronize_session=False)
     db.delete(agenda)
     db.commit()
     # audit log는 별도 세션으로 — 실패해도 삭제 결과에 영향 없음

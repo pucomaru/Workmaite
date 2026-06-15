@@ -38,6 +38,10 @@ function startReject(i) {
     ag._showReason = false
     return
   }
+  if (ag._directAdd) {
+    emit('remove', i)
+    return
+  }
   ag._origTitle = ag.title
   ag._origCompany = ag.company
   ag._origDept = ag.dept
@@ -81,7 +85,7 @@ function saveEdit(i) {
   ag.start_date = ag._editStartDate
   ag.end_date = ag._editEndDate
   ag._editing = false
-  if (props.showFeedback) {
+  if (props.showFeedback && !ag._directAdd) {
     ag._feedbackAction = 'edited'
     ag._showReason = true
   }
@@ -341,8 +345,8 @@ function deptList(dept) {
       <slot name="footer-left" />
       <div class="nab-footer-right">
         <span class="nab-count">승인 {{ approvedCount }} / 반려 {{ rejectedCount }}</span>
-        <button class="nab-save-btn" :disabled="!approvedCount" @click="emit('save')">
-          승인 {{ approvedCount }}건 저장
+        <button class="nab-save-btn" :disabled="!approvedCount && !rejectedCount" @click="emit('save')">
+          {{ approvedCount ? `승인 ${approvedCount}건 저장` : rejectedCount ? `반려 ${rejectedCount}건 처리` : '승인 0건 처리' }}
         </button>
       </div>
     </div>
