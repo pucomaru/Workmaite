@@ -2516,16 +2516,26 @@ const fileListMap = computed(() => {
 })
 
 const filteredFileListMap = computed(() => {
-  if (!selectedHistoryType.value) return fileListMap.value
+  const q = search.value.trim().toLowerCase()
   const map = new Map()
   fileListMap.value.forEach((items, id) => {
-    map.set(
-      id,
-      items.filter(item => item.type === selectedHistoryType.value),
-    )
+    let filtered = items
+    if (selectedHistoryType.value) {
+      filtered = filtered.filter(item => item.type === selectedHistoryType.value)
+    }
+    if (q) {
+      filtered = filtered.filter(item =>
+        (item.fileName || '').toLowerCase().includes(q) ||
+        (item.dept || '').toLowerCase().includes(q) ||
+        (item.session_title || '').toLowerCase().includes(q),
+      )
+    }
+    map.set(id, filtered)
   })
   return map
 })
+
+const searchActive = computed(() => !!search.value.trim())
 
 const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetings: yearFilteredMeetings,
@@ -2871,6 +2881,7 @@ provide('archiveList', {
   expandedMeeting,
   meetingsStore,
   filteredGroupHistoryMap: filteredFileListMap,
+  searchActive,
   formatDate,
   downloadDummy: downloadFile,
   deleteReport,

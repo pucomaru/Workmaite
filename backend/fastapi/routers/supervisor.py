@@ -606,7 +606,8 @@ async def session_chat(
 {status_guide}
 
 [답변 형식 — 반드시 지킬 것]
-- 답변은 도입 문구 없이 바로 시작하세요. "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 문장은 절대 쓰지 마세요.
+- 항상 "~입니다", "~습니다" 형태의 정중한 문장으로 답하세요.
+- "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 불필요한 도입 문구는 쓰지 마세요.
 - "추가 질문이 있으시면 말씀해 주세요", "도움이 필요하시면 언제든지 말씀해 주세요" 같은 마무리 문장은 절대 쓰지 마세요.
 - 회의 내용 요약 시 핵심 결정사항·액션아이템만 bullet로 간결하게 정리하세요. 같은 내용 중복 금지.
 - 이 회의와 무관한 질문에는 "이 회의와 관련된 질문만 답변할 수 있습니다."라고만 답하세요.
@@ -1153,9 +1154,10 @@ async def supervisor_chat(
             "다른 사용자 또는 비소속 회의체의 민감 정보는 노출하지 마세요.\n"
         )
 
-        # 내가 참석자로 등록된 예정·진행 중 세션 목록 (SessionMember 기준)
+        # 내가 참석자로 등록된 예정·진행 중 세션 목록 (SessionMember 우선, MeetingMember 폴백)
         _upcoming_ctx = ""
         try:
+            _status_ko = {"scheduled": "예정됨", "ongoing": "진행 중"}
             _upcoming = (
                 db.query(models.MeetingSession, models.Meeting.title)
                 .join(models.SessionMember, models.SessionMember.session_id == models.MeetingSession.id)
@@ -1168,23 +1170,37 @@ async def supervisor_chat(
                 .limit(10)
                 .all()
             )
-            _status_ko = {"scheduled": "예정됨", "ongoing": "진행 중"}
+            # SessionMember 결과 없으면 MeetingMember 기반으로 폴백
+            if not _upcoming and pg_meeting_ids:
+                _upcoming = (
+                    db.query(models.MeetingSession, models.Meeting.title)
+                    .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                    .filter(
+                        models.MeetingSession.meeting_id.in_(list(pg_meeting_ids)),
+                        models.MeetingSession.status.in_(["scheduled", "ongoing"]),
+                    )
+                    .order_by(models.MeetingSession.scheduled_at)
+                    .limit(10)
+                    .all()
+                )
             if _upcoming:
                 _lines = ["[내 예정·진행 중 회의]"]
-                for _s, _mg_title in _upcoming:
+                for _s, _ in _upcoming:
                     _date = (
                         _s.scheduled_at.strftime("%Y.%m.%d %H:%M")
                         if _s.scheduled_at else "일정 미정"
                     )
                     _lines.append(
-                        f"  - [{_mg_title}] {_s.title} / {_date} / {_status_ko.get(_s.status, _s.status)}"
-                        + (f" / {_s.location}" if _s.location else "")
+                        f"  - 제목: {_s.title} / 일시: {_date}"
+                        + (f" / 장소: {_s.location}" if _s.location else "")
+                        + f" / 상태: {_status_ko.get(_s.status, _s.status)}"
                     )
                 _upcoming_ctx = "\n".join(_lines)
             else:
                 _upcoming_ctx = "[내 예정·진행 중 회의]\n  예정된 회의가 없습니다."
-        except Exception:
-            pass
+        except Exception as _ue:
+            logger.warning(f"[upcoming_ctx] 조회 실패: {_ue}")
+            _upcoming_ctx = "[내 예정·진행 중 회의]\n  예정된 회의가 없습니다."
 
         def _enrich(base_ctx: str) -> str:
             parts = [_user_scope_header, base_ctx]
@@ -1205,14 +1221,23 @@ async def supervisor_chat(
                 _SCHEDULE_KEYWORDS = ["일정", "곧 시작", "예정된 회의", "다음 회의", "언제 있", "회의 있어", "회의있어", "회의 언제"]
                 _is_schedule_query = any(kw in msg for kw in _SCHEDULE_KEYWORDS)
                 if _is_schedule_query and _upcoming_ctx:
+                    _now_str = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
                     _sched_system = (
+                        f"현재 시각: {_now_str}\n\n"
                         "당신은 회의 일정 안내 어시스턴트입니다.\n"
-                        "아래 [내 예정·진행 중 회의] 데이터를 바탕으로 자연스러운 말투로 설명하세요.\n"
-                        "- 회의체명([반도체 공정 위원회] 같은 대괄호 부분)은 언급하지 마세요.\n"
-                        "- '회의명이 YYYY년 MM월 DD일 HH:MM에 장소에서 예정되어 있습니다.' 형식으로 설명하세요.\n"
-                        "- 여러 개면 가장 빠른 것부터 순서대로 자연스럽게 나열하세요.\n"
-                        "- 예정된 회의가 없으면 '현재 예정된 회의가 없습니다'라고 답하세요.\n"
-                        "- 도입 문구('다음과 같습니다' 등)나 마무리 인사 없이 바로 답하세요.\n\n"
+                        "아래 [내 예정·진행 중 회의] 데이터와 현재 시각을 바탕으로 질문에 맞게 답하세요.\n"
+                        "- '곧 시작하는' → 2시간 이내 시작 예정인 회의\n"
+                        "- '오늘' → 오늘 날짜 기준\n"
+                        "- '이번 주' → 이번 주 월~일 기준\n\n"
+                        "출력 형식 (회의마다):\n"
+                        "IT 인프라 개선 위원회\n"
+                        "6/17 13:30 SK U타워\n"
+                        "예정되어 있습니다.\n\n"
+                        "규칙:\n"
+                        "- 데이터의 '제목' 필드를 그대로 회의명으로 쓰세요. '회의명'이라는 단어를 쓰지 마세요.\n"
+                        "- 조건에 해당하는 회의가 없으면 없다고 명확히 말하고, 가장 가까운 다음 회의를 안내하세요.\n"
+                        "- 여러 개면 빠른 것부터 순서대로 나열하세요.\n"
+                        "- 도입 문구나 마무리 인사 없이 바로 답하세요.\n\n"
                         + _upcoming_ctx
                     )
                     _sched_msgs = [SystemMessage(content=_sched_system), HumanMessage(content=msg)]

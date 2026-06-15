@@ -96,8 +96,9 @@ function onAgentResizeEnd() {
 
 const filteredMeetings = computed(() => {
   const q = sidebarSearch.value.trim().toLowerCase()
-  if (!q) return meetings.value
-  return meetings.value.filter(
+  const active = meetings.value.filter(m => m.status !== 'ended')
+  if (!q) return active
+  return active.filter(
     m =>
       m.title.toLowerCase().includes(q) ||
       (m.sessions || []).some(s => (s.title || '').toLowerCase().includes(q)),

@@ -112,7 +112,7 @@ def list_agendas(
         if not rows:
             return "해당 조건의 아젠다가 없습니다."
         return "\n".join(
-            f"- [{a.id}] {a.title} | {a.department or '부서미정'} | {a.status}"
+            f"- [{a.id}] {a.title} | {a.department or '부서미정'}"
             + (f" | 마감 {a.due_date:%Y-%m-%d}" if a.due_date else "")
             for a in rows
         )
