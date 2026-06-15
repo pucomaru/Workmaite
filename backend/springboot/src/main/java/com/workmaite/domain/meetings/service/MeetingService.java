@@ -79,14 +79,7 @@ public class MeetingService {
             .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
     // 1) 역할별 가시 회의체
-    List<Meeting> visible;
-    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
-      visible = meetingRepository.findAll();
-    } else if (caller.getCompanyRole() == UserRole.COMPANY_ADMIN && caller.getCompanyId() != null) {
-      visible = meetingRepository.findByParticipatingCompany(caller.getCompanyId());
-    } else {
-      visible = meetingRepository.findByUserId(userId);
-    }
+    List<Meeting> visible = getVisibleMeetings(caller);
 
     // 2) 키워드 필터 (제목·설명)
     if (keyword != null && !keyword.isBlank()) {
@@ -125,9 +118,27 @@ public class MeetingService {
     return visible.stream().map(m -> MeetingResponse.from(m, roleMap.get(m.getId()))).toList();
   }
 
-  // secretary가 여러 명일 경우 첫 번째만 담당자로 사용
+  // company_role 기준 가시 회의체. getMeetings/getMyActiveMeetings가 동일 스코프를 공유한다.
+  private List<Meeting> getVisibleMeetings(User caller) {
+    if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
+      return meetingRepository.findAll();
+    } else if (caller.getCompanyRole() == UserRole.COMPANY_ADMIN && caller.getCompanyId() != null) {
+      return meetingRepository.findByParticipatingCompany(caller.getCompanyId());
+    }
+    return meetingRepository.findByUserId(caller.getId());
+  }
+
+  // secretary가 여러 명일 경우 첫 번째만 담당자로 사용. 홈 "진행 중 회의체" 테이블의 단일 데이터 소스로,
+  // 조회 스코프를 getMeetings와 동일하게 맞춰 간사·참여자·역할이 항상 같은 회의체 집합에 대해 채워지도록 한다.
   public List<ActiveMeetingResponse> getMyActiveMeetings(Long userId) {
-    List<Meeting> meetings = meetingRepository.findByUserIdAndStatus(userId, MeetingStatus.ACTIVE);
+    User caller =
+        userRepository
+            .findById(userId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+    List<Meeting> meetings =
+        getVisibleMeetings(caller).stream()
+            .filter(m -> m.getStatus() == MeetingStatus.ACTIVE)
+            .toList();
     if (meetings.isEmpty()) return List.of();
 
     List<Long> meetingIds = meetings.stream().map(Meeting::getId).toList();
@@ -153,13 +164,23 @@ public class MeetingService {
         allMembers.stream()
             .collect(Collectors.groupingBy(MeetingMember::getMeetingId, Collectors.counting()));
 
+    // 내 회의체 권한(my_role) — 멤버가 아닌(회사관리자/시스템관리자) 회의체는 null
+    Map<Long, String> myRoleMap =
+        meetingMemberRepository.findByUserId(userId).stream()
+            .collect(
+                Collectors.toMap(
+                    MeetingMember::getMeetingId,
+                    mm -> mm.getMeetingRole() == MeetingMemberRole.ADMIN ? "admin" : "member",
+                    (a, b) -> a));
+
     return meetings.stream()
         .map(
             m ->
                 ActiveMeetingResponse.from(
                     m,
                     adminNameMap.get(m.getId()),
-                    memberCountMap.getOrDefault(m.getId(), 0L).intValue()))
+                    memberCountMap.getOrDefault(m.getId(), 0L).intValue(),
+                    myRoleMap.get(m.getId())))
         .toList();
   }
 

@@ -1,14 +1,14 @@
 <script setup>
 import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    provide,
-    reactive,
-    ref,
-    shallowRef,
-    watch,
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  provide,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
 } from 'vue'
 import api, { apiAI, streamPostForm } from '../api'
 import AgendaEditModal from '../components/AgendaEditModal.vue'
@@ -3177,7 +3177,11 @@ async function openMemberEditModal() {
           department: found.user?.department || memberEditModal.value.department,
           position: found.user?.position || memberEditModal.value.position,
           meetings: [
-            { id: numId, member_id: found.id, title: detailMeeting.value?.title || node.label || '' },
+            {
+              id: numId,
+              member_id: found.id,
+              title: detailMeeting.value?.title || node.label || '',
+            },
           ],
         }
       }

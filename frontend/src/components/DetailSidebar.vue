@@ -259,11 +259,7 @@ function parseAiEvidence(val) {
             </div>
           </div>
           <div class="detail-header-actions">
-            <button
-              v-if="isDetailAdmin"
-              class="detail-icon-btn"
-              @click="openGroupSetting"
-            >
+            <button v-if="isDetailAdmin" class="detail-icon-btn" @click="openGroupSetting">
               <svg
                 width="13"
                 height="13"

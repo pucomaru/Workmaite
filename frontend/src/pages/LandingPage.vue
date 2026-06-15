@@ -514,7 +514,7 @@ const trustItems = [
   height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px; 
+  gap: 10px;
 }
 .btn-nav-ghost {
   height: 34px;

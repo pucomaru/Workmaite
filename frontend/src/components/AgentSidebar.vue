@@ -369,9 +369,7 @@ function onResizeEnd() {
               <span>{{ msg.spec?.summary }}</span>
             </div>
             <div v-if="msg.state === 'pending'" class="agent-action-btns">
-              <button class="agent-action-btn cancel" @click="cancelAgentAction(msg)">
-                취소
-              </button>
+              <button class="agent-action-btn cancel" @click="cancelAgentAction(msg)">취소</button>
               <button
                 class="agent-action-btn confirm"
                 :class="{ danger: msg.spec?.danger }"

@@ -135,6 +135,7 @@ def get_token_usage(
         .filter(models.AgentLog.user_id == current_user.id)
         .first()
     )
+    all_time_llm_cost = float(all_time.cost or 0) if all_time else 0.0
 
     # ── 4. STT 제공자별 집계 ────────────────────────────────────────────────────
     stt_base = (
@@ -184,6 +185,33 @@ def get_token_usage(
         stt_total_secs += secs
         stt_total_cost += cost
     by_provider.sort(key=lambda x: x["seconds"], reverse=True)
+
+    # ── 4-1. STT 전체 기간 누적 비용 (누적 비용에 합산) ─────────────────────────
+    stt_all_time_rows = (
+        db.query(
+            models.SttSegment.provider,
+            func.sum(models.SttSegment.end_sec - models.SttSegment.start_sec).label(
+                "secs"
+            ),
+        )
+        .join(
+            models.MeetingSession,
+            models.SttSegment.session_id == models.MeetingSession.id,
+        )
+        .join(
+            models.MeetingMember,
+            models.MeetingSession.meeting_id == models.MeetingMember.meeting_id,
+        )
+        .filter(
+            models.MeetingMember.user_id == current_user.id,
+            models.SttSegment.provider.isnot(None),
+        )
+        .group_by(models.SttSegment.provider)
+        .all()
+    )
+    stt_all_time_cost = sum(
+        stt_cost(r.provider, float(r.secs or 0)) for r in stt_all_time_rows
+    )
 
     # ── 5. 모델 목록 조합 (모델별 → context_type별 세분화) ──────────────────────
     by_model = sorted(
@@ -242,7 +270,10 @@ def get_token_usage(
             "total_tokens": int((all_time.pt or 0) + (all_time.ct or 0))
             if all_time
             else 0,
-            "cost": round(float(all_time.cost or 0), 6) if all_time else 0,
+            # 누적 비용 = LLM 누적 + STT 누적 (기간 비용과 동일하게 STT 합산)
+            "cost": round(all_time_llm_cost + stt_all_time_cost, 6),
+            "llm_cost": round(all_time_llm_cost, 6),
+            "stt_cost": round(stt_all_time_cost, 6),
         },
         "sections": {
             "ai_model": {
