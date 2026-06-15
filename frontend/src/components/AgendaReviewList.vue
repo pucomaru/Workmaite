@@ -201,12 +201,7 @@ function deptList(dept) {
               </div>
             </div>
             <div class="arl-title">{{ ag.title }}</div>
-            <div class="arl-meta" v-if="ag.company || ag.dept || ag.start_date || ag.end_date">
-              <div class="arl-tags" v-if="ag.company">
-                <span class="arl-tag arl-tag-company" v-for="o in deptList(ag.company)" :key="o">{{
-                  o
-                }}</span>
-              </div>
+            <div class="arl-meta" v-if="ag.dept || ag.start_date || ag.end_date">
               <div class="arl-tags" v-if="ag.dept">
                 <span class="arl-tag arl-tag-dept" v-for="d in deptList(ag.dept)" :key="d">{{
                   d
@@ -275,42 +270,12 @@ function deptList(dept) {
               placeholder="아젠다 제목"
               style="margin-top: 5px"
             />
-            <select
-              v-if="memberCompanies.length"
-              name="edit-company"
-              class="app-select dei-app-select"
-              v-model="ag._editCompany"
-              style="margin-top: 4px; width: 100%"
-            >
-              <option value="">회사 선택</option>
-              <option v-for="o in memberCompanies" :key="o" :value="o">{{ o }}</option>
-            </select>
             <input
-              v-else
-              :id="`edit-company-${i}`"
-              :name="`edit-company-${i}`"
-              class="dei-input"
-              v-model="ag._editCompany"
-              placeholder="회사 (선택)"
-              style="margin-top: 4px"
-            />
-            <select
-              v-if="memberDepts.length"
-              name="edit-dept"
-              class="app-select dei-app-select"
-              v-model="ag._editDept"
-              style="margin-top: 4px; width: 100%"
-            >
-              <option value="">담당부서 선택</option>
-              <option v-for="d in memberDepts" :key="d" :value="d">{{ d }}</option>
-            </select>
-            <input
-              v-else
               :id="`edit-dept-${i}`"
               :name="`edit-dept-${i}`"
               class="dei-input"
               v-model="ag._editDept"
-              placeholder="담당 팀 (선택)"
+              placeholder="담당 부서 (선택)"
               style="margin-top: 4px"
             />
             <div class="dei-date-row">
