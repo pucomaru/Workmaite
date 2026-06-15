@@ -850,6 +850,13 @@ async def create_agenda_node(data: dict, current_user: models.User = Depends(get
     due_date = data.get("due_date", "")
     mg_id = data.get("mg_id", "")
     assignee_name = data.get("assignee_name", "")
+    # Draft는 PostgreSQL에만 보관 — Neo4j 연동 안 함 (기존 노드 있으면 제거)
+    if (status or "").strip().lower() == "draft":
+        try:
+            await _run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id})
+        except Exception:
+            pass
+        return {"ok": True, "skipped": "draft"}
     try:
         await _run_cypher(
             """
@@ -886,6 +893,13 @@ async def update_agenda_node(ag_id: str, data: dict, current_user: models.User =
     fields = {k: v for k, v in data.items() if k in allowed}
     if not fields:
         return {"ok": True}
+    # Draft로 전환되면 PostgreSQL에만 보관 — Neo4j 노드 제거
+    if (fields.get("status") or "").strip().lower() == "draft":
+        try:
+            await _run_cypher("MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id})
+        except Exception:
+            pass
+        return {"ok": True, "skipped": "draft"}
     # content → title (Neo4j 스키마)
     if "content" in fields:
         fields["title"] = fields.pop("content")

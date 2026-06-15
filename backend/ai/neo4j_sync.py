@@ -137,6 +137,22 @@ def _log_failure(operation: str, entity_type: str, entity_id: str,
     logger.warning(f"[Neo4jSync] 동기화 실패: {operation}/{entity_type}/{entity_id} — {error}")
 
 
+def _is_draft(status: str | None) -> bool:
+    """Draft 상태 판별 (대소문자 무관) — Agenda 'draft' / Minutes 'DRAFT' 모두 포함."""
+    return (status or "").strip().lower() == "draft"
+
+
+async def _detach_node(label: str, key_prop: str, key_value) -> None:
+    """Neo4j에서 해당 노드를 관계째 제거한다 (draft 전환 시 PG-only로 되돌리기 위함)."""
+    try:
+        await run_cypher(
+            f"MATCH (n:{label} {{{key_prop}: $k}}) DETACH DELETE n",
+            {"k": key_value},
+        )
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}")
+
+
 def _parse_dept_names(department: str | None) -> list[str]:
     """department 문자열(또는 JSON string)에서 부서명 목록을 추출합니다."""
     if not department or not department.strip():
@@ -464,8 +480,13 @@ async def sync_agenda(
 
     HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
     임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+
+    Draft 상태는 사용자 확인 전이므로 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
     ag_id = to_agenda_id(agenda_id)
+    if _is_draft(status):
+        await _detach_node("Agenda", "id", ag_id)  # draft 전환 시 기존 노드 제거
+        return
     mg_id = to_mg_id(meeting_id)
     s_id  = to_session_id(session_id) if session_id else None
     cypher = """
@@ -562,7 +583,13 @@ async def sync_minutes(
     status: str | None = None,
     generated_at: str | None = None,
 ) -> None:
-    """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다."""
+    """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다.
+
+    Draft 상태는 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
+    """
+    if _is_draft(status):
+        await _detach_node("Minutes", "pg_id", minutes_id)  # draft 전환 시 기존 노드 제거
+        return
     s_id = to_session_id(session_id)
     cypher = """
     MERGE (mn:Minutes {pg_id: $pg_id})
