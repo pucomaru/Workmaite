@@ -121,8 +121,10 @@ const yearMonths = computed(() => {
 
 const dayEvents = computed(() => eventsOn(cursor.value))
 
-function evtCls(type) {
-  return type === 'session' ? 'evt-session' : 'evt-agenda'
+function evtCls(e) {
+  const base = e.type === 'session' ? 'evt-session' : 'evt-agenda'
+  const ended = e.meetingStatus === 'ended' ? ' evt-ended' : ''
+  return base + ended
 }
 
 function clickDay(d) {
@@ -511,7 +513,7 @@ const {
                         v-for="e in eventsOn(cell).slice(0, 2)"
                         :key="e.id"
                         class="evt-pill"
-                        :class="evtCls(e.type)"
+                        :class="evtCls(e)"
                         :title="e.title"
                         @click.stop="clickEventDay(e)"
                       >
@@ -545,7 +547,7 @@ const {
                         v-for="e in eventsOn(d)"
                         :key="e.id"
                         class="evt-pill"
-                        :class="evtCls(e.type)"
+                        :class="evtCls(e)"
                         :title="e.title"
                         @click.stop="clickEventDay(e)"
                       >
@@ -563,8 +565,8 @@ const {
                   <div v-if="!dayEvents.length" class="empty-state" style="padding: 32px 16px">
                     <p>이 날에 등록된 일정이 없습니다.</p>
                   </div>
-                  <div v-for="e in dayEvents" :key="e.id" class="day-evt-row">
-                    <div class="day-evt-bar" :class="evtCls(e.type)" />
+                  <div v-for="e in dayEvents" :key="e.id" class="day-evt-row" :class="{ 'day-evt-row-ended': e.meetingStatus === 'ended' }">
+                    <div class="day-evt-bar" :class="evtCls(e)" />
                     <div class="day-evt-info">
                       <span
                         class="badge"
@@ -573,7 +575,12 @@ const {
                         {{ e.type === 'session' ? '회의' : '아젠다 마감' }}
                       </span>
                       <div class="day-evt-title">{{ e.title }}</div>
-                      <div v-if="e.meeting_title" class="day-evt-meta">{{ e.meeting_title }}</div>
+                      <div v-if="e.meeting_title" class="day-evt-meta">
+                        <span :class="{ 'evt-meta-strikethrough': e.meetingStatus === 'ended' }">
+                          {{ e.meeting_title }}
+                        </span>
+                        <span v-if="e.meetingStatus === 'ended'" class="evt-ended-label"> (종료된 회의체)</span>
+                      </div>
                       <div v-if="e.scheduledAt" class="day-evt-meta">
                         {{ fmtScheduledAt(e.scheduledAt) }}
                       </div>
@@ -1114,6 +1121,16 @@ const {
   color: var(--text-muted);
   margin-top: 3px;
 }
+.day-evt-row-ended {
+  opacity: 0.4;
+}
+.evt-meta-strikethrough {
+  text-decoration: line-through;
+}
+.evt-ended-label {
+  font-size: 10px;
+  text-decoration: none;
+}
 .year-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1190,6 +1207,12 @@ const {
 .evt-pill.evt-session {
   background: var(--accent-bg-2);
   color: var(--accent-strong);
+}
+.evt-pill.evt-ended {
+  opacity: 0.4;
+}
+.day-evt-bar.evt-ended {
+  opacity: 0.4;
 }
 
 /* 우선순위 배지 */
