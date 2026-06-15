@@ -8,9 +8,10 @@ import { ref } from 'vue'
 let _id = 0
 export const toasts = ref([]) // [{ id, message, type }]
 
-export function toast(message, type = 'info', { duration = 3200 } = {}) {
+export function toast(message, type = 'info', { duration = 3200, icon = true } = {}) {
+  if (toasts.value.some(t => t.message === message)) return
   const id = ++_id
-  toasts.value.push({ id, message, type })
+  toasts.value.push({ id, message, type, icon })
   if (duration > 0) setTimeout(() => dismissToast(id), duration)
   return id
 }

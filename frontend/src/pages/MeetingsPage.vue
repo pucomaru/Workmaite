@@ -238,6 +238,9 @@ async function openSettings(m) {
       position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     })),
+    originalRoles: Object.fromEntries(
+      members.map(mb => [mb.id, mb.role || 'member'])
+    ),
     removedIds: [],
   }
 }
@@ -250,7 +253,7 @@ const savingSettings = ref(false)
 async function saveSettings() {
   if (!settingsModal.value) return
   savingSettings.value = true
-  const { meeting, form, members, removedIds } = settingsModal.value
+  const { meeting, form, members, removedIds, originalRoles } = settingsModal.value
   try {
     await api.patch(`/api/v1/meetings/${meeting.id}`, {
       title: form.title,
@@ -263,8 +266,11 @@ async function saveSettings() {
     for (const memberId of removedIds) {
       await api.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }
-    for (const mb of members.filter(m => m.id === null)) {
+    for (const mb of members.filter(m => m.id == null)) {
       await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+    }
+    for (const mb of members.filter(m => m.id != null && m.role !== originalRoles?.[m.id])) {
+      await api.patch(`/api/v1/meetings/${meeting.id}/members/${mb.id}`, { meeting_role: mb.role })
     }
     await meetingsStore.fetchMeetings()
     const res = await api.get(`/api/v1/meetings/${meeting.id}/members`)
