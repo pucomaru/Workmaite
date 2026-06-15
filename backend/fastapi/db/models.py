@@ -135,6 +135,7 @@ class MeetingSession(Base):
         BigInteger, default=0, nullable=False
     )
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=datetime.utcnow)
 
     minutes: Mapped["Minutes | None"] = relationship(
         "Minutes", back_populates="session", uselist=False
@@ -181,8 +182,8 @@ class Report(Base):
     parent_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("reports.id"), nullable=True
     )
-    upload_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    upload_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     submitter_department: Mapped[str] = mapped_column(
@@ -265,8 +266,8 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     thread_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     role: Mapped[str] = mapped_column(String(10), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -287,8 +288,8 @@ class ChatFeedback(Base):
 
     __tablename__ = "chat_feedback"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
     thread_id: Mapped[str] = mapped_column(String(100), nullable=False)
     message_id: Mapped[int | None] = mapped_column(

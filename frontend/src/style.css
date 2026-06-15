@@ -962,6 +962,19 @@ html.night-mode .empty-state {
   display: flex;
   align-items: center;
 }
+.search-hit-counter {
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.search-input.with-counter {
+  padding-right: 62px;
+}
 .year-filter-wrap {
   flex-shrink: 0;
   display: flex;

@@ -875,23 +875,26 @@ async def ai_delete_user(
         raise HTTPException(
             status_code=403, detail="계정을 삭제할 권한이 없습니다. (관리자만 가능)"
         )
-    if not user.is_active:
-        return {"ok": True}  # 이미 탈퇴 처리됨 (멱등)
-
-    # 소프트 삭제 + 자격 익명화
-    user.is_active = False
-    user.email = (
-        f"deleted+{user.id}@deleted.invalid"  # 원래 이메일 슬롯 해제(재가입 허용)
-    )
-    user.password_hash = "!"  # BCrypt와 절대 매칭되지 않는 불용 해시
-    # 활성 세션(refresh token) 폐기 — 행이 남으므로 명시적으로 정리
-    db.execute(
-        text("DELETE FROM refresh_tokens WHERE user_id = :uid"), {"uid": user_id}
-    )
-    # 활성 회의체 명단에서 제거 (참석 이력·발화 등은 별도 테이블에 보존됨)
-    db.query(models.MeetingMember).filter(
-        models.MeetingMember.user_id == user_id
-    ).delete()
+    uid = user_id
+    # FK 참조 정리 후 users 행 하드 삭제
+    # 1) 세션·토큰 제거
+    db.execute(text("DELETE FROM refresh_tokens WHERE user_id = :uid"), {"uid": uid})
+    db.execute(text("DELETE FROM session_members WHERE user_id = :uid"), {"uid": uid})
+    db.execute(text("DELETE FROM meeting_members WHERE user_id = :uid"), {"uid": uid})
+    # 2) nullable FK → NULL (보고서·채팅 이력은 유지)
+    db.execute(text("UPDATE reports SET upload_id = NULL WHERE upload_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE chat_messages SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE chat_feedback SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE meetings SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
+    db.execute(text("UPDATE agenda SET assignee_id = NULL WHERE assignee_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE stt_segments SET speaker_user_id = NULL WHERE speaker_user_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE minutes SET recorder_id = NULL WHERE recorder_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE agent_logs SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE hitl_reviews SET reviewer_id = NULL WHERE reviewer_id = :uid"), {"uid": uid})
+    db.execute(text("UPDATE graph_relations SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
+    db.execute(text("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :uid"), {"uid": uid})
+    # 3) users 행 삭제
+    db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": uid})
     db.commit()
     background_tasks.add_task(neo4j_delete_user, user_id)
     return {"ok": True}

@@ -122,9 +122,11 @@ function versionKey(groupId, itemIdx) {
             </td>
             <td class="lv-td-secretary">
               <span class="lv-secretary-text">{{
-                g.members.find(m => m.role === 'admin')?.userName ||
-                g.members.find(m => m.role === 'admin')?.name ||
-                '-'
+                (g.members || [])
+                  .filter(m => m.role === 'admin')
+                  .map(m => m.userName || m.name)
+                  .filter(Boolean)
+                  .join(', ') || '-'
               }}</span>
             </td>
             <td class="lv-td-cnt">{{ (filteredGroupHistoryMap.get(g.id) || []).length }}건</td>

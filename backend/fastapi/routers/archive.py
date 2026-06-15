@@ -182,9 +182,30 @@ async def archive_extract_agendas(
 
         # ── draft 즉시 저장 + AgentLog ────────────────────────────────────
         import uuid as _uuid
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+        _KST = _tz(_td(hours=9))
+        _today_kst = _dt.now(_KST).date()
+        _default_start = _today_kst.strftime("%Y-%m-%d")
+        _default_due = (_today_kst + _td(days=7)).strftime("%Y-%m-%d")
+
+        # 회의체 전체 draft 아젠다 삭제 — 재추출 시 이전 세션 draft 포함 정리
+        db.query(models.Agenda).filter(
+            models.Agenda.meeting_id == meeting_id,
+            models.Agenda.status == "draft",
+        ).delete(synchronize_session=False)
+        db.flush()
 
         agendas_raw = parsed.get("agendas", [])
+        # 동일 제목 중복 제거 — LLM이 같은 작업을 여러 팀에 배정하는 오류 방지
+        _seen_titles: set[str] = set()
+        deduped: list[dict] = []
+        for ag in agendas_raw:
+            _t = ag.get("title", "").strip().lower()
+            if _t and _t not in _seen_titles:
+                _seen_titles.add(_t)
+                deduped.append(ag)
+        agendas_raw = deduped
         draft_ids: list[int | None] = [None] * len(agendas_raw)
         agent_log_id: int | None = None
         try:
@@ -287,8 +308,8 @@ async def archive_extract_agendas(
                     "title": ag.get("title", ""),
                     "company": ag.get("company") or ag.get("organization"),
                     "department": ag.get("department"),
-                    "start_date": ag.get("start_date"),
-                    "due_date": ag.get("due_date"),
+                    "start_date": ag.get("start_date") or _default_start,
+                    "due_date": ag.get("due_date") or _default_due,
                     "db_id": draft_ids[idx],
                     "_state": None,
                     "_editing": False,
@@ -338,63 +359,127 @@ async def archive_chat_extract(
         else "없음"
     )
 
-    async def stream():
-        _collector = TokenUsageCollector()
-        _tok_ctx_token = _token_collector_var.set(_collector)
-        _log_id = _create_log(
-            context_type="agenda_extraction",
-            meeting_id=meeting_id or None,
-            session_id=None,
-            user_id=current_user.id,
-            input_data={"message": message[:300]},
+    # ── AI 호출·DB 작업을 route handler body에서 실행 ──────────────────────────
+    # StreamingResponse 반환 시점에 get_db teardown이 실행되어 db 세션이 닫힘.
+    # stream() generator는 그 이후에 소비되므로 DB 접근 불가.
+    # 따라서 plan·AI·DB를 모두 여기서 완료하고, stream()은 결과만 재생.
+    _collector = TokenUsageCollector()
+    _tok_ctx_token = _token_collector_var.set(_collector)
+    _log_id = _create_log(
+        context_type="agenda_extraction",
+        meeting_id=meeting_id or None,
+        session_id=None,
+        user_id=current_user.id,
+        input_data={"message": message[:300]},
+    )
+    _stream_error: BaseException | None = None
+    plan_steps: list[str] = []
+    result_event: dict = {"agendas": current_agendas, "reply": "오류가 발생했습니다."}
+
+    try:
+        cnt = len(current_agendas)
+        _plan_sys = (
+            "업무 과제 관리 AI입니다. 사용자 요청을 바탕으로 과제 목록을 어떻게 처리할지 "
+            "한국어로 2~3단계를 간결하게 나열하세요. 각 단계는 짧은 한 문장, 번호·기호 없이."
         )
-        _stream_error: BaseException | None = None
-        try:
-            cnt = len(current_agendas)
-            # LLM이 요청 내용을 보고 처리 계획을 스스로 서술
-            _plan_sys = (
-                "업무 과제 관리 AI입니다. 사용자 요청을 바탕으로 과제 목록을 어떻게 처리할지 "
-                "한국어로 2~3단계를 간결하게 나열하세요. 각 단계는 짧은 한 문장, 번호·기호 없이."
-            )
-            _plan_hmn = f"현재 과제 {cnt}건. 사용자 요청: {message[:300]}"
-            async for _step in _stream_plan(_plan_sys, _plan_hmn):
-                yield sse_event("planning", f"{_step}")
+        _plan_hmn = f"현재 과제 {cnt}건. 사용자 요청: {message[:300]}"
+        async for _step in _stream_plan(_plan_sys, _plan_hmn):
+            plan_steps.append(_step)
 
-            parsed = await task_agent.chat_update_agendas(
-                message, meeting_context, org_dept_list, current_agendas_text
-            )
-            if not parsed:
-                parsed = {"agendas": current_agendas, "message": message}
+        parsed = await task_agent.chat_update_agendas(
+            message, meeting_context, org_dept_list, current_agendas_text
+        )
+        if not parsed:
+            parsed = {"agendas": current_agendas, "message": message}
 
-            agendas = parsed.get("agendas", current_agendas)
-            result = {
-                "agendas": [
-                    {
-                        "title": ag.get("title", ""),
-                        "company": ag.get("company") or ag.get("organization"),
-                        "department": ag.get("department"),
-                        "priority": ag.get("priority", "normal"),
-                        "start_date": ag.get("start_date"),
-                        "due_date": ag.get("due_date"),
-                        "_state": None,
-                        "_editing": False,
-                    }
-                    for ag in agendas
-                ],
-                "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
-            }
-            yield sse_event("result", result)
-        except Exception as e:
-            _stream_error = e
-            logger.warning(f"[chat-extract] 오류: {e}")
-            fallback = {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
-            yield sse_event("result", fallback)
-        except BaseException as _e:
-            _stream_error = _e
-            raise
-        finally:
-            _token_collector_var.reset(_tok_ctx_token)
-            _finalize(_log_id, _collector, _stream_error, None)
+        agendas = parsed.get("agendas", current_agendas)
+
+        # 기존 draft 삭제 후 새 draft 저장
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+        _KST = _tz(_td(hours=9))
+        _today_kst = _dt.now(_KST).date()
+        _default_start = _today_kst.strftime("%Y-%m-%d")
+        _default_due = (_today_kst + _td(days=7)).strftime("%Y-%m-%d")
+
+        new_db_ids: list[int | None] = [None] * len(agendas)
+        if meeting_id:
+            try:
+                old_db_ids = [
+                    ag.get("db_id")
+                    for ag in current_agendas
+                    if ag.get("db_id") is not None
+                ]
+                if old_db_ids:
+                    db.query(models.Agenda).filter(
+                        models.Agenda.id.in_(old_db_ids),
+                        models.Agenda.meeting_id == meeting_id,
+                        models.Agenda.status == "draft",
+                    ).delete(synchronize_session=False)
+                for idx, ag in enumerate(agendas):
+                    title = ag.get("title", "").strip()
+                    if not title:
+                        continue
+                    due_val = None
+                    if ag.get("due_date"):
+                        try:
+                            due_val = _dt.strptime(ag["due_date"], "%Y-%m-%d")
+                        except Exception:
+                            pass
+                    dept_raw = ag.get("department")
+                    dept_json = [dept_raw] if dept_raw and dept_raw != "null" else None
+                    db_agenda = models.Agenda(
+                        meeting_id=meeting_id,
+                        title=title,
+                        status="draft",
+                        department=dept_json,
+                        due_date=due_val,
+                        ai_evidence=json.dumps(
+                            {
+                                "company": ag.get("company") or ag.get("organization"),
+                                "start_date": ag.get("start_date"),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    db.add(db_agenda)
+                    db.flush()
+                    new_db_ids[idx] = db_agenda.id
+                db.commit()
+            except Exception as _de:
+                logger.warning(f"[chat-extract] draft 갱신 실패: {_de}")
+                db.rollback()
+
+        result_event = {
+            "agendas": [
+                {
+                    "title": ag.get("title", ""),
+                    "company": ag.get("company") or ag.get("organization"),
+                    "department": ag.get("department"),
+                    "priority": ag.get("priority", "normal"),
+                    "start_date": ag.get("start_date") or _default_start,
+                    "due_date": ag.get("due_date") or _default_due,
+                    "db_id": new_db_ids[i],
+                    "_state": None,
+                    "_editing": False,
+                }
+                for i, ag in enumerate(agendas)
+            ],
+            "reply": parsed.get("message", "과제 목록을 업데이트했습니다."),
+        }
+    except Exception as e:
+        _stream_error = e
+        logger.warning(f"[chat-extract] 오류: {e}")
+        result_event = {"agendas": current_agendas, "reply": f"오류: {str(e)}"}
+    finally:
+        _token_collector_var.reset(_tok_ctx_token)
+        _finalize(_log_id, _collector, _stream_error, None)
+
+    # 미리 계산된 이벤트를 재생 — DB 접근 없음
+    async def stream():
+        for _step in plan_steps:
+            yield sse_event("planning", f"{_step}")
+        yield sse_event("result", result_event)
         yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")
@@ -807,16 +892,17 @@ async def commit_draft_agendas(
 @router.get("/meetings/{meeting_id}/draft-agendas")
 async def get_draft_agendas(
     meeting_id: int,
+    session_id: int | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_view(db, current_user, meeting_id)
-    agendas = (
-        db.query(models.Agenda)
-        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
-        .order_by(models.Agenda.created_at.asc())
-        .all()
+    q = db.query(models.Agenda).filter(
+        models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft"
     )
+    if session_id is not None:
+        q = q.filter(models.Agenda.session_id == session_id)
+    agendas = q.order_by(models.Agenda.created_at.asc()).all()
 
     def _parse_ev(ev):
         if not ev:

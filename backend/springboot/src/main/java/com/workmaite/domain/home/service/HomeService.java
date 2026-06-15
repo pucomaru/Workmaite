@@ -9,6 +9,9 @@ import com.workmaite.domain.home.dto.CalendarResponse;
 import com.workmaite.domain.home.dto.CalendarSessionItem;
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
+import com.workmaite.domain.meetings.service.MeetingService;
+import com.workmaite.domain.user.entity.User;
+import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.domain.sessions.entity.MeetingSession;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import java.time.DayOfWeek;
@@ -32,6 +35,8 @@ public class HomeService {
   private final SessionRepository sessionRepository;
   private final AgendaRepository agendaRepository;
   private final MeetingMemberRepository meetingMemberRepository;
+  private final MeetingService meetingService;
+  private final UserRepository userRepository;
 
   public CalendarResponse getCalendar(Long userId, String view, String dateStr) {
     LocalDate date = LocalDate.parse(dateStr);
@@ -56,10 +61,9 @@ public class HomeService {
 
     List<MeetingSession> sessions =
         sessionRepository.findByUserIdAndScheduledAtBetween(userId, start, end);
-    List<Long> meetingIds =
-        meetingMemberRepository.findByUserId(userId).stream()
-            .map(MeetingMember::getMeetingId)
-            .toList();
+    User user = userRepository.findById(userId).orElseThrow();
+    List<Long> meetingIds = meetingService.getVisibleMeetings(user)
+        .stream().map(Meeting::getId).toList();
 
     List<Agenda> agendas =
         meetingIds.isEmpty()
@@ -73,15 +77,26 @@ public class HomeService {
             .distinct()
             .toList();
 
+    List<Meeting> allMeetings =
+        allMeetingIds.isEmpty() ? List.of() : meetingRepository.findAllById(allMeetingIds);
+
     Map<Long, String> meetingTitleMap =
-        allMeetingIds.isEmpty()
-            ? Map.of()
-            : meetingRepository.findAllById(allMeetingIds).stream()
-                .collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
+        allMeetings.stream()
+            .collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
+
+    Map<Long, String> meetingStatusMap =
+        allMeetings.stream()
+            .collect(Collectors.toMap(
+                Meeting::getId,
+                m -> m.getStatus().name().toLowerCase()
+            ));
 
     List<CalendarSessionItem> sessionItems =
         sessions.stream()
-            .map(s -> CalendarSessionItem.from(s, meetingTitleMap.get(s.getMeetingId())))
+            .map(s -> CalendarSessionItem.from(
+                s,
+                meetingTitleMap.get(s.getMeetingId()),
+                meetingStatusMap.getOrDefault(s.getMeetingId(), "active")))
             .toList();
 
     List<CalendarAgendaItem> agendaItems =

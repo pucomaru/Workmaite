@@ -34,10 +34,10 @@ def generate_minutes_system(
 
     if participants:
         lines = [
-            f"- {p.get('name', '?')} ({p.get('dept', '')}{'·진행' if p.get('role') == 'admin' else ''})"
+            f"- {p.get('dept') or p.get('name', '?')} ({'간사' if p.get('role') == 'admin' else '참여자'})"
             for p in participants
         ]
-        parts.append("[참석자]\n" + "\n".join(lines))
+        parts.append("[참석자 — 참고용. 회의록 상단 표를 수정하는 데 사용하지 말 것]\n" + "\n".join(lines))
 
     if prev_minutes:
         # 연속성 참고용일 뿐 — 이번 회의록 본문은 반드시 아래 [STT 대화 기록]만으로 작성한다.
@@ -74,14 +74,21 @@ def generate_minutes_system(
 4. 화살표 활용: → 함의·후속액션, ← 참고·출처
 5. 수치·퍼센트·금액·일정이 나오면 반드시 표로 정리할 것 (산문 안에 수치 나열 금지)
 6. 비교·대안·계획이 나오면 표로 정리할 것
-7. 주제별 소제목(###) 필수 사용 — 소제목 없이 이어서 쓰는 것 금지
-8. 관련 보고서 내용은 해당 섹션에 통합하고 출처 표기: → [보고서명]""")
+7. 주제별 소제목(###) 필수 사용 — 형식: `### 주제명 — 담당부서` (괄호 없이). 소제목 없이 이어서 쓰는 것 금지
+8. 관련 보고서 내용은 해당 섹션에 통합하고 출처 표기: → [보고서명]
+9. 회의록 상단 표(안건·일시·장소·간사·참여자)는 제공된 내용 그대로 출력할 것. 절대 수정하거나 내용을 추가하지 말 것
+10. ## 4. 액션 아이템 과 ## 5. 다음 회의 아젠다 섹션은 제목 줄만 출력하고 내용은 한 줄도 쓰지 말 것""")
 
     return "\n\n".join(parts)
 
 
 def generate_minutes_human(
-    transcript: str, now: str, summary_blocks: list = None
+    transcript: str,
+    now: str,
+    summary_blocks: list = None,
+    session_info: dict = None,
+    participants: list = None,
+    agenda_text: str = "",
 ) -> str:
     blocks_section = ""
     if summary_blocks:
@@ -91,6 +98,34 @@ def generate_minutes_human(
 {blocks_text}
 
 """
+
+    # 상단 표 구성
+    agenda_cell = agenda_text.replace("\n- ", " / ").lstrip("- ") if agenda_text else "안건 미정"
+    datetime_cell = (session_info or {}).get("started_at") or now
+    location_cell = (session_info or {}).get("location") or ""
+    secretaries = [p for p in (participants or []) if p.get("role") == "admin"]
+    members = [p for p in (participants or []) if p.get("role") != "admin"]
+    secretary_cell = ", ".join(
+        p["dept"] if p.get("dept") else p["name"]
+        for p in secretaries
+    ) or "-"
+    member_cell = ", ".join(
+        p["dept"] if p.get("dept") else p["name"]
+        for p in members
+    ) or "-"
+
+    header_rows = [
+        f"| 안건 | {agenda_cell} |",
+        f"| 일시 | {datetime_cell} |",
+    ]
+    if location_cell:
+        header_rows.append(f"| 장소 | {location_cell} |")
+    header_rows += [
+        f"| 간사 | {secretary_cell} |",
+        f"| 참여자 | {member_cell} |",
+    ]
+    header_table = "| 항목 | 내용 |\n|------|------|\n" + "\n".join(header_rows)
+
     return f"""\
 다음 STT 대화 기록으로 회의록을 작성해주세요.
 {blocks_section}
@@ -103,29 +138,28 @@ def generate_minutes_human(
 
 # 회의록
 
-**일시:** {now}
-**참석자:** (대화 기록에서 발언자 추출)
+{header_table}
 
 ---
 
 ## 1. 회의 목적 및 배경
 2-3문장. 왜 이 회의가 열렸는지, 무엇을 결정하기 위한 자리인지만 기술. ~임 / ~됨 어투.
 
-## 2. 안건별 주요 논의
-각 안건은 반드시 아래 형식으로 번호를 붙여 구분하고, 안건 사이에 반드시 `---` 구분선을 넣을 것:
+## 2. 주요 논의 사항
+각 논의 주제는 반드시 아래 형식으로 구분하고, 주제 사이에 반드시 `---` 구분선을 넣을 것:
 
-### 안건 1. (주제명) — 발표자/담당자
+### 주제명 — 담당부서
 내용
 
 ---
 
-### 안건 2. (주제명) — 발표자/담당자
+### 주제명 — 담당부서
 내용
 
 표는 오직 아래 데이터에만 사용할 것:
 - 같은 속성(열)을 공유하는 항목이 2개 이상인 데이터 (예: 채널별 지원자수, 항목별 예산)
 - 수치·금액·퍼센트·점수 비교
-- 담당자+내용+기한이 묶이는 액션 아이템 3개 이상
+- 부서+내용+기한이 묶이는 액션 아이템 3개 이상
 
 표에 절대 넣으면 안 되는 것:
 - 배경 설명, 조치 내용, 향후 방향 → bullet point로 작성
@@ -133,16 +167,16 @@ def generate_minutes_human(
 - 한 문장으로 표현 가능한 내용 → bullet point로 작성
 - 표의 행이 1개뿐인 경우 → bullet point로 작성
 
-각 안건은 아래 4가지 흐름으로 서술할 것 (해당 내용이 없으면 생략):
-① 배경: 이 안건이 왜 나왔는지 (이전 회의 미결, 보고서 검토 결과, 외부 이슈 등)
+각 주제는 아래 4가지 흐름으로 서술할 것 (해당 내용이 없으면 생략):
+① 배경: 이 주제가 왜 나왔는지 (이전 회의 미결, 보고서 검토 결과, 외부 이슈 등)
 ② 현황/논의: 현재 상태나 주요 논의 내용. 수치·비교·계획은 표로
 ③ 조치/결정: 어떤 조치가 취해졌거나 결정됐는지
-④ 향후 방향: 다음 단계, 담당자, 기한
+④ 향후 방향: 다음 단계, 담당부서, 기한
 
 관련 보고서가 있으면 ①②에 통합하고 → [보고서명] 출처 표기
 
 예시:
-### 안건 1. (1분기 예산 집행 현황) — 운영팀
+### 1분기 예산 집행 현황 — 운영팀
 • **배경**: 전분기 인프라 비용 초과로 인해 집행률 점검 필요 ← [운영팀_예산보고서.pdf]
 • **현황**:
 | 항목 | 예산 | 집행 | 잔여율 |
@@ -154,26 +188,22 @@ def generate_minutes_human(
 
 ---
 
-### 아젠다 2. (신규 채용 계획) — 인사팀
+### 신규 채용 계획 — 인사팀
 • **배경**: 2분기 프로젝트 인력 부족 이슈 지속 제기
 • **현황**: 상반기 채용 목표 10명 중 6명 확정, 4명 미달
 • **조치**: 채용 채널 확대(LinkedIn 추가) 결정
 • **향후 방향**: 하반기 추가 채용 여부 7월 초 재논의
 
 ## 3. 결정 사항
-확정된 내용만. 논의 중인 것은 5번으로. 배경 한 줄 포함.
+확정된 내용만. 배경 한 줄 포함.
 - **[결정 내용]** ← 배경: ~
 
 ## 4. 액션 아이템
-3개 미만이면 bullet, 3개 이상이면 표.
-| 담당자 | 내용 | 기한 |
-|--------|------|------|
 
-## 5. 보류 및 추가 검토 사항
-결론 못 낸 항목만. 없으면 "없음".
+## 5. 다음 회의 아젠다
 
-## 6. 다음 회의 아젠다
-이번 논의에서 도출된 것만. 없으면 "없음"."""
+## 6. 결론
+위 [실시간 논의 요약 블록]을 바탕으로 이 회의 전체를 한두 문장으로 압축. ~됨 / ~결정 어투."""
 
 
 # ─── report_agent ─────────────────────────────────────────────────────────────

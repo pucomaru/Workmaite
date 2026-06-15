@@ -205,7 +205,7 @@ export function useGraphBuilder({
           data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
         })
-        // 회의(session)는 회의체(meetings)에 직접 연결하지 않는다(요청) — 회의록/아젠다를 통해 연결됨
+        edges.push({ from: sIdx, to: mgIdx, rel: '소속' })
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)

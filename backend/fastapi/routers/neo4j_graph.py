@@ -555,6 +555,7 @@ async def get_archive(
                 "location": s.location or "",
                 "session_type": str(s.type) if s.type else "",
                 "date": s.scheduled_at.isoformat() + "Z" if s.scheduled_at else "",
+                "created_at": s.created_at.isoformat() + "Z" if s.created_at else "",
                 "started_at": s.started_at.isoformat() + "Z" if s.started_at else "",
                 "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else "",
                 "session_status": s.status or "",
@@ -578,6 +579,61 @@ async def get_archive(
                     pg_id = sess_neo_id
                 if pg_id and pg_id in pg_session_map:
                     sess.update(pg_session_map[pg_id])
+
+        # ── PG 세션 미동기 보완: Neo4j에 없는 신규 세션도 포함 ──────────────────
+        neo4j_session_pg_ids: set[int] = set()
+        for mg_data in meetings_map.values():
+            for sess in mg_data.get("minutes", []):
+                sess_neo_id = sess.get("id", "")
+                if isinstance(sess_neo_id, str) and "-" in sess_neo_id:
+                    try:
+                        neo4j_session_pg_ids.add(int(sess_neo_id.split("-")[-1]))
+                    except (ValueError, IndexError):
+                        pass
+                elif isinstance(sess_neo_id, int):
+                    neo4j_session_pg_ids.add(sess_neo_id)
+        for s, mn in pg_sessions:
+            if s.id not in neo4j_session_pg_ids:
+                mg_id = to_mg_id(s.meeting_id)
+                if mg_id in meetings_map:
+                    meetings_map[mg_id]["minutes"].append(
+                        {
+                            "id": f"session-{s.id}",
+                            "meeting_id": mg_id,
+                            "meeting_title": meetings_map[mg_id].get("title", ""),
+                            "session_title": s.title or "",
+                            "description": s.description or "",
+                            "location": s.location or "",
+                            "session_type": str(s.type) if s.type else "",
+                            "date": s.scheduled_at.isoformat() + "Z"
+                            if s.scheduled_at
+                            else "",
+                            "created_at": s.created_at.isoformat() + "Z"
+                            if s.created_at
+                            else "",
+                            "started_at": s.started_at.isoformat() + "Z"
+                            if s.started_at
+                            else "",
+                            "ended_at": s.ended_at.isoformat() + "Z"
+                            if s.ended_at
+                            else "",
+                            "session_status": str(s.status) if s.status else "",
+                            "content_summary": mn.content_summary if mn else "",
+                            "minutes_file_name": mn.file_name if mn else "",
+                            "minutes_status": mn.status if mn else "",
+                            "minutes_pg_id": mn.id if mn else None,
+                            "generated_at": mn.generated_at.isoformat() + "Z"
+                            if mn and mn.generated_at
+                            else "",
+                            "session_number": None,
+                            "doc_title": None,
+                            "doc_type": None,
+                            "doc_author": None,
+                            "doc_created_at": None,
+                            "file_name": None,
+                            "participants": [],
+                        }
+                    )
 
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()

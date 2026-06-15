@@ -121,6 +121,7 @@ CREATE TABLE "meeting_sessions" (
   "context" text,
   "recording_seconds" bigint DEFAULT 0 NOT NULL,
   "last_resumed_at" timestamp without time zone,
+  "created_at" timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'),
   CONSTRAINT "meeting_sessions_pkey" PRIMARY KEY (id)
 );
 

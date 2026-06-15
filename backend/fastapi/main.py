@@ -51,6 +51,35 @@ from prometheus_fastapi_instrumentator import Instrumentator
 logger = logging.getLogger(__name__)
 
 
+async def _run_pg_migrations() -> None:
+    import anyio
+    from sqlalchemy import text
+    from db.database import engine
+
+    migrations = [
+        "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC')",
+        "ALTER TABLE meeting_sessions ALTER COLUMN created_at SET DEFAULT (now() AT TIME ZONE 'UTC')",
+        # KST로 잘못 저장된 기존 값 보정 (9시간 빼기)
+        "UPDATE meeting_sessions SET created_at = created_at - INTERVAL '9 hours' WHERE created_at IS NOT NULL AND created_at > (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour'",
+        # 사용자 하드 삭제 지원: FK 컬럼을 nullable로 변경
+        "ALTER TABLE reports ALTER COLUMN upload_id DROP NOT NULL",
+        "ALTER TABLE chat_messages ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE chat_feedback ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE audit_logs ALTER COLUMN actor_id DROP NOT NULL",
+    ]
+
+    def _apply():
+        with engine.begin() as conn:
+            for sql in migrations:
+                conn.execute(text(sql))
+
+    try:
+        await anyio.to_thread.run_sync(_apply)
+        logger.info("[Migration] PostgreSQL 마이그레이션 완료")
+    except Exception as e:
+        logger.error(f"[Migration] 오류: {e}")
+
+
 async def _cleanup_stale_neo4j_nodes() -> None:
     """레거시 Todo 노드와 todo-* Agenda 노드만 정리합니다.
 
@@ -117,6 +146,7 @@ async def lifespan(app: FastAPI):
     from llm.graph_runtime import init_checkpointer, close_checkpointer
 
     await init_checkpointer()  # HITL 영속화 (P3A-1) — 그래프 compile 전에 준비
+    await _run_pg_migrations()  # 누락 컬럼 자동 추가
     await ensure_constraints()  # 중복 정리 + 유니크 제약 (P2-5)
     await init_vector_index()
     from graphdb.retrieval_registry import ensure_fulltext_indexes

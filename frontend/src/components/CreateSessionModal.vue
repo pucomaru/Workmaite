@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
+import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 import { useAuthStore } from '../stores/auth'
 
@@ -98,17 +99,28 @@ watch(
 async function loadAgendas(meetingId) {
   try {
     const { data } = await api.get(`/api/v1/meetings/${meetingId}/agendas`)
-    agendas.value = data.data ?? data
+    const raw = data.data ?? data
+    const seen = new Set()
+    agendas.value = raw.filter(a => {
+      if (seen.has(a.id)) return false
+      seen.add(a.id)
+      return true
+    })
   } catch (e) {
     console.error('[agendas] 로드 실패:', e)
     agendas.value = []
   }
 }
 
-// 종료된 회의체(status==='ended')에는 회의를 생성할 수 없다 — 선택지에서 아예 제외한다.
-const availableMeetings = computed(() =>
-  (props.meetings || []).filter(m => m.status !== 'ended'),
-)
+function clampDateYear(e) {
+  const val = e.target.value
+  if (!val) return
+  const parts = val.split('-')
+  if (parts[0] && parts[0].length > 4) {
+    parts[0] = parts[0].slice(0, 4)
+    form.value.dateOnly = parts.join('-')
+  }
+}
 
 const timeOptions = computed(() => {
   const options = []
@@ -200,7 +212,7 @@ async function doCreate() {
             >
               <option :value="null" disabled>회의체를 선택하세요</option>
               <option
-                v-for="m in availableMeetings"
+                v-for="m in meetings.filter(m => m.status !== 'ended')"
                 :key="toNumericId(m.id)"
                 :value="toNumericId(m.id)"
               >
@@ -236,15 +248,13 @@ async function doCreate() {
           <div class="app-modal-field">
             <label for="create-date">회의 날짜 <span class="req">*</span></label>
             <div style="display: flex; gap: 8px; align-items: center">
-              <!-- prettier-ignore -->
-              <input
+              <DateInput
                 id="create-date"
                 name="date"
-                type="date"
                 v-model="form.dateOnly"
                 class="app-modal-input"
                 style="flex: 1"
-                @change="showPastDateAlert = false; errors.dateOnly = null"
+                @update:modelValue="showPastDateAlert = false; errors.dateOnly = null"
               />
               <div style="position: relative; width: 110px">
                 <div
@@ -384,7 +394,7 @@ async function doCreate() {
                 "
               >
                 <label
-                  v-for="agenda in agendas.filter(a => a.status === 'ongoing')"
+                  v-for="agenda in agendas.filter(a => a.status === 'ongoing' || a.status === 'done')"
                   :key="agenda.id"
                   style="
                     display: flex;

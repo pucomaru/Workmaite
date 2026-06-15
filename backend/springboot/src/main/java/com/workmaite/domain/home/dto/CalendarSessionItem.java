@@ -16,8 +16,9 @@ public class CalendarSessionItem {
   private LocalDateTime scheduledAt;
   private String location;
   private SessionStatus status;
+  private String meetingStatus;
 
-  public static CalendarSessionItem from(MeetingSession session, String meetingTitle) {
+  public static CalendarSessionItem from(MeetingSession session, String meetingTitle, String meetingStatus) {
     return CalendarSessionItem.builder()
         .sessionId(session.getId())
         .title(session.getTitle())
@@ -25,6 +26,7 @@ public class CalendarSessionItem {
         .scheduledAt(session.getScheduledAt())
         .location(session.getLocation())
         .status(session.getStatus())
+        .meetingStatus(meetingStatus)
         .build();
   }
 }
