@@ -146,6 +146,7 @@ async function enterSession(s) {
   activeSession.value = s
   activeTab.value = 'transcript'
   recordingState.value = 'idle'
+  minutesSavedAt.value = null
   const rec = getOrCreateRecord(s.id)
   transcriptLines.value = rec.transcriptLines
   generatedMinutes.value = rec.generatedMinutes
@@ -1031,7 +1032,11 @@ async function saveApprovedNextAgendas() {
 }
 
 async function saveMinutesToDB() {
-  if (!activeSession.value || !generatedMinutes.value?.content_summary) return
+  if (!activeSession.value) return
+  if (!generatedMinutes.value?.content_summary) {
+    toast.error('회의록을 먼저 생성해주세요.', { icon: false })
+    return
+  }
   savingMinutes.value = true
   try {
     const sessionId = activeSession.value.id
@@ -1046,8 +1051,10 @@ async function saveMinutesToDB() {
       hour: '2-digit',
       minute: '2-digit',
     })
-    await api.post(`/api/v1/sessions/${sessionId}/archive`)
-    if (activeSession.value) activeSession.value.status = 'archived'
+    if (activeSession.value?.status !== 'archived') {
+      await api.post(`/api/v1/sessions/${sessionId}/archive`)
+      if (activeSession.value) activeSession.value.status = 'archived'
+    }
     // 사이드바 세션 목록 업데이트
     if (meetingId && sessionsCache.value[meetingId]) {
       const s = sessionsCache.value[meetingId].find(s => s.id === sessionId)

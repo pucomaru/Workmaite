@@ -9,7 +9,7 @@
           :class="`toast-${t.type}`"
           @click="dismissToast(t.id)"
         >
-          <i :class="ICONS[t.type]"></i>
+          <i v-if="t.icon !== false" :class="ICONS[t.type]"></i>
           <span class="toast-msg">{{ t.message }}</span>
         </div>
       </TransitionGroup>
