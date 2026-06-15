@@ -229,7 +229,7 @@ async function enterSession(s) {
         await nextTick()
         loadMinutesToEditor(html)
         if (!rec.showNextAgendaBlock)
-          loadDraftAgendas(s.meeting_id || s.meetingId || selectedMeeting.value?.id)
+          loadDraftAgendas(s.meeting_id || s.meetingId || selectedMeeting.value?.id, s.id)
       }
     } catch {
       /* 404 = 저장된 회의록 없음, 정상 */
@@ -810,10 +810,11 @@ const nabCollapsed = ref(false)
 
 const cleanStr = v => (v && v !== 'null' && v !== 'NULL' ? String(v).trim() : '')
 
-async function loadDraftAgendas(meetingId) {
+async function loadDraftAgendas(meetingId, sessionId) {
   if (!meetingId) return
   try {
-    const { data } = await apiAI.get(`/api/agent/meetings/${meetingId}/draft-agendas`)
+    const params = sessionId ? `?session_id=${sessionId}` : ''
+    const { data } = await apiAI.get(`/api/agent/meetings/${meetingId}/draft-agendas${params}`)
     if (!data?.length) return
     nextAgendaItems.value = data.map(a => {
       const dept = Array.isArray(a.department) ? a.department[0] || '' : a.department || ''
@@ -1040,31 +1041,41 @@ async function saveApprovedNextAgendas() {
       })),
       rejected_ids: rejected.map(a => a.db_id),
     })
-    // 저장된 다음 안건은 백엔드에서 회의록 본문 '다음 회의 아젠다' 섹션에 LLM 문장으로 반영된다.
-    // 에디터를 갱신해 사용자가 즉시 확인하고, 이후 '아카이브 저장' 시 덮어쓰이지 않게 한다.
-    if (generatedMinutes.value && activeSession.value) {
-      try {
-        const { data: mn } = await apiAI.get(`/api/ai/sessions/${activeSession.value.id}/minutes`)
-        const refreshed = mn?.content_original || mn?.content_summary
-        if (refreshed) {
-          generatedMinutes.value = { ...generatedMinutes.value, content_summary: refreshed }
-          loadMinutesToEditor(refreshed)
-          getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
-        }
-      } catch {
-        /* 본문 새로고침 실패는 치명적이지 않음 */
+    // 승인된 아젠다를 에디터 섹션에 주입
+    if (editor.value && approved.length) {
+      let html = editor.value.getHTML()
+
+      // 4. 액션 아이템 → 표로 주입 (담당자=부서, 내용=제목, 기한=마감일)
+      const tableRows = approved.map(a => {
+        const dept = a._editDept || a.dept || '-'
+        const date = a._editEndDate || a.end_date || '-'
+        return `<tr><td><p>${dept}</p></td><td><p>${a.title}</p></td><td><p>${date}</p></td></tr>`
+      }).join('')
+      const tableHtml = `<table><tbody><tr><th><p>담당자</p></th><th><p>내용</p></th><th><p>기한</p></th></tr>${tableRows}</tbody></table>`
+      html = html.replace(
+        /(<h2[^>]*>(?:.*?액션 아이템.*?)<\/h2>)([\s\S]*?)(?=<h2|$)/,
+        `$1${tableHtml}`,
+      )
+
+      // 5. 다음 회의 아젠다 → bullet으로 주입
+      const bulletHtml = `<ul>${approved.map(a => `<li><p>${a.title}</p></li>`).join('')}</ul>`
+      html = html.replace(
+        /(<h2[^>]*>(?:.*?다음 회의 아젠다.*?)<\/h2>)([\s\S]*?)(?=<h2|$)/,
+        `$1${bulletHtml}`,
+      )
+
+      loadMinutesToEditor(html)
+      if (generatedMinutes.value) {
+        generatedMinutes.value = { ...generatedMinutes.value, content_summary: html }
+        if (activeSession.value) getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
       }
     }
-    nextAgendaItems.value = nextAgendaItems.value.filter(
-      a => a._state !== 'approved' && a._state !== 'rejected',
-    )
-    // 저장 후 rec 동기화
+    nextAgendaItems.value = []
+    showNextAgendaBlock.value = false
     if (activeSession.value) {
       const rec = getOrCreateRecord(activeSession.value.id)
-      const hasRealItems = nextAgendaItems.value.some(a => a.db_id)
-      rec.nextAgendaItems = nextAgendaItems.value
-      rec.showNextAgendaBlock = hasRealItems
-      if (!hasRealItems) showNextAgendaBlock.value = false
+      rec.nextAgendaItems = []
+      rec.showNextAgendaBlock = false
     }
   } catch (e) {
     console.error('[saveApprovedNextAgendas]', e)
@@ -3584,13 +3595,13 @@ html.night-mode .sp-ms-input {
 .tiptap-content :deep(.ProseMirror) {
   outline: none;
   min-height: 380px;
-  color: var(--text-muted);
+  color: var(--text);
 }
 .tiptap-content :deep(.ProseMirror p) {
   margin: 0 0 6px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--text-muted);
+  color: var(--text);
 }
 .tiptap-content :deep(.ProseMirror h1) {
   font-size: 17px;
@@ -3635,19 +3646,19 @@ html.night-mode .sp-ms-input {
   margin: 0;
 }
 .tiptap-content :deep(.ProseMirror table) {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   margin: 8px 0;
   font-size: 12px;
-  table-layout: fixed;
+  table-layout: auto;
 }
 .tiptap-content :deep(.ProseMirror th),
 .tiptap-content :deep(.ProseMirror td) {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: 4px 10px;
   text-align: left;
-  vertical-align: top;
-  word-break: break-word;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 .tiptap-content :deep(.ProseMirror th) {
   background: var(--surface-2);
