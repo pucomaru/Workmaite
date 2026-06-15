@@ -242,12 +242,15 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         ) as oai:
             # GA Realtime 전사 세션 설정 — session.update + session.type=transcription +
             # 중첩 audio.input(format/transcription).
-            # 도메인 어휘 프롬프트(회의 제목·참석자·부서) — 고유명사 인식률 향상 (P-STT1)
-            vocab_prompt = await asyncio.to_thread(_vocab_prompt, session_id)
+            # 도메인 어휘 프롬프트(회의 제목·참석자·부서) — 고유명사 인식률 향상 (P-STT1).
+            # prompt는 지원 모델에만 주입한다 — gpt-realtime-whisper는 미지원이라 넣으면
+            # session.update 전체가 "'prompt' parameter is not supported" 오류로 거부된다.
             _transcription_cfg = {"model": model, "language": lang}
-            if vocab_prompt:
-                _transcription_cfg["prompt"] = vocab_prompt
-                logger.info(f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…")
+            if model.startswith(("gpt-4o-transcribe", "gpt-4o-mini-transcribe")):
+                vocab_prompt = await asyncio.to_thread(_vocab_prompt, session_id)
+                if vocab_prompt:
+                    _transcription_cfg["prompt"] = vocab_prompt
+                    logger.info(f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…")
             _input_cfg = {
                 "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
                 "transcription": _transcription_cfg,

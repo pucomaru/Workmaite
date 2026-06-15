@@ -155,6 +155,9 @@ async function enterSession(s) {
   try {
     const { data } = await api.get(`/api/v1/sessions/${s.id}`)
     const full = data.data ?? data
+    // 서버의 권위 있는 status로 동기화 — 목록의 stale 상태로 start/resume을 오판해
+    // /start(=SCHEDULED 전용)가 ONGOING/ENDED 세션에 호출되어 400나는 것을 막는다.
+    if (full.status) activeSession.value = { ...activeSession.value, status: full.status }
     if (full.summary_blocks?.length) {
       conversationBlocks.value = full.summary_blocks.map(b => ({
         title: b.title,
@@ -1587,7 +1590,7 @@ async function downloadChatFile(filePath) {
                 등록된 회의가 없습니다
               </div>
               <div
-                v-for="s in mtg.sessions.filter(s => s.status !== 'archived')"
+                v-for="s in (mtg.sessions || []).filter(s => s.status !== 'archived')"
                 :key="s.id"
                 class="sp-session-item"
                 :class="{ active: activeSession?.id === s.id }"
@@ -1993,7 +1996,10 @@ async function downloadChatFile(filePath) {
 
         <!-- Control bar (AI 실시간 요약/발화 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
+          <div
+            v-show="!['archived', 'ended'].includes(activeSession?.status)"
+            class="ctrl-group-left"
+          >
             <!-- Language selector -->
             <div class="ctrl-pop-wrap">
               <button
