@@ -276,17 +276,29 @@ async def minutes_generate_minutes(
     meeting_context = (
         _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     )
-    agendas = (
-        db.query(models.Agenda)
-        .filter(
-            models.Agenda.meeting_id == data.meeting_id,
-            models.Agenda.status != "draft",
+    if data.session_id:
+        _sa_rows = (
+            db.query(models.SessionAgenda)
+            .filter(models.SessionAgenda.session_id == data.session_id)
+            .all()
         )
-        .all()
-        if data.meeting_id
-        else []
-    )
-    agenda_text = "\n".join([f"- {a.title} ({a.status})" for a in agendas]) or "없음"
+        _agenda_ids = [sa.agenda_id for sa in _sa_rows]
+        agendas = (
+            db.query(models.Agenda).filter(models.Agenda.id.in_(_agenda_ids)).all()
+            if _agenda_ids else []
+        )
+    elif data.meeting_id:
+        agendas = (
+            db.query(models.Agenda)
+            .filter(
+                models.Agenda.meeting_id == data.meeting_id,
+                models.Agenda.status != "draft",
+            )
+            .all()
+        )
+    else:
+        agendas = []
+    agenda_text = "\n".join([f"- {a.title}" for a in agendas]) or ""
     now = datetime.now().strftime("%Y년 %m월 %d일")
     meeting_obj = (
         db.query(models.Meeting).filter(models.Meeting.id == data.meeting_id).first()

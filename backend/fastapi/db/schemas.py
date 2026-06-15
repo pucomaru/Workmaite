@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict, AliasChoices
+from pydantic import BaseModel, Field, ConfigDict, AliasChoices, field_validator
 
 
 # ── User (users) ──────────────────────────────────────────────────────────────
@@ -15,6 +15,14 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("company", mode="before")
+    @classmethod
+    def coerce_company(cls, v):
+        # User.company 는 Company ORM 객체(relationship) — name 문자열로 변환
+        if v is not None and hasattr(v, "name"):
+            return v.name
+        return v
 
 
 # ── Meeting (meetings) ────────────────────────────────────────────────────────
