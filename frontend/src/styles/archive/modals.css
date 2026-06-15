@@ -1306,21 +1306,22 @@
   border: 2px solid rgba(147, 197, 253, 0.8);
   color: #fff;
 }
+/* ghost는 float 버튼 preview(색 동그라미)와 동일한 모양 — 드래그 시 모양/색이 바뀌어 보이지 않게 */
 .float-drag-ghost .ghost-doc {
   width: 44px;
-  height: 34px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 2px solid rgba(96, 165, 250, 0.8);
-  color: var(--accent-light);
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(5, 150, 105, 0.95) 0%, rgba(4, 120, 87, 0.5) 100%);
+  border: 2px solid rgba(52, 211, 153, 0.85);
+  color: #fff;
 }
 .float-drag-ghost .ghost-session {
   width: 44px;
-  height: 32px;
-  border-radius: 5px;
-  background: rgba(5, 150, 105, 0.6);
-  border: 2px solid rgba(52, 211, 153, 0.85);
-  color: #6ee7b7;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(234, 88, 12, 0.95) 0%, rgba(194, 65, 12, 0.5) 100%);
+  border: 2px solid rgba(251, 146, 60, 0.85);
+  color: #fff;
 }
 .float-drag-ghost .ghost-label {
   font-size: 10px;

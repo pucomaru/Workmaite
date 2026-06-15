@@ -93,6 +93,8 @@ export function useAgentChat({
     onAgentInput,
     selectAtItem,
     removeMentionCtx,
+    setAutoContext,
+    setCtxPinned,
     handleMentionKeydown,
     consumeMentionContext,
   } = useAgentMention({
@@ -517,14 +519,17 @@ export function useAgentChat({
   // Supervisor가 임베딩 기반으로 회의 간 잠재 연결·구조 공백을 '분석'하고,
   // Knowledge agent가 발굴된 지식 연결을 그래프에 '재구성'한 뒤 근거를 보고합니다.
   // 실시간 [PLANNING] 스텝을 수신하며, 완료 시 onComplete(그래프 새로고침)를 호출합니다.
-  async function runRelationshipAnalysis(onComplete) {
+  async function runRelationshipAnalysis(onComplete, opts = {}) {
+    const _url = opts.url || '/api/agent/knowledge/analyze-relationships'
+    const _userMsg =
+      opts.userMsg || '회의별로 흩어진 지식을 분석해서 연관된 안건·문서를 서로 연결해줘'
     if (agentLoading.value) return
     if (openSidebarManaged()) await loadChatHistory()
     await nextTick()
 
     allMessages.value['supervisor'].push({
       role: 'user',
-      content: '회의별로 흩어진 지식을 분석해서 연관된 안건·문서를 서로 연결해줘',
+      content: _userMsg,
     })
     const planningMsg = reactive({ role: 'planning', steps: [], open: true, done: false })
     allMessages.value['supervisor'].push(planningMsg)
@@ -536,7 +541,7 @@ export function useAgentChat({
 
     try {
       await streamPost(
-        '/api/agent/knowledge/analyze-relationships',
+        _url,
         {},
         chunk => {
           agentMsg.content += chunk
@@ -603,6 +608,8 @@ export function useAgentChat({
     onAgentInput,
     selectAtItem,
     removeMentionCtx,
+    setAutoContext,
+    setCtxPinned,
     initAgentGreeting,
     loadChatHistory,
     openSidebarManaged,

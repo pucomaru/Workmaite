@@ -198,8 +198,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (doc:Report)-[:`첨부`]->(mg:Meetings) WHERE mg.id IN $ids
-                OPTIONAL MATCH (doc)-[:`첨부`]->(ag:Agenda)
+                MATCH (doc:Report)-[:`발제`]->(mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (doc)-[:`도출`]->(ag:Agenda)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,

@@ -1408,13 +1408,14 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   flex-direction: column;
   overflow: hidden;
   resize: both;
-  min-width: 360px;
+  max-width: 92vw;
 }
 .app-modal-sm {
   width: 480px;
 }
 .app-modal-md {
-  width: 480px;
+  width: auto;
+  max-width: 680px;
 }
 .app-modal-lg {
   width: 680px;

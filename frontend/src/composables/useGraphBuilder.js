@@ -270,10 +270,15 @@ export function useGraphBuilder({
         if (agendaIds.length > 0) {
           agendaIds.forEach(aid => {
             if (agendaIdxById.has(aid))
-              edges.push({ from: rIdx, to: agendaIdxById.get(aid), rel: '첨부' })
+              edges.push({ from: rIdx, to: agendaIdxById.get(aid), rel: '도출' })
           })
         } else {
           edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
+        }
+        // dept → report '첨부' (제출 부서가 그래프에 있으면 연결) — REL_MATRIX "dept→report": 첨부
+        const _subDept = rp.submitter_department || rp.department || rp.dept || ''
+        if (_subDept && deptIdxMap.has(_subDept)) {
+          edges.push({ from: deptIdxMap.get(_subDept), to: rIdx, rel: '첨부' })
         }
       })
 
@@ -291,7 +296,9 @@ export function useGraphBuilder({
         const sIdx =
           sa.session_id != null ? sessionIdxByNeoId.get(String(sa.session_id)) : undefined
         const agIdx = sa.agenda_id != null ? agendaIdxById.get(String(sa.agenda_id)) : undefined
-        if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '다룸' })
+        // 회의 생성 시 선택한 '논의 아젠다' → canonical: agenda-[논의]->session
+        // (기존 '다룸'은 폐지된 관계명이라 그래프에 안 떴음)
+        if (sIdx != null && agIdx != null) edges.push({ from: agIdx, to: sIdx, rel: '논의' })
       })
       ;(g.derivations || []).forEach(d => {
         const sIdx = d.session_id != null ? sessionIdxByNeoId.get(String(d.session_id)) : undefined

@@ -1,5 +1,5 @@
 <script setup>
-import { inject } from 'vue'
+import { inject } from 'vue';
 const { floatDragging, floatDragPos, floatDragPreviewLine } = inject('archiveCanvas')
 </script>
 
@@ -21,15 +21,22 @@ const { floatDragging, floatDragPos, floatDragPreviewLine } = inject('archiveCan
         "
       >
         <template v-if="floatDragging === 'meeting'">
+          <!-- meeting-preview와 동일 아이콘 (드래그 ghost = 생성될 노드 모양) -->
           <svg
-            width="16"
-            height="16"
+            width="18"
+            height="18"
             fill="none"
             stroke="currentColor"
-            stroke-width="2.5"
+            stroke-width="1.6"
             viewBox="0 0 24 24"
           >
-            <path d="M12 4v16m8-8H4" />
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="19" cy="17" r="2" />
+            <circle cx="5" cy="17" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <line x1="12" y1="7" x2="12" y2="10" />
+            <line x1="12" y1="14" x2="17.4" y2="15.6" />
+            <line x1="12" y1="14" x2="6.6" y2="15.6" />
           </svg>
         </template>
         <template v-else-if="floatDragging === 'session'">
@@ -46,15 +53,19 @@ const { floatDragging, floatDragPos, floatDragPreviewLine } = inject('archiveCan
           </svg>
         </template>
         <template v-else>
+          <!-- doc-preview와 동일 아이콘 (레거시 업로드 화살표 → 문서 아이콘으로 교체) -->
           <svg
             width="16"
             height="16"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
+            stroke-width="1.8"
             viewBox="0 0 24 24"
           >
-            <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="8" y1="13" x2="16" y2="13" />
+            <line x1="8" y1="17" x2="16" y2="17" />
           </svg>
         </template>
       </div>

@@ -1,12 +1,12 @@
 <script setup>
-import { inject, computed, ref, watch } from 'vue'
-import { toast } from '../composables/useToast'
 import DOMPurify from 'dompurify'
-import SidebarInfoRow from './SidebarInfoRow.vue'
-import ProcessStepBar from './ProcessStepBar.vue'
-import FileUploadArea from './FileUploadArea.vue'
+import { computed, inject, ref, watch } from 'vue'
+import { toast } from '../composables/useToast'
 import AgendaReviewList from './AgendaReviewList.vue'
+import FileUploadArea from './FileUploadArea.vue'
+import ProcessStepBar from './ProcessStepBar.vue'
 import RelationTab from './RelationTab.vue'
+import SidebarInfoRow from './SidebarInfoRow.vue'
 
 const {
   detailOpen,
@@ -303,20 +303,13 @@ function parseAiEvidence(val) {
           >
             기본
           </button>
-          <button
-            class="detail-tab"
-            :class="{ active: detailTab === 'task' }"
-            @click="detailTab = 'task'"
-          >
-            아젠다
-          </button>
           <!-- prettier-ignore -->
           <button
             class="detail-tab detail-tab-extract"
             :class="{ active: detailTab === 'extract' }"
             @click="detailTab = 'extract'; if (!showExtractFlow) showExtractFlow = true"
           >
-            아젠다 추출
+            AI 아젠다 추출
           </button>
           <button
             class="detail-tab"
@@ -324,6 +317,13 @@ function parseAiEvidence(val) {
             @click="detailTab = 'rel'"
           >
             관계
+          </button>
+          <button
+            class="detail-tab"
+            :class="{ active: detailTab === 'task' }"
+            @click="detailTab = 'task'"
+          >
+            아젠다
           </button>
         </div>
 
@@ -973,7 +973,7 @@ function parseAiEvidence(val) {
                 >
                   <path d="M4 4l16 8-16 8V4z" />
                 </svg>
-                아젠다 추출하기
+                AI 기반 추출
               </button> </template
             ><!-- /자료선정 단계 -->
 
@@ -1199,7 +1199,7 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div class="detail-section">
-                <div class="detail-section-label">부서 구성원</div>
+                <div class="detail-section-label">부서 구성원 ({{ detailNode.members?.length }}명)</div>
                 <div v-if="detailNode.members?.length" class="detail-member-list">
                   <div
                     v-for="mb in detailNode.members"

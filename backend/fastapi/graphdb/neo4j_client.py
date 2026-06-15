@@ -144,7 +144,7 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
                 {"id": mg_neo_id},
             ),
             run_cypher(
-                """MATCH (d)-[:`첨부`]->(mg:Meetings {id: $id})
+                """MATCH (d)-[:`발제`]->(mg:Meetings {id: $id})
                    WHERE d:Report OR d:Minutes
                    RETURN coalesce(d.title, d.file_name, '(제목없음)') AS title,
                           labels(d)[0] AS doc_type,

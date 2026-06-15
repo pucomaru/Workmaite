@@ -1,7 +1,7 @@
 <script setup>
-import { inject, ref, computed, watch, onUnmounted } from 'vue'
-import ProcessStepBar from './ProcessStepBar.vue'
+import { computed, inject, onUnmounted, ref, watch } from 'vue'
 import FileUploadArea from './FileUploadArea.vue'
+import ProcessStepBar from './ProcessStepBar.vue'
 
 const {
   showUploadModal,
@@ -207,7 +207,7 @@ async function onSubmitFeedback() {
 function aiMatchReason(t) {
   const id = String(t.agenda_id ?? t.id)
   const m = (aiResult.value?.matched_agendas || []).find(x => String(x.id) === id)
-  return m ? m.reason || 'AI가 관련 아젠다로 추천' : ''
+  return m ? m.reason || 'AI가 논의 아젠다로 추천' : ''
 }
 const agendaSearch = ref('')
 const agendaDropdownOpen = ref(false)
@@ -257,7 +257,7 @@ function toggleAgendaDropdown() {
             <!-- 재검토 토글 -->
             <label for="upload-resubmit-toggle" class="resubmit-toggle">
               <input type="checkbox" id="upload-resubmit-toggle" v-model="isResubmit" @change="onResubmitToggle" />
-              <span class="resubmit-toggle-label">자료 재검토</span>
+              <span class="resubmit-toggle-label">비슷한 자료를 검토한 적이 있습니다. (재검토)</span>
             </label>
 
             <!-- 반려 보고서 선택 -->
@@ -295,7 +295,7 @@ function toggleAgendaDropdown() {
               />
             </div>
             <div class="app-modal-field">
-              <label for="upload-file-name">자료명 <span class="req">*</span></label>
+              <label for="upload-file-name">파일명 <span class="req">*</span></label>
               <input
                 id="upload-file-name"
                 v-model="uploadForm.label"
@@ -337,6 +337,49 @@ function toggleAgendaDropdown() {
                 </option>
               </select>
             </div>
+
+            <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
+              <span class="conn-node" style="flex: auto;">
+                <span
+                  class="legend-onto-dot legend-dot-circle"
+                  style="background: radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed); display: inline-block; margin-right: 3px;"
+                ></span>
+                {{
+                deptConnectableNodes.find(n => n.id === uploadForm.connectNodeId)?.label
+              }}</span>
+              <span class="conn-arrow">→</span>
+              <span
+                class="conn-rel"
+                :style="{
+                  color: REL_COLORS[autoRel(uploadForm.connectNodeId, 'report')] || '#a78bfa',
+                }"
+                >{{ autoRel(uploadForm.connectNodeId, 'report') }}</span
+              >
+              <span class="conn-arrow">→</span>
+              <span class="conn-node file" style="flex: auto;">
+                <span
+                  class="legend-onto-dot legend-dot-circle"
+                  style="background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706); display: inline-block; margin-right: 3px;"
+                ></span>
+                {{ uploadForm.label }}</span>
+
+              <span class="conn-arrow">→</span>
+              <span
+                class="conn-rel"
+                :style="{
+                  color: REL_COLORS['도출'] || '#a78bfa',
+                }"
+                >{{ '도출' }}</span
+              >
+              <span class="conn-arrow">→</span>
+              <span class="conn-node" style="flex: auto;">
+                <span
+                  class="legend-onto-dot legend-dot-circle"
+                  style="background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706); display: inline-block; margin-right: 3px;"
+                ></span>
+                아젠다</span>
+            </div>
+
             <p class="agenda-auto-note">
               <svg
                 width="13"
@@ -349,23 +392,8 @@ function toggleAgendaDropdown() {
                 <path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" />
                 <path d="M12 16v-4M12 8h.01" />
               </svg>
-              연관 아젠다는 AI 검토 과정에서 자동으로 판별되어 연결됩니다.
+              도출 아젠다는 AI 검토 과정에서 자동으로 판별되어 연결됩니다.
             </p>
-            <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
-              <span class="conn-node">{{
-                deptConnectableNodes.find(n => n.id === uploadForm.connectNodeId)?.label
-              }}</span>
-              <span class="conn-arrow">→</span>
-              <span
-                class="conn-rel"
-                :style="{
-                  color: REL_COLORS[autoRel(uploadForm.connectNodeId, 'report')] || '#a78bfa',
-                }"
-                >{{ autoRel(uploadForm.connectNodeId, 'report') }}</span
-              >
-              <span class="conn-arrow">→</span>
-              <span class="conn-node file">{{ uploadForm.label }}</span>
-            </div>
           </div>
           <div class="app-modal-footer">
             <button class="app-btn-cancel" @click="showUploadModal = false">취소</button>
@@ -838,7 +866,7 @@ function toggleAgendaDropdown() {
                 >
                   <path d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                반려
+                추가 개선 필요
               </button>
               <button class="app-btn-primary" @click="onApprove">
                 <svg
@@ -851,7 +879,7 @@ function toggleAgendaDropdown() {
                 >
                   <path d="M5 13l4 4L19 7" />
                 </svg>
-                아카이브 등록 확정
+                등록 확정
               </button>
             </template>
 

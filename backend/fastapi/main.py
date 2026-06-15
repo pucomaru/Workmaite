@@ -168,6 +168,14 @@ async def lifespan(app: FastAPI):
 
         await close_driver()  # Bolt 드라이버 커넥션 풀 종료
 
+        # neo4j-graphrag 전용 동기 드라이버 풀(Text2Cypher) 종료
+        try:
+            from graphdb.graphrag_text2cypher import close_sync_driver
+
+            close_sync_driver()
+        except Exception:
+            pass
+
 
 app = FastAPI(title="workma!te AI API", lifespan=lifespan)
 

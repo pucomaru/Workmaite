@@ -1221,6 +1221,8 @@ const {
   onAgentInput: onWmInput,
   selectAtItem: selectWmAtItem,
   removeMentionCtx: removeWmCtx,
+  setAutoContext: setWmAutoContext,
+  setCtxPinned: setWmCtxPinned,
   handleMentionKeydown: handleWmMentionKeydown,
   consumeMentionContext: consumeWmMention,
 } = useAgentMention({
@@ -1317,8 +1319,26 @@ async function wmClearHistory() {
 
 // 세션 진입/변경 시 해당 세션 채팅 히스토리 로드
 watch(activeSession, s => {
-  if (s) wmLoadHistory()
-  else wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+  if (s) {
+    wmLoadHistory()
+    // 선택한 회의(sp-session-item active)를 AI 컨텍스트로 자동 선택
+    setWmAutoContext({
+      id: `session-${s.id}`,
+      type: 'session',
+      label: s.title || '회의',
+      icon: '📅',
+      summary: [
+        '[회의] ' + (s.title || ''),
+        s.location ? '장소: ' + s.location : '',
+        s.scheduled_at ? '일시: ' + String(s.scheduled_at).slice(0, 16) : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    })
+  } else {
+    wmMessages.value = [{ role: 'agent', content: _WM_GREETING }]
+    setWmAutoContext(null)
+  }
 })
 
 // ─── 사고 과정 helper ─────────────────────────────────────────
@@ -2546,6 +2566,7 @@ async function downloadChatFile(filePath) {
         @send="sendSessionChat"
         @select-at-item="selectWmAtItem"
         @remove-ctx="removeWmCtx"
+        @pin-ctx="setWmCtxPinned"
         @file-change="e => sendChatFile(e.target.files[0])"
         @ready="onWmComposerReady"
       />

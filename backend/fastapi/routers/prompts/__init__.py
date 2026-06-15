@@ -8,6 +8,8 @@ from .knowledge import (
     KNOWLEDGE_SYSTEM,
     RELATIONSHIP_SUMMARY_SYSTEM,
     relationship_summary_human,
+    FIELD_FILL_SYSTEM,
+    field_fill_human,
 )
 from .minutes import MINUTES_SYSTEM, generate_minutes_human, generate_minutes_system
 from .report_review import (
@@ -29,6 +31,8 @@ __all__ = [
     "KNOWLEDGE_SYSTEM",
     "RELATIONSHIP_SUMMARY_SYSTEM",
     "relationship_summary_human",
+    "FIELD_FILL_SYSTEM",
+    "field_fill_human",
     "MINUTES_SYSTEM",
     "generate_minutes_human",
     "generate_minutes_system",
