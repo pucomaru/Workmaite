@@ -586,11 +586,11 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label>시작일</label>
-                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
+                <DateInput v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
                 <label>종료일</label>
-                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
+                <DateInput v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">

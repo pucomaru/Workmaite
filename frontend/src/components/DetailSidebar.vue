@@ -349,9 +349,11 @@ function parseAiEvidence(val) {
               <SidebarInfoRow
                 label="간사"
                 :value="
-                  detailMeeting?.members?.find(mb => mb.role === 'admin')?.userName ||
-                  detailMeeting?.members?.find(mb => mb.role === 'admin')?.name ||
-                  '-'
+                  (detailMeeting?.members || [])
+                    .filter(mb => mb.role === 'admin')
+                    .map(mb => mb.userName || mb.name)
+                    .filter(Boolean)
+                    .join(', ') || '-'
                 "
               />
               <SidebarInfoRow

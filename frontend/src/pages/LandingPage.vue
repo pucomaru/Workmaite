@@ -330,7 +330,8 @@ const trustItems = [
 
         <!-- 무엇인지 (한 문장) -->
         <p class="hero-sub">
-          AI를 중심으로 설계된 워크메이트는 회의를 기록해 회의록을 만들고, 새로운 아젠다를 발굴하고,
+          AI를 중심으로 설계된 워크메이트는 회의를 기록해 회의록을 만들고, <br>
+          새로운 아젠다를 발굴하고, <br>
           모든 기록을 하나의 지식 그래프로 연결합니다.
         </p>
 
@@ -428,21 +429,10 @@ const trustItems = [
       </div>
     </section>
 
-    <!-- ── CTA ── -->
-    <section class="section cta-section">
-      <div class="container text-center">
-        <h2 class="cta-title">이제는 회의만 하세요</h2>
-        <p class="cta-sub">회의 내용을 준비하고, 받아 적고, 정리하는 일은 워크메이트에서 하세요</p>
-        <button class="btn-cta lg" @click="openRegister">
-          시작하기 <i class="bi bi-arrow-right ms-1"></i>
-        </button>
-      </div>
-    </section>
-
     <!-- Footer -->
     <footer class="landing-footer">
       <div class="container footer-inner">
-        <span class="footer-brand">workmaite</span>
+        <span class="footer-brand">Workmaite</span>
         <span>© 2026 — 회의체 운영 AI 워크스페이스</span>
       </div>
     </footer>

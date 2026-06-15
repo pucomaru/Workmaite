@@ -1133,8 +1133,20 @@ const NODE_TYPE_COLORS = {
   company: '#0d9488',
 }
 
-function goToProcessStep(step) {
+async function goToProcessStep(step) {
   if (step === 'context') {
+    const draftIds = extractResult.value.filter(a => a.db_id).map(a => a.db_id)
+    if (draftIds.length && detailMeeting.value) {
+      try {
+        await apiAI.post('/api/agent/archive/agendas/commit', {
+          meeting_id: toNumericId(detailMeeting.value.id),
+          approved: [],
+          rejected_ids: draftIds,
+        })
+      } catch (e) {
+        console.warn('[재추출] draft 삭제 실패:', e)
+      }
+    }
     extractPhase.value = 'context'
     extractResult.value = []
   }
@@ -2268,7 +2280,6 @@ const filteredGroups = computed(() => {
 // 목록 표시·정렬용 파생 필드 부여
 const enrichedGroups = computed(() =>
   filteredGroups.value.map(g => {
-    const adminMember = g.members.find(m => m.role === 'admin')
     const histCount = (g.minutes?.length || 0) + (g.reports?.length || 0)
     return {
       ...g,
@@ -2276,7 +2287,12 @@ const enrichedGroups = computed(() =>
         (meetingsStore.meetingRoles[toNumericId(g.id)] ?? selfRoleInGroup(g)) === 'admin'
           ? '간사'
           : '참여자',
-      _adminName: adminMember?.userName || adminMember?.name || '',
+      _adminName:
+        (g.members || [])
+          .filter(m => m.role === 'admin')
+          .map(m => m.userName || m.name)
+          .filter(Boolean)
+          .join(', ') || '',
       _histCount: histCount,
     }
   }),
@@ -2294,8 +2310,12 @@ const {
 const groupHistoryMap = computed(() => {
   const map = new Map()
   meetings.value.forEach(g => {
-    const adminMember = g.members.find(m => m.role === 'admin')
-    const managerName = adminMember?.userName || adminMember?.name || '간사'
+    const managerName =
+      (g.members || [])
+        .filter(m => m.role === 'admin')
+        .map(m => m.userName || m.name)
+        .filter(Boolean)
+        .join(', ') || '간사'
     const items = []
     g.minutes.forEach(m => {
       items.push({
@@ -2454,9 +2474,14 @@ function _toReportFileItem(r, managerName) {
 const fileListMap = computed(() => {
   const map = new Map()
   meetings.value.forEach(g => {
-    const adminMember = g.members.find(m => m.role === 'admin')
-    const managerName = adminMember?.userName || adminMember?.name || '간사'
-    const hostDept = adminMember?.department || adminMember?.dept || managerName
+    const adminMembers = (g.members || []).filter(m => m.role === 'admin')
+    const managerName =
+      adminMembers
+        .map(m => m.userName || m.name)
+        .filter(Boolean)
+        .join(', ') || '간사'
+    const hostDept =
+      adminMembers[0]?.department || adminMembers[0]?.dept || managerName
     const items = []
     g.minutes
       .filter(m => m.session_status === 'archived')

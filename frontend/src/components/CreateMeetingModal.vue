@@ -1,6 +1,7 @@
 <script setup>
 import { inject } from 'vue'
 import MemberInvite from './MemberInvite.vue'
+import DateInput from './DateInput.vue'
 import { useAuthStore } from '../stores/auth'
 const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, createMembers } =
   inject('archiveModals')
@@ -55,11 +56,11 @@ const authStore = useAuthStore()
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label>시작일</label>
-              <input type="date" v-model="createForm.start_date" class="app-modal-input" />
+              <DateInput v-model="createForm.start_date" class="app-modal-input" />
             </div>
             <div class="app-modal-field">
               <label>종료일</label>
-              <input type="date" v-model="createForm.end_date" class="app-modal-input" />
+              <DateInput v-model="createForm.end_date" class="app-modal-input" />
             </div>
           </div>
           <div class="app-modal-field">
