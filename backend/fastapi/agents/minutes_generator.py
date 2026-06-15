@@ -5,7 +5,7 @@ from typing import AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
 
 from llm.llm_factory import llm_factory
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import add_messages
@@ -41,8 +41,11 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
     try:
         from graphdb.neo4j_client import run_cypher
 
-        embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])  # type: ignore[arg-type]
-        query_vec = await embeddings.aembed_query(text[:500])
+        # EMBED_MODEL(대형)·EMBED_DIM(3072)·사용량 기록을 일원화한 공용 임베더 사용.
+        # 직접 OpenAIEmbeddings()는 ada-002(1536)로 떨어져 인덱스 차원과 어긋나 검색이 실패한다.
+        from graphdb.file_embedder import embed_query
+
+        query_vec = await embed_query(text[:500])
 
         # 인덱스명·레거시 폴백은 retrieval_registry가 단일 관리 (P3B-6)
         from graphdb.retrieval_registry import REGISTRY

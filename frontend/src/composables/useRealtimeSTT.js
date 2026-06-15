@@ -99,10 +99,12 @@ export function useRealtimeSTT({
   getLang = null,
   getSessionId = null,
   getModel = null,
-  // 종료 시 임시 수집한 전체 녹음(Blob)을 전달 — 화자분리(diarization)용. 없으면 녹음 안 함.
-  onAudioComplete = null,
 }) {
+  // ── 세션 수명(일시정지/재개에도 유지) 자원 ──────────────────────────────────
+  // 마이크 스트림은 녹음 세션 동안 유지한다(일시정지에서 끊지 않아 재개 시 빠르게 이어감).
   let stream = null
+
+  // ── 구간 수명(일시정지마다 해제·재개마다 재생성) 자원 ──────────────────────
   let audioCtx = null
   let node = null
   let sink = null
@@ -113,19 +115,10 @@ export function useRealtimeSTT({
   let ws = null
   let active = false
   let partial = '' // 부분 전사 누적 (OpenAI delta는 증분)
-  let recorder = null // MediaRecorder — 전체 오디오 임시 수집(화자분리 입력)
-  let chunks = []
-  let recMime = ''
 
-  function cleanupAudio() {
-    // recorder가 정상 종료 경로(finalizeRecorder)를 못 거친 비정상 종료 대비 — blob 미전달
-    try {
-      if (recorder && recorder.state !== 'inactive') recorder.stop()
-    } catch {
-      /* noop */
-    }
-    recorder = null
-    chunks = []
+  // 실시간 경로(오디오 그래프 + WS)만 해제한다. 마이크 스트림은 건드리지 않아 일시정지 후
+  // 재개 시 같은 마이크를 그대로 이어 쓸 수 있게 한다.
+  function cleanupSegment() {
     for (const n of [node, sink, highpass, compressor, analyser]) {
       try {
         if (n) n.disconnect()
@@ -138,11 +131,28 @@ export function useRealtimeSTT({
     } catch {
       /* noop */
     }
+    node = sink = highpass = compressor = analyser = freqData = audioCtx = null
+  }
+
+  // 마이크 스트림 트랙을 정지(마이크 표시등 해제).
+  function releaseStream() {
     if (stream) {
       stream.getTracks().forEach(t => t.stop())
       stream = null
     }
-    node = sink = highpass = compressor = analyser = freqData = audioCtx = null
+  }
+
+  // 기록 종료/언마운트 시 모든 자원(오디오 그래프·WS·마이크)을 즉시 해제한다.
+  function release() {
+    active = false
+    try {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close()
+    } catch {
+      /* noop */
+    }
+    ws = null
+    cleanupSegment()
+    releaseStream()
   }
 
   // 실시간 오디오 스펙트럼 — n개 막대의 정규화 크기(0~1) 배열. 녹음 중이 아니면 null.
@@ -162,60 +172,21 @@ export function useRealtimeSTT({
     return out
   }
 
-  // MediaRecorder를 멈추고 마지막 청크까지 모아 Blob을 전달한 뒤 오디오를 정리한다.
-  // 트랙을 먼저 끊으면 마지막 청크가 잘리므로, onstop(=flush 완료) 이후에 cleanupAudio한다.
-  function finalizeRecorder() {
-    if (!recorder) {
-      cleanupAudio()
-      onAudioComplete?.(null)
-      return
-    }
-    const rec = recorder
-    recorder = null
-    rec.onstop = () => {
-      const blob = chunks.length ? new Blob(chunks, { type: recMime || 'audio/webm' }) : null
-      chunks = []
-      cleanupAudio()
-      onAudioComplete?.(blob)
-    }
-    try {
-      rec.stop()
-    } catch {
-      cleanupAudio()
-      onAudioComplete?.(null)
-    }
-  }
-
   async function start() {
     if (active) return
     const sessionId = typeof getSessionId === 'function' ? getSessionId() : null
     if (!sessionId) throw new Error('세션이 필요합니다.')
 
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-    // 전체 오디오를 임시 수집(연속 원음 — VAD/필터 전 단계)해 종료 시 화자분리에 사용한다.
-    if (typeof onAudioComplete === 'function' && window.MediaRecorder) {
-      chunks = []
-      recMime = ['audio/webm;codecs=opus', 'audio/webm'].find(
-        m => MediaRecorder.isTypeSupported?.(m),
-      )
-      try {
-        recorder = recMime
-          ? new MediaRecorder(stream, { mimeType: recMime })
-          : new MediaRecorder(stream)
-        recorder.ondataavailable = e => {
-          if (e.data && e.data.size) chunks.push(e.data)
-        }
-        recorder.start(5000) // 5초 단위 청크 — 종료 시 마지막 청크까지 안전 수집
-      } catch {
-        recorder = null
-      }
+    // 마이크 스트림은 세션 동안 유지(일시정지에도 끊지 않음) — 재개 시 재요청하지 않는다.
+    if (!stream) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
     }
 
     audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE })
@@ -251,14 +222,22 @@ export function useRealtimeSTT({
         partial = data.text || ''
         onPartial?.(partial)
       } else if (data.type === 'final') {
-        // 문장 단위 확정 — partial은 후속 partial 메시지(남은 꼬리)가 갱신한다
-        if (data.text?.trim()) onResult(data.text.trim(), data.text_id ?? null)
+        // 문장 단위 확정 — partial은 후속 partial 메시지(남은 꼬리)가 갱신한다.
+        // corrected: 전문용어 교정 에이전트가 이 문장을 바꿨는지 여부(UI 글로우용)
+        if (data.text?.trim())
+          onResult(data.text.trim(), data.text_id ?? null, {
+            corrected: !!data.corrected,
+          })
       } else if (data.type === 'error') {
         onError?.(data.message || '실시간 전사 오류')
       }
     }
     ws.onclose = () => {
-      if (active) cleanupAudio()
+      // 예기치 않은 WS 종료: 실시간 경로(오디오 그래프)만 정리하고 마이크 스트림은 유지한다.
+      if (active) {
+        active = false
+        cleanupSegment()
+      }
     }
 
     // 마이크 → [전처리 체인] → (워크릿/스크립트프로세서) → PCM16 프레임 WS 전송.
@@ -345,7 +324,9 @@ export function useRealtimeSTT({
     node.connect(sink)
   }
 
-  function stop() {
+  // finalize=false(일시정지): 실시간 경로(오디오 그래프+WS)만 해제하고 마이크는 유지 → 재개
+  // 시 빠르게 이어간다. finalize=true(기록 종료): 마이크까지 완전히 해제한다.
+  function stop({ finalize = false } = {}) {
     active = false
     try {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -356,13 +337,15 @@ export function useRealtimeSTT({
       /* noop */
     }
     ws = null
-    // recorder를 flush한 뒤 Blob 전달 + 오디오 정리 (cleanupAudio를 내부에서 호출)
-    finalizeRecorder()
+
+    cleanupSegment()
+    if (finalize) releaseStream() // 기록 종료 시 마이크 표시등 해제
   }
 
   return {
     start,
     stop,
+    release,
     getWaveLevels,
     supported: !!(navigator.mediaDevices?.getUserMedia && window.AudioContext),
   }

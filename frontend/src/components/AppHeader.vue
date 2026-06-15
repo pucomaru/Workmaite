@@ -387,13 +387,13 @@ async function saveProfileSettings() {
       <div class="profile-wrap" v-if="auth.user">
         <button class="btn-ghost profile-btn" @click="showProfile = !showProfile">
           <span class="avatar">{{ auth.user.name[0] }}</span>
-          <span>{{ auth.user.name }}</span>
+          <span style="color: var(--dark-text)">{{ auth.user.name }}</span>
         </button>
         <div v-if="showProfile" class="profile-dropdown">
           <div class="profile-info">
             <div class="avatar-lg">{{ auth.user.name[0] }}</div>
             <div>
-              <div style="font-weight: 600">{{ auth.user.name }}</div>
+              <div style="font-weight: 600; color:var(--dark-text)">{{ auth.user.name }}</div>
               <div style="color: var(--text-muted); font-size: 12px">
                 {{ auth.user.employee_id }}
               </div>
@@ -715,7 +715,7 @@ async function saveProfileSettings() {
   gap: 5px;
   padding: 5px 13px;
   border-radius: 7px;
-  color: rgba(255, 255, 255, 0.65);
+  color: #fff;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
@@ -855,7 +855,7 @@ async function saveProfileSettings() {
   flex-shrink: 0;
 }
 .theme-toggle-btn {
-  color: rgba(255, 255, 255, 0.7) !important;
+  color: #fff !important;
 }
 .theme-toggle-btn:hover {
   background: var(--white-12) !important;

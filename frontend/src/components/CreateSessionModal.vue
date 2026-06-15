@@ -64,12 +64,15 @@ watch(
     const minutes = now.getMinutes() < 30 ? 30 : 0
     const hours = minutes === 0 ? now.getHours() + 1 : now.getHours()
     const safeHours = hours > 22 ? 22 : hours < 8 ? 8 : hours
+    // 종료된 회의체가 initialMeetingId로 들어와도 선택되지 않게 한다(선택지에 없으므로).
+    const initId = props.initialMeetingId ? toNumericId(props.initialMeetingId) : null
+    const initSelectable = availableMeetings.value.some(m => toNumericId(m.id) === initId)
     form.value = {
       title: '',
       location: '',
       dateOnly: '',
       timeOnly: `${String(safeHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
-      meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+      meeting_id: initSelectable ? initId : null,
       context: '',
     }
     const me = authStore.user
@@ -102,6 +105,11 @@ async function loadAgendas(meetingId) {
   }
 }
 
+// 종료된 회의체(status==='ended')에는 회의를 생성할 수 없다 — 선택지에서 아예 제외한다.
+const availableMeetings = computed(() =>
+  (props.meetings || []).filter(m => m.status !== 'ended'),
+)
+
 const timeOptions = computed(() => {
   const options = []
   for (let h = 8; h <= 22; h++) {
@@ -120,6 +128,8 @@ function validate() {
   const f = form.value
   const e = {}
   if (!f.meeting_id) e.meeting_id = '회의체를 선택해주세요'
+  else if (!availableMeetings.value.some(m => toNumericId(m.id) === f.meeting_id))
+    e.meeting_id = '종료된 회의체에는 회의를 생성할 수 없습니다'
   if (!f.title.trim()) e.title = '회의명을 입력해주세요'
   if (!f.location.trim()) e.location = '장소를 입력해주세요'
   if (!f.dateOnly) e.dateOnly = '날짜를 선택해주세요'
@@ -138,7 +148,7 @@ async function doCreate() {
   }
   creating.value = true
   try {
-    await api.post(`/api/v1/meetings/${f.meeting_id}/sessions`, {
+    const { data } = await api.post(`/api/v1/meetings/${f.meeting_id}/sessions`, {
       title: f.title,
       location: f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
@@ -147,7 +157,9 @@ async function doCreate() {
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
       agenda_ids: selectedAgendaIds.value.length ? selectedAgendaIds.value : null,
     })
-    emit('saved', { meetingId: f.meeting_id })
+    // 생성된 세션 id를 함께 전달 — 호출부가 해당 세션으로 바로 이동/선택할 수 있게.
+    const created = data?.data ?? data
+    emit('saved', { meetingId: f.meeting_id, sessionId: created?.id ?? null })
     emit('close')
   } catch (e) {
     toast.error(e.response?.data?.message || '생성 실패')
@@ -187,7 +199,11 @@ async function doCreate() {
               @change="errors.meeting_id = null"
             >
               <option :value="null" disabled>회의체를 선택하세요</option>
-              <option v-for="m in meetings" :key="toNumericId(m.id)" :value="toNumericId(m.id)">
+              <option
+                v-for="m in availableMeetings"
+                :key="toNumericId(m.id)"
+                :value="toNumericId(m.id)"
+              >
                 {{ m.title }}
               </option>
             </select>

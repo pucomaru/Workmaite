@@ -107,6 +107,12 @@ const filteredMeetings = computed(() => {
 
 const selectedMeeting = computed(() => meetings.value.find(m => m.id === selectedMeetingId.value))
 
+// 현재 세션의 회의 참여자 수 — 세션 응답의 attendee_ids(또는 attendees) 길이
+const participantCount = computed(() => {
+  const a = activeSession.value?.attendee_ids ?? activeSession.value?.attendees
+  return Array.isArray(a) ? a.length : 0
+})
+
 async function loadSessions(meetingId) {
   const list = await sessionsStore.loadSessions(meetingId)
   const m = meetings.value.find(m => m.id === meetingId)
@@ -159,6 +165,9 @@ async function enterSession(s) {
     // 서버의 권위 있는 status로 동기화 — 목록의 stale 상태로 start/resume을 오판해
     // /start(=SCHEDULED 전용)가 ONGOING/ENDED 세션에 호출되어 400나는 것을 막는다.
     if (full.status) activeSession.value = { ...activeSession.value, status: full.status }
+    // 참여자 수 표시용 — 상세 응답의 attendee_ids를 활성 세션에 반영
+    if (full.attendee_ids)
+      activeSession.value = { ...activeSession.value, attendee_ids: full.attendee_ids }
     if (full.summary_blocks?.length) {
       conversationBlocks.value = full.summary_blocks.map(b => ({
         title: b.title,
@@ -404,11 +413,17 @@ function utcToKst(str) {
   return new Date(iso).toLocaleTimeString('ko-KR', KST)
 }
 
-function _pushLine(time, text, id = null, speaker = '화자01') {
-  const entry = { time, text, id, speaker }
+function _pushLine(time, text, id = null, speaker = '화자01', corrected = false) {
+  const entry = { time, text, id, speaker, corrected }
   transcriptLines.value.push(entry)
   if (activeSession.value)
     getOrCreateRecord(activeSession.value.id).transcriptLines = transcriptLines.value
+  // 전문용어 교정이 일어난 줄은 잠깐 무지개 글로우 → 애니메이션 후 플래그 해제(1회성)
+  if (corrected) {
+    setTimeout(() => {
+      entry.corrected = false
+    }, 2600)
+  }
   nextTick(() => {
     if (transcriptAreaRef.value)
       transcriptAreaRef.value.scrollTop = transcriptAreaRef.value.scrollHeight
@@ -417,19 +432,11 @@ function _pushLine(time, text, id = null, speaker = '화자01') {
 }
 
 const partialText = ref('') // 실시간 부분 전사(미확정) — 라이브 표시 (P5)
-const diarizing = ref(false) // 기록 종료 후 화자분리 처리 중 표시
-let _diarizeSessionId = null // 기록 종료 시에만 설정 — onAudioComplete가 이 세션을 화자분리
 
 const stt = useRealtimeSTT({
-  onResult: (text, id = null) => {
+  onResult: (text, id = null, meta = {}) => {
     partialText.value = ''
-    _pushLine(nowTime(), text, id)
-  },
-  // 기록 종료로 stop될 때만 전체 오디오(Blob)가 도착 → 화자분리 실행 (pause 등은 무시)
-  onAudioComplete: blob => {
-    const sid = _diarizeSessionId
-    _diarizeSessionId = null
-    if (sid && blob) runDiarization(sid, blob)
+    _pushLine(nowTime(), text, id, '화자01', !!meta.corrected)
   },
   onPartial: t => {
     partialText.value = t
@@ -499,7 +506,7 @@ watch(
   st => (st === 'recording' ? startWave() : stopWave()),
 )
 
-// ─── 스크립트(발화) 로더 — 최초 진입/화자분리 후 재조회 공용 ──────────────────
+// ─── 스크립트(발화) 로더 — 세션 진입 시 저장된 발화 세그먼트를 불러온다 ──────────
 async function loadScripts(sessionId, { force = false } = {}) {
   const rec = getOrCreateRecord(sessionId)
   if (!force && rec.transcriptLines.length) return
@@ -526,25 +533,6 @@ async function loadScripts(sessionId, { force = false } = {}) {
   }
 }
 
-// ─── 화자분리 — 기록 종료 시 전체 오디오를 gpt-4o-transcribe-diarize로 1회 전사 ──
-async function runDiarization(sessionId, blob) {
-  diarizing.value = true
-  try {
-    const fd = new FormData()
-    fd.append('audio', blob, 'recording.webm')
-    fd.append('session_id', String(sessionId))
-    fd.append('lang', transcriptLang.value || 'ko')
-    await apiAI.post('/api/stt/diarize', fd)
-    await loadScripts(sessionId, { force: true })
-    toast.success('화자 분리가 완료되었습니다.')
-  } catch (e) {
-    console.error('화자 분리 실패', e)
-    toast.info('화자 분리에 실패했습니다. 기존 스크립트를 유지합니다.')
-  } finally {
-    diarizing.value = false
-  }
-}
-
 // ─── 발화 편집 ────────────────────────────────────────────────
 const editingIdx = ref(null)
 const editDraft = ref({ text: '' })
@@ -567,6 +555,33 @@ async function saveEdit(idx) {
   line.text = editDraft.value.text
   line.speaker = speaker
   editingIdx.value = null
+}
+
+// ─── 화자별 뱃지 색상 ─────────────────────────────────────────────────────────
+// 화자 라벨마다 구분되는 색을 부여한다. '화자0N'은 N 순번으로, 그 외 라벨은 문자 해시로
+// 안정적으로 팔레트에 매핑한다(같은 라벨 → 항상 같은 색).
+const SPEAKER_COLORS = [
+  { bg: 'rgba(96, 165, 250, 0.16)', fg: '#2563eb' }, // 파랑
+  { bg: 'rgba(52, 211, 153, 0.16)', fg: '#059669' }, // 초록
+  { bg: 'rgba(251, 146, 60, 0.18)', fg: '#ea580c' }, // 주황
+  { bg: 'rgba(167, 139, 250, 0.18)', fg: '#7c3aed' }, // 보라
+  { bg: 'rgba(244, 114, 182, 0.16)', fg: '#db2777' }, // 분홍
+  { bg: 'rgba(45, 212, 191, 0.16)', fg: '#0d9488' }, // 청록
+  { bg: 'rgba(250, 204, 21, 0.20)', fg: '#a16207' }, // 노랑
+  { bg: 'rgba(248, 113, 113, 0.16)', fg: '#dc2626' }, // 빨강
+]
+function speakerStyle(label) {
+  if (!label) return {}
+  const m = String(label).match(/(\d+)/)
+  let idx
+  if (m) idx = parseInt(m[1], 10) - 1
+  else {
+    idx = 0
+    for (const ch of String(label)) idx += ch.charCodeAt(0)
+  }
+  const n = SPEAKER_COLORS.length
+  const c = SPEAKER_COLORS[((idx % n) + n) % n]
+  return { background: c.bg, color: c.fg }
 }
 
 function toggleRecording() {
@@ -640,7 +655,8 @@ function toggleRecording() {
 
 function stopRecording() {
   recordingState.value = 'idle'
-  stt.stop()
+  // 기록 종료 — 실시간 전사를 종료하고 마이크를 완전히 해제한다.
+  stt.stop({ finalize: true })
   _resetTimer()
 }
 
@@ -1111,8 +1127,6 @@ async function endMeeting() {
   if (!(await confirmDialog('기록을 종료하시겠습니까?'))) return
   const sessionId = activeSession.value?.id
   const meetingId = activeSession.value?.meeting_id
-  // 기록 종료에서만 화자분리 트리거 — stop 시 도착하는 전체 오디오로 onAudioComplete가 실행
-  if (sessionId) _diarizeSessionId = sessionId
   stopRecording()
   if (sessionId) {
     await api.post(`/api/v1/sessions/${sessionId}/end`).catch(() => {})
@@ -1122,8 +1136,9 @@ async function endMeeting() {
     }
     activeSession.value = { ...activeSession.value, status: 'ended' }
   }
+  // 회의록 탭으로 자동 전환하지 않는다 — 발화(스크립트) 탭으로 이동한다.
   showMinutesTab.value = true
-  activeTab.value = 'minutes'
+  activeTab.value = 'script'
 }
 
 function togglePopover(name) {
@@ -1412,9 +1427,14 @@ const showCreateSession = ref(false)
 function openCreateSession() {
   showCreateSession.value = true
 }
-async function onSessionCreated({ meetingId }) {
+async function onSessionCreated({ meetingId, sessionId }) {
   sessionsStore.invalidate(meetingId)
-  await loadSessions(meetingId)
+  const list = await loadSessions(meetingId)
+  // 좌측에서 해당 회의체를 펼치고, 생성한 회의를 선택해 세션 화면으로 이동한다.
+  expandedMeetingIds.value = new Set([...expandedMeetingIds.value, meetingId])
+  selectedMeetingId.value = meetingId
+  const s = sessionId ? (list || []).find(x => x.id === sessionId) : null
+  if (s) await enterSession(s)
 }
 
 onMounted(async () => {
@@ -1442,9 +1462,11 @@ onBeforeUnmount(() => {
   if (recordingState.value === 'recording' && activeSession.value?.id) {
     _pauseTimer()
     recordingState.value = 'paused'
-    stt.stop()
     api.post(`/api/v1/sessions/${activeSession.value.id}/pause`).catch(() => {})
   }
+  // 페이지 이탈 시 마이크를 완전히 해제한다. 일시정지 상태로 스트림이 살아있는 경우의
+  // 마이크 누수도 함께 정리한다.
+  stt.release()
 })
 
 // 공통 컴포저가 마운트되면 내부 textarea를 @멘션 ref에 연결
@@ -1657,10 +1679,10 @@ async function downloadChatFile(filePath) {
                 </button>
               </div>
               <!-- archived 세션 구분선 + 목록 -->
-              <template v-if="mtg.sessions.filter(s => s.status === 'archived').length">
+              <template v-if="(mtg.sessions || []).filter(s => s.status === 'archived').length">
                 <div style="margin: 4px 8px; border-top: 1px solid var(--border-color); opacity: 0.4"></div>
                 <div
-                  v-for="s in mtg.sessions.filter(s => s.status === 'archived')"
+                  v-for="s in (mtg.sessions || []).filter(s => s.status === 'archived')"
                   :key="s.id"
                   class="sp-session-item"
                   :class="{ active: activeSession?.id === s.id }"
@@ -1726,7 +1748,16 @@ async function downloadChatFile(filePath) {
         <div class="sp-panel-header">
           <div class="sp-panel-title-row">
             <div class="sp-panel-title-group">
-              <div class="sp-panel-title">{{ activeSession.title }}</div>
+              <div class="sp-panel-title-line">
+                <div class="sp-panel-title">{{ activeSession.title }}</div>
+                <span
+                  v-if="participantCount"
+                  class="sp-participant-count"
+                  title="회의 참여자 수"
+                >
+                  <i class="bi bi-people-fill"></i> {{ participantCount }}
+                </span>
+              </div>
             </div>
           </div>
           <div class="app-tabs">
@@ -1792,11 +1823,7 @@ async function downloadChatFile(filePath) {
           </template>
 
           <template v-else-if="activeTab === 'script'">
-            <div v-if="diarizing" class="sp-diarizing">
-              <span class="spinner-border spinner-border-sm"></span>
-              <span>화자 분리 중… 잠시만 기다려 주세요.</span>
-            </div>
-            <div v-if="!transcriptLines.length && !diarizing" class="sp-empty">
+            <div v-if="!transcriptLines.length" class="sp-empty">
               <i class="bi bi-file-earmark-text" style="font-size: 28px; opacity: 0.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
             </div>
@@ -1813,17 +1840,22 @@ async function downloadChatFile(filePath) {
                   />
                 </div>
                 <div class="tline-body">
-                  <textarea v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                  <textarea name="tline-edit" id="tline-edit" v-model="editDraft.text" class="tline-edit-text" rows="2" />
                   <div class="tline-edit-btns">
                     <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
                     <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
                   </div>
                 </div>
               </div>
-              <div v-else class="tline">
+              <div v-else class="tline" :class="{ 'tline-corrected': line.corrected }">
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
-                  <span v-if="line.speaker" class="tline-speaker">{{ line.speaker }}</span>
+                  <span
+                    v-if="line.speaker"
+                    class="tline-speaker"
+                    :style="speakerStyle(line.speaker)"
+                    >{{ line.speaker }}</span
+                  >
                 </div>
                 <div class="tline-body">
                   <span class="tline-text">{{ line.text }}</span>
@@ -2170,7 +2202,7 @@ async function downloadChatFile(filePath) {
             v-if="['archived', 'ended'].includes(activeSession?.status)"
             class="ctrl-ended-msg"
           >
-            <i class="bi bi-check-circle"></i> 종료된 회의입니다.
+            <i class="bi bi-check-circle"></i> 종료된 회의입니다. 회의록을 생성할 수 있습니다.
           </span>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
@@ -2822,7 +2854,7 @@ async function downloadChatFile(filePath) {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 1;
-  min-width: 0;
+  min-width: 0; 
 }
 .sp-session-status {
   font-size: 9px;
@@ -2935,6 +2967,12 @@ async function downloadChatFile(filePath) {
   min-width: 0;
   flex: 1;
 }
+.sp-panel-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .sp-panel-title {
   font-size: 14px;
   font-weight: 700;
@@ -2942,6 +2980,21 @@ async function downloadChatFile(filePath) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sp-participant-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--surface-2, rgba(120, 120, 120, 0.1));
+}
+.sp-participant-count .bi {
+  font-size: 11px;
 }
 .sp-panel-location {
   font-size: 11px;
@@ -3146,19 +3199,6 @@ async function downloadChatFile(filePath) {
   gap: 8px;
   color: var(--text-muted);
 }
-.sp-diarizing {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border-radius: var(--radius);
-  background: var(--accent-bg-2);
-  color: var(--accent-strong);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 /* Transcript lines */
 .tline {
   display: flex;
@@ -3167,6 +3207,71 @@ async function downloadChatFile(filePath) {
   align-items: flex-start;
   padding: 4px 0;
   position: relative;
+}
+
+/* ── AI 전문용어 교정 표시 — 교정된 줄을 잠깐 무지개색으로 빛나게(1회성) ── */
+.tline-corrected {
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin: 0 -8px;
+  animation: ai-glow 2.4s ease-out 1;
+}
+.tline-corrected .tline-text {
+  background: linear-gradient(
+    90deg,
+    #f43f5e,
+    #f59e0b,
+    #22c55e,
+    #38bdf8,
+    #a855f7,
+    #f43f5e
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: ai-text-rainbow 2.4s linear 1;
+}
+@keyframes ai-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+    background: transparent;
+  }
+  18% {
+    box-shadow: 0 0 14px 2px rgba(244, 63, 94, 0.5);
+    background: rgba(244, 63, 94, 0.07);
+  }
+  45% {
+    box-shadow: 0 0 16px 3px rgba(56, 189, 248, 0.5);
+    background: rgba(56, 189, 248, 0.07);
+  }
+  70% {
+    box-shadow: 0 0 16px 3px rgba(34, 197, 94, 0.45);
+    background: rgba(34, 197, 94, 0.07);
+  }
+  88% {
+    box-shadow: 0 0 12px 2px rgba(168, 85, 247, 0.45);
+    background: rgba(168, 85, 247, 0.06);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0);
+    background: transparent;
+  }
+}
+@keyframes ai-text-rainbow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tline-corrected,
+  .tline-corrected .tline-text {
+    animation: none;
+  }
 }
 .tline-head {
   display: flex;

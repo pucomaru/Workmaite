@@ -31,7 +31,7 @@ _STT_LABELS = {
 
 
 def _stt_label(prov: str) -> str:
-    """provider(모델명) → 라벨. diarize 등 변형은 prefix 매칭."""
+    """provider(모델명) → 라벨. 변형 모델명은 prefix 매칭."""
     if prov in _STT_LABELS:
         return _STT_LABELS[prov]
     for k, v in _STT_LABELS.items():

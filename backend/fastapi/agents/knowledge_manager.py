@@ -7,7 +7,7 @@ from typing import AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
 
 from llm.llm_factory import llm_factory
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import add_messages
@@ -90,8 +90,12 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])  # type: ignore[arg-type]
-    return await embeddings.aembed_query(text[:2000])
+    # EMBED_MODEL(text-embedding-3-large)·EMBED_DIM(3072)·사용량 기록을 일원화한 공용
+    # 임베더 사용. 직접 OpenAIEmbeddings()는 모델 미지정 시 ada-002로 떨어져 EMBED_MODEL을
+    # 무시하고 벡터 차원(1536)도 인덱스(3072)와 어긋난다.
+    from graphdb.file_embedder import embed_query
+
+    return await embed_query(text[:2000])
 
 
 # ── Neo4j 저장 함수 ────────────────────────────────────────────────────────

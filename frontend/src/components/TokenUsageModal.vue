@@ -75,7 +75,7 @@ const MODEL_COLORS = {
   'gpt-4.1-mini': '#f59e0b',
   'gpt-4.1-nano': '#8b5cf6',
   'gpt-4-turbo': '#ef4444',
-  o1: '#ec4899',
+  'o1': '#ec4899',
   'o1-mini': '#14b8a6',
   'o3-mini': '#f97316',
 }
@@ -362,6 +362,10 @@ const sec = computed(() => data.value?.sections || null)
   background: #ccfbf1;
   color: #115e59;
 }
+.tum-chip.ctx-meeting {
+  background: #ffe4e6;
+  color: #9f1239;
+}
 .tum-chip.ctx-other {
   background: var(--surface-2);
   color: var(--text-muted);
@@ -429,6 +433,10 @@ html.night-mode .tum-chip.ctx-minutes {
 html.night-mode .tum-chip.ctx-embedding {
   background: rgba(20, 184, 166, 0.15) !important;
   color: #5eead4 !important;
+}
+html.night-mode .tum-chip.ctx-meeting {
+  background: rgba(244, 63, 94, 0.15) !important;
+  color: #fda4af !important;
 }
 html.night-mode .tum-chip-stt {
   background: rgba(147, 197, 253, 0.15) !important;
