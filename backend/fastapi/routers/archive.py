@@ -189,7 +189,23 @@ async def archive_extract_agendas(
         _default_start = _today_kst.strftime("%Y-%m-%d")
         _default_due = (_today_kst + _td(days=7)).strftime("%Y-%m-%d")
 
+        # 회의체 전체 draft 아젠다 삭제 — 재추출 시 이전 세션 draft 포함 정리
+        db.query(models.Agenda).filter(
+            models.Agenda.meeting_id == meeting_id,
+            models.Agenda.status == "draft",
+        ).delete(synchronize_session=False)
+        db.flush()
+
         agendas_raw = parsed.get("agendas", [])
+        # 동일 제목 중복 제거 — LLM이 같은 작업을 여러 팀에 배정하는 오류 방지
+        _seen_titles: set[str] = set()
+        deduped: list[dict] = []
+        for ag in agendas_raw:
+            _t = ag.get("title", "").strip().lower()
+            if _t and _t not in _seen_titles:
+                _seen_titles.add(_t)
+                deduped.append(ag)
+        agendas_raw = deduped
         draft_ids: list[int | None] = [None] * len(agendas_raw)
         agent_log_id: int | None = None
         try:
@@ -876,16 +892,17 @@ async def commit_draft_agendas(
 @router.get("/meetings/{meeting_id}/draft-agendas")
 async def get_draft_agendas(
     meeting_id: int,
+    session_id: int | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     require_view(db, current_user, meeting_id)
-    agendas = (
-        db.query(models.Agenda)
-        .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
-        .order_by(models.Agenda.created_at.asc())
-        .all()
+    q = db.query(models.Agenda).filter(
+        models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft"
     )
+    if session_id is not None:
+        q = q.filter(models.Agenda.session_id == session_id)
+    agendas = q.order_by(models.Agenda.created_at.asc()).all()
 
     def _parse_ev(ev):
         if not ev:

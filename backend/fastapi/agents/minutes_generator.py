@@ -242,6 +242,9 @@ async def generate_minutes_stream(
                     transcript=transcript,
                     now=now,
                     summary_blocks=summary_blocks,
+                    session_info=session_info,
+                    participants=participants,
+                    agenda_text=agenda_text,
                 )
             ),
         ]
