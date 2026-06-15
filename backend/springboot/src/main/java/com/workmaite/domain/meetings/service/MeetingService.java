@@ -119,7 +119,7 @@ public class MeetingService {
   }
 
   // company_role 기준 가시 회의체. getMeetings/getMyActiveMeetings가 동일 스코프를 공유한다.
-  private List<Meeting> getVisibleMeetings(User caller) {
+  public List<Meeting> getVisibleMeetings(User caller) {
     if (caller.getCompanyRole() == UserRole.SYSTEM_ADMIN) {
       return meetingRepository.findAll();
     } else if (caller.getCompanyRole() == UserRole.COMPANY_ADMIN && caller.getCompanyId() != null) {
