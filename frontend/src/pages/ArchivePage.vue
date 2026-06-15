@@ -2211,7 +2211,7 @@ async function analyzeRelationships() {
 // ─── 목록 필터 ────────────────────────────────────────────────
 const HISTORY_TYPE_OPTIONS = [
   { label: '자료 유형 전체', value: '' },
-  { label: '회의록', value: 'minutes' },
+  { label: '회의', value: 'minutes' },
   { label: '보고자료', value: 'report' },
 ]
 const selectedHistoryType = ref('')
@@ -2324,10 +2324,18 @@ const groupHistoryMap = computed(() => {
     g.minutes.forEach(m => {
       items.push({
         type: 'minutes',
-        desc: `${m.session_title || '회의'} 진행`,
+        desc: `${m.session_title || '회의'} 생성`,
         manager: managerName,
-        date: m.ended_at || m.started_at || m.date,
+        date: m.created_at || m.date,
       })
+      if (m.minutes_pg_id != null) {
+        items.push({
+          type: 'minutes',
+          desc: `${m.session_title || '회의'} 회의록 생성`,
+          manager: managerName,
+          date: m.generated_at || m.ended_at || m.date,
+        })
+      }
     })
     g.reports.forEach(r => {
       const isReference = r.human_status === 'approved' && r.score == null

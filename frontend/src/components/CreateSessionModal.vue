@@ -203,7 +203,11 @@ async function doCreate() {
               @change="errors.meeting_id = null"
             >
               <option :value="null" disabled>회의체를 선택하세요</option>
-              <option v-for="m in meetings" :key="toNumericId(m.id)" :value="toNumericId(m.id)">
+              <option
+                v-for="m in meetings.filter(m => m.status !== 'ended')"
+                :key="toNumericId(m.id)"
+                :value="toNumericId(m.id)"
+              >
                 {{ m.title }}
               </option>
             </select>

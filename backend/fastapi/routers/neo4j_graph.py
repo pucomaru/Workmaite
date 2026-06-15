@@ -555,6 +555,7 @@ async def get_archive(
                 "location": s.location or "",
                 "session_type": str(s.type) if s.type else "",
                 "date": s.scheduled_at.isoformat() + "Z" if s.scheduled_at else "",
+                "created_at": s.created_at.isoformat() + "Z" if s.created_at else "",
                 "started_at": s.started_at.isoformat() + "Z" if s.started_at else "",
                 "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else "",
                 "session_status": s.status or "",
@@ -606,6 +607,9 @@ async def get_archive(
                             "session_type": str(s.type) if s.type else "",
                             "date": s.scheduled_at.isoformat() + "Z"
                             if s.scheduled_at
+                            else "",
+                            "created_at": s.created_at.isoformat() + "Z"
+                            if s.created_at
                             else "",
                             "started_at": s.started_at.isoformat() + "Z"
                             if s.started_at
