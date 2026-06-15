@@ -1,5 +1,6 @@
 <script setup>
 import { inject, computed, ref, watch } from 'vue'
+import { toast } from '../composables/useToast'
 import DOMPurify from 'dompurify'
 import SidebarInfoRow from './SidebarInfoRow.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
@@ -56,6 +57,14 @@ const {
   nodeReviewing,
   startNodeReview,
 } = inject('archiveSidebar')
+
+function handleFinishExtract() {
+  if (!isDetailAdmin.value) {
+    toast.error('간사만 승인 저장할 수 있습니다')
+    return
+  }
+  finishExtract()
+}
 
 // ── 아젠다 직접 추가 ─────────────────────────────────────────────
 const directAddItems = ref([])
@@ -984,7 +993,7 @@ function parseAiEvidence(val) {
                   @approved="() => {}"
                   @rejected="() => {}"
                   @remove="i => extractResult.splice(i, 1)"
-                  @save="finishExtract"
+                  @save="handleFinishExtract"
                 />
               </template> </template
             ><!-- /추출 결과 --> </template

@@ -935,6 +935,11 @@ async function saveApprovedNextAgendas() {
     activeSession.value?.meetingId ||
     selectedMeeting.value?.id ||
     0
+  const myRole = meetingsStore.meetingRoles?.[selectedMeetingId.value]
+  if (!authStore.isStrategicTeam && myRole !== 'admin') {
+    toast.error('간사만 승인 저장할 수 있습니다')
+    return
+  }
   if (!meetingId) {
     toast.error('회의체 정보를 찾을 수 없습니다.')
     return
@@ -1614,13 +1619,6 @@ async function downloadChatFile(filePath) {
             <div class="sp-panel-title-group">
               <div class="sp-panel-title">{{ activeSession.title }}</div>
             </div>
-            <span
-              v-if="recordingState !== 'idle'"
-              class="rec-live"
-              :class="{ paused: recordingState === 'paused' }"
-            >
-              <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
-            </span>
           </div>
           <div class="app-tabs">
             <button
@@ -2046,6 +2044,21 @@ async function downloadChatFile(filePath) {
               <i v-if="recordingState !== 'recording'" class="bi bi-play-fill"></i>
               <i v-else class="bi bi-pause-fill"></i>
             </button>
+
+            <span
+              v-if="recordingState !== 'idle'"
+              class="rec-live"
+              :class="{ paused: recordingState === 'paused' }"
+            >
+              <span class="rec-wave">
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+              <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
+            </span>
 
             <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
@@ -3178,6 +3191,32 @@ html.night-mode .sp-ms-input {
 }
 .rec-live.paused .rec-timer {
   color: var(--text-muted);
+}
+.rec-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-right: 6px;
+}
+.rec-wave span {
+  display: inline-block;
+  width: 3px;
+  border-radius: 2px;
+  background: #e53e3e;
+  animation: bar-wave 0.8s ease-in-out infinite alternate;
+}
+.rec-wave span:nth-child(1) { animation-delay: 0s;    height: 4px; }
+.rec-wave span:nth-child(2) { animation-delay: 0.15s; height: 8px; }
+.rec-wave span:nth-child(3) { animation-delay: 0.3s;  height: 14px; }
+.rec-wave span:nth-child(4) { animation-delay: 0.15s; height: 8px; }
+.rec-wave span:nth-child(5) { animation-delay: 0s;    height: 4px; }
+@keyframes bar-wave {
+  from { transform: scaleY(0.3); }
+  to   { transform: scaleY(1); }
+}
+.rec-live.paused .rec-wave span {
+  animation-play-state: paused;
 }
 .mic-error-msg {
   font-size: 11px;
