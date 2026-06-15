@@ -123,8 +123,12 @@ async function saveFeedback(i) {
 }
 
 function fmtDate(d) {
-  if (!d) return ''
+  if (!d || d === 'null' || d === 'NULL') return ''
   return d.replace(/-/g, '.')
+}
+
+function validDate(d) {
+  return !!d && d !== 'null' && d !== 'NULL'
 }
 
 function deptList(dept) {
@@ -207,7 +211,7 @@ function deptList(dept) {
                   d
                 }}</span>
               </div>
-              <div class="arl-date-range" v-if="ag.start_date || ag.end_date">
+              <div class="arl-date-range" v-if="validDate(ag.start_date) || validDate(ag.end_date)">
                 <svg
                   width="10"
                   height="10"
@@ -223,10 +227,10 @@ function deptList(dept) {
                   <line x1="8" y1="2" x2="8" y2="6" />
                   <line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                <span v-if="ag.start_date && ag.end_date"
+                <span v-if="validDate(ag.start_date) && validDate(ag.end_date)"
                   >{{ fmtDate(ag.start_date) }} → {{ fmtDate(ag.end_date) }}</span
                 >
-                <span v-else-if="ag.start_date">{{ fmtDate(ag.start_date) }} 시작</span>
+                <span v-else-if="validDate(ag.start_date)">{{ fmtDate(ag.start_date) }} 시작</span>
                 <span v-else>{{ fmtDate(ag.end_date) }} 마감</span>
               </div>
             </div>
