@@ -165,6 +165,7 @@ async def direct_agent_stream(
     allowed_meeting_ids: list[int],
     is_admin: bool,
     meeting_id: int | None = None,
+    upcoming_ctx: str = "",
     thread_id: str | None = None,
 ) -> AsyncGenerator[tuple[str, str], None]:
     """(kind, text) 튜플 스트림 — kind: 'planning'(도구 호출 진행표시) | 'token' | 'action'.
@@ -172,9 +173,11 @@ async def direct_agent_stream(
     진행표시는 별도 narration LLM 없이 astream_events의 실제 도구 이벤트에서 파생한다(H-13).
     """
     hint = _build_agent_hint(meeting_id, thread_id)
+    if upcoming_ctx:
+        hint += upcoming_ctx + "\n"
     config = {
         "configurable": {
-            "thread_id": f"run-{uuid.uuid4()}",
+            "thread_id": thread_id or f"run-{uuid.uuid4()}",
             "user_id": user_id,
             "allowed_meeting_ids": list(allowed_meeting_ids),
             "is_admin": is_admin,

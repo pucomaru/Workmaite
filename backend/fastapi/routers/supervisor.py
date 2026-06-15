@@ -582,9 +582,10 @@ async def session_chat(
     status_guide = {
         "scheduled": (
             "이 회의는 아직 시작되지 않았습니다.\n"
-            "대화 내용·발언·결정사항 등 진행 관련 질문에는 "
-            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요.\n"
-            "일정·장소·참석자·안건 정보는 아래 데이터를 참고해 답변할 수 있습니다."
+            "아래 데이터에 있는 일정·장소·참석자·안건은 그대로 답변하세요.\n"
+            "안건([안건] 섹션)이 비어 있으면 '이 회의에 등록된 안건이 없습니다'라고 답변하세요.\n"
+            "회의 중 발언·대화 내용·결정사항·요약처럼 회의가 시작돼야 알 수 있는 정보를 물을 때만 "
+            "'아직 시작되지 않은 회의라 해당 정보가 없습니다'라고 답변하세요."
         ),
         "ongoing": (
             "이 회의는 현재 진행 중입니다.\n"
@@ -1152,8 +1153,43 @@ async def supervisor_chat(
             "다른 사용자 또는 비소속 회의체의 민감 정보는 노출하지 마세요.\n"
         )
 
+        # 내가 참석자로 등록된 예정·진행 중 세션 목록 (SessionMember 기준)
+        _upcoming_ctx = ""
+        try:
+            _upcoming = (
+                db.query(models.MeetingSession, models.Meeting.title)
+                .join(models.SessionMember, models.SessionMember.session_id == models.MeetingSession.id)
+                .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                .filter(
+                    models.SessionMember.user_id == current_user.id,
+                    models.MeetingSession.status.in_(["scheduled", "ongoing"]),
+                )
+                .order_by(models.MeetingSession.scheduled_at)
+                .limit(10)
+                .all()
+            )
+            _status_ko = {"scheduled": "예정됨", "ongoing": "진행 중"}
+            if _upcoming:
+                _lines = ["[내 예정·진행 중 회의]"]
+                for _s, _mg_title in _upcoming:
+                    _date = (
+                        _s.scheduled_at.strftime("%Y.%m.%d %H:%M")
+                        if _s.scheduled_at else "일정 미정"
+                    )
+                    _lines.append(
+                        f"  - [{_mg_title}] {_s.title} / {_date} / {_status_ko.get(_s.status, _s.status)}"
+                        + (f" / {_s.location}" if _s.location else "")
+                    )
+                _upcoming_ctx = "\n".join(_lines)
+            else:
+                _upcoming_ctx = "[내 예정·진행 중 회의]\n  예정된 회의가 없습니다."
+        except Exception:
+            pass
+
         def _enrich(base_ctx: str) -> str:
             parts = [_user_scope_header, base_ctx]
+            if _upcoming_ctx:
+                parts.append(_upcoming_ctx)
             if neo4j_ctx_str and neo4j_ctx_str != "(Neo4j 데이터 없음)":
                 parts.append(f"[Neo4j 그래프 컨텍스트]\n{neo4j_ctx_str}")
             return "\n\n".join(parts)
@@ -1165,6 +1201,28 @@ async def supervisor_chat(
             # ── B 유형: 현황 조회 / 지식 베이스 / 인사 / 일반 질문 ──────────
 
             if _route in ("supervisor_direct", "knowledge_manager"):
+                # ── 일정 조회 fast path: Neo4j 도구 없이 DB 데이터로 직접 답변 ──
+                _SCHEDULE_KEYWORDS = ["일정", "곧 시작", "예정된 회의", "다음 회의", "언제 있", "회의 있어", "회의있어", "회의 언제"]
+                _is_schedule_query = any(kw in msg for kw in _SCHEDULE_KEYWORDS)
+                if _is_schedule_query and _upcoming_ctx:
+                    _sched_system = (
+                        "당신은 회의 일정 안내 어시스턴트입니다.\n"
+                        "아래 [내 예정·진행 중 회의] 데이터를 바탕으로 자연스러운 말투로 설명하세요.\n"
+                        "- 회의체명([반도체 공정 위원회] 같은 대괄호 부분)은 언급하지 마세요.\n"
+                        "- '회의명이 YYYY년 MM월 DD일 HH:MM에 장소에서 예정되어 있습니다.' 형식으로 설명하세요.\n"
+                        "- 여러 개면 가장 빠른 것부터 순서대로 자연스럽게 나열하세요.\n"
+                        "- 예정된 회의가 없으면 '현재 예정된 회의가 없습니다'라고 답하세요.\n"
+                        "- 도입 문구('다음과 같습니다' 등)나 마무리 인사 없이 바로 답하세요.\n\n"
+                        + _upcoming_ctx
+                    )
+                    _sched_msgs = [SystemMessage(content=_sched_system), HumanMessage(content=msg)]
+                    async for _chunk in make_llm(temperature=0.2, streaming=True).astream(_sched_msgs):
+                        if _chunk.content:
+                            _assistant_chunks.append(_chunk.content)
+                            yield sse_token(_chunk.content)
+                    yield sse_done()
+                    return
+
                 # 도구 기반 JIT 에이전트 (P3A-5/P3B-2) — 사전조립 컨텍스트 경로는 제거됨.
                 # 스코프는 tools가 RunnableConfig 기준으로 강제, 진행표시는 실제 도구 이벤트에서 파생.
                 from graphs.supervisor_graph import direct_agent_stream
@@ -1176,6 +1234,7 @@ async def supervisor_chat(
                     allowed_meeting_ids=list(pg_meeting_ids),
                     is_admin=is_admin,
                     meeting_id=data.meeting_id or None,
+                    upcoming_ctx=_upcoming_ctx,
                     thread_id=_thread_id,
                 ):
                     if _kind == "planning":
