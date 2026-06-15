@@ -49,7 +49,7 @@ const ICONS = {
   color: var(--dark-text);
   border: 1px solid var(--white-12);
   border-radius: 10px;
-  padding: 11px 16px;
+  padding: 10px 16px 12px 16px;
   font-size: 13px;
   line-height: 1.5;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
@@ -65,6 +65,14 @@ const ICONS = {
 }
 .toast-info i {
   color: var(--accent-light);
+}
+.toast-item i {
+  flex-shrink: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+  top: 1px;
 }
 .toast-msg {
   word-break: break-word;

@@ -904,6 +904,10 @@ function _formatExtractForChat(agendas) {
 // 과제 탭에서 인라인으로 추출 실행
 async function runExtract() {
   if (!detailMeeting.value) return
+  if (!isDetailAdmin.value) {
+    toast.error('간사만 아젠다를 추출할 수 있습니다', { duration: 1500 })
+    return
+  }
 
   const mgTitle = detailMeeting.value?.title || '회의체'
 

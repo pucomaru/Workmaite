@@ -60,7 +60,7 @@ const {
 
 function handleFinishExtract() {
   if (!isDetailAdmin.value) {
-    toast.error('간사만 승인 저장할 수 있습니다')
+    toast.error('간사만 승인 저장할 수 있습니다', { duration: 1500 })
     return
   }
   finishExtract()
