@@ -426,12 +426,12 @@ onMounted(async () => {
               >
                 {{ meetingsStore.meetingRoles[g.id] === 'admin' ? '간사' : '참여자' }}
               </span>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 유형 -->
             <td>
               <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 간사 -->
             <td>
@@ -442,9 +442,9 @@ onMounted(async () => {
                     .slice(0, 2)
                     .join(', ')
                 }}</span>
-                <span v-else class="mg-row-nodates">-</span>
+                <span v-else class="mg-row-nodates"></span>
               </div>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 참여조직 -->
             <td>
@@ -455,16 +455,16 @@ onMounted(async () => {
                     getCompanies(g.id).length > 3 ? ` 외 ${getCompanies(g.id).length - 3}개` : ''
                   }}</span
                 >
-                <span v-else class="mg-row-nodates">-</span>
+                <span v-else class="mg-row-nodates"></span>
               </div>
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <!-- 참여자 -->
             <td>
               <span v-if="membersCache[g.id]" class="mg-member-count-label"
                 >{{ membersCache[g.id].length }}명</span
               >
-              <span v-else class="mg-row-nodates">-</span>
+              <span v-else class="mg-row-nodates"></span>
             </td>
             <td>
               <div class="action-btns">

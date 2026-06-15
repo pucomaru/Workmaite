@@ -221,6 +221,9 @@ public class UserService {
                     .company(caller.getCompany()) // 관리자와 같은 회사 (정규화 엔티티)
                     .department(blankToNull(row.get("department")))
                     .position(blankToNull(row.get("position")))
+                    // CSV 일괄 등록으로 추가되는 사용자는 반드시 일반 사용자(USER)로 고정.
+                    // (@Builder는 엔티티 필드 기본값을 적용하지 않으므로 명시 — 권한 승격은 별도 화면에서만)
+                    .companyRole(UserRole.USER)
                     .mustChangePassword(true) // 최초 로그인 시 변경 강제
                     .build());
         neoSyncService.syncUser(saved.getId()); // 새 사용자를 Neo4j User 노드로 동기화

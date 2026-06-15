@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from typing import List, Optional, Literal, cast
@@ -746,7 +747,7 @@ async def supervisor_chat(
         if p_rows:
             user_person_id = p_rows[0]["pid"]
             mg_access_rows = await run_cypher(
-                "MATCH (p:User {id: $pid})-[:`간사`|`구성원`]->(mg) "
+                "MATCH (p:User {id: $pid})-[:`운영`|`참여`]->(mg) "
                 "WHERE mg:Meetings OR mg:Meeting_session "
                 "RETURN coalesce(mg.id, 'mg-sqlite-' + toString(mg.pg_id)) AS mg_id",
                 {"pid": user_person_id},
@@ -921,10 +922,10 @@ async def supervisor_chat(
                     mg_detail_rows: list[dict] = []
                     if user_person_id:
                         mg_detail_rows = await run_cypher(
-                            """MATCH (me:User {id: $pid})-[:`구성원`|`간사`]->(mg:Meetings)
+                            """MATCH (me:User {id: $pid})-[:`참여`|`운영`]->(mg:Meetings)
                                WITH DISTINCT mg
-                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
-                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               OPTIONAL MATCH (sec:User)-[:`운영`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`참여`]->(mg)
                                WITH mg,
                                     head(collect(DISTINCT
                                         sec.name + '||' + coalesce(sec.department, '')
@@ -945,8 +946,8 @@ async def supervisor_chat(
                     elif is_admin:
                         mg_detail_rows = await run_cypher(
                             """MATCH (mg:Meetings)
-                               OPTIONAL MATCH (sec:User)-[:`간사`]->(mg)
-                               OPTIONAL MATCH (mem:User)-[:`구성원`]->(mg)
+                               OPTIONAL MATCH (sec:User)-[:`운영`]->(mg)
+                               OPTIONAL MATCH (mem:User)-[:`참여`]->(mg)
                                WITH mg,
                                     head(collect(DISTINCT
                                         sec.name + '||' + coalesce(sec.department, '')
@@ -1175,9 +1176,16 @@ async def supervisor_chat(
                     allowed_meeting_ids=list(pg_meeting_ids),
                     is_admin=is_admin,
                     meeting_id=data.meeting_id or None,
+                    thread_id=_thread_id,
                 ):
                     if _kind == "planning":
                         yield sse_event("planning", _text)
+                    elif _kind == "action":
+                        # 쓰기 제안 → 프런트 확인 카드. 실제 실행은 사용자 확인 후 기존 엔드포인트로.
+                        try:
+                            yield sse_event("action_confirm", json.loads(_text))
+                        except Exception:
+                            pass
                     else:
                         _assistant_chunks.append(_text)  # finally에서 DB 저장 (P3B-3)
                         yield sse_token(_text)

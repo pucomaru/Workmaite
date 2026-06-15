@@ -151,6 +151,22 @@ def _log_failure(
     )
 
 
+def _is_draft(status: str | None) -> bool:
+    """Draft 상태 판별 (대소문자 무관) — Agenda 'draft' / Minutes 'DRAFT' 모두 포함."""
+    return (status or "").strip().lower() == "draft"
+
+
+async def _detach_node(label: str, key_prop: str, key_value) -> None:
+    """Neo4j에서 해당 노드를 관계째 제거한다 (draft 전환 시 PG-only로 되돌리기 위함)."""
+    try:
+        await run_cypher(
+            f"MATCH (n:{label} {{{key_prop}: $k}}) DETACH DELETE n",
+            {"k": key_value},
+        )
+    except Exception as e:
+        logger.warning(f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}")
+
+
 def _parse_dept_names(department: str | None) -> list[str]:
     """department 문자열(또는 JSON string)에서 부서명 목록을 추출합니다."""
     if not department or not department.strip():
@@ -277,7 +293,7 @@ async def sync_user(
     WITH u
     FOREACH (_ IN CASE WHEN $company <> '' THEN [1] ELSE [] END |
         MERGE (co:Company {name: $company})
-        MERGE (u)-[:소속회사]->(co)
+        MERGE (u)-[:`소속회사`]->(co)
     )
     """
     try:
@@ -326,7 +342,7 @@ async def sync_meeting_member(
     cypher = """
     MATCH (u:User {pg_id: $user_id})
     MATCH (mg:Meetings {id: $mg_id})
-    MERGE (u)-[r:구성원]->(mg)
+    MERGE (u)-[r:`참여`]->(mg)
     SET r.role = $role
     """
     try:
@@ -350,7 +366,7 @@ async def delete_meeting_member(
 ) -> None:
     """User-Meetings 구성원 관계를 삭제합니다."""
     cypher = """
-    MATCH (u:User {pg_id: $user_id})-[r:구성원]->(mg:Meetings {id: $mg_id})
+    MATCH (u:User {pg_id: $user_id})-[r:`참여`]->(mg:Meetings {id: $mg_id})
     DELETE r
     """
     try:
@@ -368,7 +384,7 @@ async def update_meeting_member_role(
 ) -> None:
     """User-Meetings 구성원 관계의 role을 업데이트합니다."""
     cypher = """
-    MATCH (u:User {pg_id: $user_id})-[r:구성원]->(mg:Meetings {id: $mg_id})
+    MATCH (u:User {pg_id: $user_id})-[r:`참여`]->(mg:Meetings {id: $mg_id})
     SET r.role = $role
     """
     try:
@@ -421,7 +437,7 @@ async def sync_meeting_group(
     WITH mg
     OPTIONAL MATCH (creator:User {pg_id: $created_by})
     FOREACH (_ IN CASE WHEN creator IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (creator)-[:간사]->(mg)
+        MERGE (creator)-[:`운영`]->(mg)
     )
     """
     params = {
@@ -492,7 +508,7 @@ async def sync_session(
     WITH s
     OPTIONAL MATCH (mg:Meetings {id: $mg_id})
     FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (s)-[:소속]->(mg)
+        MERGE (s)-[:`소속`]->(mg)
     )
     """
     emb_text = " ".join(filter(None, [title, description, location]))
@@ -530,7 +546,7 @@ async def sync_session(
         UNWIND $attendees AS a
         MATCH (u:User {pg_id: a.user_id})
         MATCH (s:Session {id: $session_id})
-        MERGE (u)-[r:참석]->(s)
+        MERGE (u)-[r:`참석`]->(s)
         SET r.role = a.role
         """
         try:
@@ -569,9 +585,14 @@ async def sync_agenda(
     """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다.
 
     HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 
+
+    Draft 상태는 사용자 확인 전이므로 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
     ag_id = to_agenda_id(agenda_id)
+    if _is_draft(status):
+        await _detach_node("Agenda", "id", ag_id)  # draft 전환 시 기존 노드 제거
+        return
     mg_id = to_mg_id(meeting_id)
     s_id = to_session_id(session_id) if session_id else None
     cypher = """
@@ -598,7 +619,7 @@ async def sync_agenda(
     WITH ag
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (ag)-[:`발제세션`]->(s)
+        MERGE (ag)-[:`논의`]->(s)
     )
     WITH ag
     OPTIONAL MATCH (ag)-[old:`진행`|`다룸`|`도출`]->(s2:Session)
@@ -657,7 +678,7 @@ async def sync_agenda(
             MATCH (ag:Agenda {id: $ag_id})
             UNWIND $dept_names AS dept_name
             MERGE (d:Department {name: dept_name})
-            MERGE (ag)-[:담당부서]->(d)
+            MERGE (ag)-[:`담당부서`]->(d)
             """,
                 {"ag_id": ag_id, "dept_names": dept_names_list},
             )
@@ -681,7 +702,13 @@ async def sync_minutes(
     status: str | None = None,
     generated_at: str | None = None,
 ) -> None:
-    """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다."""
+    """Minutes 노드를 upsert하고 Session / recorder User와 연결합니다.
+
+    Draft 상태는 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
+    """
+    if _is_draft(status):
+        await _detach_node("Minutes", "pg_id", minutes_id)  # draft 전환 시 기존 노드 제거
+        return
     s_id = to_session_id(session_id)
     cypher = """
     // 세션당 회의록은 하나여야 한다 — 같은 세션의 다른 pg_id Minutes(과거 삭제·재생성 잔재)를
@@ -703,12 +730,12 @@ async def sync_minutes(
     WITH mn
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (mn)-[:기록]->(s)
+        MERGE (mn)-[:`기록`]<-(s)
     )
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
     FOREACH (_ IN CASE WHEN recorder IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (recorder)-[:작성]->(mn)
+        MERGE (recorder)-[:`작성`]->(mn)
     )
     """
     emb_text = " ".join(filter(None, [content_summary, file_name]))
@@ -760,10 +787,10 @@ async def sync_report(
     hitl_rationale: str | None = None,
     hitl_reviewed_at: str | None = None,
 ) -> None:
-    """Report 노드를 upsert하고 Meetings에 [:첨부] 관계로 연결합니다.
+    """Report 노드를 upsert하고 Meetings에 [:`첨부`] 관계로 연결합니다.
 
     HITL 검토 결과(status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다.
     """
     report_neo_id = to_report_id(report_id)
     mg_id = to_mg_id(meeting_id)
@@ -841,7 +868,7 @@ async def sync_report(
 
 
 # ─── HITL 검토 → 대상 노드(Agenda/Report) 속성 동기화 ────────────────────────
-# 별도 HumanJudgment 노드 대신, 검토 결과를 검토 대상 노드의 속성·임베딩으로 흡수한다.
+# 검토 결과를 검토 대상 노드의 속성·임베딩으로 흡수한다.
 
 
 def _hitl_props(review) -> dict:
@@ -1051,7 +1078,7 @@ async def sync_meeting_relation(
     target_meeting_id: int,
     relation_type: str,
 ) -> None:
-    rel_map = {"PARENT_OF": "상위", "RELATED_TO": "관련", "FOLLOW_UP": "후속회의"}
+    rel_map = {"PARENT_OF": "상위", "RELATED_TO": "관련", "FOLLOW_UP": "후속"} # 레거시 호환
     rel = rel_map.get(relation_type.upper(), "관련")
     cypher = f"""
     MATCH (src:Meetings {{id: $src_id}})
@@ -1085,11 +1112,15 @@ async def sync_meeting_relation(
 async def delete_meeting(meeting_id: int) -> None:
     # 회의체 삭제 시 자식 노드(Session/Minutes/Agenda/Report + 청크)까지 함께 제거한다.
     # Meetings 노드만 DETACH DELETE하면 자식들이 orphan으로 그래프에 남는다(아카이브 ghost).
+    # DETACH DELETE는 이 회의체의 모든 관계를 함께 제거하므로, 사용자가 수동 연결한
+    # 회의체↔회의체 `협의`(PG에 없는 Neo4j 전용 관계)도 이때만 정상적으로 끊어진다.
+    # 일반 동기화(sync_meeting_group MERGE / cleanup_deleted_from_pg)는 회의체가 PG에 남아 있는 한
+    # 노드·관계를 보존하므로 `협의`는 끊기지 않는다.
     await run_cypher(
         """
         MATCH (mg:Meetings {id: $id})
         OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
-        OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
+        OPTIONAL MATCH (mn:Minutes)-[:`기록`]<-(s)
         OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg)
         OPTIONAL MATCH (r:Report)-[:`첨부`]->(mg)
         OPTIONAL MATCH (rc:ReportChunk)-[:`청크`]->(r)

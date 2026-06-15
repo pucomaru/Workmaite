@@ -155,6 +155,9 @@ async function enterSession(s) {
   try {
     const { data } = await api.get(`/api/v1/sessions/${s.id}`)
     const full = data.data ?? data
+    // 서버의 권위 있는 status로 동기화 — 목록의 stale 상태로 start/resume을 오판해
+    // /start(=SCHEDULED 전용)가 ONGOING/ENDED 세션에 호출되어 400나는 것을 막는다.
+    if (full.status) activeSession.value = { ...activeSession.value, status: full.status }
     if (full.summary_blocks?.length) {
       conversationBlocks.value = full.summary_blocks.map(b => ({
         title: b.title,
@@ -195,31 +198,7 @@ async function enterSession(s) {
   await nextTick()
   loadMinutesToEditor(rec.generatedMinutes?.content_summary || '')
 
-  if (!rec.transcriptLines.length) {
-    try {
-      const { data } = await api.get(`/api/v1/sessions/${s.id}/scripts`)
-      if (data && data.length) {
-        // 실시간 녹음마다 start_sec가 0부터 재시작할 수 있어 서버의 start_sec 정렬만으론
-        // 여러 번 녹음한 세션의 순서가 꼬인다 → 실제 삽입 시각(createdAt, 동률이면 id)으로 재정렬.
-        const lines = [...data]
-          .sort(
-            (a, b) =>
-              String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
-              (a.id || 0) - (b.id || 0),
-          )
-          .map(seg => ({
-            id: seg.id,
-            time: utcToKst(seg.createdAt),
-            text: seg.content,
-            speaker: seg.speakerLabel || '화자01',
-          }))
-        rec.transcriptLines.push(...lines)
-        transcriptLines.value = rec.transcriptLines
-      }
-    } catch (e) {
-      console.error('STT 세그먼트 로드 실패', e)
-    }
-  }
+  if (!rec.transcriptLines.length) await loadScripts(s.id)
 
   // DB에서 저장된 회의록 불러오기 (in-memory에 없을 때만)
   if (!rec.generatedMinutes) {
@@ -437,10 +416,19 @@ function _pushLine(time, text, id = null, speaker = '화자01') {
 }
 
 const partialText = ref('') // 실시간 부분 전사(미확정) — 라이브 표시 (P5)
+const diarizing = ref(false) // 기록 종료 후 화자분리 처리 중 표시
+let _diarizeSessionId = null // 기록 종료 시에만 설정 — onAudioComplete가 이 세션을 화자분리
+
 const stt = useRealtimeSTT({
   onResult: (text, id = null) => {
     partialText.value = ''
     _pushLine(nowTime(), text, id)
+  },
+  // 기록 종료로 stop될 때만 전체 오디오(Blob)가 도착 → 화자분리 실행 (pause 등은 무시)
+  onAudioComplete: blob => {
+    const sid = _diarizeSessionId
+    _diarizeSessionId = null
+    if (sid && blob) runDiarization(sid, blob)
   },
   onPartial: t => {
     partialText.value = t
@@ -481,6 +469,52 @@ function _resetTimer() {
 function formatTimer(s) {
   const sec = Math.floor(s)
   return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
+}
+
+// ─── 스크립트(발화) 로더 — 최초 진입/화자분리 후 재조회 공용 ──────────────────
+async function loadScripts(sessionId, { force = false } = {}) {
+  const rec = getOrCreateRecord(sessionId)
+  if (!force && rec.transcriptLines.length) return
+  try {
+    const { data } = await api.get(`/api/v1/sessions/${sessionId}/scripts`)
+    // 실시간 녹음마다 start_sec가 0부터 재시작할 수 있어 createdAt(동률이면 id)으로 정렬한다.
+    const lines = (data || [])
+      .slice()
+      .sort(
+        (a, b) =>
+          String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
+          (a.id || 0) - (b.id || 0),
+      )
+      .map(seg => ({
+        id: seg.id,
+        time: utcToKst(seg.createdAt),
+        text: seg.content,
+        speaker: seg.speakerLabel || '화자01',
+      }))
+    rec.transcriptLines = lines
+    if (activeSession.value?.id === sessionId) transcriptLines.value = lines
+  } catch (e) {
+    console.error('STT 세그먼트 로드 실패', e)
+  }
+}
+
+// ─── 화자분리 — 기록 종료 시 전체 오디오를 gpt-4o-transcribe-diarize로 1회 전사 ──
+async function runDiarization(sessionId, blob) {
+  diarizing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('audio', blob, 'recording.webm')
+    fd.append('session_id', String(sessionId))
+    fd.append('lang', transcriptLang.value || 'ko')
+    await apiAI.post('/api/stt/diarize', fd)
+    await loadScripts(sessionId, { force: true })
+    toast.success('화자 분리가 완료되었습니다.')
+  } catch (e) {
+    console.error('화자 분리 실패', e)
+    toast.info('화자 분리에 실패했습니다. 기존 스크립트를 유지합니다.')
+  } finally {
+    diarizing.value = false
+  }
 }
 
 // ─── 발화 편집 ────────────────────────────────────────────────
@@ -1049,6 +1083,8 @@ async function endMeeting() {
   if (!(await confirmDialog('기록을 종료하시겠습니까?'))) return
   const sessionId = activeSession.value?.id
   const meetingId = activeSession.value?.meeting_id
+  // 기록 종료에서만 화자분리 트리거 — stop 시 도착하는 전체 오디오로 onAudioComplete가 실행
+  if (sessionId) _diarizeSessionId = sessionId
   stopRecording()
   if (sessionId) {
     await api.post(`/api/v1/sessions/${sessionId}/end`).catch(() => {})
@@ -1559,7 +1595,7 @@ async function downloadChatFile(filePath) {
                 등록된 회의가 없습니다
               </div>
               <div
-                v-for="s in mtg.sessions.filter(s => s.status !== 'archived')"
+                v-for="s in (mtg.sessions || []).filter(s => s.status !== 'archived')"
                 :key="s.id"
                 class="sp-session-item"
                 :class="{ active: activeSession?.id === s.id }"
@@ -1696,7 +1732,11 @@ async function downloadChatFile(filePath) {
           </template>
 
           <template v-else-if="activeTab === 'script'">
-            <div v-if="!transcriptLines.length" class="sp-empty">
+            <div v-if="diarizing" class="sp-diarizing">
+              <span class="spinner-border spinner-border-sm"></span>
+              <span>화자 분리 중… 잠시만 기다려 주세요.</span>
+            </div>
+            <div v-if="!transcriptLines.length && !diarizing" class="sp-empty">
               <i class="bi bi-file-earmark-text" style="font-size: 28px; opacity: 0.25"></i>
               <p class="text-muted small mb-0">스크립트가 여기에 표시됩니다.</p>
             </div>
@@ -1954,7 +1994,10 @@ async function downloadChatFile(filePath) {
 
         <!-- Control bar (AI 실시간 요약/발화 탭) -->
         <div v-if="activeTab !== 'minutes'" class="sp-ctrl-bar" @click.stop>
-          <div v-show="activeSession?.status !== 'archived'" class="ctrl-group-left">
+          <div
+            v-show="!['archived', 'ended'].includes(activeSession?.status)"
+            class="ctrl-group-left"
+          >
             <!-- Language selector -->
             <div class="ctrl-pop-wrap">
               <button
@@ -3036,6 +3079,18 @@ async function downloadChatFile(filePath) {
   height: 100%;
   gap: 8px;
   color: var(--text-muted);
+}
+.sp-diarizing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: var(--accent-bg-2);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* Transcript lines */
