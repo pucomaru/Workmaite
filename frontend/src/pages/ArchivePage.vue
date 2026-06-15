@@ -520,7 +520,9 @@ async function openNodeDetail(n) {
     if (meetingNumId) {
       try {
         const { data: agendas } = await apiAI.get(`/api/agent/meetings/${meetingNumId}/agendas`)
-        const fresh = agendas.find(a => String(a.id) === String(n.neo4jId))
+        // neo4jId는 "agenda-263" 형태, PG API는 정수 263을 반환 → 끝 숫자로 비교
+        const neoNumId = _toNumericId(n.neo4jId)
+        const fresh = agendas.find(a => String(a.id) === String(neoNumId))
         if (fresh) {
           detailNode.value = { ...n, data: { ...n.data, ...fresh } }
         }
@@ -537,7 +539,16 @@ async function openNodeDetail(n) {
     if (reportId && !isNaN(reportId)) {
       try {
         const { data: score } = await apiAI.get(`/api/upload/reports/${reportId}/score`)
-        detailNode.value = { ...n, data: { ...n.data, ...score } }
+        detailNode.value = {
+          ...n,
+          data: {
+            ...n.data,
+            ...score,
+            // PG에서 최신 related_agenda_ids 사용 (그래프 캐시 stale 대비)
+            related_agenda_ids:
+              score.report?.related_agenda_ids ?? n.data?.related_agenda_ids ?? [],
+          },
+        }
       } catch (e) {
         console.warn('[score fetch]', e)
       }
@@ -1680,6 +1691,27 @@ const deptConnectableNodes = computed(() => {
 })
 
 // 선택된 회의체 노드에 연결된 과제 목록
+// Neo4j 동기화 전 신규 회의체의 PG 아젠다 폴백용 (모달 열릴 때 채워짐)
+const pgUploadAgendas = ref([])
+
+watch(
+  () => [uploadForm.value.meetingId, showUploadModal.value],
+  async ([meetingId, modalOpen]) => {
+    pgUploadAgendas.value = []
+    if (!modalOpen || !meetingId) return
+    const numId = String(meetingId).replace(/^mg-/, '')
+    if (!numId || !/^\d+$/.test(numId)) return
+    try {
+      const { data } = await apiAI.get(`/api/agent/meetings/${numId}/agendas`)
+      pgUploadAgendas.value = (data || [])
+        .filter(a => a.status !== 'draft')
+        .map(a => ({ id: `agenda-${a.id}`, content: a.title || a.content || '', agenda_id: null }))
+    } catch {
+      pgUploadAgendas.value = []
+    }
+  },
+)
+
 const 업로드회의체과제 = computed(() => {
   const nodes = gNodesRef.value
   if (!uploadForm.value.meetingId) return []
@@ -1695,6 +1727,8 @@ const 업로드회의체과제 = computed(() => {
   }
   const mgNode = gNodes.find(n => n.id === uploadForm.value.meetingId && n.type === 'Meetings')
   if (mgNode?.data?.tasks?.length) return mgNode.data.tasks
+  // Neo4j 미동기화 신규 회의체 대비: PG API로 직접 가져온 아젠다 사용
+  if (pgUploadAgendas.value.length) return pgUploadAgendas.value
   return []
 })
 
