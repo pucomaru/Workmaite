@@ -585,7 +585,7 @@ async def sync_agenda(
     """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다.
 
     HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 
 
     Draft 상태는 사용자 확인 전이므로 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
@@ -790,7 +790,7 @@ async def sync_report(
     """Report 노드를 upsert하고 Meetings에 [:`첨부`] 관계로 연결합니다.
 
     HITL 검토 결과(status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 (별도 HumanJudgment 노드 폐지).
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다.
     """
     report_neo_id = to_report_id(report_id)
     mg_id = to_mg_id(meeting_id)
@@ -868,7 +868,7 @@ async def sync_report(
 
 
 # ─── HITL 검토 → 대상 노드(Agenda/Report) 속성 동기화 ────────────────────────
-# 별도 HumanJudgment 노드 대신, 검토 결과를 검토 대상 노드의 속성·임베딩으로 흡수한다.
+# 검토 결과를 검토 대상 노드의 속성·임베딩으로 흡수한다.
 
 
 def _hitl_props(review) -> dict:

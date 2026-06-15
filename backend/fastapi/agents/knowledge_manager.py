@@ -497,7 +497,7 @@ async def confirm_relationships(
         return {"status": "confirmed", "relationships": merged}
 
     else:
-        # 반려: 제안을 폐기한다 (HumanJudgment 노드 생성 폐지)
+        # 반려: 제안을 폐기한다
         _proposals.pop(proposal_id, None)
         return {"status": "rejected"}
 

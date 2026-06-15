@@ -69,7 +69,7 @@ async def create_hitl_review(
     db.commit()
     db.refresh(review)
 
-    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
+    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수
     try:
         from graphdb.neo4j_sync import sync_hitl_target
 
@@ -115,7 +115,7 @@ async def update_hitl_review(
     db.commit()
     db.refresh(review)
 
-    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수 (HumanJudgment 노드 폐지)
+    # 검토 결과를 대상 Agenda/Report 노드 속성·임베딩으로 흡수)
     try:
         from graphdb.neo4j_sync import sync_hitl_target
 

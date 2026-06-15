@@ -485,7 +485,6 @@ CREATE CONSTRAINT session_id    IF NOT EXISTS FOR (s:Session)       REQUIRE s.id
 CREATE CONSTRAINT agenda_id     IF NOT EXISTS FOR (a:Agenda)        REQUIRE a.id    IS UNIQUE;
 CREATE CONSTRAINT minutes_id    IF NOT EXISTS FOR (m:Minutes)       REQUIRE m.id    IS UNIQUE;
 CREATE CONSTRAINT report_id     IF NOT EXISTS FOR (r:Report)        REQUIRE r.id    IS UNIQUE;
-CREATE CONSTRAINT hj_id         IF NOT EXISTS FOR (h:HumanJudgment) REQUIRE h.id    IS UNIQUE;
 CREATE CONSTRAINT dept_name     IF NOT EXISTS FOR (d:Department)    REQUIRE d.name  IS UNIQUE;
 CREATE CONSTRAINT company_name  IF NOT EXISTS FOR (c:Company)       REQUIRE c.name  IS UNIQUE;
 // 적용 전 중복 노드 점검: MATCH (n:Agenda) WITH n.id AS id, count(*) AS c WHERE c > 1 RETURN id, c;
