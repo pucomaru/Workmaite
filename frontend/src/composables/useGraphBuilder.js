@@ -251,7 +251,7 @@ export function useGraphBuilder({
       const visibleReports = (g.reports || []).filter(rp => rp.human_status !== 'rejected')
       visibleReports.forEach((rp, ri) => {
         const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
-        let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
+        let primaryFromIdx = mgIdx
         for (const aid of agendaIds) {
           if (agendaIdxById.has(aid)) {
             primaryFromIdx = agendaIdxById.get(aid)
