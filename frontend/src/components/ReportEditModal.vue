@@ -43,8 +43,9 @@ const STATUS_OPTIONS = [
         <div class="app-modal-body">
           <!-- 파일명 -->
           <div class="app-modal-field">
-            <label>파일명 <span class="req">*</span></label>
+            <label for="report-edit-file-name">파일명 <span class="req">*</span></label>
             <input
+              id="report-edit-file-name"
               v-model="form.file_name"
               class="app-modal-input"
               placeholder="파일명을 입력하세요"
@@ -54,16 +55,17 @@ const STATUS_OPTIONS = [
           <!-- 작성부서 + 검토상태 한 행 -->
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>작성 부서</label>
+              <label for="report-edit-submitter-department">작성 부서</label>
               <input
+                id="report-edit-submitter-department"
                 v-model="form.submitter_department"
                 class="app-modal-input"
                 placeholder="예: 전략기획팀"
               />
             </div>
             <div class="app-modal-field">
-              <label>검토 상태</label>
-              <select v-model="form.human_status" class="app-modal-input">
+              <label for="report-edit-human-status">검토 상태</label>
+              <select id="report-edit-human-status" v-model="form.human_status" class="app-modal-input">
                 <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
                   {{ s.label }}
                 </option>

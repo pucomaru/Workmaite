@@ -96,14 +96,15 @@ async function submit() {
 
       <!-- 이메일 -->
       <div class="mb-3">
-        <label class="form-label">이메일 <span class="text-danger">*</span></label>
+        <label for="register-email" class="form-label">이메일 <span class="text-danger">*</span></label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-envelope text-muted"></i>
           </span>
-          <input
+          <input id="register-email"
             v-model="form.email"
             type="email"
+            autocomplete="email"
             class="form-control border-start-0"
             :class="form.email ? (emailValid ? 'is-valid' : 'is-invalid') : ''"
             placeholder="name@company.com"
@@ -116,14 +117,15 @@ async function submit() {
 
       <!-- 이름 -->
       <div class="mb-3">
-        <label class="form-label">이름 <span class="text-danger">*</span></label>
+        <label for="register-name" class="form-label">이름 <span class="text-danger">*</span></label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-person text-muted"></i>
           </span>
-          <input
+          <input id="register-name"
             v-model="form.name"
             type="text"
+            autocomplete="name"
             class="form-control border-start-0"
             placeholder="홍길동"
           />
@@ -133,14 +135,15 @@ async function submit() {
       <!-- 조직 / 부서 -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px" class="mb-3">
         <div>
-          <label class="form-label">회사 <span class="text-danger">*</span></label>
-          <input v-model="form.company" type="text" class="form-control" placeholder="예: SK AX" />
+          <label for="register-company" class="form-label">회사 <span class="text-danger">*</span></label>
+          <input id="register-company" v-model="form.company" type="text" autocomplete="organization" class="form-control" placeholder="예: SK AX" />
         </div>
         <div>
-          <label class="form-label">부서명 <span class="text-danger">*</span></label>
-          <input
+          <label for="register-department" class="form-label">부서명 <span class="text-danger">*</span></label>
+          <input id="register-department"
             v-model="form.department"
             type="text"
+            autocomplete="off"
             class="form-control"
             placeholder="예: AX서비스팀"
           />
@@ -149,20 +152,23 @@ async function submit() {
 
       <!-- 직책 -->
       <div class="mb-3">
-        <label class="form-label">직책 <span class="text-danger">*</span></label>
-        <input v-model="form.position" type="text" class="form-control" placeholder="예: 매니저" />
+        <label for="register-position" class="form-label">직책 <span class="text-danger">*</span></label>
+        <input id="register-position" v-model="form.position" type="text" autocomplete="organization-title" class="form-control" placeholder="예: 매니저" />
       </div>
 
       <!-- 비밀번호 -->
       <div class="mb-3">
-        <label class="form-label">비밀번호 <span class="text-danger">*</span></label>
+        <label for="register-password" class="form-label">비밀번호 <span class="text-danger">*</span></label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock text-muted"></i>
           </span>
           <input
+            id="register-password"
+            name="register-password"
             v-model="form.password"
             :type="showPw ? 'text' : 'password'"
+            autocomplete="new-password"
             class="form-control border-start-0 border-end-0"
             placeholder="8자 이상 입력"
           />
@@ -211,14 +217,15 @@ async function submit() {
 
       <!-- 비밀번호 확인 -->
       <div class="mb-4">
-        <label class="form-label">비밀번호 확인</label>
+        <label for="register-confirm" class="form-label">비밀번호 확인</label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock-fill text-muted"></i>
           </span>
-          <input
+          <input id="register-confirm"
             v-model="form.confirm"
             :type="showConfirm ? 'text' : 'password'"
+            autocomplete="new-password"
             class="form-control border-start-0 border-end-0"
             :class="form.confirm ? (pwMatch ? 'is-valid' : 'is-invalid') : ''"
             placeholder="비밀번호 재입력"

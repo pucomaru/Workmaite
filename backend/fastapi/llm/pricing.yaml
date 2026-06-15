@@ -12,8 +12,6 @@ models:
   o1:            [15.00, 60.00]
   o1-mini:       [1.10, 4.40]
   o3-mini:       [1.10, 4.40]
-  # 화자분리 전사 — 토큰 과금(STT 종료 시 1회 배치). 비용은 token_usage_logs로 기록한다.
-  gpt-4o-transcribe-diarize: [2.50, 10.00]
 
 # ── 임베딩 단가 (USD per 1M tokens, 단일 입력 요율) ──────────────────────────────
 embedding:

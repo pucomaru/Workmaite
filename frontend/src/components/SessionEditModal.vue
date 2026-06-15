@@ -161,27 +161,31 @@ async function doSave() {
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>회의명 <span class="req">*</span></label>
+            <label for="session-edit-title">회의명 <span class="req">*</span></label>
             <input
+              id="session-edit-title"
               v-model="form.title"
               class="app-modal-input"
               placeholder="예: 2026 전략 수립 1차"
             />
           </div>
           <div class="app-modal-field">
-            <label>장소 <span class="req">*</span></label>
+            <label for="session-edit-location">장소 <span class="req">*</span></label>
             <input
+              id="session-edit-location"
               v-model="form.location"
               class="app-modal-input"
               placeholder="예: SK U Tower 8층"
             />
           </div>
           <div class="app-modal-field">
-            <label>회의 날짜 <span class="req">*</span></label>
+            <label for="session-edit-date">회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <input type="date" v-model="form.dateOnly" class="datetime-split-date" />
+              <input type="date" id="session-edit-date" v-model="form.dateOnly" class="datetime-split-date" />
               <span class="datetime-split-sep"></span>
               <input
+                id="session-edit-time"
+                name="session-edit-time"
                 type="text"
                 v-model="form.timeOnly"
                 class="datetime-split-time"
@@ -191,8 +195,9 @@ async function doSave() {
             </div>
           </div>
           <div class="app-modal-field">
-            <label>회의 맥락</label>
+            <label for="session-edit-context">회의 맥락</label>
             <textarea
+              id="session-edit-context"
               v-model="form.context"
               class="app-modal-input context-modal-textarea"
               rows="4"
@@ -200,9 +205,14 @@ async function doSave() {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>관련 아젠다</label>
+            <span class="app-modal-label">관련 아젠다</span>
             <div style="position: relative">
               <div
+                role="button"
+                tabindex="0"
+                aria-labelledby="session-edit-agenda-label"
+                aria-haspopup="listbox"
+                :aria-expanded="showAgendaDropdown"
                 class="app-modal-input"
                 :style="{
                   cursor: agendas.filter(a => a.status === 'ongoing').length
@@ -278,6 +288,8 @@ async function doSave() {
                 >
                   <input
                     type="checkbox"
+                    :id="`session-edit-agenda-${agenda.id}`"
+                    :name="`session-edit-agenda-${agenda.id}`"
                     :value="agenda.id"
                     v-model="selectedAgendaIds"
                     style="width: 14px; height: 14px; cursor: pointer"

@@ -268,6 +268,8 @@ function deptList(dept) {
               </div>
             </div>
             <input
+              :id="`edit-agenda-title-${i}`"
+              :name="`edit-agenda-title-${i}`"
               class="dei-input"
               v-model="ag._editTitle"
               placeholder="아젠다 제목"
@@ -275,6 +277,7 @@ function deptList(dept) {
             />
             <select
               v-if="memberCompanies.length"
+              name="edit-company"
               class="app-select dei-app-select"
               v-model="ag._editCompany"
               style="margin-top: 4px; width: 100%"
@@ -284,6 +287,8 @@ function deptList(dept) {
             </select>
             <input
               v-else
+              :id="`edit-company-${i}`"
+              :name="`edit-company-${i}`"
               class="dei-input"
               v-model="ag._editCompany"
               placeholder="회사 (선택)"
@@ -291,6 +296,7 @@ function deptList(dept) {
             />
             <select
               v-if="memberDepts.length"
+              name="edit-dept"
               class="app-select dei-app-select"
               v-model="ag._editDept"
               style="margin-top: 4px; width: 100%"
@@ -300,6 +306,8 @@ function deptList(dept) {
             </select>
             <input
               v-else
+              :id="`edit-dept-${i}`"
+              :name="`edit-dept-${i}`"
               class="dei-input"
               v-model="ag._editDept"
               placeholder="담당 팀 (선택)"

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
@@ -11,9 +12,9 @@ from graphdb.rel_schema import (
     ALLOWED_REL_TYPES,
     REL_MATRIX,
     REL_COLORS,
-    DERIVED_REL_TYPES,
 )  # 관계 스키마 SSOT
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/neo4j", tags=["neo4j"])
 
 ALLOWED_LABELS = {
@@ -28,6 +29,16 @@ ALLOWED_LABELS = {
 }
 # ALLOWED_REL_TYPES는 rel_schema.py(SSOT)에서 파생 — 여기서 손으로 정의하지 말 것.
 # 통신부(_run_cypher)는 neo4j_client(Bolt)에서 import — 이 파일은 쿼리 로직만 담당.
+
+_NODE_ID_PREFIXES = ("mg-", "session-", "agenda-", "doc-", "dept-", "p-", "company-")
+
+
+def _normalize_node_id(raw: str) -> str:
+    """이중 prefix 정규화: "mg-mg-001" → "mg-001"."""
+    for p in _NODE_ID_PREFIXES:
+        if raw.startswith(p + p):
+            return raw[len(p) :]
+    return raw
 
 
 @router.get("/archive")
@@ -633,30 +644,22 @@ async def get_archive(
                 ],
             }
 
-    # ── 사용자가 수동으로 만든 자유 관계 — 구조 파생이 아니므로 별도로 읽어 반환 ──
-    # (buildGraphNodes는 PG 엔티티에서 엣지를 파생하므로 수동 관계는 이 경로로만 그래프에 복원된다)
+    # ── 사용자가 수동으로 만든 자유 관계 — 소스 오브 트루스인 PostgreSQL(graph_relations)에서 읽는다 ──
+    # (buildGraphNodes는 PG 엔티티에서 구조 엣지를 파생하므로, 수동 관계는 이 경로로만 그래프에 복원된다.
+    #  프런트는 양 끝 노드가 현재 그래프에 존재하는 엣지만 렌더링하므로 스코프 밖 관계는 자연히 무시된다.)
     manual_relations: list[dict] = []
     try:
-        rel_rows = await _run_cypher(
-            """
-            MATCH (a)-[r]->(b)
-            WHERE a.id IS NOT NULL AND b.id IS NOT NULL
-              AND NOT type(r) IN $derived
-            RETURN a.id AS from_id, b.id AS to_id, type(r) AS rel
-            LIMIT 2000
-            """,
-            {"derived": list(DERIVED_REL_TYPES)},
-        )
-        manual_relations = [
-            {
-                "from_id": row.get("from_id"),
-                "to_id": row.get("to_id"),
-                "rel": row.get("rel"),
-            }
-            for row in rel_rows
-        ]
-    except Exception:
-        pass  # 수동 관계 없거나 조회 실패해도 메인 그래프는 정상
+        for gr in (
+            db.query(models.GraphRelation)
+            .order_by(models.GraphRelation.id.desc())
+            .limit(5000)
+            .all()
+        ):
+            manual_relations.append(
+                {"from_id": gr.from_node_id, "to_id": gr.to_node_id, "rel": gr.rel_type}
+            )
+    except Exception as e:
+        logger.warning(f"[graph] 수동 관계 조회 실패: {e}")  # 메인 그래프는 정상 동작
 
     meetings = list(meetings_map.values())
     minutes = [mn for mg in meetings for mn in mg["minutes"]]
@@ -689,58 +692,91 @@ async def get_rel_schema(current_user: models.User = Depends(get_current_user)):
 
 @router.post("/relationships")
 async def create_relationship(
-    data: dict, current_user: models.User = Depends(get_current_user)
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    from_id = data.get("from_id", "")
-    rel_type = data.get("rel_type", "")
-    to_id = data.get("to_id", "")
+    """수동 관계 추가 — PostgreSQL(graph_relations, 소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
+    from_id = _normalize_node_id((data.get("from_id") or "").strip())
+    rel_type = (data.get("rel_type") or "").strip()
+    to_id = _normalize_node_id((data.get("to_id") or "").strip())
     if not rel_type:
         raise HTTPException(status_code=400, detail="rel_type 필수")
-    # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸기)
+    if not from_id or not to_id:
+        raise HTTPException(status_code=400, detail="from_id, to_id 필수")
+    if from_id == to_id:
+        raise HTTPException(status_code=400, detail="자기 자신과의 관계는 만들 수 없습니다.")
+    # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸되 허용 목록 내여야 함)
     import re
 
     safe_rel = rel_type if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", rel_type) else None
     if not safe_rel:
-        # 한국어 등 특수문자 관계명은 ALLOWED_REL_TYPES 내에 있어야 함
         if rel_type not in ALLOWED_REL_TYPES:
             raise HTTPException(
                 status_code=400, detail=f"허용되지 않는 관계 유형: {rel_type}"
             )
         safe_rel = rel_type
+
+    # 1) PostgreSQL(소스 오브 트루스) — 멱등 INSERT
+    try:
+        exists = (
+            db.query(models.GraphRelation.id)
+            .filter_by(from_node_id=from_id, rel_type=rel_type, to_node_id=to_id)
+            .first()
+        )
+        if not exists:
+            db.add(
+                models.GraphRelation(
+                    from_node_id=from_id,
+                    rel_type=rel_type,
+                    to_node_id=to_id,
+                    created_by=current_user.id,
+                )
+            )
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[graph] 관계 PG 저장 실패: {e}")
+        raise HTTPException(status_code=500, detail="관계 저장에 실패했습니다.")
+
+    # 2) Neo4j 동기화(MERGE) — 실패해도 PG가 진실이라 다음 조회 시 manual_relations로 복원되므로 비치명적
     try:
         await _run_cypher(
             f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:`{safe_rel}`]->(b)",
             {"from_id": from_id, "to_id": to_id},
         )
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
+        logger.warning(f"[graph] 관계 Neo4j 동기화 실패(PG에는 저장됨): {e}")
     return {"ok": True}
 
 
 @router.delete("/relationships")
 async def delete_relationship(
-    data: dict, current_user: models.User = Depends(get_current_user)
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """두 노드 사이의 특정 관계 삭제"""
-    from_id = data.get("from_id", "")
-    rel_type = data.get("rel_type", "")
-    to_id = data.get("to_id", "")
+    """두 노드 사이의 관계 삭제 — PostgreSQL(graph_relations)에서 삭제하고 Neo4j에 동기화한다."""
+    from_id = _normalize_node_id((data.get("from_id") or "").strip())
+    rel_type = (data.get("rel_type") or "").strip()
+    to_id = _normalize_node_id((data.get("to_id") or "").strip())
 
-    # ID 이중 prefix 정규화: "mg-mg-001" → "mg-001"
-    def normalize_id(raw: str) -> str:
-        for p in ["mg-", "session-", "agenda-", "doc-", "dept-", "p-", "company-"]:
-            if raw.startswith(p + p):
-                return raw[len(p) :]
-        return raw
+    # 1) PostgreSQL 삭제(소스 오브 트루스) — from→to 방향. rel_type 있으면 해당 타입만.
+    try:
+        q = db.query(models.GraphRelation).filter_by(
+            from_node_id=from_id, to_node_id=to_id
+        )
+        if rel_type:
+            q = q.filter_by(rel_type=rel_type)
+        q.delete(synchronize_session=False)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[graph] 관계 PG 삭제 실패: {e}")
+        raise HTTPException(status_code=500, detail="관계 삭제에 실패했습니다.")
 
-    from_id = normalize_id(from_id)
-    to_id = normalize_id(to_id)
-
-    # rel_type이 없거나 허용되지 않으면 타입 무관 전체 삭제
+    # 2) Neo4j 동기화 삭제 — rel_type이 없거나 허용목록 밖이면 타입 무관 전체 삭제. 비치명적.
     use_rel_type = rel_type if rel_type and rel_type in ALLOWED_REL_TYPES else None
-
     try:
         if use_rel_type:
             cypher_fwd = f"MATCH (a {{id: $from_id}})-[r:`{use_rel_type}`]->(b {{id: $to_id}}) DELETE r"
@@ -750,24 +786,51 @@ async def delete_relationship(
             cypher_rev = "MATCH (a {id: $to_id})-[r]->(b {id: $from_id}) DELETE r"
         await _run_cypher(cypher_fwd, {"from_id": from_id, "to_id": to_id})
         await _run_cypher(cypher_rev, {"from_id": from_id, "to_id": to_id})
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
+        logger.warning(f"[graph] 관계 Neo4j 삭제 동기화 실패(PG는 삭제됨): {e}")
     return {"ok": True}
 
 
 @router.put("/relationships")
 async def update_relationship(
-    data: dict, current_user: models.User = Depends(get_current_user)
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """관계 유형 변경 (old → new)"""
-    from_id = data.get("from_id", "")
-    old_rel = data.get("old_rel", "")
-    new_rel = data.get("new_rel", "")
-    to_id = data.get("to_id", "")
+    """관계 유형 변경 (old → new) — PostgreSQL(graph_relations)에서 변경하고 Neo4j에 동기화한다."""
+    from_id = _normalize_node_id((data.get("from_id") or "").strip())
+    old_rel = (data.get("old_rel") or "").strip()
+    new_rel = (data.get("new_rel") or "").strip()
+    to_id = _normalize_node_id((data.get("to_id") or "").strip())
     if old_rel not in ALLOWED_REL_TYPES or new_rel not in ALLOWED_REL_TYPES:
         raise HTTPException(status_code=400, detail="허용되지 않는 관계 유형")
+
+    # 1) PostgreSQL — old 삭제 후 new upsert (UNIQUE 충돌 방지)
+    try:
+        db.query(models.GraphRelation).filter_by(
+            from_node_id=from_id, rel_type=old_rel, to_node_id=to_id
+        ).delete(synchronize_session=False)
+        exists = (
+            db.query(models.GraphRelation.id)
+            .filter_by(from_node_id=from_id, rel_type=new_rel, to_node_id=to_id)
+            .first()
+        )
+        if not exists:
+            db.add(
+                models.GraphRelation(
+                    from_node_id=from_id,
+                    rel_type=new_rel,
+                    to_node_id=to_id,
+                    created_by=current_user.id,
+                )
+            )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[graph] 관계 PG 변경 실패: {e}")
+        raise HTTPException(status_code=500, detail="관계 변경에 실패했습니다.")
+
+    # 2) Neo4j 동기화 (비치명적)
     try:
         await _run_cypher(
             f"MATCH (a {{id: $from_id}})-[r:`{old_rel}`]->(b {{id: $to_id}}) DELETE r",
@@ -777,10 +840,8 @@ async def update_relationship(
             f"MATCH (a {{id: $from_id}}), (b {{id: $to_id}}) MERGE (a)-[:`{new_rel}`]->(b)",
             {"from_id": from_id, "to_id": to_id},
         )
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
+        logger.warning(f"[graph] 관계 Neo4j 변경 동기화 실패(PG는 변경됨): {e}")
     return {"ok": True}
 
 

@@ -1,11 +1,13 @@
 <template>
   <div class="cdate-wrap" ref="wrapRef">
     <input
+      :id="fieldId"
+      :name="fieldName"
       ref="textRef"
       type="text"
       inputmode="numeric"
       autocomplete="off"
-      v-bind="$attrs"
+      v-bind="textAttrs"
       :placeholder="placeholder"
       :value="display"
       @input="onInput"
@@ -36,6 +38,8 @@
       </svg>
     </button>
     <input
+      :id="`${fieldId}-native`"
+      :name="`${fieldName}-native`"
       ref="nativeRef"
       type="date"
       class="cdate-native"
@@ -52,9 +56,22 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, useAttrs, useId } from 'vue'
 
 defineOptions({ inheritAttrs: false })
+
+// 폼 필드 id/name — 호출자가 넘긴 id를 우선 사용하고, 없으면 인스턴스 고유 id를 생성한다.
+// (정적 id를 쓰면 한 폼에 여러 DateInput이 들어갈 때 id가 중복된다.)
+const attrs = useAttrs()
+const _uid = useId()
+const fieldId = computed(() => attrs.id ?? `cdate-${_uid}`)
+const fieldName = computed(() => attrs.name ?? fieldId.value)
+// id/name은 위에서 직접 바인딩하므로 $attrs 스프레드에서는 제외(이중 바인딩 방지)
+const textAttrs = computed(() => {
+  // eslint-disable-next-line no-unused-vars
+  const { id, name, ...rest } = attrs
+  return rest
+})
 
 const props = defineProps({
   modelValue: { type: String, default: '' },

@@ -3540,6 +3540,7 @@ provide('archiveSidebar', {
         <input
           v-model="search"
           class="search-input"
+          name="search"
           placeholder="회의체명, 회의록, 보고서, 인물 검색..."
         />
         <button v-if="search" class="search-clear" @click="search = ''">
@@ -3556,12 +3557,12 @@ provide('archiveSidebar', {
         </button>
       </div>
       <div class="year-filter-wrap">
-        <select v-model="filterYear" class="year-filter-select">
+        <select v-model="filterYear" name="filterYear" class="year-filter-select">
           <option value="">전체 연도</option>
           <option v-for="y in availableYears" :key="y" :value="y">{{ y }}년</option>
         </select>
-        <label class="ended-filter-check">
-          <input type="checkbox" v-model="showEndedMeetings" />
+        <label for="ended-filter" class="ended-filter-check">
+          <input type="checkbox" id="ended-filter" v-model="showEndedMeetings" />
           종료된 회의체
         </label>
       </div>
