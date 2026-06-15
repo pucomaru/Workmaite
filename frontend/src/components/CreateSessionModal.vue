@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
+import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 import { useAuthStore } from '../stores/auth'
 
@@ -236,16 +237,13 @@ async function doCreate() {
           <div class="app-modal-field">
             <label for="create-date">회의 날짜 <span class="req">*</span></label>
             <div style="display: flex; gap: 8px; align-items: center">
-              <!-- prettier-ignore -->
-              <input
+              <DateInput
                 id="create-date"
                 name="date"
-                type="date"
                 v-model="form.dateOnly"
                 class="app-modal-input"
                 style="flex: 1"
-                @change="showPastDateAlert = false; errors.dateOnly = null"
-                @input="clampDateYear"
+                @update:modelValue="showPastDateAlert = false; errors.dateOnly = null"
               />
               <div style="position: relative; width: 110px">
                 <div
