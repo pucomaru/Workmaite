@@ -332,12 +332,21 @@ def _build_session_context(db: Session, session_id: int) -> dict:
         .first()
     )
 
+    # 실시간 요약 블록 (ongoing 상태에서 활용)
+    summary_blocks = (
+        db.query(models.SessionSummaryBlock)
+        .filter(models.SessionSummaryBlock.session_id == session_id)
+        .order_by(models.SessionSummaryBlock.block_index)
+        .all()
+    )
+
     return {
         "session": session,
         "meeting": meeting,
         "members": [(u, role_map.get(u.id, "member")) for u in users],
         "agendas": agendas,
         "minutes": minutes,
+        "summary_blocks": summary_blocks,
     }
 
 
@@ -391,5 +400,22 @@ def _format_session_context_str(ctx: dict) -> str:
     minutes = ctx.get("minutes")
     if minutes and minutes.content_summary:
         parts.append("[회의록 요약]\n" + minutes.content_summary[:3000])
+
+    # 실시간 요약 블록 — summary_text_override가 있으면 그걸 우선 사용 (rolling summary)
+    summary_text = ctx.get("summary_text_override")
+    if summary_text:
+        parts.append(f"[실시간 요약 블록]\n{summary_text}")
+    else:
+        summary_blocks = ctx.get("summary_blocks", [])
+        if summary_blocks:
+            block_parts = []
+            for b in summary_blocks:
+                bullets = (
+                    "\n".join(f"  • {bl}" for bl in (b.bullets or []))
+                    if b.bullets
+                    else ""
+                )
+                block_parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+            parts.append("[실시간 요약 블록]\n" + "\n\n".join(block_parts))
 
     return "\n\n".join(parts)
