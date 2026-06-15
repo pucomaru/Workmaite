@@ -472,6 +472,33 @@ function formatTimer(s) {
   return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
 }
 
+// ─── rec-wave 실시간 오디오 스펙트럼 ──────────────────────────────
+const WAVE_BARS = 14
+const waveLevels = ref(new Array(WAVE_BARS).fill(0))
+let _waveRaf = null
+let _waveLast = 0
+function _waveTick(ts) {
+  _waveRaf = requestAnimationFrame(_waveTick)
+  if (ts - _waveLast < 33) return // ~30fps로 제한
+  _waveLast = ts
+  waveLevels.value = stt.getWaveLevels?.(WAVE_BARS) || new Array(WAVE_BARS).fill(0)
+}
+function startWave() {
+  if (_waveRaf) return
+  _waveLast = 0
+  _waveRaf = requestAnimationFrame(_waveTick)
+}
+function stopWave() {
+  if (_waveRaf) cancelAnimationFrame(_waveRaf)
+  _waveRaf = null
+  waveLevels.value = new Array(WAVE_BARS).fill(0) // 녹음 중 아닐 땐 평평하게
+}
+// 녹음 중일 때만 실제 오디오로 막대를 구동(그 외에는 평평한 막대로 조회 시에도 표시)
+watch(
+  () => recordingState.value,
+  st => (st === 'recording' ? startWave() : stopWave()),
+)
+
 // ─── 스크립트(발화) 로더 — 최초 진입/화자분리 후 재조회 공용 ──────────────────
 async function loadScripts(sessionId, { force = false } = {}) {
   const rec = getOrCreateRecord(sessionId)
@@ -1411,6 +1438,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopWave()
   if (recordingState.value === 'recording' && activeSession.value?.id) {
     _pauseTimer()
     recordingState.value = 'paused'
@@ -1549,8 +1577,8 @@ async function downloadChatFile(filePath) {
               <circle cx="11" cy="11" r="8" />
               <path d="M21 21l-4.35-4.35" />
             </svg>
-            <input v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색" />
-            <button v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch = ''">
+            <input id="sidebar-search" name="sidebar-search" v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색" />
+            <button id="sidebar-search-clear" name="sidebar-search-clear" v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch = ''">
               &times;
             </button>
           </div>
@@ -1777,6 +1805,8 @@ async function downloadChatFile(filePath) {
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
                   <input
+                    id="edit-speaker"
+                    name="edit-speaker"
                     v-model="editDraft.speaker"
                     class="tline-edit-speaker"
                     placeholder="화자"
@@ -2123,23 +2153,25 @@ async function downloadChatFile(filePath) {
               <i v-else class="bi bi-pause-fill"></i>
             </button>
 
-            <span
-              v-if="recordingState !== 'idle'"
-              class="rec-live"
-              :class="{ paused: recordingState === 'paused' }"
-            >
+            <span class="rec-live" :class="{ paused: recordingState !== 'recording' }">
               <span class="rec-wave">
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
+                <span
+                  v-for="(lv, i) in waveLevels"
+                  :key="i"
+                  :style="{ height: (2 + lv * 16).toFixed(1) + 'px' }"
+                ></span>
               </span>
               <span class="rec-timer">{{ formatTimer(recordingSecs) }}</span>
             </span>
 
             <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
+          <span
+            v-if="['archived', 'ended'].includes(activeSession?.status)"
+            class="ctrl-ended-msg"
+          >
+            <i class="bi bi-check-circle"></i> 종료된 회의입니다.
+          </span>
           <div class="ctrl-group-right">
             <span v-if="micError" class="mic-error-msg">⚠ {{ micError }}</span>
           </div>
@@ -2488,8 +2520,10 @@ async function downloadChatFile(filePath) {
           </p>
           <textarea
             v-model="contextDraft"
+            id="context_modal"
+            name="context_modal"
             class="context-modal-textarea"
-            placeholder="예시:&#10;- 대화 상황: ABC 프로젝트 킥오프 미팅&#10;- 주제: Q3 마케팅 전략, 예산 논의&#10;- 고유명사: 김팀장, 이대리, 네트워크 인프라"
+            placeholder="예시:&#10;- 대화 상황: ABC 프로젝트 킥오프 미팅&#10;- 주제: Q3 마케팅 전략, 예산 논의&#10;- 고유명사: 김매니저, 이팀장, 네트워크 인프라"
             rows="7"
           />
         </div>
@@ -3291,22 +3325,16 @@ html.night-mode .sp-ms-input {
 }
 .rec-wave span {
   display: inline-block;
-  width: 3px;
+  width: 2px;
+  min-height: 2px;
   border-radius: 2px;
   background: #e53e3e;
-  animation: bar-wave 0.8s ease-in-out infinite alternate;
+  /* 높이는 실제 오디오 스펙트럼(getWaveLevels)으로 인라인 지정 — 프레임 간 부드럽게 */
+  transition: height 0.05s linear;
 }
-.rec-wave span:nth-child(1) { animation-delay: 0s;    height: 4px; }
-.rec-wave span:nth-child(2) { animation-delay: 0.15s; height: 8px; }
-.rec-wave span:nth-child(3) { animation-delay: 0.3s;  height: 14px; }
-.rec-wave span:nth-child(4) { animation-delay: 0.15s; height: 8px; }
-.rec-wave span:nth-child(5) { animation-delay: 0s;    height: 4px; }
-@keyframes bar-wave {
-  from { transform: scaleY(0.3); }
-  to   { transform: scaleY(1); }
-}
+/* 녹음 중이 아닐 땐(조회/일시정지) 평평한 막대 + 음소거 색상으로 차분하게 표시 */
 .rec-live.paused .rec-wave span {
-  animation-play-state: paused;
+  background: var(--text-muted);
 }
 .mic-error-msg {
   font-size: 11px;
@@ -3314,6 +3342,14 @@ html.night-mode .sp-ms-input {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.ctrl-ended-msg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 /* AI summary box */

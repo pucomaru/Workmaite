@@ -49,12 +49,12 @@ function versionKey(groupId, itemIdx) {
     <div class="lv-inner">
       <div class="lv-header">
         <div class="lv-filter-wrap">
-          <select v-model="selectedMeetingType" class="lv-type-filter">
+          <select v-model="selectedMeetingType" name="selectedMeetingType" class="lv-type-filter">
             <option v-for="opt in meetingTypeOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
           </select>
-          <select v-model="selectedHistoryType" class="lv-type-filter">
+          <select v-model="selectedHistoryType" name="selectedHistoryType" class="lv-type-filter">
             <option v-for="opt in HISTORY_TYPE_OPTIONS" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>

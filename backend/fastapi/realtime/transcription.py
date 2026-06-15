@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import websockets  # uvicorn[standard] 의존성
@@ -61,6 +62,7 @@ _HAS_WORD = re.compile(
     r"[0-9A-Za-z가-힣]"
 )  # 실제 단어 포함 여부 — 구두점만인 조각 제외용
 _MAX_BUF_CHARS = 160  # 종결부호 없이 길어지면 강제로 한 줄 확정(버퍼 무한증가 방지)
+_IDLE_FLUSH_SEC = 3.0  # 미확정 버퍼가 이 시간 동안 새 delta 없이 멈춰 있으면 한 줄로 확정
 
 try:
     from kiwipiepy import Kiwi as _Kiwi
@@ -234,7 +236,10 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         "offset": 0.0,
         "buf": "",  # delta로 누적되는 미확정 전사 텍스트(문장 확정 시 비워짐)
         "buf_bytes": 0,  # buf에 대응하는 오디오 바이트(문장별 시간 배분용)
+        "last_delta_ts": time.monotonic(),  # 마지막 delta 수신 시각 — idle-flush 기준
     }
+    # buf를 소비하는 구간(delta/completed/idle-flush)을 직렬화 — 워치독과의 인터리브 방지
+    flush_lock = asyncio.Lock()
 
     try:
         async with websockets.connect(
@@ -366,41 +371,45 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     if t == "conversation.item.input_audio_transcription.delta":
                         delta = ev.get("delta") or ""
                         if delta:
-                            # delta마다 버퍼에 누적하고 문장 단위 확정을 시도한다. 마지막 문장은
-                            # 종결부호가 붙어야 확정 → 뒤따라오는 마침표가 별도 줄로 쪼개지지 않게.
+                            async with flush_lock:
+                                # delta마다 버퍼에 누적하고 문장 단위 확정을 시도한다. 마지막
+                                # 문장은 종결부호가 붙어야 확정 → 뒤따르는 마침표가 별도 줄로
+                                # 쪼개지지 않게. 새 delta 수신 시각을 기록(idle-flush 기준 리셋).
+                                state["last_delta_ts"] = time.monotonic()
+                                state["buf_bytes"] += state["bytes_since_final"]
+                                state["bytes_since_final"] = 0
+                                state["buf"] += delta
+                                complete, tail = await asyncio.to_thread(
+                                    _split_sentences, state["buf"]
+                                )
+                                if not complete and len(tail) > _MAX_BUF_CHARS:
+                                    complete, tail = [tail], ""
+                                if complete:
+                                    await _emit_complete(complete, tail)
+                                # 직전 문장 뒤에 떨어진 구두점만 남으면 비운다(별도 줄 생성 방지)
+                                if state["buf"] and not _HAS_WORD.search(state["buf"]):
+                                    state["buf"] = ""
+                                await websocket.send_json(
+                                    {"type": "partial", "text": state["buf"]}
+                                )
+                    elif t == "conversation.item.input_audio_transcription.completed":
+                        async with flush_lock:
+                            # 발화 종료(pause) 시점 — 구두점이 없어도 종결어미(EF)로 확정 허용
+                            # (allow_ef=True). pause라 문장 중간이면 EF가 아니라 오분절되지 않음.
                             state["buf_bytes"] += state["bytes_since_final"]
                             state["bytes_since_final"] = 0
-                            state["buf"] += delta
                             complete, tail = await asyncio.to_thread(
-                                _split_sentences, state["buf"]
+                                _split_sentences, state["buf"], True
                             )
                             if not complete and len(tail) > _MAX_BUF_CHARS:
                                 complete, tail = [tail], ""
                             if complete:
                                 await _emit_complete(complete, tail)
-                            # 직전 문장 뒤에 떨어진 구두점만 남으면 비운다(별도 줄 생성 방지)
                             if state["buf"] and not _HAS_WORD.search(state["buf"]):
                                 state["buf"] = ""
                             await websocket.send_json(
                                 {"type": "partial", "text": state["buf"]}
                             )
-                    elif t == "conversation.item.input_audio_transcription.completed":
-                        # 발화 종료(pause) 시점 — 구두점이 없어도 종결어미(EF)로 확정 허용
-                        # (allow_ef=True). pause라 문장 중간이면 EF가 아니라 오분절되지 않는다.
-                        state["buf_bytes"] += state["bytes_since_final"]
-                        state["bytes_since_final"] = 0
-                        complete, tail = await asyncio.to_thread(
-                            _split_sentences, state["buf"], True
-                        )
-                        if not complete and len(tail) > _MAX_BUF_CHARS:
-                            complete, tail = [tail], ""
-                        if complete:
-                            await _emit_complete(complete, tail)
-                        if state["buf"] and not _HAS_WORD.search(state["buf"]):
-                            state["buf"] = ""
-                        await websocket.send_json(
-                            {"type": "partial", "text": state["buf"]}
-                        )
                     elif t == "error":
                         err = ev.get("error") or {}
                         logger.warning(f"[Realtime STT] OpenAI 오류 이벤트: {err}")
@@ -422,8 +431,37 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                         # pending 원인 진단용.
                         logger.info(f"[Realtime STT] event: {t}")
 
+            async def idle_flush():
+                """미확정 버퍼(buf)가 _IDLE_FLUSH_SEC 동안 새 delta 없이 멈춰 있으면 한 줄로
+                확정한다. VAD로 무음을 안 보내면 gpt-realtime-whisper가 commit 이벤트를 못 받아
+                buf가 'pending'에 머무는 문제를 해소한다."""
+                try:
+                    while not state.get("stopping"):
+                        await asyncio.sleep(0.5)
+                        if state.get("stopping"):
+                            break
+                        if not state["buf"].strip():
+                            continue
+                        if time.monotonic() - state["last_delta_ts"] < _IDLE_FLUSH_SEC:
+                            continue
+                        async with flush_lock:
+                            buf = state["buf"].strip()
+                            if not buf or (
+                                time.monotonic() - state["last_delta_ts"]
+                                < _IDLE_FLUSH_SEC
+                            ):
+                                continue
+                            state["buf_bytes"] += state["bytes_since_final"]
+                            state["bytes_since_final"] = 0
+                            await _emit_complete([buf], "")
+                            state["last_delta_ts"] = time.monotonic()
+                            await websocket.send_json({"type": "partial", "text": ""})
+                except Exception:
+                    pass
+
             t1 = asyncio.create_task(client_to_oai())
             t2 = asyncio.create_task(oai_to_client())
+            t3 = asyncio.create_task(idle_flush())
             done, _ = await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
             # 정상 종료(stop)면 마지막 전사(.completed)를 받을 시간을 잠깐 준다.
             if state.get("stopping") and t2 not in done:
@@ -431,13 +469,13 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     await asyncio.wait({t2}, timeout=3.0)
                 except Exception:
                     pass
-            for p in (t1, t2):
+            for p in (t1, t2, t3):
                 if not p.done():
                     p.cancel()
             # 취소/종료된 태스크의 예외를 회수 — 브라우저가 먼저 끊기면 oai_to_client의 send가
             # WebSocketDisconnect를 던지는데, 회수하지 않으면 "Task exception was never
             # retrieved" 트레이스백이 콘솔에 찍힌다(정상 종료라 무시해도 됨).
-            for p in (t1, t2):
+            for p in (t1, t2, t3):
                 try:
                     await p
                 except BaseException:

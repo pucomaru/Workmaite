@@ -69,6 +69,8 @@ function onEnter() {
         <path d="M21 21l-4.35-4.35" />
       </svg>
       <input
+        id="dept-search"
+        name="dept-search"
         v-model="searchQ"
         @keydown.enter.prevent="onEnter"
         class="mi-search-input"

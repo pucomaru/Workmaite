@@ -41,8 +41,9 @@ const form = computed(() => props.modal?.form || {})
         <!-- Body -->
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>{{ fieldLabel }}</label>
+            <label for="rename-modal-input">{{ fieldLabel }}</label>
             <input
+              id="rename-modal-input"
               v-model="form.name"
               class="app-modal-input"
               :placeholder="placeholder"

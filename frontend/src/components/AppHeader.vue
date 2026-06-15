@@ -207,6 +207,8 @@ async function saveProfileSettings() {
         <!-- 관리자: 인라인 편집 가능 -->
         <template v-if="isAdmin && editingTitle">
           <input
+            id="edit-title"
+            name="edit-title"
             v-model="editTitle"
             class="title-input"
             @keydown.enter="saveTitle"
@@ -449,6 +451,8 @@ async function saveProfileSettings() {
       <!-- 구성원 검색 추가 (관리자만) -->
       <div v-if="isAdmin" class="mgmt-search">
         <input
+          id="member-search"
+          name="member-search"
           v-model="memberSearch"
           class="mgmt-input"
           placeholder="이름 또는 사번으로 검색"
@@ -522,33 +526,39 @@ async function saveProfileSettings() {
             <div class="app-modal-body">
               <!-- 이름 -->
               <div class="app-modal-field">
-                <label>이름</label>
-                <input v-model="profileForm.name" class="form-control" placeholder="홍길동" />
+                <label for="hdr-profile-name">이름</label>
+                <input id="hdr-profile-name" name="name" v-model="profileForm.name" autocomplete="name" class="form-control" placeholder="홍길동" />
               </div>
               <!-- 회사명 -->
               <div class="app-modal-field">
-                <label>회사명</label>
-                <input v-model="profileForm.company" class="form-control" placeholder="-" />
+                <label for="hdr-profile-company">회사명</label>
+                <input id="hdr-profile-company" name="company" v-model="profileForm.company" autocomplete="organization" class="form-control" placeholder="-" />
               </div>
               <!-- 부서 -->
               <div class="app-modal-field">
-                <label>부서</label>
+                <label for="hdr-profile-department">부서</label>
                 <input
+                  id="hdr-profile-department"
+                  name="department"
                   v-model="profileForm.department"
+                  autocomplete="off"
                   class="form-control"
                   placeholder="예: 경영지원팀"
                 />
               </div>
               <!-- 직위 -->
               <div class="app-modal-field">
-                <label>직급</label>
-                <input v-model="profileForm.position" class="form-control" placeholder="Manager" />
+                <label for="hdr-profile-position">직급</label>
+                <input id="hdr-profile-position" name="position" v-model="profileForm.position" autocomplete="organization-title" class="form-control" placeholder="Manager" />
               </div>
               <!-- 이메일 (readonly) -->
               <div class="app-modal-field">
-                <label>이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <label for="hdr-profile-email">이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
                 <input
+                  id="hdr-profile-email"
+                  name="email"
                   :value="auth.user?.email"
+                  autocomplete="email"
                   class="form-control"
                   readonly
                   style="background: var(--surface); color: var(--dark-muted)"
@@ -556,9 +566,12 @@ async function saveProfileSettings() {
               </div>
               <!-- 권한 (readonly) -->
               <div class="app-modal-field">
-                <label>권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <label for="hdr-profile-role">권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
                 <input
+                  id="hdr-profile-role"
+                  name="role"
                   :value="roleLabel"
+                  autocomplete="off"
                   class="form-control"
                   readonly
                   style="background: var(--surface); color: var(--dark-muted)"
@@ -567,11 +580,14 @@ async function saveProfileSettings() {
               <!-- 비밀번호 -->
               <div class="ps-divider">비밀번호 변경</div>
               <div class="app-modal-field">
-                <label>새 비밀번호</label>
+                <label for="hdr-profile-password">새 비밀번호</label>
                 <div class="input-group">
                   <input
+                    id="hdr-profile-password"
+                    name="password"
                     v-model="profileForm.password"
                     :type="showNewPw ? 'text' : 'password'"
+                    autocomplete="new-password"
                     class="form-control"
                     placeholder="새 비밀번호 입력 (변경 시만)"
                   />
@@ -585,11 +601,14 @@ async function saveProfileSettings() {
                 </div>
               </div>
               <div class="app-modal-field">
-                <label>비밀번호 확인</label>
+                <label for="hdr-profile-password-confirm">비밀번호 확인</label>
                 <div class="input-group">
                   <input
+                    id="hdr-profile-password-confirm"
+                    name="passwordConfirm"
                     v-model="profileForm.passwordConfirm"
                     :type="showConfirmPw ? 'text' : 'password'"
+                    autocomplete="new-password"
                     class="form-control"
                     :class="
                       profileForm.passwordConfirm

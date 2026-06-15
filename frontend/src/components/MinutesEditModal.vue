@@ -39,6 +39,8 @@ const form = computed(() => props.modal?.form || {})
           <div class="app-modal-field">
             <label>회의록명</label>
             <input
+              id="minutes-file-name"
+              name="minutes-file-name"
               v-model="form.file_name"
               class="app-modal-input"
               placeholder="파일명을 입력하세요"

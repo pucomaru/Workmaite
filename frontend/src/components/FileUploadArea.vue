@@ -55,6 +55,8 @@ function handleInput(e) {
     <span class="fua-hint">{{ hint }}</span>
   </div>
   <input
+    id="file-upload"
+    name="file-upload"
     ref="inputRef"
     type="file"
     style="display: none"

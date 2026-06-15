@@ -58,8 +58,10 @@ function priorityColor(val) {
         <div class="app-modal-body">
           <!-- 제목 -->
           <div class="app-modal-field">
-            <label>아젠다 제목 <span class="req">*</span></label>
+            <label for="agenda-title">아젠다 제목 <span class="req">*</span></label>
             <input
+              id="agenda-title"
+              name="title"
               v-model="form.title"
               class="app-modal-input"
               placeholder="아젠다 제목을 입력하세요"
@@ -69,8 +71,10 @@ function priorityColor(val) {
           <!-- 우선순위 + 상태 한 행 -->
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>우선순위</label>
+              <label for="agenda-priority">우선순위</label>
               <select
+                id="agenda-priority"
+                name="priority"
                 v-model="form.priority"
                 class="app-modal-input priority-select"
                 :style="{ borderLeftColor: priorityColor(form.priority), borderLeftWidth: '3px' }"
@@ -81,8 +85,8 @@ function priorityColor(val) {
               </select>
             </div>
             <div class="app-modal-field">
-              <label>상태</label>
-              <select v-model="form.status" class="app-modal-input">
+              <label for="agenda-status">상태</label>
+              <select id="agenda-status" name="status" v-model="form.status" class="app-modal-input">
                 <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
                   {{ s.label }}
                 </option>
@@ -91,13 +95,13 @@ function priorityColor(val) {
 
             <!-- 마감일 -->
             <div class="app-modal-field">
-              <label>마감일</label>
-              <DateInput v-model="form.due_date" class="app-modal-input" />
+              <label for="agenda-due-date">마감일</label>
+              <DateInput id="agenda-due-date" name="due_date" v-model="form.due_date" class="app-modal-input" />
             </div>
           </div>
           <!-- 참여 부서 (검색 다중선택) — 회의체 편집의 참여자 mi-section과 동일 UX -->
           <div class="app-modal-field">
-            <DeptSelect v-model="form.department" :options="deptOptions" :night-mode="nightMode" />
+            <DeptSelect id="agenda-department" name="department" v-model="form.department" :options="deptOptions" :night-mode="nightMode" />
           </div>
         </div>
 

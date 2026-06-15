@@ -126,20 +126,25 @@ async function remove() {
         <div class="app-modal-body">
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>이름</label>
-              <input v-model="form.name" class="app-modal-input" placeholder="홍길동" />
+              <label for="member-name">이름</label>
+              <input id="member-name" v-model="form.name" autocomplete="off" class="app-modal-input" placeholder="홍길동" />
             </div>
             <div class="app-modal-field">
-              <label>이메일</label>
+              <label for="member-email">이메일</label>
               <input
+                id="member-email"
                 v-if="canEditEmail"
                 v-model="form.email"
+                autocomplete="off"
                 class="app-modal-input"
                 placeholder="example@company.com"
               />
               <input
+                id="member-email-disabled"
+                name="member-email-disabled"
                 v-else
                 :value="form.email"
+                autocomplete="off"
                 class="app-modal-input"
                 disabled
                 style="background: var(--surface); color: var(--dark-muted)"
@@ -147,8 +152,8 @@ async function remove() {
             </div>
           </div>
           <div v-if="isSystemAdmin" class="app-modal-field">
-            <label>역할 (관리자 전용)</label>
-            <select v-model="form.role" class="app-modal-input">
+            <label for="member-role">역할 (관리자 전용)</label>
+            <select id="member-role" v-model="form.role" class="app-modal-input">
               <option value="USER">일반 사용자</option>
               <option value="COMPANY_ADMIN">회사 관리자 (자사 구성원 관리)</option>
               <option value="SYSTEM_ADMIN">시스템 관리자 (전체 관리)</option>
@@ -156,22 +161,18 @@ async function remove() {
           </div>
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>회사명</label>
-              <input v-model="form.company" class="app-modal-input" placeholder="예: SK AX" />
+              <label for="member-company">회사명</label>
+              <input id="member-company" v-model="form.company" autocomplete="off" class="app-modal-input" placeholder="예: SK AX" />
             </div>
             <div class="app-modal-field">
-              <label>부서명</label>
-              <input
-                v-model="form.department"
-                class="app-modal-input"
-                placeholder="예: 전략기획팀"
-              />
+              <label for="member-department">부서명</label>
+              <input id="member-department" v-model="form.department" autocomplete="off" class="app-modal-input" placeholder="예: 전략기획팀" />
             </div>
           </div>
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>직책</label>
-              <input v-model="form.position" class="app-modal-input" placeholder="예: 팀장" />
+              <label for="member-position">직책</label>
+              <input id="member-position" v-model="form.position" autocomplete="off" class="app-modal-input" placeholder="예: 팀장" />
             </div>
           </div>
         </div>

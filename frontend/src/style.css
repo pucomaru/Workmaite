@@ -1469,6 +1469,16 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.app-modal-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bs-body-color);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .app-modal-input {
   padding: 8px 10px;
   border: 1px solid var(--border);

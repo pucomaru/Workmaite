@@ -329,7 +329,7 @@ onMounted(async () => {
           <circle cx="11" cy="11" r="8" />
           <path d="M21 21l-4.35-4.35" />
         </svg>
-        <input v-model="search" class="search-input" placeholder="회의체 검색..." />
+        <input v-model="search" name="search" class="search-input" placeholder="회의체 검색..." />
       </div>
       <div class="app-tabs">
         <button
@@ -559,16 +559,18 @@ onMounted(async () => {
           </div>
           <div class="app-modal-body">
             <div class="app-modal-field">
-              <label>회의체명 <span class="req">*</span></label>
+              <label for="create-meeting-title">회의체명 <span class="req">*</span></label>
               <input
+                id="create-meeting-title"
                 v-model="createForm.title"
                 class="app-modal-input"
                 placeholder="예: 전략기획위원회"
               />
             </div>
             <div class="app-modal-field">
-              <label>소개</label>
+              <label for="create-meeting-purpose">소개</label>
               <textarea
+                id="create-meeting-purpose"
                 v-model="createForm.purpose"
                 class="app-modal-input"
                 placeholder="이 회의체의 목적이나 소개..."
@@ -576,8 +578,8 @@ onMounted(async () => {
               ></textarea>
             </div>
             <div class="app-modal-field">
-              <label>유형</label>
-              <select v-model="createForm.meeting_type" class="app-modal-input">
+              <label for="create-meeting-type">유형</label>
+              <select id="create-meeting-type" v-model="createForm.meeting_type" class="app-modal-input">
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
@@ -585,17 +587,18 @@ onMounted(async () => {
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>시작일</label>
-                <input type="date" v-model="createForm.start_date" class="app-modal-input" />
+                <label for="create-meeting-start-date">시작일</label>
+                <input id="create-meeting-start-date" type="date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
-                <label>종료일</label>
-                <input type="date" v-model="createForm.end_date" class="app-modal-input" />
+                <label for="create-meeting-end-date">종료일</label>
+                <input id="create-meeting-end-date" type="date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">
-              <label>운영 지침</label>
+              <label for="create-meeting-guidelines">운영 지침</label>
               <textarea
+                id="create-meeting-guidelines"
                 v-model="createForm.guidelines"
                 class="app-modal-input"
                 rows="3"

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from db import models
 from db import schemas
 from core.access_guard import (
-    require_meeting_member,
+    require_view,
     require_meeting_edit,
     require_owned_edit,
     meeting_id_of_session,
@@ -810,7 +810,7 @@ async def get_draft_agendas(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member(db, current_user, meeting_id)
+    require_view(db, current_user, meeting_id)
     agendas = (
         db.query(models.Agenda)
         .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft")
@@ -847,7 +847,7 @@ async def get_meeting_agendas(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member(db, current_user, meeting_id)
+    require_view(db, current_user, meeting_id)
     agendas = (
         db.query(models.Agenda)
         .filter(models.Agenda.meeting_id == meeting_id, models.Agenda.status != "draft")
@@ -1248,7 +1248,7 @@ async def get_agenda_delete_logs(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_meeting_member(db, current_user, meeting_id)
+    require_view(db, current_user, meeting_id)
     from sqlalchemy import text as _text
 
     rows = db.execute(
