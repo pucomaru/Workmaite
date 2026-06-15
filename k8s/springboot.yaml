@@ -19,7 +19,7 @@ spec:
         - name: harbor-secret
       containers:
         - name: workmaite-backend
-          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:ed35e85
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-backend:d9b8f8e
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
