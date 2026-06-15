@@ -490,7 +490,7 @@ function parseAiEvidence(val) {
                   :class="{ active: logTypeFilter === 'minutes' }"
                   @click="logTypeFilter = 'minutes'"
                 >
-                  회의록
+                  회의
                 </button>
                 <button
                   class="log-chip"

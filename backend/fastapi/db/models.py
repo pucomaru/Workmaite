@@ -135,6 +135,7 @@ class MeetingSession(Base):
         BigInteger, default=0, nullable=False
     )
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=datetime.utcnow)
 
     minutes: Mapped["Minutes | None"] = relationship(
         "Minutes", back_populates="session", uselist=False
