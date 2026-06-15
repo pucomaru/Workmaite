@@ -10,8 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 public class WorkmaiteServerApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(WorkmaiteServerApplication.class, args);
-	}
-
+  public static void main(String[] args) {
+    SpringApplication.run(WorkmaiteServerApplication.class, args);
+  }
 }

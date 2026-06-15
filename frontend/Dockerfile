@@ -2,7 +2,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci && npm install @rollup/rollup-linux-x64-musl
+
+RUN npm install --no-fund
 COPY . .
 ARG VITE_API_URL
 ARG VITE_AI_URL

@@ -10,14 +10,14 @@ const routes = [
     children: [
       { path: '', component: () => import('./pages/HomePage.vue') },
       { path: 'archive', component: () => import('./pages/ArchivePage.vue') },
-      { path: 'company', component: () => import('./pages/OrganizationPage.vue') },
-      { path: 'meeting-groups', component: () => import('./pages/MeetingGroupsPage.vue') },
+      { path: 'company', component: () => import('./pages/CompanyPage.vue') },
+      { path: 'meetings', component: () => import('./pages/MeetingsPage.vue') },
       { path: 'session-record', component: () => import('./pages/SessionPage.vue') },
       { path: 'minutes', redirect: '/archive' },
       { path: 'reports', redirect: '/archive' },
-      { path: 'past-meetings', component: () => import('./pages/PastMeetingsPage.vue') },
-      { path: 'meetings/:meetingId', redirect: '/meeting-groups' },
-{ path: 'profile', component: () => import('./pages/ProfilePage.vue') },
+      { path: 'past-meetings', redirect: '/archive' },
+      { path: 'meetings/:meetingId', redirect: '/meetings' },
+      { path: 'profile', component: () => import('./pages/ProfilePage.vue') },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -28,7 +28,7 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+router.beforeEach(to => {
   const token = sessionStorage.getItem('token')
   if (to.meta.requiresAuth && !token) return '/landing'
   if ((to.path === '/register' || to.path === '/landing') && token) return '/'

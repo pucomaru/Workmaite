@@ -1,10 +1,18 @@
 package com.workmaite.domain.logs.entity;
 
-import jakarta.persistence.*;
-import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
 @Table(name = "hitl_reviews")
@@ -14,46 +22,46 @@ import java.time.LocalDateTime;
 @Builder
 public class HitlReview {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
 
-    @Column(name = "agent_log_id")
-    private Long agentLogId;
+  @Column(name = "agent_log_id")
+  private Long agentLogId;
 
-    @Column(name = "target_type", length = 30, nullable = false)
-    private String targetType;
+  @Column(name = "target_type", length = 30, nullable = false)
+  private String targetType;
 
-    @Column(name = "target_id", nullable = false)
-    private Long targetId;
+  @Column(name = "ai_rationale", columnDefinition = "TEXT")
+  private String aiRationale;
 
-    @Column(name = "review_prompt", columnDefinition = "jsonb")
-    private String reviewPrompt;
+  @Builder.Default
+  @Column(length = 20, nullable = false)
+  private String status = "pending";
 
-    @Column(name = "ai_rationale", columnDefinition = "TEXT")
-    private String aiRationale;
+  @Column(name = "reviewer_id")
+  private Long reviewerId;
 
-    @Builder.Default
-    @Column(length = 20, nullable = false)
-    private String status = "pending";
+  @Column(name = "reviewed_at")
+  private LocalDateTime reviewedAt;
 
-    @Column(name = "reviewer_id")
-    private Long reviewerId;
+  @CreationTimestamp
+  @Column(name = "created_at", updatable = false)
+  private LocalDateTime createdAt;
 
-    @Column(name = "review_comment", columnDefinition = "jsonb")
-    private String reviewComment;
+  @Column(name = "agenda_id")
+  private Long agendaId;
 
-    @Column(name = "reviewed_at")
-    private LocalDateTime reviewedAt;
+  @Column(name = "report_id")
+  private Long reportId;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
+  @Column(name = "comment", columnDefinition = "TEXT")
+  private String comment;
 
-    public void review(String status, Long reviewerId, String reviewComment) {
-        this.status = status;
-        this.reviewerId = reviewerId;
-        this.reviewComment = reviewComment;
-        this.reviewedAt = LocalDateTime.now();
-    }
+  public void review(String status, Long reviewerId, String comment) {
+    this.status = status;
+    this.reviewerId = reviewerId;
+    this.comment = comment;
+    this.reviewedAt = LocalDateTime.now();
+  }
 }

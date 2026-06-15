@@ -2,10 +2,8 @@
 import { inject } from 'vue'
 import MeetingSettingsModal from './MeetingSettingsModal.vue'
 
-const {
-  settingsModal, nightMode, closeSettings,
-  savingSettings, saveSettings,
-} = inject('archiveModals')
+const { settingsModal, nightMode, closeSettings, savingSettings, saveSettings } =
+  inject('archiveModals')
 </script>
 
 <template>

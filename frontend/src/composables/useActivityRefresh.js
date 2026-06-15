@@ -13,7 +13,9 @@ export function useActivityRefresh() {
 
   const onActivity = () => {
     if (_throttleTimer) return // 60초 내 중복 체크 방지
-    _throttleTimer = setTimeout(() => { _throttleTimer = null }, 60_000)
+    _throttleTimer = setTimeout(() => {
+      _throttleTimer = null
+    }, 60_000)
     ensureFreshToken().catch(() => {}) // 실패는 무시 — 실제 요청 시 인터셉터가 처리
   }
 

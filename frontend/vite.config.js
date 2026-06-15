@@ -11,15 +11,9 @@ export default defineConfig({
     },
   },
   server: {
+    // dev 프록시는 프로덕션 Ingress(k8s/ingress.yaml)와 일치시킬 것:
+    //   /api/v1 → SpringBoot(8080), 그 외 /api/* (ai·agent·neo4j·chats·stt·upload·usage) → FastAPI(8000)
     proxy: {
-      '/api/v1/sessions/refine-chunk': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '^/api/v1/sessions/[^/]+/minutes': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
       '/api/v1': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -29,16 +23,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      '/wlk': {
-        target: 'https://workmaite.project.skala-ai.com',
+      // FastAPI WebSocket 엔드포인트(/ws/sessions/{id}/transcribe, /ws/meetings/{id}/agenda).
+      '/ws': {
+        target: 'http://localhost:8000',
         changeOrigin: true,
-        ws: true,
-      },
-      // LiveKit 신호 서버 프록시 (CORS 우회)
-      '/livekit-signal': {
-        target: 'http://localhost:7880',
-        changeOrigin: true,
-        rewrite: path => path.replace(/^\/livekit-signal/, ''),
         ws: true,
       },
     },

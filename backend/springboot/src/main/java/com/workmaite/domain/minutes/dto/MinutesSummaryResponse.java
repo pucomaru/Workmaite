@@ -7,11 +7,9 @@ import lombok.Getter;
 @Builder
 public class MinutesSummaryResponse {
 
-    private String summary;
+  private String summary;
 
-    public static MinutesSummaryResponse of(String summary) {
-        return MinutesSummaryResponse.builder()
-                .summary(summary)
-                .build();
-    }
+  public static MinutesSummaryResponse of(String summary) {
+    return MinutesSummaryResponse.builder().summary(summary).build();
+  }
 }

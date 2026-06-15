@@ -1,77 +1,114 @@
 /* ── Graph floating action buttons ── */
 .graph-float-btns {
-  position: absolute; top: 14px; right: 14px; z-index: 15;
-  display: flex; flex-direction: column; gap: 12px; align-items: center;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
 }
 .float-btn-item {
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
-  cursor: grab; user-select: none; }
-.float-btn-item:hover { transform: scale(1.1); opacity: 1; }
-.float-btn-item:active { cursor: grabbing; transform: scale(1.05); }
-.float-node-preview {display: flex; align-items: center; justify-content: center;}
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  cursor: grab;
+  user-select: none;
+}
+.float-btn-item:hover {
+  transform: scale(1.1);
+  opacity: 1;
+}
+.float-btn-item:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+.float-node-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 회의체 생성 — 회의체(Meetings) 노드(파랑)와 동일한 동그란 모양 */
 .meeting-preview {
-  width: 46px; height: 46px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.55) 100%);
-  border: 2px solid rgba(147,197,253,.7); color: #fff;
-  box-shadow: 0 0 14px rgba(59,130,246,.5), 0 2px 10px rgba(0,0,0,.4);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, #60a5fa 0%, #2563eb 100%);
+  border: 2px solid rgba(96, 165, 250, 0.7);
+  color: #fff;
+  box-shadow:
+    0 0 14px rgba(37, 99, 235, 0.5),
+    0 2px 10px rgba(0, 0, 0, 0.4);
 }
-.float-btn-item:hover .meeting-preview { box-shadow: 0 0 22px rgba(59,130,246,.75), 0 4px 16px rgba(0,0,0,.5); }
+.float-btn-item:hover .meeting-preview {
+  box-shadow:
+    0 0 22px rgba(59, 130, 246, 0.75),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+/* 자료 업로드 — 보고자료 노드(초록)와 동일한 동그란 모양 */
 .doc-preview {
-  width: 44px; height: 34px; border-radius: 6px;
-  background: rgba(15,23,42,.9);
-  border: 2px solid rgba(96,165,250,.65); color: #60a5fa;
-  box-shadow: 0 0 12px rgba(96,165,250,.35), 0 2px 8px rgba(0,0,0,.45);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, #6ee7b7 0%, #059669 100%);
+  border: 2px solid rgba(110, 231, 183, 0.7);
+  color: #fff;
+  box-shadow:
+    0 0 14px rgba(5, 150, 105, 0.5),
+    0 2px 10px rgba(0, 0, 0, 0.4);
 }
-.float-btn-item:hover .doc-preview { box-shadow: 0 0 20px rgba(96,165,250,.55), 0 4px 14px rgba(0,0,0,.5); }
+.float-btn-item:hover .doc-preview {
+  box-shadow:
+    0 0 22px rgba(5, 150, 105, 0.75),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
+/* 회의 생성 — 회의 노드(주황)와 동일한 동그란 모양 */
 .session-preview {
-  width: 44px; height: 32px; border-radius: 5px;
-  background: rgba(5,150,105,0.55);
-  border: 2px solid rgba(52,211,153,.7); color: #6ee7b7;
-  box-shadow: 0 0 12px rgba(52,211,153,.35), 0 2px 8px rgba(0,0,0,.45);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, #fdba74 0%, #ea580c 100%);
+  border: 2px solid rgba(253, 186, 116, 0.7);
+  color: #fff;
+  box-shadow:
+    0 0 14px rgba(234, 88, 12, 0.5),
+    0 2px 10px rgba(0, 0, 0, 0.4);
 }
-.float-btn-item:hover .session-preview { box-shadow: 0 0 20px rgba(52,211,153,.65), 0 4px 14px rgba(0,0,0,.5); }
+.float-btn-item:hover .session-preview {
+  box-shadow:
+    0 0 22px rgba(234, 88, 12, 0.75),
+    0 4px 16px rgba(0, 0, 0, 0.5);
+}
 .float-btn-label {
-  font-size: 10px; font-weight: 700; color: rgba(255,255,255,.65);
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.65);
   white-space: nowrap;
-  text-shadow: 0 1px 4px rgba(0,0,0,.9);
-  letter-spacing: .02em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  letter-spacing: 0.02em;
 }
 
-/* Float drag ghost */
-.float-drag-ghost {
-  position: fixed; z-index: 9999; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  filter: drop-shadow(0 4px 14px rgba(0,0,0,.6));
-}
-.ghost-node {
-  display: flex; align-items: center; justify-content: center;
-  opacity: .9; transform: scale(1.12);
-}
-.ghost-meeting {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(59,130,246,.95) 0%, rgba(37,99,235,.5) 100%);
-  border: 2px solid rgba(147,197,253,.8); color: #fff;
-}
-.ghost-doc {
-  width: 44px; height: 34px; border-radius: 6px;
-  background: rgba(15,23,42,.9); border: 2px solid rgba(96,165,250,.8); color: #60a5fa;
-}
-.ghost-session {
-  width: 44px; height: 32px; border-radius: 5px;
-  background: rgba(5,150,105,0.6); border: 2px solid rgba(52,211,153,.85); color: #6ee7b7;
-}
-.ghost-label {
-  font-size: 10px; font-weight: 700; color: #fff;
-  text-shadow: 0 1px 5px rgba(0,0,0,.95); white-space: nowrap;
-}
-.ghost-connect-hint {
-  font-size: 10px; font-weight: 700; color: #34d399;
-  text-shadow: 0 1px 4px rgba(0,0,0,.9); white-space: nowrap;
-  animation: pulse-hint .6s ease-in-out infinite alternate;
-}
-@keyframes pulse-hint { from { opacity: .6 } to { opacity: 1 } }
+/* Float drag ghost — modals.css의 .float-drag-ghost 네임스페이스 정의가 단일 원본 (중복 제거) */
 
 /* day-mode float button labels */
-.day-mode .float-btn-label { color: rgba(15,23,42,.6); text-shadow: 0 1px 3px rgba(255,255,255,.7); }
-.day-mode .meeting-preview { box-shadow: 0 0 14px rgba(59,130,246,.4), 0 2px 10px rgba(0,0,0,.15); }
-.day-mode .doc-preview { background: rgba(239,246,255,.95); box-shadow: 0 0 12px rgba(59,130,246,.25), 0 2px 8px rgba(0,0,0,.1); }
+.day-mode .float-btn-label {
+  color: rgba(15, 23, 42, 0.6);
+  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.7);
+}
+.day-mode .meeting-preview {
+  box-shadow:
+    0 0 14px rgba(59, 130, 246, 0.4),
+    0 2px 10px rgba(0, 0, 0, 0.15);
+}
+.day-mode .doc-preview {
+  box-shadow:
+    0 0 12px rgba(5, 150, 105, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.day-mode .session-preview {
+  box-shadow:
+    0 0 12px rgba(234, 88, 12, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+}

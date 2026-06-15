@@ -1,0 +1,32 @@
+# ── LLM 토큰 단가 (USD per 1M tokens, [input, output]) ────────────────────────
+default: [2.50, 10.00]
+models:
+  gpt-4o:        [2.50, 10.00]
+  gpt-4o-mini:   [0.15, 0.60]
+  gpt-4.1:       [2.00, 8.00]
+  gpt-4.1-mini:  [0.40, 1.60]
+  gpt-4.1-nano:  [0.10, 0.40]
+  gpt-4-turbo:   [10.00, 30.00]
+  gpt-4:         [30.00, 60.00]
+  gpt-3.5-turbo: [0.50, 1.50]
+  o1:            [15.00, 60.00]
+  o1-mini:       [1.10, 4.40]
+  o3-mini:       [1.10, 4.40]
+
+# ── 임베딩 단가 (USD per 1M tokens, 단일 입력 요율) ──────────────────────────────
+embedding:
+  default: 0.13   # 기본 임베딩 모델 text-embedding-3-large 
+  models:
+    text-embedding-3-small: 0.02
+    text-embedding-3-large: 0.13
+    text-embedding-ada-002: 0.10
+
+# ── STT 단가 — per_min(분당 USD) 기준. 토큰 과금 모델은 input/output(per 1M)도 병기.
+#    prefix 매칭이므로 gpt-4o-transcribe-diarize 등 변형은 부모 키 단가를 따른다.
+stt:
+  default: { per_min: 0.017 }   # 기본 STT 모델 gpt-realtime-whisper
+  models:
+    gpt-realtime-whisper:   { per_min: 0.017 }
+    gpt-4o-transcribe:      { per_min: 0.006, input: 2.50, output: 10.00 }
+    gpt-4o-mini-transcribe: { per_min: 0.003, input: 1.25, output: 5.00 }
+    whisper-1:              { per_min: 0.006 }

@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-scripts
+  namespace: skala3-finalproj-class2-team9
+data:
+  init.cypher: |
+    // =============================================================
+    // init.cypher  —  Neo4j Schema (Constraints / Vector / Fulltext)
+    // 코드베이스가 시작 시 생성하는 스키마와 1:1 일치하도록 정의 (재정의 2026-06-14).
+    //   - 제약:       graphdb/neo4j_sync.py  _UNIQUE_CONSTRAINTS  (ensure_constraints)
+    //   - 풀텍스트:    graphdb/retrieval_registry.py REGISTRY[*].fulltext (ensure_fulltext_indexes)
+    // 벡터 인덱스는 앱(neo4j_sync.init_vector_index)이 EMBED_MODEL에서 도출한 차원으로 시작 시
+    // 생성한다 — 여기에 정적 차원을 박으면 모델 변경 시 IF NOT EXISTS가 잘못된 차원을 선점해
+    // 임베딩(예: 3-large=3072)과 인덱스 차원이 어긋나는 사고가 나므로 정의하지 않는다.
+    // 노드: User / Department / Company / Meetings / Session / Agenda /
+    //       Minutes / MinutesChunk / Report / ReportChunk
+    // 주의: HumanJudgment 노드는 폐지됨 — HITL 검토결과는 Agenda/Report 노드의
+    //       hitl_* 속성·임베딩으로 흡수된다(별도 노드/인덱스 없음).
+    // =============================================================
+
+    // ── Uniqueness Constraints (ensure_constraints) ───────────────
+    CREATE CONSTRAINT user_pg_id    IF NOT EXISTS FOR (n:User)       REQUIRE n.pg_id IS UNIQUE;
+    CREATE CONSTRAINT meetings_id   IF NOT EXISTS FOR (n:Meetings)   REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT session_id    IF NOT EXISTS FOR (n:Session)    REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT agenda_id     IF NOT EXISTS FOR (n:Agenda)     REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT minutes_id    IF NOT EXISTS FOR (n:Minutes)    REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT report_id     IF NOT EXISTS FOR (n:Report)     REQUIRE n.id    IS UNIQUE;
+    CREATE CONSTRAINT dept_name     IF NOT EXISTS FOR (n:Department) REQUIRE n.name  IS UNIQUE;
+    CREATE CONSTRAINT company_name  IF NOT EXISTS FOR (n:Company)    REQUIRE n.name  IS UNIQUE;
+
+
+    // ── Vector Indexes ───────────────────────────────────────────
+    // 앱(neo4j_sync.init_vector_index)이 시작 시 EMBED_MODEL에서 도출한 차원(EMBED_DIM)으로
+    // 생성한다. 정적 차원이 모델과 어긋나면 IF NOT EXISTS가 선점해 사고가 나므로 여기 두지 않는다.
+
+
+    // ── Fulltext Indexes (ensure_fulltext_indexes) ───────────────
+    CREATE FULLTEXT INDEX agendaFulltext IF NOT EXISTS
+      FOR (n:Agenda) ON EACH [n.title];
+
+    CREATE FULLTEXT INDEX minutesFulltext IF NOT EXISTS
+      FOR (n:Minutes) ON EACH [n.title, n.content_summary];
+
+    CREATE FULLTEXT INDEX reportFulltext IF NOT EXISTS
+      FOR (n:Report) ON EACH [n.file_name];
+
+    CREATE FULLTEXT INDEX reportChunkFulltext IF NOT EXISTS
+      FOR (n:ReportChunk) ON EACH [n.text, n.title];
+
+  entrypoint.sh: |
+    #!/bin/bash
+    # NEO4J_AUTH 환경변수(neo4j/password 형식)에서 비밀번호 추출
+    NEO4J_PASSWORD="${NEO4J_AUTH#*/}"
+
+    /startup/docker-entrypoint.sh neo4j &
+    NEO4J_PID=$!
+
+    echo "Waiting for Neo4j to be ready..."
+    until cypher-shell -u neo4j -p "${NEO4J_PASSWORD}" \
+          "RETURN 1" > /dev/null 2>&1; do
+      sleep 3
+    done
+
+    INIT_FLAG="/data/import/.init_done"
+    if [ ! -f "$INIT_FLAG" ]; then
+      echo "Running init.cypher..."
+      cypher-shell -u neo4j -p "${NEO4J_PASSWORD}" \
+        --file /var/lib/neo4j/import/init.cypher
+      touch "$INIT_FLAG"
+      echo "init.cypher done."
+    else
+      echo "init.cypher already applied, skipping."
+    fi
+
+    wait $NEO4J_PID

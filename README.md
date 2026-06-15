@@ -47,7 +47,7 @@ cd backend/springboot
 ### 2. FastAPI
 
 ```bash
-cd backend/ai
+cd backend/fastapi
 uv run uvicorn main:app --reload --port 8000
 ```
 
@@ -55,7 +55,7 @@ uv run uvicorn main:app --reload --port 8000
 
 ```bash
 cd frontend
-npm install   # 최초 1회
+npm install --os=linux --cpu=x64 --libc=musl --os=linux --cpu=x64 --libc=glibc --os=darwin --cpu=arm64 --os=win32 --cpu=x64
 npm run dev
 ```
 
@@ -63,7 +63,7 @@ npm run dev
 
 ## 환경변수
 
-`backend/ai/.env` 파일을 생성합니다 (`.env.example` 참고).
+`backend/fastapi/.env` 파일을 생성합니다 (`.env.example` 참고).
 
 | 키 | 설명 |
 |----|------|

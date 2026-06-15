@@ -35,7 +35,9 @@ async function save() {
     form.value.password = ''
     form.value.passwordConfirm = ''
     success.value = true
-    setTimeout(() => { success.value = false }, 2500)
+    setTimeout(() => {
+      success.value = false
+    }, 2500)
   } catch (e) {
     error.value = e.response?.data?.detail || '저장에 실패했습니다.'
   } finally {
@@ -48,21 +50,26 @@ async function save() {
   <div class="page-wrap">
     <div class="card">
       <div class="card-header">
-        <span style="font-weight:600">개인설정</span>
+        <span style="font-weight: 600">개인설정</span>
       </div>
-      <div class="modal-body" style="padding:20px">
+      <div class="modal-body" style="padding: 20px">
         <div class="form-group">
           <label class="form-label">이름</label>
           <input v-model="form.name" class="form-input" placeholder="이름" />
         </div>
         <div class="form-group">
           <label class="form-label">사번</label>
-          <input :value="auth.user?.employee_id" class="form-input" disabled style="background:var(--surface);color:var(--text-muted)" />
+          <input
+            :value="auth.user?.employee_id"
+            class="form-input"
+            disabled
+            style="background: var(--surface); color: var(--text-muted)"
+          />
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
           <div class="form-group">
             <label class="form-label">회사명</label>
-            <input v-model="form.company" class="form-input" placeholder="예: 워크메이트" />
+            <input v-model="form.company" class="form-input" placeholder="예: SK AX" />
           </div>
           <div class="form-group">
             <label class="form-label">부서명</label>
@@ -75,23 +82,53 @@ async function save() {
         </div>
         <div class="form-group">
           <label class="form-label">새 비밀번호 (변경 시만 입력)</label>
-          <input v-model="form.password" type="password" class="form-input" placeholder="새 비밀번호" />
+          <input
+            v-model="form.password"
+            type="password"
+            class="form-input"
+            placeholder="새 비밀번호"
+          />
         </div>
         <div class="form-group">
           <label class="form-label">비밀번호 확인</label>
-          <input v-model="form.passwordConfirm" type="password" class="form-input" placeholder="비밀번호 재입력" />
+          <input
+            v-model="form.passwordConfirm"
+            type="password"
+            class="form-input"
+            placeholder="비밀번호 재입력"
+          />
         </div>
 
-        <div v-if="error" style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:12px">
+        <div
+          v-if="error"
+          style="
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+          "
+        >
           {{ error }}
         </div>
-        <div v-if="success" style="background:#dcfce7;color:#166534;padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:12px">
+        <div
+          v-if="success"
+          style="
+            background: #dcfce7;
+            color: #166534;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+          "
+        >
           저장되었습니다.
         </div>
 
         <button
           class="btn btn-primary"
-          style="width:100%;justify-content:center"
+          style="width: 100%; justify-content: center"
           :disabled="saving"
           @click="save"
         >
@@ -103,5 +140,7 @@ async function save() {
 </template>
 
 <style scoped>
-.page-wrap { max-width: 480px; }
+.page-wrap {
+  max-width: 480px;
+}
 </style>

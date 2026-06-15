@@ -12,8 +12,6 @@ services:
     volumes:
       - neo4j_data:/data
       - ./docker/neo4j.conf:/var/lib/neo4j/conf/neo4j.conf
-      - ./scripts/init.cypher:/var/lib/neo4j/import/init.cypher
-      - ./scripts/seed.cypher:/var/lib/neo4j/import/seed.cypher
     ports:
       - "7474:7474"
       - "7687:7687"

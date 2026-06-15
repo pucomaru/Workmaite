@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workmaite-ai
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workmaite-ai
+  template:
+    metadata:
+      labels:
+        app: workmaite-ai
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: workmaite-ai
+          image: amdp-registry.skala-ai.com/skala26a-ai2/workmaite-ai:fb073b0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          resources:                 # P7-6: 스케줄링 안정성·OOM 방지
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          envFrom:
+            - secretRef:
+                name: ai-secret
+            - secretRef:
+                name: r2-secret
+          env:
+            - name: NEO4J_URL
+              value: "bolt://workmaite-neo4j:7687"
+            - name: DB_HOST
+              value: "postgres-1-postgresql.postgres.svc.cluster.local"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workmaite-ai
+  namespace: skala3-finalproj-class2-team9
+  labels:
+    app: workmaite-ai
+spec:
+  type: ClusterIP
+  selector:
+    app: workmaite-ai
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

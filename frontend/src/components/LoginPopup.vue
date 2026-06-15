@@ -1,11 +1,17 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useThemeStore } from '../stores/theme'
+import logoBlack from '../assets/workmaite-logo-black.png'
+import logoWhite from '../assets/workmaite-logo-white.png'
 
 const emit = defineEmits(['close', 'go-register'])
 const router = useRouter()
 const auth = useAuthStore()
+const theme = useThemeStore()
+// 야간모드에서는 흰색 로고 사용
+const logoSrc = computed(() => (theme.nightMode ? logoWhite : logoBlack))
 
 const form = ref({ email: '', password: '' })
 const error = ref('')
@@ -20,7 +26,9 @@ async function submit() {
     emit('close')
     router.push('/')
   } catch (e) {
-    error.value = e.message?.includes('서버') ? e.message : (e.response?.data?.detail || '이메일 또는 비밀번호가 올바르지 않습니다.')
+    error.value = e.message?.includes('서버')
+      ? e.message
+      : e.response?.data?.detail || '이메일 또는 비밀번호가 올바르지 않습니다.'
   } finally {
     loading.value = false
   }
@@ -31,10 +39,10 @@ async function submit() {
   <div class="popup-inner">
     <!-- Header -->
     <div class="popup-header">
-      <img src="../assets/workmaite-logo-black.png" class="popup-logo-img" alt="Workma!te" />
+      <img :src="logoSrc" class="popup-logo-img" alt="Workma!te" />
     </div>
 
-    <h4 class="fw-bold mb-1 mt-3" style="color:var(--primary)">로그인</h4>
+    <h4 class="fw-bold mb-1 mt-3" style="color: var(--primary)">로그인</h4>
     <p class="text-muted small mb-4">이메일과 비밀번호를 입력하세요</p>
 
     <form @submit.prevent="submit">
@@ -45,9 +53,13 @@ async function submit() {
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-envelope text-muted"></i>
           </span>
-          <input v-model="form.email" type="email"
+          <input
+            v-model="form.email"
+            type="email"
             class="form-control border-start-0"
-            placeholder="name@company.com" required />
+            placeholder="name@company.com"
+            required
+          />
         </div>
       </div>
 
@@ -58,12 +70,18 @@ async function submit() {
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock text-muted"></i>
           </span>
-          <input v-model="form.password"
+          <input
+            v-model="form.password"
             :type="showPw ? 'text' : 'password'"
             class="form-control border-start-0 border-end-0"
-            placeholder="비밀번호를 입력하세요" required />
-          <button type="button" class="input-group-text bg-light border-start-0"
-            @click="showPw = !showPw">
+            placeholder="비밀번호를 입력하세요"
+            required
+          />
+          <button
+            type="button"
+            class="input-group-text bg-light border-start-0"
+            @click="showPw = !showPw"
+          >
             <i :class="showPw ? 'bi bi-eye-slash' : 'bi bi-eye'" class="text-muted"></i>
           </button>
         </div>
@@ -84,8 +102,13 @@ async function submit() {
 
     <div class="text-center small text-muted">
       계정이 없으신가요?
-      <button class="btn btn-link btn-sm p-0 fw-semibold" style="color:var(--accent)"
-        @click="emit('go-register')">회원가입</button>
+      <button
+        class="btn btn-link btn-sm p-0 fw-semibold"
+        style="color: var(--accent)"
+        @click="emit('go-register')"
+      >
+        회원가입
+      </button>
     </div>
   </div>
 </template>
@@ -95,11 +118,20 @@ async function submit() {
   padding: 32px 36px 28px;
 }
 .popup-header {
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
 }
 .popup-logo-img {
-  height: 30px; width: auto; display: block; margin: 0 auto;
+  height: 30px;
+  width: auto;
+  display: block;
+  margin: 0 auto;
 }
-.input-group-text { border-color: var(--border); }
-.form-control { border-color: var(--border); font-size: 13px; }
+.input-group-text {
+  border-color: var(--border);
+}
+.form-control {
+  border-color: var(--border);
+  font-size: 13px;
+}
 </style>
