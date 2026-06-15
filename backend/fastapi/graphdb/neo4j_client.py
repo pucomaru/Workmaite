@@ -175,12 +175,29 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
         return {}
 
 
+_SESSION_STATUS_KO = {
+    "scheduled": "예정됨",
+    "ongoing": "진행 중",
+    "ended": "종료됨",
+    "archived": "완료",
+    "active": "활성",
+    "done": "완료",
+    "completed": "완료",
+    "pending": "대기",
+    "draft": "초안",
+}
+
+
+def _sko(status: str) -> str:
+    return _SESSION_STATUS_KO.get(str(status).lower().strip(), status)
+
+
 def graph_context_to_str(ctx: dict) -> str:
     """그래프 컨텍스트 dict → 에이전트 프롬프트용 문자열 변환."""
     lines = []
     mg = ctx.get("meeting", {})
     if mg.get("title"):
-        lines.append(f"[회의체] {mg['title']} (상태: {mg.get('status', '?')})")
+        lines.append(f"[회의체] {mg['title']}")
         if mg.get("purpose"):
             lines.append(f"  목적: {mg['purpose']}")
 
@@ -211,14 +228,17 @@ def graph_context_to_str(ctx: dict) -> str:
         lines.append(f"[아젠다 {len(agendas)}건]")
         for a in agendas[:8]:
             assignee = f" → {a['assignee']}" if a.get("assignee") else ""
-            lines.append(f"  - {a.get('title', '')} ({a.get('status', '')}){assignee}")
+            status_ko = _sko(a.get("status", "")) if a.get("status") else ""
+            status_str = f" ({status_ko})" if status_ko else ""
+            lines.append(f"  - {a.get('title', '')}{status_str}{assignee}")
 
     sessions = ctx.get("recent_sessions", [])
     if sessions:
         lines.append("[최근 세션]")
         for s in sessions:
+            date_str = str(s.get("ended_at", ""))[:10].replace("-", ".")
             lines.append(
-                f"  - {s.get('num', s.get('session_number', '?'))}회차: {s.get('title', '')} ({s.get('ended_at', '?')})"
+                f"  - {s.get('title', '(제목없음)')} ({date_str})"
             )
 
     reports = ctx.get("reports", [])

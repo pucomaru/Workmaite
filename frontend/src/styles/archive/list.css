@@ -238,6 +238,15 @@
 .day-mode .detail-log-desc {
   color: var(--dark-border);
 }
+.day-mode .detail-log-desc.log-expandable:hover {
+  color: var(--dark-text, #333);
+}
+.day-mode .log-agenda-list {
+  border-left-color: rgba(245, 158, 11, 0.4);
+}
+.day-mode .log-agenda-item {
+  color: var(--dark-muted);
+}
 .day-mode .detail-log-meta {
   color: var(--dark-muted);
 }

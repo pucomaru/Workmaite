@@ -1603,6 +1603,56 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.detail-log-desc-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-log-desc.log-expandable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  overflow: visible;
+  white-space: normal;
+}
+.detail-log-desc.log-expandable:hover {
+  color: var(--text-base, #ccc);
+}
+.log-expand-chevron {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
+}
+.log-expand-chevron.open {
+  transform: rotate(180deg);
+  opacity: 0.8;
+}
+.detail-log-desc.log-expandable:hover .log-expand-chevron {
+  opacity: 1;
+}
+.log-agenda-list {
+  list-style: none;
+  margin: 5px 0 2px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 2px solid rgba(245, 158, 11, 0.35);
+  padding-left: 8px;
+}
+.log-agenda-item {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  padding: 3px 0;
+  word-break: break-word;
+  line-height: 1.4;
+}
 .detail-log-meta {
   font-size: 10px;
   color: var(--text-muted);

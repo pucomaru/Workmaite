@@ -466,7 +466,9 @@ async def _archive_retrieve_node(state: ArchiveFileState) -> dict:
     content = state.get("file_content", "") or ""
     # 파일명이 "보고자료_최종.pdf"처럼 내용을 담지 않는 경우를 보완하기 위해
     # 단순 content[:500] 대신 의미 있는 단락 우선 추출
-    paragraphs = [p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 15]
+    paragraphs = [
+        p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 15
+    ]
     content_excerpt = " ".join(paragraphs[:5])[:600] if paragraphs else content[:500]
     query = " ".join(filter(None, [dept_name, file_name, content_excerpt])).strip()
     if not query:
@@ -510,10 +512,16 @@ async def _archive_analyze_node(state: ArchiveFileState) -> dict:
 
     try:
         llm = llm_factory("review", temperature=0.1, streaming=False)
-        structured = await ainvoke_structured(llm, ArchiveAnalysisResult, messages, retries=1)
-        return {"result": _format_archive_result(structured.model_dump(), candidate_agendas)}
+        structured = await ainvoke_structured(
+            llm, ArchiveAnalysisResult, messages, retries=1
+        )
+        return {
+            "result": _format_archive_result(structured.model_dump(), candidate_agendas)
+        }
     except StructuredOutputError as e:
-        logger.warning(f"[archive-analyze] structured output 실패, 자유 텍스트 폴백: {e}")
+        logger.warning(
+            f"[archive-analyze] structured output 실패, 자유 텍스트 폴백: {e}"
+        )
         llm_fallback = _make_llm(temperature=0.2)
         response = await llm_fallback.ainvoke(messages)
         text = cast(str, response.content or "").strip()
