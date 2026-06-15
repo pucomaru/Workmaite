@@ -61,6 +61,11 @@ async def _run_pg_migrations() -> None:
         "ALTER TABLE meeting_sessions ALTER COLUMN created_at SET DEFAULT (now() AT TIME ZONE 'UTC')",
         # KST로 잘못 저장된 기존 값 보정 (9시간 빼기)
         "UPDATE meeting_sessions SET created_at = created_at - INTERVAL '9 hours' WHERE created_at IS NOT NULL AND created_at > (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour'",
+        # 사용자 하드 삭제 지원: FK 컬럼을 nullable로 변경
+        "ALTER TABLE reports ALTER COLUMN upload_id DROP NOT NULL",
+        "ALTER TABLE chat_messages ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE chat_feedback ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE audit_logs ALTER COLUMN actor_id DROP NOT NULL",
     ]
 
     def _apply():
