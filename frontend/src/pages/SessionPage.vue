@@ -1348,7 +1348,7 @@ const STATUS_LABEL = {
   scheduled: '예정',
   ongoing: '진행중',
   ended: '회의록 미생성',
-  archived: '완료',
+  archived: '종료',
 }
 
 // ─── Session edit modal ───────────────────────────────────────
