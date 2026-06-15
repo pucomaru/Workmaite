@@ -44,12 +44,12 @@ function onMembersUpdate(newList) {
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>회의체명 <span class="req">*</span></label>
-            <input v-model="form.title" class="app-modal-input" />
+            <label for="meeting-title">회의체명 <span class="req">*</span></label>
+            <input id="meeting-title" name="title" v-model="form.title" class="app-modal-input" />
           </div>
           <div class="app-modal-field">
-            <label>소개</label>
-            <textarea
+            <label for="meeting-purpose">소개</label>
+            <textarea id="meeting-purpose" name="purpose"
               v-model="form.purpose"
               class="app-modal-input"
               rows="2"
@@ -57,8 +57,8 @@ function onMembersUpdate(newList) {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>유형</label>
-            <select v-model="form.meeting_type" class="app-modal-input">
+            <label for="meeting-type">유형</label>
+            <select id="meeting-type" name="meeting_type" v-model="form.meeting_type" class="app-modal-input">
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
@@ -66,17 +66,17 @@ function onMembersUpdate(newList) {
           </div>
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>시작일</label>
-              <DateInput v-model="form.start_date" class="app-modal-input" />
+              <label for="meeting-start-date">시작일</label>
+              <DateInput id="meeting-start-date" v-model="form.start_date" class="app-modal-input" />
             </div>
             <div class="app-modal-field">
-              <label>종료일</label>
-              <DateInput v-model="form.end_date" class="app-modal-input" />
+              <label for="meeting-end-date">종료일</label>
+              <DateInput id="meeting-end-date" v-model="form.end_date" class="app-modal-input" />
             </div>
           </div>
           <div class="app-modal-field">
-            <label>회의체 지침</label>
-            <textarea
+            <label for="meeting-guidelines">회의체 지침</label>
+            <textarea id="meeting-guidelines" name="guidelines"
               v-model="form.guidelines"
               class="app-modal-input"
               rows="4"

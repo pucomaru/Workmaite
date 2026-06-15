@@ -29,6 +29,9 @@ function roleLabel(role) {
   )
 }
 
+// 권한 정렬 순서: 시스템 관리자 → 회사 관리자 → 일반 사용자
+const ROLE_RANK = { SYSTEM_ADMIN: 0, COMPANY_ADMIN: 1, USER: 2 }
+
 const themeStore = useThemeStore()
 const nightMode = computed(() => themeStore.nightMode)
 
@@ -366,7 +369,10 @@ async function parseAndImportCSV(text) {
 const groupedFilteredMembers = computed(() => filteredMembers.value)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
-const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(groupedFilteredMembers)
+const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(
+  groupedFilteredMembers,
+  { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } },
+)
 
 const MEMBER_PAGE_SIZE = 30
 const {
@@ -400,6 +406,7 @@ const {
         <input
           v-model="searchQuery"
           class="search-input"
+          name="search"
           placeholder="이름, 직책, 이메일 검색..."
         />
       </div>
@@ -407,6 +414,7 @@ const {
       <div class="plus-wrap">
         <input
           ref="csvImportInput"
+          id="csv-import-input"
           type="file"
           accept=".csv"
           style="display: none"
@@ -473,7 +481,7 @@ const {
       :show-pagination="!loadingMembers"
     >
       <template #filters>
-        <select v-model="selectedMeetingId" class="lv-type-filter">
+        <select v-model="selectedMeetingId" name="meeting" class="lv-type-filter">
           <option value="all">내 회의체 전체</option>
           <option v-for="m in myMeetings" :key="m.id" :value="String(m.id)">{{ m.title }}</option>
         </select>
@@ -628,13 +636,14 @@ const {
             <!-- Name & Email -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>이름 <span class="req">*</span></label>
-                <input v-model="addForm.name" class="app-modal-input" placeholder="홍길동" />
+                <label for="add-member-name">이름 <span class="req">*</span></label>
+                <input id="add-member-name" v-model="addForm.name" autocomplete="off" class="app-modal-input" placeholder="홍길동" />
               </div>
               <div class="app-modal-field">
-                <label>이메일</label>
-                <input
+                <label for="add-member-email">이메일</label>
+                <input id="add-member-email"
                   v-model="addForm.email"
+                  autocomplete="off"
                   class="app-modal-input"
                   placeholder="example@company.com"
                 />
@@ -643,13 +652,14 @@ const {
             <!-- Company & Department -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>회사명</label>
-                <input v-model="addForm.company" class="app-modal-input" placeholder="예: SK AX" />
+                <label for="add-member-company">회사명</label>
+                <input id="add-member-company" v-model="addForm.company" autocomplete="off" class="app-modal-input" placeholder="예: SK AX" />
               </div>
               <div class="app-modal-field">
-                <label>부서명</label>
-                <input
+                <label for="add-member-department">부서명</label>
+                <input id="add-member-department"
                   v-model="addForm.department"
+                  autocomplete="off"
                   class="app-modal-input"
                   placeholder="예: 전략기획팀"
                 />
@@ -658,14 +668,15 @@ const {
             <!-- Position -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>직책</label>
-                <input v-model="addForm.position" class="app-modal-input" placeholder="예: 팀장" />
+                <label for="add-member-position">직책</label>
+                <input id="add-member-position" v-model="addForm.position" autocomplete="off" class="app-modal-input" placeholder="예: 팀장" />
               </div>
               <div class="app-modal-field">
-                <label>비밀번호 <span class="req">*</span></label>
-                <input
+                <label for="add-member-password">비밀번호 <span class="req">*</span></label>
+                <input id="add-member-password"
                   v-model="addForm.password"
                   type="password"
+                  autocomplete="new-password"
                   class="app-modal-input"
                   placeholder="임시 비밀번호 (8자 이상 — 최초 로그인 시 변경 강제)"
                 />

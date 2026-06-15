@@ -904,6 +904,10 @@ function _formatExtractForChat(agendas) {
 // 과제 탭에서 인라인으로 추출 실행
 async function runExtract() {
   if (!detailMeeting.value) return
+  if (!isDetailAdmin.value) {
+    toast.error('간사만 아젠다를 추출할 수 있습니다', { duration: 1500 })
+    return
+  }
 
   const mgTitle = detailMeeting.value?.title || '회의체'
 
@@ -2537,16 +2541,26 @@ const fileListMap = computed(() => {
 })
 
 const filteredFileListMap = computed(() => {
-  if (!selectedHistoryType.value) return fileListMap.value
+  const q = search.value.trim().toLowerCase()
   const map = new Map()
   fileListMap.value.forEach((items, id) => {
-    map.set(
-      id,
-      items.filter(item => item.type === selectedHistoryType.value),
-    )
+    let filtered = items
+    if (selectedHistoryType.value) {
+      filtered = filtered.filter(item => item.type === selectedHistoryType.value)
+    }
+    if (q) {
+      filtered = filtered.filter(item =>
+        (item.fileName || '').toLowerCase().includes(q) ||
+        (item.dept || '').toLowerCase().includes(q) ||
+        (item.session_title || '').toLowerCase().includes(q),
+      )
+    }
+    map.set(id, filtered)
   })
   return map
 })
+
+const searchActive = computed(() => !!search.value.trim())
 
 const { buildGraphNodes, computeUrgency, getHubFill } = useGraphBuilder({
   meetings: yearFilteredMeetings,
@@ -2892,6 +2906,7 @@ provide('archiveList', {
   expandedMeeting,
   meetingsStore,
   filteredGroupHistoryMap: filteredFileListMap,
+  searchActive,
   formatDate,
   downloadDummy: downloadFile,
   deleteReport,
@@ -3550,6 +3565,7 @@ provide('archiveSidebar', {
         <input
           v-model="search"
           class="search-input"
+          name="search"
           placeholder="회의체명, 회의록, 보고서, 인물 검색..."
         />
         <button v-if="search" class="search-clear" @click="search = ''">
@@ -3566,12 +3582,12 @@ provide('archiveSidebar', {
         </button>
       </div>
       <div class="year-filter-wrap">
-        <select v-model="filterYear" class="year-filter-select">
+        <select v-model="filterYear" name="filterYear" class="year-filter-select">
           <option value="">전체 연도</option>
           <option v-for="y in availableYears" :key="y" :value="y">{{ y }}년</option>
         </select>
-        <label class="ended-filter-check">
-          <input type="checkbox" v-model="showEndedMeetings" />
+        <label for="ended-filter" class="ended-filter-check">
+          <input type="checkbox" id="ended-filter" v-model="showEndedMeetings" />
           종료된 회의체
         </label>
       </div>

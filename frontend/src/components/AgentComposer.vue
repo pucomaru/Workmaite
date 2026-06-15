@@ -94,6 +94,7 @@ function selectModel(m) {
     </div>
     <textarea
       ref="textareaEl"
+      name="agent-input"
       :value="modelValue"
       class="agent-textarea"
       :placeholder="placeholder"
@@ -176,6 +177,7 @@ function selectModel(m) {
       </button>
     </div>
     <input
+      name="file"
       ref="fileInput"
       type="file"
       :multiple="multipleFiles"

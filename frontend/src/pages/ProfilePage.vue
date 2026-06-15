@@ -54,12 +54,14 @@ async function save() {
       </div>
       <div class="modal-body" style="padding: 20px">
         <div class="form-group">
-          <label class="form-label">이름</label>
-          <input v-model="form.name" class="form-input" placeholder="이름" />
+          <label class="form-label" for="profile-name">이름</label>
+          <input id="profile-name" name="profile-name" v-model="form.name" autocomplete="name" class="form-input" placeholder="이름" />
         </div>
         <div class="form-group">
-          <label class="form-label">사번</label>
+          <label class="form-label" for="profile-employee-id">사번</label>
           <input
+            id="profile-employee-id"
+            name="profile-employee-id"
             :value="auth.user?.employee_id"
             class="form-input"
             disabled
@@ -68,32 +70,38 @@ async function save() {
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
           <div class="form-group">
-            <label class="form-label">회사명</label>
-            <input v-model="form.company" class="form-input" placeholder="예: SK AX" />
+            <label class="form-label" for="profile-company">회사명</label>
+            <input id="profile-company" name="profile-company" v-model="form.company" autocomplete="organization" class="form-input" placeholder="예: SK AX" />
           </div>
           <div class="form-group">
-            <label class="form-label">부서명</label>
-            <input v-model="form.department" class="form-input" placeholder="예: 전략기획팀" />
+            <label class="form-label" for="profile-department">부서명</label>
+            <input id="profile-department" name="profile-department" v-model="form.department" autocomplete="off" class="form-input" placeholder="예: 전략기획팀" />
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">직책</label>
-          <input v-model="form.position" class="form-input" placeholder="예: 팀장, 과장, 대리" />
+          <label class="form-label" for="profile-position">직책</label>
+          <input id="profile-position" name="profile-position" v-model="form.position" autocomplete="organization-title" class="form-input" placeholder="예: 팀장, 과장, 대리" />
         </div>
         <div class="form-group">
-          <label class="form-label">새 비밀번호 (변경 시만 입력)</label>
+          <label class="form-label" for="profile-password">새 비밀번호 (변경 시만 입력)</label>
           <input
+            id="profile-password"
+            name="profile-password"
             v-model="form.password"
             type="password"
+            autocomplete="new-password"
             class="form-input"
             placeholder="새 비밀번호"
           />
         </div>
         <div class="form-group">
-          <label class="form-label">비밀번호 확인</label>
+          <label class="form-label" for="profile-password-confirm">비밀번호 확인</label>
           <input
+            id="profile-password-confirm"
+            name="profile-password-confirm"
             v-model="form.passwordConfirm"
             type="password"
+            autocomplete="new-password"
             class="form-input"
             placeholder="비밀번호 재입력"
           />

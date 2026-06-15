@@ -29,16 +29,20 @@ const authStore = useAuthStore()
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>회의체명 <span class="req">*</span></label>
+            <label for="create-title">회의체명 <span class="req">*</span></label>
             <input
+              id="create-title"
+              name="title"
               v-model="createForm.title"
               class="app-modal-input"
               placeholder="예: 전략기획위원회"
             />
           </div>
           <div class="app-modal-field">
-            <label>소개</label>
+            <label for="create-purpose">소개</label>
             <textarea
+              id="create-purpose"
+              name="purpose"
               v-model="createForm.purpose"
               class="app-modal-input"
               placeholder="이 회의체의 목적이나 소개..."
@@ -46,8 +50,8 @@ const authStore = useAuthStore()
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>유형</label>
-            <select v-model="createForm.meeting_type" class="app-modal-input">
+            <label for="create-meeting-type">유형</label>
+            <select id="create-meeting-type" name="meeting_type" v-model="createForm.meeting_type" class="app-modal-input">
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
@@ -55,17 +59,17 @@ const authStore = useAuthStore()
           </div>
           <div class="app-modal-field-row">
             <div class="app-modal-field">
-              <label>시작일</label>
-              <DateInput v-model="createForm.start_date" class="app-modal-input" />
+              <label for="create-start-date">시작일</label>
+              <input id="create-start-date" name="start_date" type="date" v-model="createForm.start_date" class="app-modal-input" />
             </div>
             <div class="app-modal-field">
-              <label>종료일</label>
-              <DateInput v-model="createForm.end_date" class="app-modal-input" />
+              <label for="create-end-date">종료일</label>
+              <input id="create-end-date" name="end_date" type="date" v-model="createForm.end_date" class="app-modal-input" />
             </div>
           </div>
           <div class="app-modal-field">
-            <label>운영 지침</label>
-            <textarea
+            <label for="create-guidelines">운영 지침</label>
+            <textarea id="create-guidelines" name="guidelines"
               v-model="createForm.guidelines"
               class="app-modal-input"
               rows="3"

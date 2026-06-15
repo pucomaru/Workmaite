@@ -108,6 +108,8 @@ export function useRealtimeSTT({
   let sink = null
   let highpass = null
   let compressor = null
+  let analyser = null // 실시간 오디오 스펙트럼(rec-wave 시각화)용
+  let freqData = null
   let ws = null
   let active = false
   let partial = '' // 부분 전사 누적 (OpenAI delta는 증분)
@@ -124,7 +126,7 @@ export function useRealtimeSTT({
     }
     recorder = null
     chunks = []
-    for (const n of [node, sink, highpass, compressor]) {
+    for (const n of [node, sink, highpass, compressor, analyser]) {
       try {
         if (n) n.disconnect()
       } catch {
@@ -140,7 +142,24 @@ export function useRealtimeSTT({
       stream.getTracks().forEach(t => t.stop())
       stream = null
     }
-    node = sink = highpass = compressor = audioCtx = null
+    node = sink = highpass = compressor = analyser = freqData = audioCtx = null
+  }
+
+  // 실시간 오디오 스펙트럼 — n개 막대의 정규화 크기(0~1) 배열. 녹음 중이 아니면 null.
+  function getWaveLevels(n) {
+    if (!analyser || !freqData) return null
+    analyser.getByteFrequencyData(freqData)
+    // 음성 에너지가 몰린 하위 ~70% 대역만 사용(초고역 잡음 제외)
+    const usable = Math.max(n, Math.floor(freqData.length * 0.7))
+    const per = Math.max(1, Math.floor(usable / n))
+    const out = new Array(n)
+    for (let i = 0; i < n; i++) {
+      let sum = 0
+      const start = i * per
+      for (let j = 0; j < per; j++) sum += freqData[start + j] || 0
+      out[i] = Math.min(1, (sum / per / 255) * 1.4) // 정규화 + 약간 부스트
+    }
+    return out
   }
 
   // MediaRecorder를 멈추고 마지막 청크까지 모아 Blob을 전달한 뒤 오디오를 정리한다.
@@ -257,6 +276,13 @@ export function useRealtimeSTT({
     compressor.attack.value = 0.003
     compressor.release.value = 0.25
 
+    // 실시간 스펙트럼 분석용 — compressor 출력에서 분기(전사 경로와 독립). destination 연결 불필요.
+    analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 256
+    analyser.smoothingTimeConstant = 0.7
+    freqData = new Uint8Array(analyser.frequencyBinCount)
+    compressor.connect(analyser)
+
     // destination까지 그래프가 연결돼야 노드가 렌더링되므로 gain=0 sink로 무음 출력(피드백 방지).
     sink = audioCtx.createGain()
     sink.gain.value = 0
@@ -337,6 +363,7 @@ export function useRealtimeSTT({
   return {
     start,
     stop,
+    getWaveLevels,
     supported: !!(navigator.mediaDevices?.getUserMedia && window.AudioContext),
   }
 }

@@ -238,6 +238,9 @@ async function openSettings(m) {
       position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     })),
+    originalRoles: Object.fromEntries(
+      members.map(mb => [mb.id, mb.role || 'member'])
+    ),
     removedIds: [],
   }
 }
@@ -250,7 +253,7 @@ const savingSettings = ref(false)
 async function saveSettings() {
   if (!settingsModal.value) return
   savingSettings.value = true
-  const { meeting, form, members, removedIds } = settingsModal.value
+  const { meeting, form, members, removedIds, originalRoles } = settingsModal.value
   try {
     await api.patch(`/api/v1/meetings/${meeting.id}`, {
       title: form.title,
@@ -263,8 +266,11 @@ async function saveSettings() {
     for (const memberId of removedIds) {
       await api.delete(`/api/v1/meetings/${meeting.id}/members/${memberId}`)
     }
-    for (const mb of members.filter(m => m.id === null)) {
+    for (const mb of members.filter(m => m.id == null)) {
       await api.post(`/api/v1/meetings/${meeting.id}/members`, { userId: mb.userId, role: mb.role })
+    }
+    for (const mb of members.filter(m => m.id != null && m.role !== originalRoles?.[m.id])) {
+      await api.patch(`/api/v1/meetings/${meeting.id}/members/${mb.id}`, { meeting_role: mb.role })
     }
     await meetingsStore.fetchMeetings()
     const res = await api.get(`/api/v1/meetings/${meeting.id}/members`)
@@ -329,7 +335,7 @@ onMounted(async () => {
           <circle cx="11" cy="11" r="8" />
           <path d="M21 21l-4.35-4.35" />
         </svg>
-        <input v-model="search" class="search-input" placeholder="회의체 검색..." />
+        <input v-model="search" name="search" class="search-input" placeholder="회의체 검색..." />
       </div>
       <div class="app-tabs">
         <button
@@ -559,16 +565,18 @@ onMounted(async () => {
           </div>
           <div class="app-modal-body">
             <div class="app-modal-field">
-              <label>회의체명 <span class="req">*</span></label>
+              <label for="create-meeting-title">회의체명 <span class="req">*</span></label>
               <input
+                id="create-meeting-title"
                 v-model="createForm.title"
                 class="app-modal-input"
                 placeholder="예: 전략기획위원회"
               />
             </div>
             <div class="app-modal-field">
-              <label>소개</label>
+              <label for="create-meeting-purpose">소개</label>
               <textarea
+                id="create-meeting-purpose"
                 v-model="createForm.purpose"
                 class="app-modal-input"
                 placeholder="이 회의체의 목적이나 소개..."
@@ -576,8 +584,8 @@ onMounted(async () => {
               ></textarea>
             </div>
             <div class="app-modal-field">
-              <label>유형</label>
-              <select v-model="createForm.meeting_type" class="app-modal-input">
+              <label for="create-meeting-type">유형</label>
+              <select id="create-meeting-type" v-model="createForm.meeting_type" class="app-modal-input">
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
@@ -585,17 +593,18 @@ onMounted(async () => {
             </div>
             <div class="app-modal-field-row">
               <div class="app-modal-field">
-                <label>시작일</label>
-                <DateInput v-model="createForm.start_date" class="app-modal-input" />
+                <label for="create-meeting-start-date">시작일</label>
+                <input id="create-meeting-start-date" type="date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
-                <label>종료일</label>
-                <DateInput v-model="createForm.end_date" class="app-modal-input" />
+                <label for="create-meeting-end-date">종료일</label>
+                <input id="create-meeting-end-date" type="date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">
-              <label>운영 지침</label>
+              <label for="create-meeting-guidelines">운영 지침</label>
               <textarea
+                id="create-meeting-guidelines"
                 v-model="createForm.guidelines"
                 class="app-modal-input"
                 rows="3"

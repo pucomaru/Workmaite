@@ -255,15 +255,15 @@ function toggleAgendaDropdown() {
           </div>
           <div class="app-modal-body">
             <!-- 재검토 토글 -->
-            <label class="resubmit-toggle">
-              <input type="checkbox" v-model="isResubmit" @change="onResubmitToggle" />
+            <label for="upload-resubmit-toggle" class="resubmit-toggle">
+              <input type="checkbox" id="upload-resubmit-toggle" v-model="isResubmit" @change="onResubmitToggle" />
               <span class="resubmit-toggle-label">자료 재검토</span>
             </label>
 
             <!-- 반려 보고서 선택 -->
             <div v-if="isResubmit" class="app-modal-field">
-              <label>반려된 보고서 선택 <span class="req">*</span></label>
-              <select v-model="selectedParentId" class="app-modal-input" @change="onParentSelect">
+              <label for="upload-rejected-report">반려된 보고서 선택 <span class="req">*</span></label>
+              <select id="upload-rejected-report" v-model="selectedParentId" class="app-modal-input" @change="onParentSelect">
                 <option :value="null">반려된 보고서 선택...</option>
                 <option v-for="r in rejectedReports" :key="r.id" :value="r.id">
                   {{ r.file_name }} (v{{ r.version
@@ -280,8 +280,9 @@ function toggleAgendaDropdown() {
             </div>
 
             <div class="app-modal-field">
-              <label>파일 첨부 <span class="req">*</span></label>
+              <label for="upload-file">파일 첨부 <span class="req">*</span></label>
               <FileUploadArea
+                id="upload-file"
                 :file="uploadForm.file"
                 accept=".pdf"
                 hint="PDF"
@@ -294,8 +295,9 @@ function toggleAgendaDropdown() {
               />
             </div>
             <div class="app-modal-field">
-              <label>자료명 <span class="req">*</span></label>
+              <label for="upload-file-name">자료명 <span class="req">*</span></label>
               <input
+                id="upload-file-name"
                 v-model="uploadForm.label"
                 class="app-modal-input"
                 placeholder="파일을 첨부하세요"
@@ -303,9 +305,10 @@ function toggleAgendaDropdown() {
               />
             </div>
             <div class="app-modal-field">
-              <label>관련 회의체 <span class="req">*</span></label>
+              <label for="upload-meeting">관련 회의체 <span class="req">*</span></label>
               <!-- prettier-ignore -->
               <select
+                id="upload-meeting"
                 v-model="uploadForm.meetingId"
                 class="app-modal-input"
                 @change="prefilledCtx.meetingId = false; prefilledCtx.connectNodeId = false"
@@ -321,8 +324,9 @@ function toggleAgendaDropdown() {
               </select>
             </div>
             <div class="app-modal-field">
-              <label>업로드 부서 <span class="req">*</span></label>
+              <label for="upload-department">업로드 부서 <span class="req">*</span></label>
               <select
+                id="upload-department"
                 v-model="uploadForm.connectNodeId"
                 class="app-modal-input"
                 @change="prefilledCtx.connectNodeId = false"
@@ -694,6 +698,8 @@ function toggleAgendaDropdown() {
                   <div v-if="agendaDropdownOpen" class="agenda-dropdown">
                     <!-- 검색 -->
                     <input
+                      id="upload-agenda-search"
+                      name="upload-agenda-search"
                       v-model="agendaSearch"
                       class="agenda-search-input"
                       type="text"
@@ -718,6 +724,8 @@ function toggleAgendaDropdown() {
                           @click.stop
                         >
                           <input
+                            :id="'upload-agenda-' + t.id"
+                            :name="'upload-agenda-' + t.id"
                             type="checkbox"
                             :value="String(t.agenda_id ?? t.id)"
                             v-model="uploadForm.relatedAgendaIds"
@@ -744,9 +752,10 @@ function toggleAgendaDropdown() {
                         )"
                         :key="t.id"
                       >
-                        <label class="agenda-dropdown-item" @click.stop>
+                        <label :for="'upload-agenda-' + t.id" class="agenda-dropdown-item" @click.stop>
                           <input
                             type="checkbox"
+                            :id="'upload-agenda-' + t.id"
                             :value="String(t.agenda_id ?? t.id)"
                             v-model="uploadForm.relatedAgendaIds"
                           />

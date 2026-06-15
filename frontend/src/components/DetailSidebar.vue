@@ -60,7 +60,7 @@ const {
 
 function handleFinishExtract() {
   if (!isDetailAdmin.value) {
-    toast.error('간사만 승인 저장할 수 있습니다')
+    toast.error('간사만 승인 저장할 수 있습니다', { duration: 1500 })
     return
   }
   finishExtract()
@@ -827,6 +827,8 @@ function parseAiEvidence(val) {
                     class="ctx-file-item"
                   >
                     <input
+                      :id="`fl-r-${r.id}`"
+                      :name="`fl-r-${r.id}`"
                       type="checkbox"
                       :value="r.id"
                       v-model="selectedFiles"
@@ -857,6 +859,8 @@ function parseAiEvidence(val) {
                     class="ctx-file-item"
                   >
                     <input
+                      :id="`fl-f-${f.id}`"
+                      :name="`fl-f-${f.id}`"
                       type="checkbox"
                       :value="f.id"
                       v-model="selectedFiles"
@@ -884,6 +888,8 @@ function parseAiEvidence(val) {
                   >
                     <input
                       v-if="uf.id"
+                      :id="`ufl-${i}`"
+                      :name="`ufl-${i}`"
                       type="checkbox"
                       :value="uf.id"
                       v-model="selectedFiles"

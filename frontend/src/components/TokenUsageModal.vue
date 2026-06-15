@@ -99,8 +99,9 @@ const sec = computed(() => data.value?.sections || null)
         <!-- 기간 선택 -->
         <div class="tum-date-bar">
           <div class="app-modal-field" style="flex: 1; min-width: 0">
-            <label>시작일</label>
+            <label for="token-usage-start-date">시작일</label>
             <DateInput
+              id="token-usage-start-date"
               v-model="startDate"
               class="app-modal-input"
               :max="endDate"
@@ -109,8 +110,9 @@ const sec = computed(() => data.value?.sections || null)
           </div>
           <span class="tum-sep">—</span>
           <div class="app-modal-field" style="flex: 1; min-width: 0">
-            <label>종료일</label>
+            <label for="token-usage-end-date">종료일</label>
             <DateInput
+              id="token-usage-end-date"
               v-model="endDate"
               class="app-modal-input"
               :min="startDate"

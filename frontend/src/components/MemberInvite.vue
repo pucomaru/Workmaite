@@ -86,6 +86,8 @@ function updateRole(idx, role) {
         <path d="M21 21l-4.35-4.35" />
       </svg>
       <input
+        id="mi-search"
+        name="mi-search"
         :value="searchQ"
         @input="onSearch($event.target.value)"
         class="mi-search-input"
@@ -120,7 +122,7 @@ function updateRole(idx, role) {
           </span>
           <span class="mi-email">{{ mb.position || mb.department || mb.email }}</span>
         </div>
-        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" class="app-select">
+        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" name="role" class="app-select">
           <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
         </select>
         <button

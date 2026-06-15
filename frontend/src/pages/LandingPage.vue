@@ -178,6 +178,7 @@ function animate() {
 
 let ro = null
 onMounted(() => {
+  if (themeStore.nightMode) themeStore.toggle()
   const canvas = canvasRef.value
   ctx = canvas.getContext('2d')
   resize(canvas)
@@ -196,17 +197,17 @@ const pains = [
   {
     icon: 'bi bi-pencil-square',
     title: '회의록 정리에 또 한 시간',
-    desc: '회의가 끝나면 녹취를 다시 듣고 받아 적는 일이 시작됩니다. 회의록 작성이 또 하나의 업무가 됩니다.',
+    desc: '회의가 끝나면 녹취를 \n다시 듣고 받아 적는 일이 시작됩니다. \n회의록 작성이 또 하나의 업무가 됩니다.',
   },
   {
     icon: 'bi bi-chat-left-dots',
     title: '"그거 누가 하기로 했죠?"',
-    desc: '회의에서 정한 일들이 메신저와 메일에 흩어집니다. 다음 회의에서 같은 얘기를 반복합니다.',
+    desc: '회의에서 정한 일들이 메신저와 메일에 흩어집니다.\n다음 회의에서 같은 얘기를 반복합니다.',
   },
   {
     icon: 'bi bi-folder2-open',
-    title: '기록은 있는데 찾을 수 없음',
-    desc: '지난 보고서, 그때 그 회의… 분명 기억 속에 있지만 정리가 안돼요.',
+    title: '"회의에서 무슨 말 했더라?"',
+    desc: '지난 보고서, 그때 그 회의…\n분명 기억 속에 있지만 정리가 안돼요.',
   },
 ]
 
@@ -215,25 +216,25 @@ const steps = [
   {
     num: '01',
     phase: '회의 전',
-    title: 'AI 기반 회의 아젠다 추출',
+    title: '회의 아젠다 추출',
     desc: '회의체별로 아젠다를 관리하고, AI가 지난 회의록과 보고서에서 다음 안건을 추출해 제안해드릴게요.',
   },
   {
     num: '02',
     phase: '회의 중',
-    title: 'AI 기반 회의 지원',
-    desc: 'AI로 다국어 음성을 인식하고, 챗봇을 통해 실시간 도움을 드려요. 또, 회의가 끝나면 AI가 회의록 초안을 만들어드릴게요.',
+    title: '회의 지원',
+    desc: 'AI로 다국어 음성을 인식하고, 챗봇을 통해 실시간 도움을 드려요. \n또, 회의가 끝나면 AI가 회의록 초안을 만들어드릴게요.',
   },
   {
     num: '03',
     phase: '회의 후',
-    title: 'AI 기반 회의록 작성 후속 아젠다 추출',
-    desc: '번거로운 회의록 작성은 AI에게 맡기세요. 다음 회의 아젠다 걱정도 하지 마세요.',
+    title: '회의록 작성 후속 아젠다 추출',
+    desc: '회의록 작성은 AI에게 맡기세요. \n다음 회의 아젠다 걱정도 하지 마세요.',
   },
   {
     num: '04',
     phase: '그 이후',
-    title: '회의체 전반을 AI가 이해하고 있어요',
+    title: '회의체 전반을 이해하고 있어요',
     desc: 'AI가 회의체 전반의 정보를 이해하고 있으니 어떤 것이든 물어보세요.',
   },
 ]
@@ -243,12 +244,12 @@ const visions = [
   {
     icon: 'bi bi-cpu',
     title: 'AI가 프로세스와 의사결정의 중심에',
-    desc: '아젠다 발굴·배정부터 회의록 작성, 보고서 검토까지 — AI가 회의 프로세스 전반에 개입해 더 빠르고 근거 있는 의사결정을 돕습니다.',
+    desc: '아젠다 배정부터 회의록 작성, 보고서 검토까지! \nAI가 회의 프로세스 전반에 개입해 더 빠르고 근거 있는 의사결정을 돕습니다.',
   },
   {
     icon: 'bi bi-arrow-repeat',
     title: 'AI가 일하는 방식을 재설계합니다',
-    desc: '받아 적고, 정리하고, 챙기던 시간이 사라집니다. 사람은 논의와 결정에 집중하고, 반복 업무는 AI의 일이 됩니다.',
+    desc: '받아 적고, 정리하고, 준비하는 시간이 사라집니다. 사람은 논의와 결정에 집중하고, 반복 업무는 AI의 일이 됩니다.',
   },
   {
     icon: 'bi bi-database',
@@ -300,14 +301,6 @@ const trustItems = [
       <div class="container nav-inner">
         <img src="../assets/workmaite-logo-white.png" class="nav-logo-img" alt="Workma!te" />
         <div class="nav-actions">
-          <button
-            class="btn-nav-theme"
-            @click="themeStore.toggle()"
-            :title="themeStore.nightMode ? '주간 모드로 전환' : '야간 모드로 전환'"
-            aria-label="주야간 모드 전환"
-          >
-            <i :class="themeStore.nightMode ? 'bi bi-sun' : 'bi bi-moon-stars'"></i>
-          </button>
           <button class="btn-nav-ghost" @click="openLogin">로그인</button>
           <button class="btn-cta sm" @click="openRegister">회원가입</button>
         </div>
@@ -324,7 +317,7 @@ const trustItems = [
 
         <!-- 왜 봐야 하는지 (결과 중심 헤드라인) -->
         <h1 class="hero-title">
-          회의만 하세요.
+          회의만 하세요
           <span class="accent">나머지는 워크메이트가 해드릴게요</span>
         </h1>
 
@@ -357,7 +350,7 @@ const trustItems = [
     <section class="section pains-section">
       <div class="container">
         <p class="section-eyebrow">아직도 회의 후 정리에 시간을 쓰고 있나요?</p>
-        <h2 class="section-title">회의가 끝나면, 업무도 끝나야죠.</h2>
+        <h2 class="section-title">회의가 끝나면, 업무도 끝나야죠</h2>
         <div class="pains-grid">
           <div v-for="p in pains" :key="p.title" class="pain-card">
             <i :class="p.icon" class="pain-icon"></i>
@@ -371,7 +364,7 @@ const trustItems = [
     <!-- ── 관점: AI 중심 · 방식 재설계 · 데이터 가치 ── -->
     <section class="section vision-section">
       <div class="container">
-        <p class="section-eyebrow">AI Native 회의체 플랫폼 워크메이트</p>
+        <p class="section-eyebrow">회의체 플랫폼 워크메이트</p>
         <h2 class="section-title">AI를 중심에 두면 일하는 방식이 달라집니다</h2>
         <div class="vision-grid">
           <div v-for="v in visions" :key="v.title" class="vision-card">
@@ -387,7 +380,7 @@ const trustItems = [
     <section class="section steps-section">
       <div class="container">
         <p class="section-eyebrow light">일하는 방식의 재설계</p>
-        <h2 class="section-title light">회의의 전·중·후를 통째로 맡습니다</h2>
+        <h2 class="section-title light">회의체의 전과정을 통째로 맡습니다</h2>
         <div class="steps-grid">
           <div v-for="s in steps" :key="s.num" class="step-card">
             <div class="step-head">
@@ -401,31 +394,14 @@ const trustItems = [
       </div>
     </section>
 
-    <!-- ── 3. 근거: 어떻게 신뢰할 수 있는지 ── -->
-    <section class="section trust-section">
-      <div class="container">
-        <p class="section-eyebrow">안심하고 맡기세요</p>
-        <h2 class="section-title">AI에게 맡기고 관리·감독만 하세요</h2>
-        <div class="trust-grid">
-          <div v-for="t in trustPoints" :key="t.title" class="trust-card">
-            <i :class="t.icon" class="trust-icon"></i>
-            <h3 class="trust-title">{{ t.title }}</h3>
-            <p class="trust-desc">{{ t.desc }}</p>
-          </div>
-        </div>
-        <!-- 처리 흐름: 녹음 → 초안 → 승인 → 아카이브 -->
-        <div class="flow-strip">
-          <template v-for="(f, i) in flow" :key="f.title">
-            <div class="flow-item">
-              <i :class="f.icon"></i>
-              <div>
-                <b>{{ f.title }}</b
-                ><span>{{ f.sub }}</span>
-              </div>
-            </div>
-            <i v-if="i < flow.length - 1" class="bi bi-arrow-right flow-arrow"></i>
-          </template>
-        </div>
+    <!-- ── CTA ── -->
+    <section class="section cta-section">
+      <div class="container text-center">
+        <h2 class="cta-title">이제는 회의만 하세요</h2>
+        <p class="cta-sub">회의 내용을 준비하고, 받아 적고, 정리하는 일은 워크메이트에서 하세요</p>
+        <button class="btn-cta lg" @click="openRegister">
+          시작하기 <i class="bi bi-arrow-right ms-1"></i>
+        </button>
       </div>
     </section>
 
@@ -735,6 +711,7 @@ const trustItems = [
   color: var(--text-muted);
   line-height: 1.7;
   margin: 0;
+  white-space: pre-line;
 }
 
 /* ── 관점 (AI 중심 · 방식 재설계 · 데이터 가치) ── */
@@ -770,6 +747,7 @@ const trustItems = [
   color: var(--text-muted);
   line-height: 1.7;
   margin: 0;
+  white-space: pre-line;
 }
 
 /* ── 2. 해결 방법 ── */
@@ -825,6 +803,7 @@ const trustItems = [
   color: rgba(255, 255, 255, 0.7);
   line-height: 1.7;
   margin: 0;
+  white-space: pre-line;
 }
 
 /* ── 3. 신뢰 (다른 섹션과 동일한 카드 그리드 + 하단 플로우 스트립) ── */

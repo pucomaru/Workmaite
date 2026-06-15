@@ -205,7 +205,7 @@ export function useGraphBuilder({
           data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
         })
-        // 회의(session)는 회의체(meetings)에 직접 연결하지 않는다(요청) — 회의록/아젠다를 통해 연결됨
+        edges.push({ from: sIdx, to: mgIdx, rel: '소속' })
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)
@@ -251,7 +251,7 @@ export function useGraphBuilder({
       const visibleReports = (g.reports || []).filter(rp => rp.human_status !== 'rejected')
       visibleReports.forEach((rp, ri) => {
         const agendaIds = (rp.related_agenda_ids || []).map(String).filter(Boolean)
-        let primaryFromIdx = allAgendaIdxList.length > 0 ? allAgendaIdxList[0] : mgIdx
+        let primaryFromIdx = mgIdx
         for (const aid of agendaIds) {
           if (agendaIdxById.has(aid)) {
             primaryFromIdx = agendaIdxById.get(aid)

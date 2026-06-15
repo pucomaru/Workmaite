@@ -91,7 +91,7 @@ watch(relAddActive, v => {
       </div>
       <div class="rel-add-form">
         <div class="rel-add-field">
-          <label class="rel-add-label">도착 노드</label>
+          <label for="rel-add-to-node" class="rel-add-label">도착 노드</label>
           <div class="rel-node-search-wrap">
             <div v-if="toNodeData" class="rel-node-selected" @click="clearToNode">
               <span class="rel-node-sel-label">{{ toNodeData.label }}</span>
@@ -103,6 +103,8 @@ watch(relAddActive, v => {
             <input
               v-else
               v-model="toSearch"
+              id="rel-add-to-node"
+              name="rel-add-to-node"
               class="rel-search-input"
               placeholder="노드 이름 검색..."
               @focus="showToList = true"
