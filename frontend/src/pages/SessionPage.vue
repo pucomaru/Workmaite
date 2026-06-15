@@ -47,6 +47,9 @@ const selectedMeetingId = ref(null)
 const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
+const sessionStatusFilter = ref('all') // 'all' | 'scheduled' | 'ongoing' | 'ended'
+const hideEndedSessions = ref(false)
+const showFilterDrop = ref(false)
 const sidebarCollapsed = ref(false)
 const sidebarW = ref(330)
 let sidebarResizing = false,
@@ -1553,6 +1556,26 @@ async function downloadChatFile(filePath) {
             <button v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch = ''">
               &times;
             </button>
+            <div class="sp-filter-icon-btn-wrap">
+              <button
+                class="sp-filter-icon-btn"
+                :class="{ active: sessionStatusFilter !== 'all' }"
+                @click="showFilterDrop = !showFilterDrop"
+              >
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path d="M4 6h16M7 12h10M10 18h4"/>
+                </svg>
+              </button>
+              <div v-if="showFilterDrop" class="sp-filter-drop">
+                <button
+                  v-for="tab in [{ key: 'all', label: '전체' }, { key: 'scheduled', label: '예정' }, { key: 'ongoing', label: '진행중' }, { key: 'ended', label: '종료' }]"
+                  :key="tab.key"
+                  class="sp-filter-drop-item"
+                  :class="{ active: sessionStatusFilter === tab.key }"
+                  @click="sessionStatusFilter = tab.key; showFilterDrop = false"
+                >{{ tab.label }}</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="sp-sidebar-body">
@@ -1589,14 +1612,14 @@ async function downloadChatFile(filePath) {
                 불러오는 중...
               </div>
               <div
-                v-else-if="!mtg.sessions.filter(s => s.status !== 'archived').length && !mtg.sessions.filter(s => s.status === 'archived').length"
+                v-else-if="!mtg.sessions.filter(s => s.status !== 'archived' && (sessionStatusFilter === 'all' || s.status === sessionStatusFilter)).length && !mtg.sessions.filter(s => s.status === 'archived' && (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')).length"
                 class="sp-session-item"
                 style="justify-content: center; color: var(--dark-muted); font-size: 11px"
               >
                 등록된 회의가 없습니다
               </div>
               <div
-                v-for="s in (mtg.sessions || []).filter(s => s.status !== 'archived')"
+                v-for="s in (mtg.sessions || []).filter(s => s.status !== 'archived' && (sessionStatusFilter === 'all' || s.status === sessionStatusFilter))"
                 :key="s.id"
                 class="sp-session-item"
                 :class="{ active: activeSession?.id === s.id }"
@@ -1629,7 +1652,7 @@ async function downloadChatFile(filePath) {
                 </button>
               </div>
               <!-- archived 세션 구분선 + 목록 -->
-              <template v-if="mtg.sessions.filter(s => s.status === 'archived').length">
+              <template v-if="mtg.sessions.filter(s => s.status === 'archived').length && (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')">
                 <div style="margin: 4px 8px; border-top: 1px solid var(--border-color); opacity: 0.4"></div>
                 <div
                   v-for="s in mtg.sessions.filter(s => s.status === 'archived')"
@@ -3758,6 +3781,46 @@ html.night-mode .sp-ms-input {
   align-items: center;
   margin-top: 10px;
 }
+.sp-filter-icon-btn-wrap { position: relative; margin-left: 4px; }
+.sp-filter-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dark-muted);
+  flex-shrink: 0;
+}
+.sp-filter-icon-btn.active { border-color: var(--accent); color: var(--accent); }
+.sp-filter-drop {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 100;
+  min-width: 90px;
+  overflow: hidden;
+}
+.sp-filter-drop-item {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  text-align: left;
+  font-size: 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+}
+.sp-filter-drop-item:hover { background: var(--bg-hover, #f5f5f5); }
+.sp-filter-drop-item.active { color: var(--accent); font-weight: 600; }
 .sp-search-icon {
   position: absolute;
   left: 9px;
