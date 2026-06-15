@@ -825,6 +825,8 @@ function parseAiEvidence(val) {
                     class="ctx-file-item"
                   >
                     <input
+                      :id="`fl-r-${r.id}`"
+                      :name="`fl-r-${r.id}`"
                       type="checkbox"
                       :value="r.id"
                       v-model="selectedFiles"
@@ -855,6 +857,8 @@ function parseAiEvidence(val) {
                     class="ctx-file-item"
                   >
                     <input
+                      :id="`fl-f-${f.id}`"
+                      :name="`fl-f-${f.id}`"
                       type="checkbox"
                       :value="f.id"
                       v-model="selectedFiles"
@@ -882,6 +886,8 @@ function parseAiEvidence(val) {
                   >
                     <input
                       v-if="uf.id"
+                      :id="`ufl-${i}`"
+                      :name="`ufl-${i}`"
                       type="checkbox"
                       :value="uf.id"
                       v-model="selectedFiles"

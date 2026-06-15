@@ -6,6 +6,8 @@
           <p class="confirm-msg">{{ confirmState.message }}</p>
           <div v-if="confirmState.mode === 'prompt'" class="app-modal-field">
             <input
+              type="text"
+              name="prompt"
               ref="inputEl"
               v-model="inputValue"
               class="app-modal-input"

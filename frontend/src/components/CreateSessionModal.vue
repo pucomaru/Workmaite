@@ -178,8 +178,10 @@ async function doCreate() {
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label>회의체 <span class="req">*</span></label>
+            <label for="create-meeting">회의체 <span class="req">*</span></label>
             <select
+              id="create-meeting"
+              name="meeting_id"
               v-model="form.meeting_id"
               class="app-modal-input"
               @change="errors.meeting_id = null"
@@ -192,8 +194,10 @@ async function doCreate() {
             <p v-if="errors.meeting_id" class="field-error">{{ errors.meeting_id }}</p>
           </div>
           <div class="app-modal-field">
-            <label>회의명 <span class="req">*</span></label>
+            <label for="session-create-title">회의명 <span class="req">*</span></label>
             <input
+              id="session-create-title"
+              name="title"
               v-model="form.title"
               class="app-modal-input"
               placeholder="예: 2026 전략 수립 1차"
@@ -202,8 +206,10 @@ async function doCreate() {
             <p v-if="errors.title" class="field-error">{{ errors.title }}</p>
           </div>
           <div class="app-modal-field">
-            <label>장소 <span class="req">*</span></label>
+            <label for="create-location">장소 <span class="req">*</span></label>
             <input
+              id="create-location"
+              name="location"
               v-model="form.location"
               class="app-modal-input"
               placeholder="예: SK U Tower 8층"
@@ -212,10 +218,12 @@ async function doCreate() {
             <p v-if="errors.location" class="field-error">{{ errors.location }}</p>
           </div>
           <div class="app-modal-field">
-            <label>회의 날짜 <span class="req">*</span></label>
+            <label for="create-date">회의 날짜 <span class="req">*</span></label>
             <div style="display: flex; gap: 8px; align-items: center">
               <!-- prettier-ignore -->
               <input
+                id="create-date"
+                name="date"
                 type="date"
                 v-model="form.dateOnly"
                 class="app-modal-input"
@@ -289,8 +297,10 @@ async function doCreate() {
             <p v-else-if="showPastDateAlert" class="field-error">현재 시간 이후로 설정해주세요.</p>
           </div>
           <div class="app-modal-field">
-            <label>회의 맥락</label>
+            <label for="create-context">회의 맥락</label>
             <textarea
+              id="create-context"
+              name="context"
               v-model="form.context"
               class="app-modal-input context-modal-textarea"
               rows="4"
@@ -298,10 +308,12 @@ async function doCreate() {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <label>관련 아젠다</label>
+            <span class="app-modal-label">관련 아젠다</span>
             <div style="position: relative">
               <div
                 class="app-modal-input"
+                role="button"
+                tabindex="0"
                 :style="{ cursor: agendas.length ? 'pointer' : 'default' }"
                 style="
                   display: flex;

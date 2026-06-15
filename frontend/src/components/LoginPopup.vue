@@ -48,14 +48,17 @@ async function submit() {
     <form @submit.prevent="submit">
       <!-- Email -->
       <div class="mb-3">
-        <label class="form-label">이메일</label>
+        <label for="login-email" class="form-label">이메일</label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-envelope text-muted"></i>
           </span>
           <input
+            id="login-email"
+            name="login-email"
             v-model="form.email"
             type="email"
+            autocomplete="email"
             class="form-control border-start-0"
             placeholder="name@company.com"
             required
@@ -65,14 +68,17 @@ async function submit() {
 
       <!-- Password -->
       <div class="mb-3">
-        <label class="form-label">비밀번호</label>
+        <label for="login-password" class="form-label">비밀번호</label>
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock text-muted"></i>
           </span>
           <input
+            id="login-password"
+            name="login-password"
             v-model="form.password"
             :type="showPw ? 'text' : 'password'"
+            autocomplete="current-password"
             class="form-control border-start-0 border-end-0"
             placeholder="비밀번호를 입력하세요"
             required
