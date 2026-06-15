@@ -956,9 +956,7 @@ async function saveApprovedNextAgendas() {
     // 에디터를 갱신해 사용자가 즉시 확인하고, 이후 '아카이브 저장' 시 덮어쓰이지 않게 한다.
     if (generatedMinutes.value && activeSession.value) {
       try {
-        const { data: mn } = await apiAI.get(
-          `/api/ai/sessions/${activeSession.value.id}/minutes`,
-        )
+        const { data: mn } = await apiAI.get(`/api/ai/sessions/${activeSession.value.id}/minutes`)
         const refreshed = mn?.content_original || mn?.content_summary
         if (refreshed) {
           generatedMinutes.value = { ...generatedMinutes.value, content_summary: refreshed }

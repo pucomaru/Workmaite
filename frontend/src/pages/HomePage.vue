@@ -495,7 +495,9 @@ const {
                       'has-events': cell && eventsOn(cell).length > 0,
                     }"
                   >
-                    <span v-if="cell" class="day-num" @click="clickWeek(cell)">{{ cell.getDate() }}</span>
+                    <span v-if="cell" class="day-num" @click="clickWeek(cell)">{{
+                      cell.getDate()
+                    }}</span>
                     <div v-if="cell" class="month-evts">
                       <div
                         v-for="e in eventsOn(cell).slice(0, 2)"
@@ -564,7 +566,9 @@ const {
                       </span>
                       <div class="day-evt-title">{{ e.title }}</div>
                       <div v-if="e.meeting_title" class="day-evt-meta">{{ e.meeting_title }}</div>
-                      <div v-if="e.scheduledAt" class="day-evt-meta">{{ fmtScheduledAt(e.scheduledAt) }}</div>
+                      <div v-if="e.scheduledAt" class="day-evt-meta">
+                        {{ fmtScheduledAt(e.scheduledAt) }}
+                      </div>
                     </div>
                   </div>
                 </div>

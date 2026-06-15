@@ -295,6 +295,13 @@ async def get_archive(
         if not mg_id or mg_id not in meetings_map or not ag_id:
             continue
         if ag_id not in agenda_map:
+            raw_created_at = row.get("created_at")
+            if (
+                raw_created_at
+                and not raw_created_at.endswith("Z")
+                and "+" not in raw_created_at
+            ):
+                raw_created_at = raw_created_at + "Z"
             agenda_map[ag_id] = {
                 "id": ag_id,
                 "meetingId": mg_id,
@@ -304,7 +311,7 @@ async def get_archive(
                 "priority": row.get("priority", "low"),
                 "status": row.get("status", "pending"),
                 "due_date": row.get("due_date"),
-                "created_at": row.get("created_at"),
+                "created_at": raw_created_at,
                 "ai_evidence": row.get("ai_evidence"),
                 "assignee_names": [],  # 담당자 여러 명 지원
                 "assignee_dept": row.get("assignee_dept", ""),

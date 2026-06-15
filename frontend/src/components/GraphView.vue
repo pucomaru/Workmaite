@@ -303,14 +303,14 @@ function buildSimulation(nodes, edges) {
       'link',
       forceLink(simEdges)
         .id(d => d._idx)
-        .distance(15)   // 연결된 노드 간 목표 거리 ↑ = 더 퍼짐
+        .distance(15) // 연결된 노드 간 목표 거리 ↑ = 더 퍼짐
         .strength(0.125), // 링크가 거리를 당기는 강도
     )
-    .force('charge', forceManyBody().strength(-160))   // 노드 간 반발력 (음수↑ = 더 멀어짐)
-    .force('center', forceCenter(w / 2, h / 2).strength(0.16))  // 중앙으로 모으는 힘
+    .force('charge', forceManyBody().strength(-160)) // 노드 간 반발력 (음수↑ = 더 멀어짐)
+    .force('center', forceCenter(w / 2, h / 2).strength(0.16)) // 중앙으로 모으는 힘
     .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 7).strength(0.85)) // 충돌 반경(겹침 방지 여백 +14)
     .alphaDecay(0.025) // 작을수록 천천히 안정(레이아웃 더 풀림)
-    .alpha(startAlpha)  // 초기 에너지 (최초 1.0 / 노드추가 0.3 / 갱신 0)
+    .alpha(startAlpha) // 초기 에너지 (최초 1.0 / 노드추가 0.3 / 갱신 0)
     .on('tick', () => {
       _simDirty = true
     })
@@ -330,7 +330,7 @@ function backlinkBonus(idx) {
 }
 
 // 노드 인덱스별 최종 반경 ("나" 노드는 고정 크기)
-function nodeRadiusForIdx(idx, type, id) { 
+function nodeRadiusForIdx(idx, type, id) {
   if (props.selfNodeId != null && id === props.selfNodeId) return SELF_RADIUS
   return getRadius(type) + backlinkBonus(idx)
 }

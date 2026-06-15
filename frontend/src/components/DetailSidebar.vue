@@ -129,13 +129,21 @@ const doneDisplayItems = computed(() =>
 // ── 최근 로그 더보기 / 필터 ──────────────────────────────────────
 const logExpanded = ref(false)
 const logTypeFilter = ref('')
+const expandedLogIndexes = ref(new Set())
 watch(
   () => detailMeeting?.value?.id,
   () => {
     logExpanded.value = false
     logTypeFilter.value = ''
+    expandedLogIndexes.value = new Set()
   },
 )
+function toggleLogItem(index) {
+  const next = new Set(expandedLogIndexes.value)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  expandedLogIndexes.value = next
+}
 const logAllItems = computed(() => groupHistoryMap.value.get(detailMeeting.value?.id) || [])
 const logFilteredItems = computed(() =>
   logTypeFilter.value
@@ -259,11 +267,7 @@ function parseAiEvidence(val) {
             </div>
           </div>
           <div class="detail-header-actions">
-            <button
-              v-if="isDetailAdmin"
-              class="detail-icon-btn"
-              @click="openGroupSetting"
-            >
+            <button v-if="isDetailAdmin" class="detail-icon-btn" @click="openGroupSetting">
               <svg
                 width="13"
                 height="13"
@@ -502,7 +506,30 @@ function parseAiEvidence(val) {
                       :style="{ background: NODE_TYPE_COLORS[item.type] || '#555' }"
                     ></span>
                     <div class="detail-log-content">
-                      <div class="detail-log-desc">{{ item.desc }}</div>
+                      <div
+                        class="detail-log-desc"
+                        :class="{ 'log-expandable': item.agendas?.length }"
+                        @click="item.agendas?.length && toggleLogItem(i)"
+                      >
+                        <span class="detail-log-desc-text">{{ item.desc }}</span>
+                        <svg
+                          v-if="item.agendas?.length"
+                          class="log-expand-chevron"
+                          :class="{ open: expandedLogIndexes.has(i) }"
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                        >
+                          <path
+                            d="M2 3.5L5 6.5L8 3.5"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </div>
                       <div class="detail-log-meta">
                         <template v-if="item.manager && item.date"
                           >{{ item.manager }} · {{ formatDate(item.date) }}</template
@@ -510,6 +537,14 @@ function parseAiEvidence(val) {
                         <template v-else-if="item.date">{{ formatDate(item.date) }}</template>
                         <template v-else-if="item.manager">{{ item.manager }}</template>
                       </div>
+                      <ul
+                        v-if="item.agendas?.length && expandedLogIndexes.has(i)"
+                        class="log-agenda-list"
+                      >
+                        <li v-for="(ag, ai) in item.agendas" :key="ai" class="log-agenda-item">
+                          {{ ag }}
+                        </li>
+                      </ul>
                     </div>
                   </div>
                   <button

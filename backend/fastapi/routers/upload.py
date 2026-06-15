@@ -601,7 +601,9 @@ async def upload_minutes(
         raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
 
     # 저장되는 회의록 제목 = 본문 첫 문장. 없으면 세션 제목으로 폴백.
-    doc_title = _first_sentence_title(content) or (session.title or f"회의_{session_id}")
+    doc_title = _first_sentence_title(content) or (
+        session.title or f"회의_{session_id}"
+    )
     safe_title = doc_title.replace("/", "_").replace(" ", "_")[:60]
     clean_name = f"{safe_title}.pdf"
     key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{clean_name}"

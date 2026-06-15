@@ -1,14 +1,14 @@
 <script setup>
 import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    provide,
-    reactive,
-    ref,
-    shallowRef,
-    watch,
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  provide,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
 } from 'vue'
 import api, { apiAI, streamPostForm } from '../api'
 import AgendaEditModal from '../components/AgendaEditModal.vue'
@@ -2333,6 +2333,7 @@ const groupHistoryMap = computed(() => {
           desc: count === 1 ? '아젠다 1개 추가' : `아젠다 ${count}개 등록`,
           manager: managerName,
           date: first.created_at || first.due_date || null,
+          agendas: batchTasks.map(t => t.content || t.title || '(제목 없음)'),
         })
       })
     }
@@ -2346,6 +2347,7 @@ const groupHistoryMap = computed(() => {
         desc: '아젠다 1개 추가',
         manager: managerName,
         date: l.agendaCreatedAt,
+        agendas: [l.title || '(제목 없음)'],
       })
     })
     const deletedLogs = deletedAgendaLogs.value
@@ -2372,6 +2374,7 @@ const groupHistoryMap = computed(() => {
           desc: count === 1 ? '아젠다 1개 삭제' : `아젠다 ${count}개 삭제`,
           manager: managerName,
           date: batch[0].deletedAt,
+          agendas: batch.map(l => l.title || '(제목 없음)'),
         })
       })
     }
@@ -3177,7 +3180,11 @@ async function openMemberEditModal() {
           department: found.user?.department || memberEditModal.value.department,
           position: found.user?.position || memberEditModal.value.position,
           meetings: [
-            { id: numId, member_id: found.id, title: detailMeeting.value?.title || node.label || '' },
+            {
+              id: numId,
+              member_id: found.id,
+              title: detailMeeting.value?.title || node.label || '',
+            },
           ],
         }
       }

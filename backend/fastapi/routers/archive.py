@@ -428,7 +428,11 @@ async def analyze_archive_file(
             )
             extracted_clean = (extracted or "").strip()
             if len(extracted_clean) > 8000:
-                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+                file_content = (
+                    extracted_clean[:4000]
+                    + "\n...(중략)...\n"
+                    + extracted_clean[-4000:]
+                )
             else:
                 file_content = extracted_clean
             if not file_content:
@@ -499,7 +503,11 @@ async def analyze_archive_file_stream_ep(
             )
             extracted_clean = (extracted or "").strip()
             if len(extracted_clean) > 8000:
-                file_content = extracted_clean[:4000] + "\n...(중략)...\n" + extracted_clean[-4000:]
+                file_content = (
+                    extracted_clean[:4000]
+                    + "\n...(중략)...\n"
+                    + extracted_clean[-4000:]
+                )
             else:
                 file_content = extracted_clean
             if not file_content:
@@ -604,9 +612,7 @@ async def _update_next_agenda_section(
     import re as _re
 
     mn = (
-        db.query(models.Minutes)
-        .filter(models.Minutes.session_id == session_id)
-        .first()
+        db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
     if not mn or not mn.content_original:
         return
@@ -617,10 +623,9 @@ async def _update_next_agenda_section(
     is_html = bool(_re.search(r"<(p|h[1-6]|ul|ol|div|br)\b", content, _re.IGNORECASE))
 
     if is_html:
+
         def _esc(s: str) -> str:
-            return (
-                s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         items = "".join(f"<li>{_esc(ln)}</li>" for ln in lines)
         section = (
@@ -1140,6 +1145,7 @@ async def delete_agenda_item(
     try:
         from sqlalchemy import text as _text
         from db.database import SessionLocal as _SL
+
         _adb = _SL()
         try:
             _adb.execute(
@@ -1150,9 +1156,13 @@ async def delete_agenda_item(
                 {
                     "actor": current_user.id,
                     "detail": json.dumps(
-                        {"log_type": "agenda_delete", "meeting_id": meeting_id_snap,
-                         "agenda_id": agenda_id, "title": title_snap,
-                         "agenda_created_at": created_at_snap}
+                        {
+                            "log_type": "agenda_delete",
+                            "meeting_id": meeting_id_snap,
+                            "agenda_id": agenda_id,
+                            "title": title_snap,
+                            "agenda_created_at": created_at_snap,
+                        }
                     ),
                 },
             )
@@ -1179,6 +1189,7 @@ async def get_agenda_delete_logs(
 ):
     require_meeting_member(db, current_user, meeting_id)
     from sqlalchemy import text as _text
+
     rows = db.execute(
         _text(
             "SELECT actor_id, detail, created_at FROM audit_logs "

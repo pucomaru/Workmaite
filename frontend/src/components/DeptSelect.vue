@@ -79,7 +79,9 @@ function onEnter() {
     <div v-if="filtered.length || canAddCustom" class="mi-search-results">
       <div v-for="d in filtered" :key="d" class="mi-search-item" @click="add(d)">
         <span class="dept-dot"></span>
-        <div class="mi-info"><span class="mi-name">{{ d }}</span></div>
+        <div class="mi-info">
+          <span class="mi-name">{{ d }}</span>
+        </div>
         <span class="mi-add-hint">+ 추가</span>
       </div>
       <div v-if="canAddCustom" class="mi-search-item" @click="add(searchQ)">
@@ -95,7 +97,9 @@ function onEnter() {
       <div v-if="!modelValue.length" class="mi-empty">참여 부서가 없습니다.</div>
       <div v-for="(d, idx) in modelValue" :key="d" class="mi-member-row">
         <span class="dept-dot"></span>
-        <div class="mi-info"><span class="mi-name">{{ d }}</span></div>
+        <div class="mi-info">
+          <span class="mi-name">{{ d }}</span>
+        </div>
         <button class="mi-remove" @click="remove(idx)" title="제거">
           <svg
             width="12"
