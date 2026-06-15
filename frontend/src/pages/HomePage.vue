@@ -36,6 +36,7 @@ function navigate(dir) {
   if (calView.value === 'week') d.setDate(d.getDate() + dir * 7)
   if (calView.value === 'month') d.setMonth(d.getMonth() + dir)
   cursor.value = d
+  fetchCalendar()
 }
 function goToday() {
   cursor.value = new Date()
@@ -160,36 +161,44 @@ function clickMiniDay(d) {
 // ── Data loading ─────────────────────────────────────────────
 const initialLoading = ref(true) // 초기 로딩 동안 빈 테이블 노출 방지
 
+async function fetchCalendar() {
+  const c = cursor.value
+  const y = c.getFullYear()
+  const m = String(c.getMonth() + 1).padStart(2, '0')
+  const dateStr = `${y}-${m}-01`
+  await api
+    .get('/api/v1/home/calendar', {
+      params: { view: 'month', date: dateStr },
+    })
+    .then(calRes => {
+      const sessions = (calRes.data?.sessions ?? []).map(s => ({
+        ...s,
+        id: s.sessionId,
+        type: 'session',
+        date: s.scheduledAt?.slice(0, 10),
+        meeting_title: s.meetingTitle,
+      }))
+      const agendas = (calRes.data?.agendas ?? []).map(a => ({
+        id: `agenda-${a.agendaId}`,
+        agendaId: a.agendaId,
+        type: 'agenda',
+        title: a.title,
+        date: a.dueDate?.slice(0, 10),
+        meeting_title: a.meetingTitle,
+        scheduledAt: a.dueDate,
+      }))
+      calendarEvents.value = [...sessions, ...agendas]
+    })
+    .catch(() => {})
+}
+
 onMounted(async () => {
   try {
     await meetingsStore.fetchMeetings()
 
     // 캘린더·담당자 메타·역할을 모두 병렬 실행
     await Promise.all([
-      api
-        .get('/api/v1/home/calendar', {
-          params: { view: 'month', date: new Date().toISOString().slice(0, 10) },
-        })
-        .then(calRes => {
-          const sessions = (calRes.data?.sessions ?? []).map(s => ({
-            ...s,
-            id: s.sessionId,
-            type: 'session',
-            date: s.scheduledAt?.slice(0, 10),
-            meeting_title: s.meetingTitle,
-          }))
-          const agendas = (calRes.data?.agendas ?? []).map(a => ({
-            id: `agenda-${a.agendaId}`,
-            agendaId: a.agendaId,
-            type: 'agenda',
-            title: a.title,
-            date: a.dueDate?.slice(0, 10),
-            meeting_title: a.meetingTitle,
-            scheduledAt: a.dueDate,
-          }))
-          calendarEvents.value = [...sessions, ...agendas]
-        })
-        .catch(() => {}),
+      fetchCalendar(),
 
       api
         .get('/api/v1/me/sessions')
@@ -560,7 +569,7 @@ const {
                         class="badge"
                         :class="e.type === 'session' ? 'badge-app-primary' : 'badge-app-warning'"
                       >
-                        {{ e.type === 'session' ? '회의' : 'To-do 마감' }}
+                        {{ e.type === 'session' ? '회의' : '아젠다 마감' }}
                       </span>
                       <div class="day-evt-title">{{ e.title }}</div>
                       <div v-if="e.meeting_title" class="day-evt-meta">{{ e.meeting_title }}</div>

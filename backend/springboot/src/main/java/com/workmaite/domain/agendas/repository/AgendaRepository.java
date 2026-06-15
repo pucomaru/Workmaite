@@ -11,4 +11,7 @@ public interface AgendaRepository extends JpaRepository<Agenda, Long> {
 
   List<Agenda> findByAssigneeIdAndDueDateBetween(
       Long assigneeId, LocalDateTime start, LocalDateTime end);
+
+  List<Agenda> findByMeetingIdInAndDueDateBetween(
+      List<Long> meetingIds, LocalDateTime start, LocalDateTime end);
 }
