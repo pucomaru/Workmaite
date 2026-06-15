@@ -7,7 +7,7 @@ from typing import AsyncGenerator, List, Optional, Annotated, cast
 from typing_extensions import TypedDict
 
 from llm.llm_factory import llm_factory
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import add_messages
@@ -90,8 +90,12 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    embeddings = OpenAIEmbeddings(api_key=os.environ["OPENAI_API_KEY"])  # type: ignore[arg-type]
-    return await embeddings.aembed_query(text[:2000])
+    # EMBED_MODEL(text-embedding-3-large)·EMBED_DIM(3072)·사용량 기록을 일원화한 공용
+    # 임베더 사용. 직접 OpenAIEmbeddings()는 모델 미지정 시 ada-002로 떨어져 EMBED_MODEL을
+    # 무시하고 벡터 차원(1536)도 인덱스(3072)와 어긋난다.
+    from graphdb.file_embedder import embed_query
+
+    return await embed_query(text[:2000])
 
 
 # ── Neo4j 저장 함수 ────────────────────────────────────────────────────────
@@ -581,6 +585,161 @@ from core.ai_config import (
 )
 
 
+class _AgendaFillItem(BaseModel):
+    agenda_id: int = Field(..., description="대상 안건 id")
+    department: Optional[List[str]] = Field(
+        None, description="채울 담당 부서명 목록 (추론 불가/불필요하면 null)"
+    )
+    due_date: Optional[str] = Field(
+        None, description="채울 마감일 YYYY-MM-DD (비어있고 맥락상 추론 가능할 때만, 아니면 null)"
+    )
+    priority: Optional[str] = Field(None, description="low|medium|high (보정 없으면 null)")
+    status: Optional[str] = Field(None, description="ongoing|done (변경 없으면 null)")
+    reason: str = Field("", description="변경 근거 한 문장")
+
+
+class _AgendaFillResult(BaseModel):
+    items: List[_AgendaFillItem] = Field(default_factory=list)
+
+
+async def fill_agenda_fields(meeting_ids: List[int]) -> dict:
+    """'채우기' — 접근 가능한 회의체의 안건에서 빈 필드(부서)·우선순위·완료 상태를 맥락에 맞게 보정한다.
+
+    reconcile_graph가 '관계를 재설정'하던 것과 달리, 사용자가 비워둔 노드 메타데이터를 채우고
+    우선순위·상태를 현실에 맞게 조정하는 데 집중한다. PG(Agenda)를 수정한 뒤 Neo4j에 동기화한다.
+    부서는 비어있을 때만 채워(사용자 입력 보존), 우선순위·상태는 근거 기반으로만 보정한다.
+    """
+    from db.database import SessionLocal
+    from db import models as _m
+    from graphdb import neo4j_sync
+    from routers.prompts import FIELD_FILL_SYSTEM, field_fill_human
+
+    actions: list[dict] = []
+    stats = {"department": 0, "due_date": 0, "priority": 0, "status": 0}
+    if not meeting_ids:
+        return {"actions": actions, "stats": stats}
+
+    changed_for_sync: list[dict] = []
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(_m.Agenda)
+            .filter(_m.Agenda.meeting_id.in_(list(meeting_ids)))
+            .filter(_m.Agenda.status.notin_(["done", "closed", "completed", "draft"]))
+            .order_by(_m.Agenda.created_at.desc())
+            .limit(60)
+            .all()
+        )
+        if not rows:
+            return {"actions": actions, "stats": stats}
+        mids = list({r.meeting_id for r in rows})
+        mtitle = {
+            m.id: m.title
+            for m in db.query(_m.Meeting).filter(_m.Meeting.id.in_(mids)).all()
+        }
+        payload = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "status": r.status,
+                "priority": r.priority,
+                "department": r.department,
+                "due_date": r.due_date.isoformat() if r.due_date else None,
+                "evidence": r.ai_evidence,
+                "meeting": mtitle.get(r.meeting_id, ""),
+            }
+            for r in rows
+        ]
+        try:
+            llm = llm_factory(
+                "knowledge", temperature=0.1, streaming=False
+            ).with_structured_output(_AgendaFillResult)
+            result = cast(
+                _AgendaFillResult,
+                await llm.ainvoke(
+                    [
+                        SystemMessage(content=FIELD_FILL_SYSTEM),
+                        HumanMessage(
+                            content=field_fill_human(
+                                payload, datetime.now().date().isoformat()
+                            )
+                        ),
+                    ]
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"[fill] LLM 보정 실패: {e}")
+            return {"actions": actions, "stats": stats}
+
+        by_id = {r.id: r for r in rows}
+        for item in result.items:
+            ag = by_id.get(item.agenda_id)
+            if not ag:
+                continue
+            changed: list[str] = []
+            # 부서: 비어있을 때만 채움(사용자 설정 보존)
+            if item.department and not ag.department:
+                ag.department = item.department
+                changed.append(f"부서 {', '.join(item.department)}")
+                stats["department"] += 1
+            # 마감일: 비어있을 때만 맥락 기반으로 채움
+            if item.due_date and not ag.due_date:
+                try:
+                    ag.due_date = datetime.fromisoformat(item.due_date.strip()[:19])
+                    changed.append(f"마감일 {item.due_date.strip()[:10]}")
+                    stats["due_date"] += 1
+                except Exception:
+                    pass
+            # 우선순위: 유효값이고 다를 때 보정
+            if item.priority in ("low", "medium", "high") and item.priority != ag.priority:
+                ag.priority = item.priority
+                changed.append(f"우선순위 {item.priority}")
+                stats["priority"] += 1
+            # 상태: ongoing/done만, 근거 기반(임의 완료는 프롬프트로 차단)
+            if item.status in ("ongoing", "done") and item.status != ag.status:
+                ag.status = item.status
+                changed.append(f"상태 {item.status}")
+                stats["status"] += 1
+            if changed:
+                actions.append(
+                    {
+                        "kind": "fill",
+                        "detail": f"[{ag.title}]",
+                        "changed": changed,
+                        "evidence": item.reason or "맥락에 맞게 보정",
+                        "highlight": ag.title,
+                    }
+                )
+                changed_for_sync.append(
+                    {
+                        "agenda_id": ag.id,
+                        "meeting_id": ag.meeting_id,
+                        "title": ag.title,
+                        "status": ag.status,
+                        "assignee_id": ag.assignee_id,
+                        "priority": ag.priority,
+                        "due_date": ag.due_date.isoformat() if ag.due_date else None,
+                        "session_id": ag.session_id,
+                        "department": json.dumps(ag.department, ensure_ascii=False)
+                        if ag.department
+                        else None,
+                        "ai_evidence": ag.ai_evidence,
+                    }
+                )
+        db.commit()
+    finally:
+        db.close()
+
+    # PG 커밋 후 Neo4j 동기화(변경분만) — draft가 아니므로 노드 upsert됨
+    for c in changed_for_sync:
+        try:
+            await neo4j_sync.sync_agenda(**c)
+        except Exception as e:
+            logger.warning(f"[fill] Neo4j 동기화 실패(agenda {c['agenda_id']}): {e}")
+
+    return {"actions": actions, "stats": stats}
+
+
 async def reconcile_graph(analysis: dict) -> dict:
     from graphdb.neo4j_client import run_cypher
 
@@ -763,8 +922,8 @@ async def reconcile_graph(analysis: dict) -> dict:
             pass
 
     # ② 문서 ↔ 안건 적합 → canonical 연결
-    # 스키마상 안건으로 들어오는(agenda<-) 문서 관계는 보고자료=`첨부`, 회의록=`도출`이다.
-    # (과거엔 `참조`로 연결했으나, `참조`는 문서↔문서·회사→문서 폴백 전용이므로 폐지.)
+    # 스키마상 안건으로 들어오는(agenda<-) 문서 관계는 보고자료·회의록 모두 `도출`이다.
+    # (과거엔 보고자료를 `발제`로 연결했으나 `도출`로 통일. `발제`는 문서→회의체 전용.)
     for link in sem.get("doc_links", []):
         d_id, ag_id = link.get("doc_id"), link.get("ag_id")
         if not d_id or not ag_id:
@@ -772,12 +931,8 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             await run_cypher(
                 "MATCH (d {id:$d}), (a:Agenda {id:$a}) WHERE d:Report OR d:Minutes "
-                "FOREACH (_ IN CASE WHEN d:Report THEN [1] ELSE [] END | "
-                "    MERGE (d)-[r:`첨부`]->(a) "
-                "    SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts) "
-                "FOREACH (_ IN CASE WHEN d:Minutes THEN [1] ELSE [] END | "
-                "    MERGE (d)-[r:`도출`]->(a) "
-                "    SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts)",
+                "MERGE (d)-[r:`도출`]->(a) "
+                "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
                 {
                     "d": d_id,
                     "a": ag_id,
@@ -790,7 +945,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 {
                     "kind": "doc_ref",
                     "detail": f"문서 [{link.get('doc_title', '?')}] → 안건 [{link.get('ag_title', '?')}]",
-                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — 보고자료는 '첨부', 회의록은 '도출' 관계로 연결했습니다.",
+                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — 보고자료·회의록 모두 '도출' 관계로 연결했습니다.",
                     "highlight": link.get("ag_title"),
                 }
             )
@@ -798,7 +953,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         except Exception:
             pass
 
-    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 `첨부`
+    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 `도출`
     for doc in struct.get("orphan_documents", []):
         if not doc.get("emb") or not doc.get("id"):
             continue
@@ -808,7 +963,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 1, d.embedding) "
                 "YIELD node, score "
                 "WITH d, node, score WHERE score >= $th "
-                "MERGE (d)-[r:`첨부`]->(node) "
+                "MERGE (d)-[r:`도출`]->(node) "
                 "SET r.auto_linked = true, r.score = score, r.discovered_at = $ts "
                 "RETURN node.title AS title, score",
                 {"id": doc["id"], "th": _ORPHAN_ATTACH_THRESHOLD, "ts": ts},
@@ -920,17 +1075,18 @@ async def reconcile_graph(analysis: dict) -> dict:
                     {"fid": from_id, "tid": to_id},
                 )
             elif kind == "weak_ref":
-                # AI가 의미유사로 자동 연결한 문서→안건(첨부/도출) 중 임계값 미달분 제거.
-                # 라이프사이클 도출(r.kind 보유)·수동 첨부는 건드리지 않는다.
+                # AI가 의미유사로 자동 연결한 문서→안건(발제/도출) 중 임계값 미달분 제거.
+                # 라이프사이클 도출(r.kind 보유)·수동 발제는 건드리지 않는다.
                 await run_cypher(
-                    "MATCH (a {id:$fid})-[r:`첨부`|`도출`]->(b:Agenda {id:$tid}) "
+                    "MATCH (a {id:$fid})-[r:`발제`|`도출`]->(b:Agenda {id:$tid}) "
                     "WHERE (a:Report OR a:Minutes) AND r.discovered_by = 'knowledge_agent' "
                     "  AND r.kind IS NULL DELETE r",
                     {"fid": from_id, "tid": to_id},
                 )
             elif kind == "weak_attach":
                 await run_cypher(
-                    "MATCH (a {id:$fid})-[r:`첨부`]->(b:Agenda {id:$tid}) "
+                    # 자동연결 문서→안건 엣지(도출, 구 데이터는 발제)의 임계값 미달분 제거
+                    "MATCH (a {id:$fid})-[r:`발제`|`도출`]->(b:Agenda {id:$tid}) "
                     "WHERE (a:Report OR a:Minutes) AND r.auto_linked = true DELETE r",
                     {"fid": from_id, "tid": to_id},
                 )
@@ -939,7 +1095,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "stale_lifecycle": "완료된 안건과 연결된 회의록 도출 관계를 정리했습니다.",
                 "weak_related": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '관련' 링크를 지웠습니다.",
                 "weak_ref": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 문서→안건 링크를 지웠습니다.",
-                "weak_attach": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '첨부' 링크를 지웠습니다.",
+                "weak_attach": f"임계값 미달({link.get('score', 0) * 100:.0f}%) 자동 '발제' 링크를 지웠습니다.",
             }.get(kind, "불필요한 연결을 제거했습니다.")
             actions.append(
                 {

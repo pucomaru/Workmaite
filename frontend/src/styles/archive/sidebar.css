@@ -779,7 +779,7 @@
   border-bottom: none;
 }
 .detail-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -1782,14 +1782,14 @@
 .detail-member-name {
   font-size: 11.5px;
   font-weight: 500;
-  color: #c0c0c0;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .detail-member-dept {
   font-size: 10px;
-  color: #454545;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

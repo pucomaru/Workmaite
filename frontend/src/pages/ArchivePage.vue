@@ -284,6 +284,7 @@ const createConnectNodeId = ref('')
 // ─── Create session modal ─────────────────────────────────────
 const showSessionModal = ref(false)
 const sessionCreateInitialId = ref(null)
+const sessionCreateInitialAgendaId = ref(null) // 드래그로 아젠다에서 시작 시 자동 선택할 논의 아젠다
 
 function openCreateModal() {
   createForm.value = {
@@ -302,8 +303,9 @@ function openCreateModal() {
   agentSidebarOpen.value = false
 }
 
-function openSessionModal(meetingId = null) {
+function openSessionModal(meetingId = null, agendaId = null) {
   sessionCreateInitialId.value = meetingId
+  sessionCreateInitialAgendaId.value = agendaId
   showSessionModal.value = true
   agentSidebarOpen.value = false
 }
@@ -423,7 +425,7 @@ let floatDragMoved = false
 
 const FLOAT_VALID_TYPES = {
   meeting: ['Meetings'],
-  session: ['Meetings'],
+  session: ['agenda'], // 회의 생성 드래그는 아젠다 노드에만 연결 (회의체·논의 아젠다 자동 매핑)
   doc: ['Meetings', 'dept', 'agenda'],
 }
 
@@ -469,8 +471,14 @@ function _onFloatDragEnd() {
   if (type === 'meeting') {
     openCreateModal()
   } else if (type === 'session') {
-    const mgId = target?.type === 'Meetings' ? toNumericId(target.id) : null
-    openSessionModal(mgId || null)
+    // 아젠다 노드에만 연결 — 해당 아젠다의 회의체와 아젠다를 모달에 기본 입력(논의 아젠다 자동 선택)
+    let mgId = null,
+      agId = null
+    if (target?.type === 'agenda') {
+      mgId = target.meetingId ? toNumericId(target.meetingId) : null
+      agId = target.neo4jId ?? target.data?.id ?? null
+    }
+    openSessionModal(mgId || null, agId)
   } else if (type === 'doc') {
     const ctx = {}
     if (target?.type === 'agenda') {
@@ -1987,11 +1995,11 @@ function doAddFile() {
   }
   gNodes.push(newNode)
   const fileIdx = gNodes.length - 1
-  // agenda에 연결할 때는 '첨부'(복수 가능), 부서에 연결할 때는 REL_MATRIX 기준
+  // agenda에 연결할 때는 '도출'(복수 가능), 부서에 연결할 때는 REL_MATRIX 기준
   if (agendaNodes.length) {
     agendaNodes.forEach(ag => {
       const agIdx = gNodes.indexOf(ag)
-      if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '첨부' })
+      if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '도출' })
       // Neo4j에 파일-아젠다 관계 저장
       if (reportId.value && ag.neo4jId) {
         apiAI
@@ -2000,7 +2008,7 @@ function doAddFile() {
             from_label: 'Document',
             to_id: ag.neo4jId,
             to_label: 'Agenda',
-            rel_type: '첨부',
+            rel_type: '도출',
           })
           .catch(e => console.warn('[doAddFile] agenda 관계 Neo4j 저장 실패:', e))
       }
@@ -2186,8 +2194,78 @@ const {
   initAgentGreeting,
   runRelationshipAnalysis,
   openSidebarManaged,
+  setAutoContext,
 } = agentChat
 provide('agentSidebar', agentChat)
+
+// ─── 클릭한 노드(상세 사이드바가 떠있는 노드)를 AI 컨텍스트로 자동 선택 ───────
+function _nodeToCtx(n) {
+  if (!n) return null
+  const d = n.data || {}
+  const typeMap = {
+    Meetings: 'meeting',
+    dept: 'department',
+    person: 'person',
+    agenda: 'task',
+    session: 'session',
+    minutes: 'minutes',
+    report: 'report',
+    company: 'company',
+  }
+  const iconMap = {
+    Meetings: '🏢',
+    dept: '🏬',
+    person: '👤',
+    agenda: '✅',
+    session: '📅',
+    minutes: '📝',
+    report: '📄',
+    company: '🏢',
+  }
+  const idMap = {
+    agenda: `task-${d.id ?? n.neo4jId}`,
+    session: `session-${d.id ?? n.neo4jId}`,
+    report: `report-${d.id ?? n.neo4jId}`,
+    minutes: `minutes-${d.minutes_pg_id ?? n.neo4jId}`,
+    Meetings: `mg-${d.id ?? n.neo4jId}`,
+  }
+  const type = typeMap[n.type] || 'document'
+  const label = n.label || d.title || d.file_name || '노드'
+  const typeKo =
+    { meeting: '회의체', department: '부서', person: '구성원', task: '아젠다', session: '회의', document: '문서' }[
+      type
+    ] || ''
+  const summary = [
+    `[${typeKo}] ${label}`,
+    d.status ? '상태: ' + d.status : '',
+    d.department
+      ? '부서: ' + (Array.isArray(d.department) ? d.department.join(', ') : d.department)
+      : '',
+    d.due_date ? '마감: ' + String(d.due_date).slice(0, 10) : '',
+    d.human_status ? '검토상태: ' + d.human_status : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return { id: idMap[n.type] || n.id, type, label, icon: iconMap[n.type] || '📄', summary }
+}
+// 독립 watch — 클릭된 노드/회의체의 watch만 발화하므로 한쪽이 stale이어도 정확하다.
+watch(detailNode, n => {
+  if (n) setAutoContext(_nodeToCtx(n))
+  else if (!detailMeeting.value) setAutoContext(null)
+})
+watch(detailMeeting, mg => {
+  if (mg) {
+    setAutoContext({
+      id: `mg-${mg.id}`,
+      type: 'meeting',
+      label: mg.title || '회의체',
+      icon: '🏢',
+      summary: '[회의체] ' + (mg.title || '') + (mg.description ? '\n목적: ' + mg.description : ''),
+    })
+  } else if (!detailNode.value) {
+    setAutoContext(null)
+  }
+})
 
 // ─── 관계도 분석·재설정 (Supervisor → Knowledge agent) ─────────
 // 새로고침 버튼 클릭 시 AI가 Neo4j 소속 관계를 분석/재설정하고 근거를 보고합니다.
@@ -2201,6 +2279,27 @@ async function analyzeRelationships() {
     })
   } finally {
     analyzingRelations.value = false
+  }
+}
+
+// ─── '채우기' — 비어있는 안건 필드·우선순위·완료 상태를 AI가 맥락에 맞게 보정 ─────
+// (관계 재설정이 아니라 노드 메타데이터 채우기. 백엔드 /knowledge/fill-fields)
+const fillingFields = ref(false)
+async function fillFields() {
+  if (fillingFields.value) return
+  fillingFields.value = true
+  try {
+    await runRelationshipAnalysis(
+      async () => {
+        await refreshArchive()
+      },
+      {
+        url: '/api/agent/knowledge/fill-fields',
+        userMsg: '비어있는 안건 필드와 우선순위·상태를 맥락에 맞게 채워줘',
+      },
+    )
+  } finally {
+    fillingFields.value = false
   }
 }
 
@@ -3115,6 +3214,15 @@ function closeReportEdit() {
   reportEditModal.value = null
 }
 
+// ReportEditModal의 '삭제'(app-btn-danger) emit('delete') 핸들러 — 누락돼 무반응이던 버그 수정.
+// 모달을 닫고 기존 deleteReport(확인 다이얼로그 + API + refresh)에 위임한다.
+function deleteReportEdit() {
+  if (!reportEditModal.value) return
+  const id = reportEditModal.value.reportId
+  reportEditModal.value = null
+  deleteReport(id)
+}
+
 async function saveReportEdit() {
   if (!reportEditModal.value) return
   const { reportId, form } = reportEditModal.value
@@ -3639,10 +3747,10 @@ provide('archiveSidebar', {
 
       <button
         class="agent-header-btn refresh-map-btn"
-        :class="{ analyzing: analyzingRelations }"
-        :disabled="analyzingRelations"
-        @click="analyzeRelationships"
-        title="관계도 새로고침 — AI가 소속 관계를 분석·재설정하고 근거를 알려드립니다"
+        :class="{ analyzing: fillingFields }"
+        :disabled="fillingFields"
+        @click="fillFields"
+        title="채우기 — 비어있는 안건 필드·우선순위·완료 상태를 AI가 맥락에 맞게 채웁니다"
       >
         <svg
           class="refresh-icon"
@@ -3864,6 +3972,7 @@ provide('archiveSidebar', {
       :meetings="meetings"
       :lockedUserId="authStore.user?.id"
       :initialMeetingId="sessionCreateInitialId"
+      :initialAgendaId="sessionCreateInitialAgendaId"
       @close="showSessionModal = false"
       @saved="onSessionCreated"
     />
@@ -3886,6 +3995,7 @@ provide('archiveSidebar', {
     :saving="savingReportEdit"
     @close="closeReportEdit"
     @save="saveReportEdit"
+    @delete="deleteReportEdit"
   />
   <MinutesEditModal
     :modal="minutesEditModal"

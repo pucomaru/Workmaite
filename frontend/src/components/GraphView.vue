@@ -356,6 +356,7 @@ function rebuildNodeObjects() {
       existing.node = n
       existing.type = type
       existing.r = r
+      existing._drawSig = null // 재빌드 시 데이터/색/반경 변경 반영 위해 다음 틱 재드로잉 강제
       existing.gfx._nodeIdx = i
       existing.gfx.hitArea = new PIXI.Circle(0, 0, r + 4)
       existing.gfx.removeAllListeners()
@@ -672,6 +673,16 @@ function tick() {
       tn = simNodes[ti]
     if (!sn || !tn) return
 
+    // 뷰포트 컬링 — 양 끝 노드가 모두 화면(여백 100px) 밖이면 그리지 않는다(줌인 시 큰 절감).
+    const ssx = sn.x * vpScale + vpX,
+      ssy = sn.y * vpScale + vpY
+    const tsx = tn.x * vpScale + vpX,
+      tsy = tn.y * vpScale + vpY
+    const M = 100
+    const sOff = ssx < -M || ssx > w + M || ssy < -M || ssy > h + M
+    const tOff = tsx < -M || tsx > w + M || tsy < -M || tsy > h + M
+    if (sOff && tOff) return
+
     const relColor = hexToNum(props.relColors[e.rel] || '#60a5fa')
     const isHlEdge = props.queryHlEdgeIdxs?.has(ei)
     const isFocEdge = focusedIdx !== null && (si === focusedIdx || ti === focusedIdx)
@@ -687,12 +698,15 @@ function tick() {
     if (len < 4) return
     const ux = dx / len,
       uy = dy / len
-    const tr = nodeRadiusForIdx(ti, tn.type, props.gNodes[ti]?.id) + 4
+    // 노드 반경은 동기화 시 계산된 obj.r를 재사용(프레임마다 nodeRadiusForIdx 재계산 회피)
+    const tr = (nodeObjs.get(ti)?.r ?? nodeRadiusForIdx(ti, tn.type, props.gNodes[ti]?.id)) + 4
     const ex = tn.x - ux * tr,
       ey = tn.y - uy * tr
 
     // Edge line (straight)
-    const sr = nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id) + 3
+    const sr =
+      (nodeObjs.get(si)?.r ??
+        nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id)) + 3
     const sx2 = sn.x + ux * sr,
       sy2 = sn.y + uy * sr
 
@@ -722,6 +736,20 @@ function tick() {
   })
 
   // ── Draw nodes ───────────────────────────────────────────
+  // focus 시 이웃 집합을 프레임당 1회만 계산한다. (기존: 노드마다 isNeighbor가 전체 엣지를
+  // 스캔해 O(노드수 × 엣지수) — 포커스/검색 중 viewport 애니메이션이 도는 동안 매 프레임
+  // 발생해 rAF 핸들러가 100ms+ 걸리는 원인이었다.)
+  let _neighborSet = null
+  if (focusedIdx !== null) {
+    _neighborSet = new Set()
+    for (const e of simEdges) {
+      const si = typeof e.source === 'object' ? e.source._idx : e.source
+      const ti = typeof e.target === 'object' ? e.target._idx : e.target
+      if (si === focusedIdx) _neighborSet.add(ti)
+      else if (ti === focusedIdx) _neighborSet.add(si)
+    }
+  }
+
   simNodes.forEach((sn, i) => {
     const obj = nodeObjs.get(i)
     if (!obj) return
@@ -730,6 +758,16 @@ function tick() {
     obj.label.visible = !hidden
 
     if (hidden) return
+
+    // 뷰포트 컬링 — 화면(여백 60px) 밖 노드는 숨기고 재드로잉/페이드 계산을 건너뛴다.
+    const nsx = sn.x * vpScale + vpX,
+      nsy = sn.y * vpScale + vpY
+    const Mn = 60
+    if (nsx < -Mn || nsx > w + Mn || nsy < -Mn || nsy > h + Mn) {
+      obj.gfx.visible = false
+      obj.label.visible = false
+      return
+    }
 
     // Position
     obj.gfx.x = sn.x
@@ -741,7 +779,7 @@ function tick() {
     const hasSearchHits = props.searchHitMgIdxs?.length > 0
     const alphaVal =
       focusedIdx !== null
-        ? i === focusedIdx || isNeighbor(i, focusedIdx)
+        ? i === focusedIdx || _neighborSet.has(i)
           ? 1.0
           : 0.2
         : hasSearchHits
@@ -753,24 +791,24 @@ function tick() {
     obj.gfx.alpha = alphaVal * endedDim
     obj.label.alpha = alphaVal * endedDim * 0.9
 
-    // Redraw
+    // Redraw — 모양에 영향을 주는 상태가 바뀐 노드만 다시 그린다. (위치는 gfx.x/y, 페이드는
+    // gfx.alpha로 처리되므로 force 레이아웃 중에는 대부분 재드로잉이 불필요하다. 대형 그래프
+    // 초기 로딩 시 매 프레임 전체 노드 재드로잉이 rAF 100ms+의 주원인이었다.)
     obj.focused = i === focusedIdx
-    drawNode(obj, sn)
+    const hlAnim = _hlActive && props.queryHlIdxs?.has(i) ? _hlPhase.toFixed(2) : '0'
+    const drawSig = `${obj.focused ? 1 : 0}|${obj.hovered ? 1 : 0}|${hlAnim}|${
+      props.searchHitMgIdxs?.includes(i) ? 1 : 0
+    }|${props.nightMode ? 1 : 0}`
+    if (obj._drawSig !== drawSig) {
+      obj._drawSig = drawSig
+      drawNode(obj, sn)
+    }
 
     obj.label.anchor.set(0.5, 0)
     // Update text resolution to match zoom for crisp text at any scale
     const targetRes = (window.devicePixelRatio || 1) * Math.max(2, Math.ceil(vpScale * 1.5))
     if (obj.label.resolution !== targetRes) obj.label.resolution = targetRes
   })
-}
-
-function isNeighbor(a, b) {
-  for (const e of simEdges) {
-    const si = typeof e.source === 'object' ? e.source._idx : e.source
-    const ti = typeof e.target === 'object' ? e.target._idx : e.target
-    if ((si === a && ti === b) || (si === b && ti === a)) return true
-  }
-  return false
 }
 
 // ─── Interaction ─────────────────────────────────────────────

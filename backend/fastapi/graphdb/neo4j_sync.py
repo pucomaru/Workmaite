@@ -4,18 +4,6 @@ neo4j_sync.py — Neo4j 동기화 서비스
 원칙:
   - PostgreSQL이 Source of Truth
   - Neo4j 동기화는 항상 try/except로 감싸 실패해도 메인 흐름 중단 없음
-
-Neo4j 노드 유형:
-  User          ← PG users
-  Company       ← PG users.company (파생)
-  Department    ← PG users.department / agenda.department (파생)
-  Meetings      ← PG meetings
-  Session       ← PG meeting_sessions
-  Agenda        ← PG agenda
-  Minutes       ← PG minutes
-  MinutesChunk  ← 회의록 파일 청킹 (file_embedder)
-  Report        ← PG reports (+ report_scores)
-  ReportChunk   ← 보고서 파일 청킹 (file_embedder)
 """
 
 from __future__ import annotations
@@ -787,7 +775,7 @@ async def sync_report(
     hitl_rationale: str | None = None,
     hitl_reviewed_at: str | None = None,
 ) -> None:
-    """Report 노드를 upsert하고 Meetings에 [:`첨부`] 관계로 연결합니다.
+    """Report 노드를 upsert하고 Meetings에 [:`발제`], 안건에 [:`도출`] 관계로 연결합니다.
 
     HITL 검토 결과(status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
     임베딩 텍스트에도 포함해 벡터 검색에 활용한다.
@@ -811,7 +799,7 @@ async def sync_report(
     WITH r
     OPTIONAL MATCH (mg:Meetings {id: $mg_id})
     FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (r)-[:`첨부`]->(mg)
+        MERGE (r)-[:`발제`]->(mg)
     )
     """
     if related_agenda_ids:
@@ -820,7 +808,7 @@ async def sync_report(
     WITH r
     OPTIONAL MATCH (ag:Agenda {{id: '{ag_id}'}})
     FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (r)-[:`첨부`]->(ag)
+        MERGE (r)-[:`도출`]->(ag)
     )"""
     params = {
         "id": report_neo_id,
@@ -1122,7 +1110,7 @@ async def delete_meeting(meeting_id: int) -> None:
         OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
         OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
         OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg)
-        OPTIONAL MATCH (r:Report)-[:`첨부`]->(mg)
+        OPTIONAL MATCH (r:Report)-[:`발제`]->(mg)
         OPTIONAL MATCH (rc:ReportChunk)-[:`청크`]->(r)
         OPTIONAL MATCH (mc:MinutesChunk)-[:`청크`]->(mn)
         WITH collect(DISTINCT mg) + collect(DISTINCT s) + collect(DISTINCT mn)

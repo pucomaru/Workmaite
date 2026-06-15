@@ -11,6 +11,7 @@ const props = defineProps({
   meetings: { type: Array, default: () => [] },
   lockedUserId: { type: Number, default: null },
   initialMeetingId: { type: [Number, String], default: null },
+  initialAgendaId: { type: [Number, String], default: null },
 })
 const emit = defineEmits(['close', 'saved'])
 
@@ -32,6 +33,9 @@ const timePickerListEl = ref(null)
 const agendas = ref([])
 const selectedAgendaIds = ref([])
 const showAgendaDropdown = ref(false)
+
+// 종료된 회의체는 회의 생성 불가 — 템플릿/검증/초기화 공통 소스 (누락 시 ReferenceError였음)
+const availableMeetings = computed(() => (props.meetings || []).filter(m => m.status !== 'ended'))
 
 function selectTime(t) {
   form.value.timeOnly = t
@@ -57,6 +61,17 @@ function toNumericId(id) {
   return m ? parseInt(m[1], 10) : 0
 }
 
+// 회의체에서 현재 사용자의 역할(간사=admin / 참여자=member)을 자동 판별 — 회의 생성 시 role 수동선택 불필요
+function resolveMyRole(meetingId) {
+  const me = authStore.user
+  if (!me || !meetingId) return 'member'
+  const mg = (props.meetings || []).find(m => toNumericId(m.id) === toNumericId(meetingId))
+  const mine = (mg?.members || []).find(
+    mb => (mb.userId ?? mb.user_id ?? mb.user?.id ?? mb.id) === me.id,
+  )
+  return mine?.role === 'admin' ? 'admin' : 'member'
+}
+
 watch(
   () => props.show,
   async v => {
@@ -65,21 +80,40 @@ watch(
     const minutes = now.getMinutes() < 30 ? 30 : 0
     const hours = minutes === 0 ? now.getHours() + 1 : now.getHours()
     const safeHours = hours > 22 ? 22 : hours < 8 ? 8 : hours
+    // 종료된 회의체가 initialMeetingId로 들어와도 선택되지 않게 한다(선택지에 없으므로).
+    const initId = props.initialMeetingId ? toNumericId(props.initialMeetingId) : null
+    const initSelectable = availableMeetings.value.some(m => toNumericId(m.id) === initId)
     form.value = {
       title: '',
       location: '',
       dateOnly: '',
       timeOnly: `${String(safeHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
-      meeting_id: props.initialMeetingId ? toNumericId(props.initialMeetingId) : null,
+      meeting_id: initSelectable ? initId : null,
       context: '',
     }
     const me = authStore.user
-    members.value = me ? [{ userId: me.id, name: me.name, email: me.email, role: 'admin' }] : []
+    members.value = me
+      ? [
+          {
+            userId: me.id,
+            name: me.name,
+            email: me.email,
+            role: resolveMyRole(form.value.meeting_id),
+          },
+        ]
+      : []
     showPastDateAlert.value = false
     agendas.value = []
     selectedAgendaIds.value = []
     showAgendaDropdown.value = false
-    if (form.value.meeting_id) await loadAgendas(form.value.meeting_id)
+    if (form.value.meeting_id) {
+      await loadAgendas(form.value.meeting_id)
+      // 드래그로 아젠다에서 시작한 경우 해당 아젠다를 '논의 아젠다'로 자동 선택
+      if (props.initialAgendaId != null) {
+        const match = agendas.value.find(a => String(a.id) === String(props.initialAgendaId))
+        if (match) selectedAgendaIds.value = [match.id]
+      }
+    }
   },
 )
 
@@ -89,6 +123,12 @@ watch(
     agendas.value = []
     selectedAgendaIds.value = []
     showAgendaDropdown.value = false
+    // 회의체가 바뀌면 생성자(나)의 role을 해당 회의체에서의 역할(간사/참여자)로 자동 갱신
+    const me = authStore.user
+    if (me) {
+      const myRole = resolveMyRole(id)
+      members.value = members.value.map(m => (m.userId === me.id ? { ...m, role: myRole } : m))
+    }
     if (id) await loadAgendas(id)
   },
 )
@@ -137,6 +177,8 @@ function validate() {
   const f = form.value
   const e = {}
   if (!f.meeting_id) e.meeting_id = '회의체를 선택해주세요'
+  else if (!availableMeetings.value.some(m => toNumericId(m.id) === f.meeting_id))
+    e.meeting_id = '종료된 회의체에는 회의를 생성할 수 없습니다'
   if (!f.title.trim()) e.title = '회의명을 입력해주세요'
   if (!f.location.trim()) e.location = '장소를 입력해주세요'
   if (!f.dateOnly) e.dateOnly = '날짜를 선택해주세요'
@@ -155,7 +197,7 @@ async function doCreate() {
   }
   creating.value = true
   try {
-    await api.post(`/api/v1/meetings/${f.meeting_id}/sessions`, {
+    const { data } = await api.post(`/api/v1/meetings/${f.meeting_id}/sessions`, {
       title: f.title,
       location: f.location || null,
       scheduled_at: `${f.dateOnly}T${f.timeOnly || '00:00'}:00`,
@@ -164,7 +206,9 @@ async function doCreate() {
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
       agenda_ids: selectedAgendaIds.value.length ? selectedAgendaIds.value : null,
     })
-    emit('saved', { meetingId: f.meeting_id })
+    // 생성된 세션 id를 함께 전달 — 호출부가 해당 세션으로 바로 이동/선택할 수 있게.
+    const created = data?.data ?? data
+    emit('saved', { meetingId: f.meeting_id, sessionId: created?.id ?? null })
     emit('close')
   } catch (e) {
     toast.error(e.response?.data?.message || '생성 실패')
@@ -195,7 +239,7 @@ async function doCreate() {
         </div>
         <div class="app-modal-body">
           <div class="app-modal-field">
-            <label for="create-meeting">회의체 <span class="req">*</span></label>
+            <label for="create-meeting">주관 회의체 <span class="req">*</span></label>
             <select
               id="create-meeting"
               name="meeting_id"
@@ -205,7 +249,7 @@ async function doCreate() {
             >
               <option :value="null" disabled>회의체를 선택하세요</option>
               <option
-                v-for="m in meetings.filter(m => m.status !== 'ended')"
+                v-for="m in availableMeetings"
                 :key="toNumericId(m.id)"
                 :value="toNumericId(m.id)"
               >
@@ -327,7 +371,7 @@ async function doCreate() {
             ></textarea>
           </div>
           <div class="app-modal-field">
-            <span class="app-modal-label">관련 아젠다</span>
+            <span class="app-modal-label">논의 아젠다</span>
             <div style="position: relative">
               <div
                 class="app-modal-input"
@@ -410,7 +454,7 @@ async function doCreate() {
             </div>
           </div>
           <div class="app-modal-field">
-            <MemberInvite v-model="members" :lockedUserId="lockedUserId" />
+            <MemberInvite v-model="members" :lockedUserId="lockedUserId" :hideRole="true" />
           </div>
         </div>
         <div class="app-modal-footer">

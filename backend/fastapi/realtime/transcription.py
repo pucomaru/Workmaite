@@ -21,19 +21,23 @@ import logging
 import os
 import re
 import time
+import uuid
+from datetime import datetime
 from typing import Any
 
 import websockets  # uvicorn[standard] 의존성
+from openai import AsyncOpenAI
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 
 from core.auth import SECRET_KEY, ALGORITHMS
 from core.access_guard import require_meeting_member_by_session
+from core.context_types import STT_TERM_CORRECTION
 from core.stt_prompt import build_vocab_prompt
 from db.database import SessionLocal
 from db import models
 from db.models import SttSegment
-from llm.pricing import STT_PRICING
+from llm.pricing import STT_PRICING, estimate_cost
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -188,6 +192,108 @@ def _save_segment(session_id, user_id, text, model, start_sec, end_sec):
         db.close()
 
 
+# ── 전문용어 교정 에이전트 ────────────────────────────────────────────────────
+# 실시간 전사 문장이 확정될 때마다, 음차된 IT/기술 전문용어·영어 약어를 원래 영어 표기로
+# 되돌리고 명백한 전사 오류만 가볍게 교정한다(의미 변경 없음). STT_TERM_CORRECTION=false 로
+# 끌 수 있고, 실패/타임아웃 시 원문을 그대로 사용한다(비차단 안전장치). 누적 토큰은 세션
+# 종료 시 token_usage_logs(전문용어 교정)로 1회 기록한다.
+_TERM_FIX_ENABLED = os.environ.get("STT_TERM_CORRECTION", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+_TERM_FIX_MODEL = os.environ.get("STT_TERM_MODEL", "gpt-4o-mini")
+_TERM_FIX_TIMEOUT = 3.0  # 초과 시 원문 유지 — 실시간 스트림이 멈추지 않게
+_TERM_FIX_MIN_CHARS = 4  # 너무 짧은 조각("네", "맞아요")은 교정 생략(비용·지연 절감)
+_TERM_FIX_SYS = (
+    "당신은 한국어 회의 실시간 전사 문장을 교정하는 도구입니다. 아래 규칙만 적용하세요.\n"
+    "1) 한글로 소리나는 대로 적힌(음차된) IT/기술 전문용어, 영어 약어, 제품·서비스명을 "
+    "원래의 영어 표기로 되돌립니다. 예: '쿠버네티스'→'Kubernetes', '깃허브'→'GitHub', "
+    "'에이피아이'→'API', '데이터베이스'→'Database'.\n"
+    "2) 명백한 전사 오류(띄어쓰기·오탈자)만 가볍게 고칩니다.\n"
+    "3) 의미를 바꾸거나 내용을 추가·삭제·요약하지 않습니다. 말투와 어미는 그대로 둡니다.\n"
+    "4) 일반적인 한국어 단어는 굳이 영어로 바꾸지 않습니다. 확신이 없으면 원문을 유지합니다.\n"
+    "교정된 문장만 출력하고 다른 설명·따옴표는 붙이지 마세요."
+)
+
+_oai_client: AsyncOpenAI | None = None
+
+
+def _client() -> AsyncOpenAI:
+    global _oai_client
+    if _oai_client is None:
+        _oai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    return _oai_client
+
+
+async def _correct_terms(text: str, glossary: str) -> tuple[str, int, int]:
+    """문장의 전문용어를 영어 표기로 교정한다. (교정문, prompt_tokens, completion_tokens)
+    반환. 비활성/너무 짧음/실패/타임아웃이면 원문과 0 토큰을 반환한다(비차단)."""
+    s = (text or "").strip()
+    if not _TERM_FIX_ENABLED or len(s) < _TERM_FIX_MIN_CHARS:
+        return text, 0, 0
+    user = (f"[이 회의 고유명사 참고]\n{glossary}\n\n" if glossary else "") + f"문장: {s}"
+    try:
+        resp = await asyncio.wait_for(
+            _client().chat.completions.create(
+                model=_TERM_FIX_MODEL,
+                messages=[
+                    {"role": "system", "content": _TERM_FIX_SYS},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0,
+                max_tokens=min(700, max(120, len(s) * 3)),
+            ),
+            timeout=_TERM_FIX_TIMEOUT,
+        )
+        out = (resp.choices[0].message.content or "").strip().strip('"').strip()
+        usage = resp.usage
+        pt = int(getattr(usage, "prompt_tokens", 0) or 0)
+        ct = int(getattr(usage, "completion_tokens", 0) or 0)
+        return (out or text), pt, ct
+    except Exception as e:
+        logger.warning(f"[Realtime STT] 전문용어 교정 실패(원문 유지): {e}")
+        return text, 0, 0
+
+
+def _log_correction_usage(session_id, user_id, in_tok, out_tok):
+    """세션 동안 누적된 전문용어 교정 토큰을 token_usage_logs에 1회 기록(usage 모달 집계)."""
+    db = SessionLocal()
+    try:
+        log = models.AgentLog(
+            task_id=str(uuid.uuid4()),
+            context_type=STT_TERM_CORRECTION,
+            session_id=session_id,
+            user_id=user_id,
+            status="success",
+            ended_at=datetime.utcnow(),
+        )
+        db.add(log)
+        db.flush()
+        db.add(
+            models.TokenUsageLog(
+                agent_log_id=log.id,
+                model_name=_TERM_FIX_MODEL,
+                prompt_tokens=int(in_tok),
+                completion_tokens=int(out_tok),
+                estimated_cost_usd=estimate_cost(
+                    _TERM_FIX_MODEL, int(in_tok), int(out_tok)
+                ),
+            )
+        )
+        db.commit()
+        logger.info(
+            f"[Realtime STT] 용어 교정 usage 기록 session={session_id} "
+            f"prompt={in_tok} completion={out_tok}"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[Realtime STT] 용어 교정 usage 기록 실패: {e}")
+    finally:
+        db.close()
+
+
 @router.websocket("/ws/sessions/{session_id}/transcribe")
 async def ws_transcribe(websocket: WebSocket, session_id: int):
     # 인증 — 쿼리 파라미터 token의 JWT (기존 WS 엔드포인트와 동일 방식)
@@ -237,6 +343,8 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         "buf": "",  # delta로 누적되는 미확정 전사 텍스트(문장 확정 시 비워짐)
         "buf_bytes": 0,  # buf에 대응하는 오디오 바이트(문장별 시간 배분용)
         "last_delta_ts": time.monotonic(),  # 마지막 delta 수신 시각 — idle-flush 기준
+        "fix_in": 0,  # 전문용어 교정 누적 prompt_tokens (세션 종료 시 1회 기록)
+        "fix_out": 0,  # 전문용어 교정 누적 completion_tokens
     }
     # buf를 소비하는 구간(delta/completed/idle-flush)을 직렬화 — 워치독과의 인터리브 방지
     flush_lock = asyncio.Lock()
@@ -250,9 +358,12 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
             # 도메인 어휘 프롬프트(회의 제목·참석자·부서) — 고유명사 인식률 향상 (P-STT1).
             # prompt는 지원 모델에만 주입한다 — gpt-realtime-whisper는 미지원이라 넣으면
             # session.update 전체가 "'prompt' parameter is not supported" 오류로 거부된다.
+            # 어휘 힌트는 모델 prompt(지원 모델)와 전문용어 교정 에이전트 양쪽에서 쓰므로
+            # 모델 종류와 무관하게 1회 조회한다.
+            vocab_prompt = await asyncio.to_thread(_vocab_prompt, session_id)
+            glossary = vocab_prompt or ""
             _transcription_cfg = {"model": model, "language": lang}
             if model.startswith(("gpt-4o-transcribe", "gpt-4o-mini-transcribe")):
-                vocab_prompt = await asyncio.to_thread(_vocab_prompt, session_id)
                 if vocab_prompt:
                     _transcription_cfg["prompt"] = vocab_prompt
                     logger.info(f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…")
@@ -322,14 +433,29 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
                     start = round(state["offset"], 2)
                     end = round(start + sdur, 2)
                     state["offset"] = end
+                    # 전문용어 교정 에이전트 — 확정 문장의 음차된 전문용어를 영어 표기로
+                    # 되돌린다(실패/타임아웃 시 원문 유지). 누적 토큰은 종료 시 1회 기록.
+                    fixed, pt, ct = await _correct_terms(s, glossary)
+                    state["fix_in"] += pt
+                    state["fix_out"] += ct
+                    corrected = fixed != s
+                    if corrected:
+                        logger.info(f"[Realtime STT] 용어 교정: {s!r} → {fixed!r}")
+                    else:
+                        logger.info(f"[Realtime STT] 문장 확정: {s!r}")
                     sid = None
                     if session_id:
                         sid = await asyncio.to_thread(
-                            _save_segment, session_id, user_id, s, model, start, end
+                            _save_segment, session_id, user_id, fixed, model, start, end
                         )
-                    logger.info(f"[Realtime STT] 문장 확정: {s!r}")
+                    # corrected=True면 프런트가 해당 줄에 'AI 교정' 무지개 글로우를 잠깐 표시
                     await websocket.send_json(
-                        {"type": "final", "text": s, "text_id": sid}
+                        {
+                            "type": "final",
+                            "text": fixed,
+                            "text_id": sid,
+                            "corrected": corrected,
+                        }
                     )
 
             async def client_to_oai():
@@ -501,6 +627,18 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         except Exception:
             pass
     finally:
+        # 전문용어 교정 누적 토큰 → usage 기록 (세션당 1회). 비정상 종료에도 실행되도록 finally.
+        if state.get("fix_in") or state.get("fix_out"):
+            try:
+                await asyncio.to_thread(
+                    _log_correction_usage,
+                    session_id,
+                    user_id,
+                    state["fix_in"],
+                    state["fix_out"],
+                )
+            except Exception:
+                pass
         try:
             await websocket.close()
         except Exception:

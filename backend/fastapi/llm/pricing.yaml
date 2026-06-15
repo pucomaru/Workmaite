@@ -22,7 +22,6 @@ embedding:
     text-embedding-ada-002: 0.10
 
 # ── STT 단가 — per_min(분당 USD) 기준. 토큰 과금 모델은 input/output(per 1M)도 병기.
-#    prefix 매칭이므로 gpt-4o-transcribe-diarize 등 변형은 부모 키 단가를 따른다.
 stt:
   default: { per_min: 0.017 }   # 기본 STT 모델 gpt-realtime-whisper
   models:
@@ -30,5 +29,3 @@ stt:
     gpt-4o-transcribe:      { per_min: 0.006, input: 2.50, output: 10.00 }
     gpt-4o-mini-transcribe: { per_min: 0.003, input: 1.25, output: 5.00 }
     whisper-1:              { per_min: 0.006 }
-    # 화자분리 전사는 토큰 과금이라 분당(per_min)=0 — 비용은 LLM 토큰 집계.
-    gpt-4o-transcribe-diarize: { per_min: 0.0, input: 2.50, output: 10.00 }

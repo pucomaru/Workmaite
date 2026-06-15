@@ -1,5 +1,21 @@
 import { ref, computed, nextTick } from 'vue'
 
+// 노드 타입별 색상 (아카이브 그래프 legend와 동일한 radial-gradient) — @메뉴·컨텍스트 칩의 동그란 아이콘에 사용
+export const AT_TYPE_DOT = {
+  meeting: 'radial-gradient(circle at 38% 38%, #60a5fa, #2563eb)', // 회의체
+  company: 'radial-gradient(circle at 38% 38%, #5eead4, #0d9488)', // 회사/조직
+  department: 'radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed)', // 부서
+  person: 'radial-gradient(circle at 38% 38%, #f9a8d4, #db2777)', // 인원
+  task: 'radial-gradient(circle at 38% 38%, #fcd34d, #d97706)', // 아젠다
+  session: 'radial-gradient(circle at 38% 38%, #fdba74, #ea580c)', // 회의
+  minutes: 'radial-gradient(circle at 38% 38%, #67e8f9, #0891b2)', // 회의록
+  report: 'radial-gradient(circle at 38% 38%, #6ee7b7, #059669)', // 보고자료
+  document: 'radial-gradient(circle at 38% 38%, #6ee7b7, #059669)',
+}
+export function atTypeDot(type) {
+  return AT_TYPE_DOT[type] || 'radial-gradient(circle at 38% 38%, #cbd5e1, #64748b)'
+}
+
 /**
  * @ 멘션 메뉴 공통 로직.
  * 아카이브 그래프의 모든 노드(회의체·구성원·과제·세션)를 @로 검색/참조한다.
@@ -14,12 +30,20 @@ import { ref, computed, nextTick } from 'vue'
  * @param {Ref<HTMLElement>} opts.agentTextareaEl textarea DOM ref
  * @param {Function} [opts.autoResize]     입력 시 호출할 높이 재조정 함수
  */
-export function useAgentMention({ meetings, tasksData, agentInput, agentTextareaEl, autoResize }) {
+export function useAgentMention({
+  meetings,
+  membersData,
+  tasksData,
+  agentInput,
+  agentTextareaEl,
+  autoResize,
+}) {
   const atMenuOpen = ref(false)
   const atQuery = ref('')
   const atCursorPos = ref(0)
   const atHighlight = ref(0)
-  const mentionedContexts = ref([]) // [{id, type, label, icon, summary}]
+  const mentionedContexts = ref([]) // [{id, type, label, icon, summary, auto, pinned}]
+  const autoCtxId = ref(null) // 클릭한 노드/세션의 자동 컨텍스트(단일 슬롯) id
 
   const AT_TYPE_ICONS = {
     meeting: '🏢',
@@ -31,10 +55,13 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
   }
   const AT_TYPE_LABELS = {
     meeting: '회의체',
+    company: '회사',
+    department: '부서',
     person: '구성원',
     task: '아젠다',
-    department: '부서',
     session: '회의',
+    minutes: '회의록',
+    report: '보고자료',
     document: '문서',
   }
 
@@ -146,7 +173,103 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
         }
       }
     }
-    return items.slice(0, 12)
+    // 구성원 (persons)
+    for (const m of membersData?.value || []) {
+      const label = m.name || m.userName || m.email || ''
+      if (!label) continue
+      if (!q || label.toLowerCase().includes(q)) {
+        const id = `person-${m.id || m.userId || m.email || label}`
+        if (!seen.has(id)) {
+          seen.add(id)
+          items.push({
+            id,
+            type: 'person',
+            label,
+            icon: '👤',
+            summary: [
+              '[구성원] ' + label,
+              m.department ? '부서: ' + m.department : '',
+              m.position ? '직책: ' + m.position : '',
+              m.company ? '회사: ' + m.company : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          })
+        }
+      }
+    }
+    // 부서 (departments) — 회의체 멤버에서 수집
+    const _deptSeen = new Set()
+    for (const mg of meetings?.value || []) {
+      for (const mb of mg.members || []) {
+        const dn = mb.department || mb.dept
+        if (!dn || _deptSeen.has(dn)) continue
+        _deptSeen.add(dn)
+        if (!q || dn.toLowerCase().includes(q)) {
+          const id = `dept-${dn}`
+          if (!seen.has(id)) {
+            seen.add(id)
+            items.push({ id, type: 'department', label: dn, icon: '🏬', summary: '[부서] ' + dn })
+          }
+        }
+      }
+    }
+    // 문서 (보고자료·회의록)
+    for (const mg of meetings?.value || []) {
+      for (const r of mg.reports || []) {
+        const label = r.file_name || '보고자료'
+        if (q && !label.toLowerCase().includes(q)) continue
+        const id = `report-${r.id}`
+        if (r.id == null || seen.has(id)) continue
+        seen.add(id)
+        items.push({
+          id,
+          type: 'report',
+          label,
+          icon: '📄',
+          summary: [
+            '[보고자료] ' + label,
+            mg.title ? '회의체: ' + mg.title : '',
+            r.human_status ? '상태: ' + r.human_status : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        })
+      }
+      for (const s of mg.minutes || []) {
+        if (s.minutes_pg_id == null) continue
+        const label = s.minutes_file_name || s.file_name || (s.session_title || '') + ' 회의록'
+        if (!label.trim()) continue
+        if (q && !label.toLowerCase().includes(q)) continue
+        const id = `minutes-${s.minutes_pg_id}`
+        if (seen.has(id)) continue
+        seen.add(id)
+        items.push({
+          id,
+          type: 'minutes',
+          label,
+          icon: '📝',
+          summary: ['[회의록] ' + label, mg.title ? '회의체: ' + mg.title : '']
+            .filter(Boolean)
+            .join('\n'),
+        })
+      }
+    }
+    // 회사
+    const _coSeen = new Set()
+    for (const mg of meetings?.value || []) {
+      for (const mb of mg.members || []) {
+        const cn = mb.company || mb.user?.company
+        if (!cn || _coSeen.has(cn)) continue
+        _coSeen.add(cn)
+        if (q && !cn.toLowerCase().includes(q)) continue
+        const id = `company-${cn}`
+        if (seen.has(id)) continue
+        seen.add(id)
+        items.push({ id, type: 'company', label: cn, icon: '🏛️', summary: '[회사] ' + cn })
+      }
+    }
+    return items.slice(0, 60)
   })
 
   function onAgentInput(e) {
@@ -174,7 +297,7 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
     const val = agentInput.value
     agentInput.value = val.slice(0, atCursorPos.value) + val.slice(cursor)
     if (!mentionedContexts.value.find(c => c.id === item.id)) {
-      mentionedContexts.value.push(item)
+      mentionedContexts.value.push({ ...item, pinned: true })
     }
     atMenuOpen.value = false
     atQuery.value = ''
@@ -186,6 +309,33 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
 
   function removeMentionCtx(id) {
     mentionedContexts.value = mentionedContexts.value.filter(c => c.id !== id)
+    if (autoCtxId.value === id) autoCtxId.value = null
+  }
+
+  // ── 자동 컨텍스트(클릭한 노드/세션) + 핀(고정) 관리 ──────────────
+  /** 클릭한 노드/세션을 자동 컨텍스트로 설정(단일 슬롯). 고정(pin)된 칩은 유지. item=null이면 해제. */
+  function setAutoContext(item) {
+    // 클릭한 노드는 단일 슬롯 — 이전 auto 칩을 새 것으로 교체
+    if (autoCtxId.value) {
+      mentionedContexts.value = mentionedContexts.value.filter(c => c.id !== autoCtxId.value)
+    }
+    autoCtxId.value = null
+    if (!item || !item.id) return
+    if (mentionedContexts.value.find(c => c.id === item.id)) {
+      autoCtxId.value = item.id
+      return
+    }
+    // 선택된 노드/회의는 pinned 상태 → 칩에 X(제거) 표시
+    mentionedContexts.value.push({ ...item, pinned: true })
+    autoCtxId.value = item.id
+  }
+
+  /** 핀(포함 고정) — 다른 노드를 클릭해도 컨텍스트로 유지된다. */
+  function setCtxPinned(id) {
+    mentionedContexts.value = mentionedContexts.value.map(c =>
+      c.id === id ? { ...c, pinned: true, auto: false } : c,
+    )
+    if (autoCtxId.value === id) autoCtxId.value = null
   }
 
   /**
@@ -223,11 +373,11 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
    * @returns {{ block: string, contexts: Array }}
    */
   function consumeMentionContext() {
+    // 컨텍스트는 대화 내내 유지(사용자가 핀/X로 관리) — 전송 시 비우지 않는다.
     const contexts = [...mentionedContexts.value]
     const block = contexts.length
       ? `\n\n[참조 컨텍스트]\n${contexts.map(c => c.summary).join('\n---\n')}`
       : ''
-    mentionedContexts.value = []
     return { block, contexts }
   }
 
@@ -243,6 +393,8 @@ export function useAgentMention({ meetings, tasksData, agentInput, agentTextarea
     onAgentInput,
     selectAtItem,
     removeMentionCtx,
+    setAutoContext,
+    setCtxPinned,
     handleMentionKeydown,
     consumeMentionContext,
   }

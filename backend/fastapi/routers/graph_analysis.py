@@ -173,8 +173,9 @@ async def _analyze_graph() -> dict:
             "CALL db.index.vector.queryNodes('agendaEmbedding', 3, d.embedding) "
             "YIELD node, score "
             "WITH d, node, score "
-            # 안건으로 들어오는 문서 관계는 첨부(보고자료)·도출(회의록)뿐 — 이미 연결된 건 제외
-            "WHERE score >= $th AND NOT (d)-[:`첨부`]->(node) AND NOT (d)-[:`도출`]->(node) "
+            # 안건으로 들어오는 문서 관계는 도출(보고자료·회의록)뿐 — 이미 연결된 건 제외
+            # (첨부는 구 데이터 호환용으로 함께 제외)
+            "WHERE score >= $th AND NOT (d)-[:`발제`]->(node) AND NOT (d)-[:`도출`]->(node) "
             "RETURN d.id AS doc_id, coalesce(d.title, d.file_name) AS doc_title, "
             "       node.id AS ag_id, node.title AS ag_title, score "
             "ORDER BY score DESC LIMIT 30",
@@ -210,7 +211,7 @@ async def _analyze_graph() -> dict:
     # ② 구조 공백 — 고아 문서
     try:
         rows = await run_cypher(
-            "MATCH (d:Report) WHERE NOT (d)-[:`첨부`]->() "
+            "MATCH (d:Report) WHERE NOT (d)-[:`발제`]->() "
             "RETURN d.id AS id, coalesce(d.title, d.file_name) AS title, "
             "       (d.embedding IS NOT NULL) AS emb LIMIT 50"
         )
@@ -352,7 +353,7 @@ async def _analyze_graph() -> dict:
     # 라이프사이클 도출(r.kind 보유)·사용자 수동 연결은 제외한다.
     try:
         rows = await run_cypher(
-            "MATCH (d)-[r:`첨부`|`도출`]->(ag:Agenda) "
+            "MATCH (d)-[r:`발제`|`도출`]->(ag:Agenda) "
             "WHERE (d:Report OR d:Minutes) AND r.discovered_by = 'knowledge_agent' "
             "  AND r.kind IS NULL AND r.score IS NOT NULL AND r.score < $th "
             "RETURN d.id AS from_id, ag.id AS to_id, type(r) AS rel, "
@@ -367,19 +368,19 @@ async def _analyze_graph() -> dict:
                     "from_id": r.get("from_id"),
                     "to_id": r.get("to_id"),
                     "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] ({float(r.get('score') or 0) * 100:.0f}%)",
-                    "rel": r.get("rel", "첨부"),
+                    "rel": r.get("rel", "도출"),
                     "score": float(r.get("score") or 0),
                 }
             )
     except Exception:
         pass
 
-    # weak 첨부 (낙은 유사도 자동 첨부 연결)
+    # weak 자동연결 (낮은 유사도 auto_linked 문서→안건 — 도출, 구 데이터는 첨부)
     try:
         rows = await run_cypher(
-            "MATCH (d)-[r:`첨부`]->(ag:Agenda) "
+            "MATCH (d)-[r:`발제`|`도출`]->(ag:Agenda) "
             "WHERE (d:Report OR d:Minutes) AND r.auto_linked = true AND r.score IS NOT NULL AND r.score < $th "
-            "RETURN d.id AS from_id, ag.id AS to_id, "
+            "RETURN d.id AS from_id, ag.id AS to_id, type(r) AS rel, "
             "       coalesce(d.title, d.file_name, '?') AS doc_title, ag.title AS ag_title, r.score AS score "
             "LIMIT 30",
             {"th": _PRUNE_THRESHOLD},
@@ -390,8 +391,8 @@ async def _analyze_graph() -> dict:
                     "kind": "weak_attach",
                     "from_id": r.get("from_id"),
                     "to_id": r.get("to_id"),
-                    "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] 첨부 ({float(r.get('score') or 0) * 100:.0f}%)",
-                    "rel": "첨부",
+                    "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] 도출 ({float(r.get('score') or 0) * 100:.0f}%)",
+                    "rel": r.get("rel", "도출"),
                     "score": float(r.get("score") or 0),
                 }
             )
@@ -434,6 +435,15 @@ async def _normalize_rel_directions() -> dict:
             "아젠다→회의체 방향 복구 (관할, 작은→큰)",
             "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
             "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r",
+        ),
+        # ── 관계명 변경 마이그레이션 ───────────────────────────────────────
+        # 보고자료→안건: 첨부 → 도출 (회의록과 동일하게 통일). 프로퍼티(score·discovered_by·
+        # auto_linked 등) 보존. report→Meetings 첨부는 건드리지 않는다(라벨로 한정).
+        (
+            "보고자료→안건 관계명 변경 (첨부→도출)",
+            "MATCH (r:Report)-[rel:`발제`]->(ag:Agenda) RETURN count(rel) AS cnt",
+            "MATCH (r:Report)-[old:`발제`]->(ag:Agenda) "
+            "MERGE (r)-[new:`도출`]->(ag) SET new += properties(old) DELETE old",
         ),
         # ── 폐지 관계 purge ──────────────────────────────────────────────
         # canonical(논의·기록)은 PG sync가 만든다. 과거 reconcile/인코딩 버그가 남긴 잔재
@@ -735,6 +745,147 @@ async def analyze_relationships_stream(
                 logger.warning(
                     f"[analyze-relationships] 채팅 기록 저장 실패: {_persist_err}"
                 )
+        yield sse_done()
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.post("/knowledge/fill-fields")
+async def fill_fields_stream(
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """'채우기' — 사용자가 비워둔 안건 필드(담당 부서)·우선순위·완료 상태를 맥락에 맞게 자동 보정한다.
+
+    기존 analyze-relationships('관계 재설정')와 달리 노드 메타데이터를 채우는 데 집중한다.
+    스코프: 사용자가 속한 회의체(관리자는 자사 구성원 회의체까지).
+    """
+    is_admin = current_user.company_role == "SYSTEM_ADMIN"
+    pg_meeting_ids = {
+        row.meeting_id
+        for row in db.query(models.MeetingMember.meeting_id)
+        .filter(models.MeetingMember.user_id == current_user.id)
+        .all()
+    }
+    if is_admin or (
+        current_user.company_role == "COMPANY_ADMIN"
+        and current_user.company_id is not None
+    ):
+        q = db.query(models.MeetingMember.meeting_id).join(
+            models.User, models.User.id == models.MeetingMember.user_id
+        )
+        if not is_admin:
+            q = q.filter(models.User.company_id == current_user.company_id)
+        pg_meeting_ids |= {row.meeting_id for row in q.all()}
+    meeting_ids = list(pg_meeting_ids)
+
+    background_tasks.add_task(
+        _log_activity,
+        0,
+        "워크메이트[채우기]",
+        "안건 필드 채우기",
+        f"요청자: {current_user.name}",
+    )
+
+    async def stream():
+        _collector = TokenUsageCollector()
+        _tok_ctx_token = _token_collector_var.set(_collector)
+        _log_id = _create_log(
+            context_type="archive_analyze_stream",
+            meeting_id=None,
+            session_id=None,
+            user_id=current_user.id,
+            input_data=None,
+        )
+        _stream_error: BaseException | None = None
+        _assistant_chunks: list[str] = []
+        try:
+            async for _step in _stream_plan(
+                "안건의 비어있는 필드와 우선순위·완료 상태를 점검하는 AI입니다. "
+                "어떤 작업을 할지 한국어로 2~3단계 간결하게 나열하세요. 번호·기호 없이.",
+                "회의 안건의 비어있는 담당 부서·우선순위·완료 상태를 맥락에 맞게 채웁니다.",
+            ):
+                yield sse_event("planning", f"{_step}")
+
+            result = await knowledge_agent.fill_agenda_fields(meeting_ids)
+            actions = cast(list, result.get("actions", []))
+            stats = cast(dict, result.get("stats", {}))
+
+            for a in actions[:30]:
+                _ch = " · ".join(a.get("changed", []))
+                yield sse_event("planning", f"{a.get('detail', '')} {_ch}".strip())
+
+            _hl = [a["highlight"] for a in actions if a.get("highlight")]
+            if _hl:
+                yield sse_event("highlight", _hl)
+
+            # 결과 요약 스트리밍
+            from llm.llm_factory import llm_factory
+            from langchain_core.messages import (
+                SystemMessage as _Sys,
+                HumanMessage as _Hmn,
+            )
+
+            _sum_sys = (
+                "회의 안건의 비어있는 필드·우선순위·완료 상태를 자동 보정한 결과를 사용자에게 보고하는 비서입니다. "
+                "무엇을 몇 건 채웠는지와 대표 예시 1~2개를 한국어로 간결하게(마크다운·번호·기호 없이). "
+                "변경이 하나도 없으면 '추가로 채울 수 있는 빈 항목을 찾지 못했습니다'라고만 답하세요. 마무리 인사 금지."
+            )
+            _sum_hmn = (
+                f"부서 채움 {stats.get('department', 0)}건, 마감일 채움 {stats.get('due_date', 0)}건, "
+                f"우선순위 보정 {stats.get('priority', 0)}건, 상태 보정 {stats.get('status', 0)}건.\n"
+                + "\n".join(
+                    f"- {a.get('detail', '')} {' · '.join(a.get('changed', []))}: {a.get('evidence', '')}"
+                    for a in actions[:12]
+                )
+            )
+            async for _c in llm_factory("knowledge", streaming=True).astream(
+                [_Sys(content=_sum_sys), _Hmn(content=_sum_hmn)]
+            ):
+                _t = _c.content if isinstance(_c.content, str) else str(_c.content)
+                if _t:
+                    _assistant_chunks.append(_t)
+                    yield sse_token(_t)
+
+        except Exception as e:
+            _stream_error = e
+            yield sse_error(f"채우기 중 오류가 발생했습니다: {str(e)}")
+        except BaseException as _e:
+            _stream_error = _e
+            raise
+        finally:
+            _token_collector_var.reset(_tok_ctx_token)
+            _finalize(_log_id, _collector, _stream_error, None)
+            try:
+                _assistant_text = "".join(_assistant_chunks).strip()
+                _thread_id = f"archive_{current_user.id}"
+                _save_db = SessionLocal()
+                try:
+                    _save_db.add(
+                        models.ChatMessage(
+                            thread_id=_thread_id,
+                            user_id=current_user.id,
+                            role="user",
+                            content="비어있는 안건 필드와 우선순위·상태를 맥락에 맞게 채워줘",
+                            context_type="supervisor",
+                        )
+                    )
+                    if _assistant_text:
+                        _save_db.add(
+                            models.ChatMessage(
+                                thread_id=_thread_id,
+                                user_id=current_user.id,
+                                role="assistant",
+                                content=_assistant_text,
+                                context_type="supervisor",
+                            )
+                        )
+                    _save_db.commit()
+                finally:
+                    _save_db.close()
+            except Exception as _persist_err:
+                logger.warning(f"[fill-fields] 채팅 기록 저장 실패: {_persist_err}")
         yield sse_done()
 
     return StreamingResponse(stream(), media_type="text/event-stream")

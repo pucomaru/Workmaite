@@ -85,23 +85,41 @@ _SYSTEM = """\
 - 도구가 "[작업 불가] …"를 반환하면(권한 없음·대상 없음 등) 그 사유를 사용자에게 그대로, 친절히 설명하세요. 왜 안 되는지 사용자가 이해하도록.
 """
 
-_agent = None
+# 모델별 컴파일된 에이전트 캐시. 단일 싱글톤으로 캐시하면 첫 빌드 모델로 고정되어
+# 사용자의 model-select-btn 선택(model_override_var)이 무시됐다(버그). 도구·프롬프트는
+# 정적이고 모델만 요청마다 달라지므로, 해석된 모델명을 키로 에이전트를 캐시한다.
+_agents: dict[str, object] = {}
+
+
+def _resolve_chat_model() -> str:
+    """현재 요청의 chat 모델명. 사용자 선택(model_override_var) > OPENAI_MODEL_CHAT > OPENAI_MODEL."""
+    import os
+    from llm.llm_factory import model_override_var
+
+    return (
+        model_override_var.get()
+        or os.environ.get("OPENAI_MODEL_CHAT")
+        or os.environ.get("OPENAI_MODEL", "gpt-4o")
+    )
 
 
 def _get_agent():
-    global _agent
-    if _agent is None:
+    # llm_factory("chat")도 동일하게 model_override_var를 먼저 읽으므로 키와 실제 모델이 일치한다.
+    model = _resolve_chat_model()
+    agent = _agents.get(model)
+    if agent is None:
         from langgraph.prebuilt import create_react_agent
         from llm.llm_factory import llm_factory
         from tools.meeting_tools import SUPERVISOR_TOOLS
         from tools.action_tools import ACTION_TOOLS
 
-        _agent = create_react_agent(
+        agent = create_react_agent(
             model=llm_factory("chat", temperature=0.2),
             tools=SUPERVISOR_TOOLS + ACTION_TOOLS,
             prompt=_SYSTEM,
         )
-    return _agent
+        _agents[model] = agent
+    return agent
 
 
 def _build_agent_hint(

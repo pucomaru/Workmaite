@@ -140,8 +140,8 @@ async function remove() {
                 placeholder="example@company.com"
               />
               <input
-                id="member-email-disabled"
-                name="member-email-disabled"
+                id="member-email"
+                name="member-email"
                 v-else
                 :value="form.email"
                 autocomplete="off"

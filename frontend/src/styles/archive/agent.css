@@ -30,6 +30,7 @@
   }
 }
 .agent-header-btn {
+  width: 34px;
   padding: 5px 12px;
   border-radius: 6px;
   border: 1px solid rgba(123, 128, 204, 0.4);
@@ -639,6 +640,51 @@ html.night-mode .agent-step-data .agent-step-text {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
 }
+
+/* ── 응답 중: 컴포저 테두리가 은은한 무지개빛으로 빛난다 (loading=true → .responding) ── */
+@property --composer-ang {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.agent-composer.responding {
+  box-shadow: 0 0 16px 1px rgba(130, 140, 255, 0.22);
+}
+.agent-composer.responding::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit; ;
+  padding: 1.2px;
+  background: conic-gradient(
+    from var(--composer-ang),
+    #ff6b6b,
+    #ffd166,
+    #06d6a0,
+    #4facfe,
+    #b06ab3,
+    #ff6b6b
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 1;
+  animation: composer-rainbow-spin 4s linear infinite;
+}
+@keyframes composer-rainbow-spin {
+  to {
+    --composer-ang: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-composer.responding::before {
+    animation: none;
+  }
+}
 .agent-composer-toolbar {
   display: flex;
   align-items: center;
@@ -740,12 +786,22 @@ html.night-mode .model-menu-item:hover {
   gap: 4px;
   margin: 0;
 }
+/* 노드 타입별 동그란 색상 아이콘 (그래프 legend와 동일) — @메뉴·컨텍스트 칩 공용 */
+.at-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
 .agent-ctx-chip {
   font-size: 11px;
   background: #f0fdf4;
   border: 1px solid #86efac;
-  border-radius: 4px;
-  padding: 2px 5px 2px 7px;
+  border-radius: 9px;
+  padding: 2px 8px 2px 5px;
   color: #166534;
   display: flex;
   align-items: center;
@@ -765,12 +821,39 @@ html.night-mode .model-menu-item:hover {
   opacity: 1;
 }
 html.night-mode .agent-ctx-chip {
-  background: #052e16;
-  border-color: #166534;
-  color: #4ade80;
+  background: #17213aa2;
+  border-color: #202338;
+  color: #7f9ee0;
 }
 html.night-mode .ctx-chip-remove {
-  color: #4ade80;
+  color: #4ac8de;
+}
+
+/* 컨텍스트 칩 좌측 토글 버튼 (pinned=X 제거 / 미고정=핀 고정) — 색은 칩의 currentColor 상속 */
+.ctx-chip-act {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  border-radius: 50%;
+}
+.ctx-chip-act:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.ctx-chip-text {
+  white-space: nowrap;
+}
+/* 선택(pinned) 칩 — --accent-soft 색상 */
+.agent-ctx-chip.pinned {
+  border-color: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 14%, transparent);
+  color: var(--accent-soft);
 }
 
 /* 사용자 메시지 context chips */

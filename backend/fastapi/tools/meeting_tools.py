@@ -192,6 +192,34 @@ async def search_with_context(query: str, config: RunnableConfig) -> str:
         return f"검색 중 오류: {e}"
 
 
+@tool
+async def graph_query(question: str, config: RunnableConfig) -> str:
+    """자연어 질문을 그래프 질의로 바꿔 회의 지식그래프에서 답을 찾는다 (집계·다단계 관계 전용, 읽기전용).
+
+    고정 조회 도구(list_agendas·get_meeting_status·report_submission_status 등)로 풀기 어려운
+    질문에만 사용한다:
+    - 집계/통계: "부서별 미완료 안건 수", "보고서를 가장 많이 제출한 회의체"
+    - 다단계 관계: "이 안건과 연결된 회의록을 작성한 사람", "협의 관계인 회의체들의 간사"
+    접근 가능한 회의체 범위로만 조회되며, 데이터 변경(생성·수정·삭제)은 불가능하다.
+    단순 단건 조회는 전용 도구가 더 정확하므로 그쪽을 먼저 쓴다.
+    """
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
+    try:
+        from graphdb.graphrag_text2cypher import graph_nl_query
+
+        out = await graph_nl_query(question, list(allowed), is_admin)
+        if out.get("message"):
+            return out["message"]
+        rows = out.get("rows") or []
+        if not rows:
+            return "조건에 맞는 결과를 찾지 못했습니다."
+        body = "\n".join(f"- {str(r)[:300]}" for r in rows[:_LIMIT])
+        return f"[그래프 질의 결과 {len(rows)}건]\n{body}"
+    except Exception as e:
+        logger.warning(f"[tools] graph_query 실패: {e}")
+        return f"그래프 질의 중 오류가 발생했습니다: {e}. 다른 도구를 쓰거나 질문을 바꿔보세요."
+
+
 _TRANSCRIPT_LIMIT = 80
 
 
@@ -240,4 +268,5 @@ SUPERVISOR_TOOLS = [
     search_minutes,
     search_with_context,
     get_meeting_transcript,
+    graph_query,
 ]

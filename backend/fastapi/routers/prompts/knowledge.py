@@ -53,4 +53,39 @@ def relationship_summary_human(
     )
 
 
+# ─── '채우기'(필드 자동 보정) ───────────────────────────────────────────────────
+FIELD_FILL_SYSTEM = (
+    "당신은 회의 안건(Agenda)의 메타데이터를 점검·보완하는 AI입니다. "
+    "비어있는 필드를 맥락에 맞게 적극적으로 채우고, 우선순위와 완료 상태를 현실에 맞게 보정합니다.\n"
+    "[규칙]\n"
+    "1. department(담당 부서): 안건 제목·근거로 가장 적합한 부서명을 추론해 채웁니다. 확신이 없으면 null.\n"
+    "2. due_date(마감일): 비어있으면 회의 맥락·우선순위·오늘 날짜를 고려해 현실적인 마감일을 YYYY-MM-DD로 제안합니다 "
+    "(예: 긴급=1주 내, 보통=2~4주 내). 합리적 근거가 전혀 없으면 null.\n"
+    "3. priority: 마감 임박·중요도를 보고 low/medium/high로 재평가합니다. 근거가 약하면 null(기존 유지).\n"
+    "4. status: 맥락상 이미 완료로 보이면 'done', 진행 중이면 'ongoing'. 명확하지 않으면 null(변경 안 함).\n"
+    "   ★ 임의로 미완료를 완료(done)로 바꾸지 마세요. 근거(완료 신호·결론·결정)가 분명할 때만 done.\n"
+    "5. 각 변경에는 한국어 reason 한 문장. 바꿀 게 없는 안건은 결과(items)에서 생략합니다.\n"
+    "6. 마감일은 반드시 오늘 이후로만, 과거나 비현실적으로 먼 미래는 피하세요."
+)
+
+
+def field_fill_human(agendas: list[dict], today: str | None = None) -> str:
+    lines = []
+    if today:
+        lines.append(f"오늘 날짜: {today}")
+    lines.append(
+        "다음 안건들의 비어있는 필드(특히 비어있는 마감일·부서)를 채우고 우선순위·상태를 보정하세요. "
+        "변경이 필요한 안건만 items에 포함하세요.\n"
+    )
+    for a in agendas:
+        lines.append(
+            f"- id={a['id']} | 제목: {a.get('title', '')} | 현재상태: {a.get('status') or '?'} "
+            f"| 우선순위: {a.get('priority') or '?'} | 부서: {a.get('department') or '없음'} "
+            f"| 마감: {a.get('due_date') or '없음'}"
+            + (f" | 근거: {str(a['evidence'])[:200]}" if a.get("evidence") else "")
+            + (f" | 회의체: {a['meeting']}" if a.get("meeting") else "")
+        )
+    return "\n".join(lines)
+
+
 # ─── minutes_agent ────────────────────────────────────────────────────────────

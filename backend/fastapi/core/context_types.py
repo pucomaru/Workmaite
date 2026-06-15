@@ -15,6 +15,7 @@ SUPERVISOR = "supervisor"
 AGENDA_EXTRACTION = "agenda_extraction"
 AGENDA_COMMIT = "agenda_commit"
 FILE_EMBED = "file_embed"  # 파일 임베딩 사용량 귀속 (P2)
+STT_TERM_CORRECTION = "stt_term_correction"  # 실시간 전사 전문용어 교정 (realtime)
 
 # usage 대시보드 분류 그룹
 TASK_CONTEXTS = {TASK_EXTRACT}
@@ -52,6 +53,7 @@ CONTEXT_LABELS = {
     MINUTES_GENERATE: "회의록 생성",
     MINUTES_STREAM: "회의록 생성",
     FILE_EMBED: "파일 임베딩",
+    STT_TERM_CORRECTION: "전문용어 교정",
 }
 
 # context_type → 색상/요약용 에이전트 그룹 키
@@ -66,6 +68,8 @@ AGENT_GROUPS = {
     MINUTES_GENERATE: "minutes",
     MINUTES_STREAM: "minutes",
     FILE_EMBED: "embedding",
+    # 실시간 전사 전문용어 교정은 회의 진행 중 발생 → 에이전트별 사용량에서 "회의" 그룹으로.
+    STT_TERM_CORRECTION: "meeting",
 }
 AGENT_LABELS = {
     "supervisor": "오케스트레이션",
@@ -73,9 +77,18 @@ AGENT_LABELS = {
     "report": "보고서 검토",
     "minutes": "회의록 생성",
     "embedding": "파일 임베딩",
+    "meeting": "회의",
     "other": "기타",
 }
-AGENT_ORDER = ["supervisor", "agenda", "report", "minutes", "embedding", "other"]
+AGENT_ORDER = [
+    "supervisor",
+    "agenda",
+    "report",
+    "minutes",
+    "embedding",
+    "meeting",
+    "other",
+]
 
 
 def context_label(ctx: str) -> str:

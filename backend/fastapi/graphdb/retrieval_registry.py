@@ -281,7 +281,7 @@ async def graph_expanded_search(
             paths = await run_cypher(
                 "MATCH (ag:Agenda {title: $title}) "
                 "OPTIONAL MATCH (ag)--(s:Session) "
-                "OPTIONAL MATCH (ag)<-[:`첨부`]-(r:Report) "
+                "OPTIONAL MATCH (ag)<-[:`도출`]-(r:Report) "
                 # 관계도 분석(reconcile)이 만든 '관련' 안건·'도출' 회의록을 답변 근거로 함께 노출
                 "OPTIONAL MATCH (ag)-[:`관련`]-(rel:Agenda) "
                 "OPTIONAL MATCH (mn:Minutes)-[:`도출`]->(ag) "

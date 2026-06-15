@@ -7,6 +7,8 @@ const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   lockedUserId: { type: Number, default: null },
   nightMode: { type: Boolean, default: false },
+  // true면 역할 선택 UI를 숨긴다(역할이 자동 결정되는 회의 생성 모달용). 멤버 객체의 role은 유지.
+  hideRole: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -122,9 +124,16 @@ function updateRole(idx, role) {
           </span>
           <span class="mi-email">{{ mb.position || mb.department || mb.email }}</span>
         </div>
-        <select :value="mb.role" @change="updateRole(idx, $event.target.value)" name="role" class="app-select">
+        <select
+          v-if="!hideRole"
+          :value="mb.role"
+          @change="updateRole(idx, $event.target.value)"
+          name="role"
+          class="app-select"
+        >
           <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
         </select>
+        <span v-else class="mi-role-text">{{ ROLE_MAP[mb.role] || '참여자' }}</span>
         <button
           v-if="mb.userId !== lockedUserId"
           class="mi-remove"
@@ -249,8 +258,7 @@ function updateRole(idx, role) {
   align-items: center;
   gap: 10px;
   padding: 5px 6px;
-  border-radius: 7px;
-  transition: background 0.1s;
+  border-radius: 7px; 
 }
 .mi-member-row:hover {
   background: var(--surface);
@@ -269,6 +277,12 @@ function updateRole(idx, role) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.mi-role-text {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
 .mi-email {
   font-size: 11px;

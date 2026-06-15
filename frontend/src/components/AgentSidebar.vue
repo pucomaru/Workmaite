@@ -1,6 +1,7 @@
 <script setup>
 import { inject, ref, onMounted } from 'vue'
 import { renderMd } from '../composables/useMarkdown'
+import { atTypeDot } from '../composables/useAgentMention'
 import AgentComposer from './AgentComposer.vue'
 import { promptDialog } from '../composables/useConfirm'
 
@@ -22,6 +23,7 @@ const {
   agentPendingFiles,
   mentionedContexts,
   removeMentionCtx,
+  setCtxPinned,
   agentTextareaEl,
   agentInput,
   onAgentInput,
@@ -352,9 +354,10 @@ function onResizeEnd() {
           <div v-else-if="msg.role === 'user'" class="agent-bubble user">
             <div>{{ msg.content }}</div>
             <div v-if="msg.contexts?.length" class="user-ctx-chips">
-              <span v-for="c in msg.contexts" :key="c.id" class="user-ctx-chip"
-                >{{ c.icon }} {{ c.label }}</span
-              >
+              <span v-for="c in msg.contexts" :key="c.id" class="user-ctx-chip">
+                <span class="at-dot" :style="{ background: atTypeDot(c.type) }"></span>
+                {{ c.label }}
+              </span>
             </div>
           </div>
 
@@ -417,6 +420,7 @@ function onResizeEnd() {
         @stop="stopAgentResponse"
         @select-at-item="selectAtItem"
         @remove-ctx="removeMentionCtx"
+        @pin-ctx="setCtxPinned"
         @file-change="onAgentFileSelected"
         @ready="onComposerReady"
       />

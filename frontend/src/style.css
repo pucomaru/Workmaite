@@ -741,11 +741,11 @@ html.night-mode .ps-readonly-tag {
 
 /* 버튼 */
 html.night-mode .btn-ghost {
-  color: var(--text-muted) !important;
+  color: #fff !important;
 }
 html.night-mode .btn-ghost:hover {
   background: var(--bg-card) !important;
-  color: var(--text) !important;
+  color: #fff !important;
 }
 html.night-mode .btn-outline,
 html.night-mode .btn-outline-secondary {
@@ -810,7 +810,7 @@ html.night-mode h3,
 html.night-mode h4,
 html.night-mode h5,
 html.night-mode h6 {
-  color: var(--text) !important;
+  color: var(--dark-text) !important;
 }
 html.night-mode p {
   color: var(--dark-text-2);
@@ -1408,13 +1408,14 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   flex-direction: column;
   overflow: hidden;
   resize: both;
-  min-width: 360px;
+  max-width: 92vw;
 }
 .app-modal-sm {
   width: 480px;
 }
 .app-modal-md {
-  width: 480px;
+  width: auto;
+  max-width: 680px;
 }
 .app-modal-lg {
   width: 680px;
