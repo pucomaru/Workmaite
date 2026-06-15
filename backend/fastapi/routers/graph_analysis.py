@@ -71,7 +71,7 @@ async def _analyze_graph() -> dict:
     # ⓪ 세션 시간순 체인 점검
     try:
         ch_rows = await run_cypher(
-            "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings) "
+            "MATCH (s:Session)-[:`소속`]->(mg:Meetings) "
             "WITH mg, s ORDER BY CASE WHEN coalesce(s.scheduled_at,'')='' THEN 1 ELSE 0 END, "
             "     s.scheduled_at, s.id "
             "WITH mg, collect({id:s.id, title:coalesce(s.title,'')}) AS sess "
@@ -113,7 +113,7 @@ async def _analyze_graph() -> dict:
     # ⓪-b 회의 생명주기 공백
     try:
         lg_rows = await run_cypher(
-            "MATCH (mn:Minutes)-[:`생성`]->(s:Session)-[:`소속`|`개최`]->(mg:Meetings) "
+            "MATCH (mn:Minutes)-[:`기록`]->(s:Session)-[:`소속`]->(mg:Meetings) "
             "WHERE coalesce(mn.content_summary,'') <> '' AND NOT (mn)-[:`도출`]->(:Agenda) "
             "OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg) "
             "WITH mn, s, mg, collect(DISTINCT {id: coalesce(ag.id, toString(ag.pg_id)), title: ag.title})[..25] AS ags "
@@ -173,7 +173,8 @@ async def _analyze_graph() -> dict:
             "CALL db.index.vector.queryNodes('agendaEmbedding', 3, d.embedding) "
             "YIELD node, score "
             "WITH d, node, score "
-            "WHERE score >= $th AND NOT (d)-[:`첨부`]->(node) AND NOT (d)-[:`참조`]->(node) "
+            # 안건으로 들어오는 문서 관계는 첨부(보고자료)·도출(회의록)뿐 — 이미 연결된 건 제외
+            "WHERE score >= $th AND NOT (d)-[:`첨부`]->(node) AND NOT (d)-[:`도출`]->(node) "
             "RETURN d.id AS doc_id, coalesce(d.title, d.file_name) AS doc_title, "
             "       node.id AS ag_id, node.title AS ag_title, score "
             "ORDER BY score DESC LIMIT 30",
@@ -223,7 +224,7 @@ async def _analyze_graph() -> dict:
     # ② 구조 공백 — 회의록 없는 세션
     try:
         rows = await run_cypher(
-            "MATCH (s:Session) WHERE NOT (:Minutes)-[:`생성`]->(s) "
+            "MATCH (s:Session) WHERE NOT (:Minutes)-[:`기록`]->(s) "
             "OPTIONAL MATCH (s)-[:`소속`]->(mg:Meetings) "
             "RETURN s.id AS id, mg.title AS mg LIMIT 50"
         )
@@ -347,12 +348,14 @@ async def _analyze_graph() -> dict:
     except Exception:
         pass
 
-    # weak 참조 (낙은 유사도 자동 문서-안건 연결)
+    # weak 문서→안건 (낮은 유사도 자동 첨부/도출 연결 — AI가 discovered_by로 생성한 것만)
+    # 라이프사이클 도출(r.kind 보유)·사용자 수동 연결은 제외한다.
     try:
         rows = await run_cypher(
-            "MATCH (d)-[r:`참조`]->(ag:Agenda) "
-            "WHERE (d:Report OR d:Minutes) AND r.discovered_by = 'knowledge_agent' AND r.score IS NOT NULL AND r.score < $th "
-            "RETURN d.id AS from_id, ag.id AS to_id, "
+            "MATCH (d)-[r:`첨부`|`도출`]->(ag:Agenda) "
+            "WHERE (d:Report OR d:Minutes) AND r.discovered_by = 'knowledge_agent' "
+            "  AND r.kind IS NULL AND r.score IS NOT NULL AND r.score < $th "
+            "RETURN d.id AS from_id, ag.id AS to_id, type(r) AS rel, "
             "       coalesce(d.title, d.file_name, '?') AS doc_title, ag.title AS ag_title, r.score AS score "
             "LIMIT 30",
             {"th": _PRUNE_THRESHOLD},
@@ -364,7 +367,7 @@ async def _analyze_graph() -> dict:
                     "from_id": r.get("from_id"),
                     "to_id": r.get("to_id"),
                     "label": f"문서[{r.get('doc_title', '?')}]→안건[{r.get('ag_title', '?')}] ({float(r.get('score') or 0) * 100:.0f}%)",
-                    "rel": "참조",
+                    "rel": r.get("rel", "첨부"),
                     "score": float(r.get("score") or 0),
                 }
             )
@@ -432,22 +435,29 @@ async def _normalize_rel_directions() -> dict:
             "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
             "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r",
         ),
-        # ── 라이프사이클 방향 정규화 ───────────────────────────────────
+        # ── 폐지 관계 purge ──────────────────────────────────────────────
+        # canonical(논의·기록)은 PG sync가 만든다. 과거 reconcile/인코딩 버그가 남긴 잔재
+        # (다룸멌·다룸·진행·생성)는 마이그레이션 없이 삭제만 한다. 정상 경로(sync·버튼·reconcile)는
+        # 더이상 이 이름을 만들지 않으므로, 그래프가 한 번 정리되면 이 purge 단계도 제거 가능.
         (
-            "'다룸멌' 명칭·방향 정규화 → 아젠다→회의 (다룸)",
-            "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) RETURN count(r) AS cnt",
-            "MATCH (s:Session)-[r:`다룸멌`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r",
+            "폐지 관계 '다룸멌'(깨진 이름) 삭제",
+            "MATCH ()-[r:`다룸멌`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`다룸멌`]->() DELETE r",
         ),
         (
-            "회의→아젠다 '다룸' 방향 정규화",
-            "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) RETURN count(r) AS cnt",
-            "MATCH (s:Session)-[r:`다룸`]->(ag:Agenda) MERGE (ag)-[:`다룸`]->(s) DELETE r",
+            "폐지 관계 '다룸' 삭제 (canonical=논의)",
+            "MATCH ()-[r:`다룸`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`다룸`]->() DELETE r",
         ),
-        # ── 누락 연결 보완 ─────────────────────────────────────────────
         (
-            "부서-회사 누락 연결 보완 (소속, 작은→큰)",
-            "MATCH (d:Department) WHERE NOT (d)-[:`소속`]->(:Company) RETURN count(d) AS cnt",
-            "MATCH (d:Department), (co:Company) WHERE NOT (d)-[:`소속`]->(co) MERGE (d)-[:`소속`]->(co)",
+            "폐지 관계 '진행' 삭제 (canonical=논의)",
+            "MATCH ()-[r:`진행`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`진행`]->() DELETE r",
+        ),
+        (
+            "폐지 관계 '생성' 삭제 (canonical=기록)",
+            "MATCH ()-[r:`생성`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`생성`]->() DELETE r",
         ),
     ]
 
@@ -528,11 +538,9 @@ async def analyze_relationships_stream(
             # 세션→안건 미연결 건수 (원칙: 회의는 아젠다와 연결되어야 한다)
             try:
                 _sa_rows = await run_cypher(
-                    "MATCH (s:Session)-[:`소속`|`개최`]->(mg:Meetings) "
+                    "MATCH (s:Session)-[:`소속`]->(mg:Meetings) "
                     "WHERE (mg)<-[:`관할`]-(:Agenda) "
-                    "  AND NOT (s)-[:`진행`|`다룸`|`도출`]->(:Agenda) "
-                    "  AND NOT (:Agenda)-[:`다룸`]->(s) "
-                    "  AND NOT (:Agenda)-[:`발제세션`]->(s) "
+                    "  AND NOT (:Agenda)-[:`논의`]->(s) "
                     "RETURN count(s) AS cnt"
                 )
                 session_no_agenda_n = _sa_rows[0].get("cnt", 0) if _sa_rows else 0

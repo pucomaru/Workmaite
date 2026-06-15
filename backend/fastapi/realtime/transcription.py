@@ -28,6 +28,7 @@ from jose import JWTError, jwt
 
 from core.auth import SECRET_KEY, ALGORITHMS
 from core.access_guard import require_meeting_member_by_session
+from core.stt_prompt import build_vocab_prompt
 from db.database import SessionLocal
 from db import models
 from db.models import SttSegment
@@ -134,6 +135,15 @@ def _user_id_from_token(token: str):
         return None
 
 
+def _vocab_prompt(session_id) -> str:
+    """전사 어휘 힌트(회의 제목·참석자·부서) 생성 — 블로킹 DB라 to_thread로 호출."""
+    db = SessionLocal()
+    try:
+        return build_vocab_prompt(db, session_id)
+    finally:
+        db.close()
+
+
 def _authorize(user_id: int, session_id: int) -> bool:
     """세션이 속한 회의체 멤버인지 검증 (블로킹 DB — to_thread로 호출)."""
     db = SessionLocal()
@@ -232,9 +242,18 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
         ) as oai:
             # GA Realtime 전사 세션 설정 — session.update + session.type=transcription +
             # 중첩 audio.input(format/transcription).
+            # 도메인 어휘 프롬프트(회의 제목·참석자·부서) — 고유명사 인식률 향상 (P-STT1).
+            # prompt는 지원 모델에만 주입한다 — gpt-realtime-whisper는 미지원이라 넣으면
+            # session.update 전체가 "'prompt' parameter is not supported" 오류로 거부된다.
+            _transcription_cfg = {"model": model, "language": lang}
+            if model.startswith(("gpt-4o-transcribe", "gpt-4o-mini-transcribe")):
+                vocab_prompt = await asyncio.to_thread(_vocab_prompt, session_id)
+                if vocab_prompt:
+                    _transcription_cfg["prompt"] = vocab_prompt
+                    logger.info(f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…")
             _input_cfg = {
                 "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
-                "transcription": {"model": model, "language": lang},
+                "transcription": _transcription_cfg,
             }
             # turn_detection(server_vad)은 지원 모델에만 추가 — 침묵(silence_duration) 기준으로
             # 발화를 끊어 문장 단위에 가깝게 분절한다. gpt-realtime-whisper는 turn_detection을

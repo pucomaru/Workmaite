@@ -38,9 +38,6 @@ function navigate(dir) {
   cursor.value = d
   fetchCalendar()
 }
-function goToday() {
-  cursor.value = new Date()
-}
 
 const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -230,6 +227,8 @@ async function hydrateMeetingMeta() {
     const { data: activeMeetingsData } = await api.get('/api/v1/me/meetings')
     ;(activeMeetingsData ?? []).forEach(r => {
       adminMap[r.meetingId] = { adminName: r.adminName || '', memberCount: r.memberCount ?? 0 }
+      // /me/meetings 와 /meetings 의 my_role 을 정렬 — 둘 중 값이 있는 쪽을 역할로 사용
+      if (r.my_role != null) meetingsStore.meetingRoles[r.meetingId] = r.my_role
     })
   } catch {}
 
@@ -384,7 +383,7 @@ const {
           </template>
         </div>
 
-        <!-- ②③ 하단 2열: 진행중인 회의체 + 달력 -->
+        <!-- ②③ 하단 2열: 진행 중 회의체 + 달력 -->
         <div class="main-grid">
           <!-- ② 회의체 섹션 -->
           <div class="meetings-section">
@@ -406,7 +405,7 @@ const {
                   <line x1="12" y1="14" x2="17.4" y2="15.6" />
                   <line x1="12" y1="14" x2="6.6" y2="15.6" />
                 </svg>
-                진행중인 회의체
+                진행 중 회의체
                 <span class="section-count">({{ displayActiveMeetings.length }}건)</span>
               </h6>
             </div>

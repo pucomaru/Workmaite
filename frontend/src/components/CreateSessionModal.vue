@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
 import MemberInvite from './MemberInvite.vue'

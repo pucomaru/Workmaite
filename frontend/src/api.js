@@ -154,7 +154,15 @@ apiAI.interceptors.response.use(
 // ── Streaming (FastAPI) ────────────────────────────────────────────────────
 // SSE v2(event: 필드 기반, P3A-6)와 v1([PLANNING] 등 data 프리픽스) 모두 파싱.
 // v2는 LLM 출력에 'data:'/'[DONE]'이 섞여도 오동작하지 않는다 (FE-2).
-async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult) {
+async function _readSseStream(
+  response,
+  onChunk,
+  onDone,
+  onPlanning,
+  onHighlight,
+  onResult,
+  onAction,
+) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -181,6 +189,13 @@ async function _readSseStream(response, onChunk, onDone, onPlanning, onHighlight
       case 'highlight': {
         try {
           onHighlight?.(JSON.parse(data))
+        } catch {}
+        break
+      }
+      case 'action_confirm': {
+        // 에이전트 쓰기 제안 — 확인 카드 spec {operation,entity,target_id,summary,danger,exec}
+        try {
+          onAction?.(JSON.parse(data))
         } catch {}
         break
       }
@@ -291,7 +306,15 @@ export async function streamPost(
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
   try {
-    await _readSseStream(response, onChunk, onDone, onPlanning, onHighlight, onResult)
+    await _readSseStream(
+      response,
+      onChunk,
+      onDone,
+      onPlanning,
+      onHighlight,
+      onResult,
+      options.onAction,
+    )
   } catch (e) {
     if (e.name === 'AbortError') {
       onDone?.()
