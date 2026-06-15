@@ -1007,10 +1007,44 @@ async def update_report(
         report.file_name = data["file_name"]
     if "submitter_department" in data and data["submitter_department"] is not None:
         report.submitter_department = data["submitter_department"]
+    new_human_status = None
     if "human_status" in data and data["human_status"] is not None:
-        report.human_status = data["human_status"]
+        new_human_status = data["human_status"]
+        report.human_status = new_human_status
     db.commit()
     db.refresh(report)
+
+    # 반려 시: 연관 아젠다 중 다른 승인된 보고서가 없는 것은 ongoing으로 되돌리기
+    agendas_to_revert: list = []
+    if new_human_status == "rejected":
+        from sqlalchemy import cast as _cast
+        from sqlalchemy.dialects.postgresql import JSONB as _JSONB
+
+        related_ids = [int(i) for i in (report.related_agenda_ids or []) if str(i).isdigit()]
+        for ag_id in related_ids:
+            still_approved = (
+                db.query(models.Report)
+                .filter(
+                    models.Report.id != report.id,
+                    models.Report.human_status == "approved",
+                    _cast(models.Report.related_agenda_ids, _JSONB).op("@>")(
+                        _cast([ag_id], _JSONB)
+                    ),
+                )
+                .first()
+            )
+            if not still_approved:
+                agenda = (
+                    db.query(models.Agenda)
+                    .filter(models.Agenda.id == ag_id, models.Agenda.status == "done")
+                    .first()
+                )
+                if agenda:
+                    agenda.status = "ongoing"
+                    agendas_to_revert.append(agenda)
+        if agendas_to_revert:
+            db.commit()
+
     from graphdb.neo4j_sync import sync_report as _sync_rp
 
     background_tasks.add_task(
@@ -1023,6 +1057,27 @@ async def update_report(
         human_status=report.human_status,
         related_agenda_ids=report.related_agenda_ids or [],
     )
+
+    if agendas_to_revert:
+        from graphdb.neo4j_sync import sync_agenda as _sync_agenda
+        import json as _json
+
+        for ag in agendas_to_revert:
+            dept_str = (
+                _json.dumps(ag.department, ensure_ascii=False)
+                if isinstance(ag.department, (list, dict))
+                else (ag.department or "")
+            )
+            background_tasks.add_task(
+                _sync_agenda,
+                agenda_id=ag.id,
+                meeting_id=ag.meeting_id,
+                title=ag.title or "",
+                status="ongoing",
+                due_date=ag.due_date.isoformat() if ag.due_date else None,
+                department=dept_str,
+            )
+
     return {
         "ok": True,
         "id": report.id,
