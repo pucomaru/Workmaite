@@ -732,7 +732,7 @@ async def sync_minutes(
     WITH mn
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (s)-[:`기록`]->(mn)
+        MERGE (mn)-[:`기록`]->(s)
     )
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
@@ -1123,7 +1123,7 @@ async def delete_meeting(meeting_id: int) -> None:
         """
         MATCH (mg:Meetings {id: $id})
         OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
-        OPTIONAL MATCH (mn:Minutes)-[:`기록`]<-(s)
+        OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
         OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg)
         OPTIONAL MATCH (r:Report)-[:`첨부`]->(mg)
         OPTIONAL MATCH (rc:ReportChunk)-[:`청크`]->(r)

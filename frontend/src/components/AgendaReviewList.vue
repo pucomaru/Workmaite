@@ -123,8 +123,12 @@ async function saveFeedback(i) {
 }
 
 function fmtDate(d) {
-  if (!d) return ''
+  if (!d || d === 'null' || d === 'NULL') return ''
   return d.replace(/-/g, '.')
+}
+
+function validDate(d) {
+  return !!d && d !== 'null' && d !== 'NULL'
 }
 
 function deptList(dept) {
@@ -201,18 +205,13 @@ function deptList(dept) {
               </div>
             </div>
             <div class="arl-title">{{ ag.title }}</div>
-            <div class="arl-meta" v-if="ag.company || ag.dept || ag.start_date || ag.end_date">
-              <div class="arl-tags" v-if="ag.company">
-                <span class="arl-tag arl-tag-company" v-for="o in deptList(ag.company)" :key="o">{{
-                  o
-                }}</span>
-              </div>
+            <div class="arl-meta" v-if="ag.dept || ag.start_date || ag.end_date">
               <div class="arl-tags" v-if="ag.dept">
                 <span class="arl-tag arl-tag-dept" v-for="d in deptList(ag.dept)" :key="d">{{
                   d
                 }}</span>
               </div>
-              <div class="arl-date-range" v-if="ag.start_date || ag.end_date">
+              <div class="arl-date-range" v-if="validDate(ag.start_date) || validDate(ag.end_date)">
                 <svg
                   width="10"
                   height="10"
@@ -228,10 +227,10 @@ function deptList(dept) {
                   <line x1="8" y1="2" x2="8" y2="6" />
                   <line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                <span v-if="ag.start_date && ag.end_date"
+                <span v-if="validDate(ag.start_date) && validDate(ag.end_date)"
                   >{{ fmtDate(ag.start_date) }} → {{ fmtDate(ag.end_date) }}</span
                 >
-                <span v-else-if="ag.start_date">{{ fmtDate(ag.start_date) }} 시작</span>
+                <span v-else-if="validDate(ag.start_date)">{{ fmtDate(ag.start_date) }} 시작</span>
                 <span v-else>{{ fmtDate(ag.end_date) }} 마감</span>
               </div>
             </div>
@@ -275,42 +274,12 @@ function deptList(dept) {
               placeholder="아젠다 제목"
               style="margin-top: 5px"
             />
-            <select
-              v-if="memberCompanies.length"
-              name="edit-company"
-              class="app-select dei-app-select"
-              v-model="ag._editCompany"
-              style="margin-top: 4px; width: 100%"
-            >
-              <option value="">회사 선택</option>
-              <option v-for="o in memberCompanies" :key="o" :value="o">{{ o }}</option>
-            </select>
             <input
-              v-else
-              :id="`edit-company-${i}`"
-              :name="`edit-company-${i}`"
-              class="dei-input"
-              v-model="ag._editCompany"
-              placeholder="회사 (선택)"
-              style="margin-top: 4px"
-            />
-            <select
-              v-if="memberDepts.length"
-              name="edit-dept"
-              class="app-select dei-app-select"
-              v-model="ag._editDept"
-              style="margin-top: 4px; width: 100%"
-            >
-              <option value="">담당부서 선택</option>
-              <option v-for="d in memberDepts" :key="d" :value="d">{{ d }}</option>
-            </select>
-            <input
-              v-else
               :id="`edit-dept-${i}`"
               :name="`edit-dept-${i}`"
               class="dei-input"
               v-model="ag._editDept"
-              placeholder="담당 팀 (선택)"
+              placeholder="담당 부서 (선택)"
               style="margin-top: 4px"
             />
             <div class="dei-date-row">
