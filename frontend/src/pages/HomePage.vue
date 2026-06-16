@@ -185,6 +185,7 @@ async function fetchCalendar() {
         date: a.dueDate?.slice(0, 10),
         meeting_title: a.meetingTitle,
         scheduledAt: a.dueDate,
+        meetingStatus: a.meetingStatus,
       }))
       calendarEvents.value = [...sessions, ...agendas]
     })
