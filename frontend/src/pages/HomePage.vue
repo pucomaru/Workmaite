@@ -121,10 +121,13 @@ const yearMonths = computed(() => {
 
 const dayEvents = computed(() => eventsOn(cursor.value))
 
+function isEvtDone(e) {
+  if (e.type === 'session') return e.meetingStatus === 'ended' || !!e.hasMinutes
+  return e.meetingStatus === 'ended' || e.agendaStatus === 'done'
+}
 function evtCls(e) {
   const base = e.type === 'session' ? 'evt-session' : 'evt-agenda'
-  const ended = e.meetingStatus === 'ended' ? ' evt-ended' : ''
-  return base + ended
+  return base + (isEvtDone(e) ? ' evt-ended' : '')
 }
 
 function clickDay(d) {
@@ -186,6 +189,7 @@ async function fetchCalendar() {
         meeting_title: a.meetingTitle,
         scheduledAt: a.dueDate,
         meetingStatus: a.meetingStatus,
+        agendaStatus: a.agendaStatus,
       }))
       calendarEvents.value = [...sessions, ...agendas]
     })
@@ -511,7 +515,7 @@ const {
                       >
                         {{ e.title }}
                       </div>
-                      <div v-if="eventsOn(cell).length > 2" class="evt-more">
+                      <div v-if="eventsOn(cell).length > 2" class="evt-more" @click.stop="clickWeek(cell)">
                         +{{ eventsOn(cell).length - 2 }}
                       </div>
                     </div>
@@ -557,15 +561,25 @@ const {
                   <div v-if="!dayEvents.length" class="empty-state" style="padding: 32px 16px">
                     <p>이 날에 등록된 일정이 없습니다.</p>
                   </div>
-                  <div v-for="e in dayEvents" :key="e.id" class="day-evt-row" :class="{ 'day-evt-row-ended': e.meetingStatus === 'ended' }">
+                  <div v-for="e in dayEvents" :key="e.id" class="day-evt-row" :class="{ 'day-evt-row-ended': isEvtDone(e) }">
                     <div class="day-evt-bar" :class="evtCls(e)" />
                     <div class="day-evt-info">
-                      <span
-                        class="badge"
-                        :class="e.type === 'session' ? 'badge-app-primary' : 'badge-app-warning'"
-                      >
-                        {{ e.type === 'session' ? '회의' : '아젠다 마감' }}
-                      </span>
+                      <div class="day-evt-header">
+                        <span
+                          class="badge"
+                          :class="e.type === 'session' ? 'badge-app-primary' : 'badge-app-warning'"
+                        >
+                          {{ e.type === 'session' ? '회의' : '아젠다 마감' }}
+                        </span>
+                        <template v-if="e.type === 'session' && e.hasMinutes">
+                          <span class="evt-done-check">✓</span>
+                          <span class="evt-done-label">(회의록 생성)</span>
+                        </template>
+                        <template v-else-if="e.type === 'agenda' && e.agendaStatus === 'done'">
+                          <span class="evt-done-check">✓</span>
+                          <span class="evt-done-label">(보고 완료)</span>
+                        </template>
+                      </div>
                       <div class="day-evt-title">{{ e.title }}</div>
                       <div v-if="e.meeting_title" class="day-evt-meta">
                         <span :class="{ 'evt-meta-strikethrough': e.meetingStatus === 'ended' }">
@@ -1129,6 +1143,21 @@ const {
 .day-evt-row-ended {
   opacity: 0.4;
 }
+.day-evt-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.evt-done-check {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--success, #22c55e);
+}
+.evt-done-label {
+  font-size: 11px;
+  color: var(--success, #22c55e);
+  font-weight: 500;
+}
 .evt-meta-strikethrough {
   text-decoration: line-through;
 }
@@ -1275,6 +1304,10 @@ const {
   font-size: 13px;
   color: var(--text-muted);
   padding-left: 2px;
+  cursor: pointer;
+}
+.evt-more:hover {
+  color: var(--primary);
 }
 .cal-legend {
   display: flex;
