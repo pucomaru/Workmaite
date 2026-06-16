@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import { confirmDialog } from '../composables/useConfirm'
 import api from '../api'
+import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 
 const props = defineProps({
@@ -205,12 +206,7 @@ async function doSave() {
           <div class="app-modal-field">
             <label for="session-edit-date">회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <input
-                type="date"
-                id="session-edit-date"
-                v-model="form.dateOnly"
-                class="datetime-split-date"
-              />
+              <DateInput id="session-edit-date" v-model="form.dateOnly" class="datetime-split-date" />
               <span class="datetime-split-sep"></span>
               <input
                 id="session-edit-time"

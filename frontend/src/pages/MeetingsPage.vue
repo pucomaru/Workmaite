@@ -631,21 +631,11 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="create-meeting-start-date">시작일</label>
-                <input
-                  id="create-meeting-start-date"
-                  type="date"
-                  v-model="createForm.start_date"
-                  class="app-modal-input"
-                />
+                <DateInput id="create-meeting-start-date" v-model="createForm.start_date" class="app-modal-input" />
               </div>
               <div class="app-modal-field">
                 <label for="create-meeting-end-date">종료일</label>
-                <input
-                  id="create-meeting-end-date"
-                  type="date"
-                  v-model="createForm.end_date"
-                  class="app-modal-input"
-                />
+                <DateInput id="create-meeting-end-date" v-model="createForm.end_date" class="app-modal-input" />
               </div>
             </div>
             <div class="app-modal-field">
@@ -791,6 +781,8 @@ onMounted(async () => {
 .mg-page {
   display: flex;
   flex-direction: column;
+  margin: -24px -28px 0 -28px;
+  height: calc(100% + 24px);
 }
 
 /* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용

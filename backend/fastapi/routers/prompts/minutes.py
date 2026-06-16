@@ -111,12 +111,14 @@ def generate_minutes_human(
     location_cell = (session_info or {}).get("location") or ""
     secretaries = [p for p in (participants or []) if p.get("role") == "admin"]
     members = [p for p in (participants or []) if p.get("role") != "admin"]
-    secretary_cell = (
-        ", ".join(p["dept"] if p.get("dept") else p["name"] for p in secretaries) or "-"
-    )
-    member_cell = (
-        ", ".join(p["dept"] if p.get("dept") else p["name"] for p in members) or "-"
-    )
+    secretary_cell = ", ".join(
+        p["name"] if p.get("name") else p.get("dept", "?")
+        for p in secretaries
+    ) or "-"
+    member_cell = ", ".join(
+        p["name"] if p.get("name") else p.get("dept", "?")
+        for p in members
+    ) or "-"
 
     header_rows = [
         f"| 안건 | {agenda_cell} |",

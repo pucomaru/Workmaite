@@ -19,6 +19,17 @@ watch(
   },
   { immediate: true },
 )
+
+// 홈 화면 진입 시 회의체 목록 재조회 — MainLayout은 영구 컴포넌트이므로
+// 어떤 경로에서 '/'로 이동해도 항상 발화한다
+watch(
+  () => route.path,
+  (newPath) => {
+    if (newPath === '/') {
+      meetingsStore.fetchMeetings()
+    }
+  }
+)
 </script>
 
 <template>
@@ -49,7 +60,7 @@ watch(
 .layout-main {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: 24px 28px 0px 28px ;
 }
 .ai-disclaimer {
   text-align: center;

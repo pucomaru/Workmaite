@@ -862,6 +862,7 @@ function downloadPDF() {
 }
 
 const savingMinutes = ref(false)
+const savingAgendas = ref(false)
 const showOngoingWarning = ref(false)
 const minutesSavedAt = ref(null)
 
@@ -1074,7 +1075,10 @@ async function removeNextAgendaItem(i) {
 
 const savingNextAgendas = ref(false)
 async function saveApprovedNextAgendas() {
-  if (savingNextAgendas.value) return // 중복 클릭 차단
+  if (savingNextAgendas.value)  // 중복 클릭 차단
+    toast.info('회의록에 반영 중입니다.', { duration: 1500 })
+    return
+  }
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   const rejected = nextAgendaItems.value.filter(a => a._state === 'rejected' && a.db_id)
   if (!approved.length && !rejected.length) return
@@ -1234,9 +1238,7 @@ async function endMeeting() {
     }
     activeSession.value = { ...activeSession.value, status: 'ended' }
   }
-  // 회의록 탭으로 자동 전환하지 않는다 — 발화(스크립트) 탭으로 이동한다.
   showMinutesTab.value = true
-  activeTab.value = 'script'
 }
 
 function togglePopover(name) {
@@ -2788,6 +2790,11 @@ async function downloadChatFile(filePath) {
   display: flex;
   flex-direction: row !important;
   gap: 0;
+  /* page-full-height 오버라이드:
+     layout-main 패딩은 top:24px / sides:28px / bottom:0px
+     → 상단과 좌우만 취소하고 하단 마진은 0으로, height는 24px만 보정 */
+  margin: -24px -28px 0 -28px;
+  height: calc(100% + 24px);
 }
 
 /* ── Left sidebar (session selector) ── */

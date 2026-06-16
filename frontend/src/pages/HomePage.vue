@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 
@@ -11,7 +11,19 @@ import { useTableSort } from '../composables/useTableSort'
 import { fmtISO, formatDateShort as formatDate, getDday } from '../utils/date'
 
 const router = useRouter()
+const route = useRoute()
 const meetingsStore = useMeetingsStore()
+
+// 홈 화면에 다시 진입할 때 최신 회의체 목록 재조회 (구성원 추가 등 외부 변경 반영)
+watch(
+  () => route.path,
+  async (path) => {
+    if (path === '/') {
+      await meetingsStore.fetchMeetings()
+      hydrateMeetingMeta()
+    }
+  }
+)
 
 const calendarEvents = ref([])
 const upcomingSessionsList = ref([])
@@ -319,7 +331,8 @@ const {
 const {
   page: meetingPage,
   paged: pagedMeetings,
-} = usePagination(sortedMeetings, PAGE_SIZE, { fillEmpty: false })
+  fillerCount: meetingFillerCount,
+} = usePagination(sortedMeetings, PAGE_SIZE, { fillEmpty: true })
 </script>
 
 <template>
@@ -451,6 +464,9 @@ const {
                   </td>
                   <td class="text-muted">{{ m.owner_name || '' }}</td>
                   <td class="text-muted">{{ m.member_count }}명</td>
+                </tr>
+                <tr v-for="i in meetingFillerCount" :key="`mf-${i}`" class="filler-row">
+                  <td v-for="(c, ci) in meetingColumns" :key="ci"></td>
                 </tr>
               </AppTable>
               <AppPagination
@@ -587,7 +603,7 @@ const {
                         </template>
                         <template v-else-if="e.type === 'agenda' && e.agendaStatus === 'done'">
                           <span class="evt-done-check">✓</span>
-                          <span class="evt-done-label">(보고 완료)</span>
+                          <span class="evt-done-label">(완료된 아젠다)</span>
                         </template>
                       </div>
                       <div class="day-evt-title">{{ e.title }}</div>
@@ -660,18 +676,26 @@ const {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
+
+.home-page.page-full-height {
+  margin: -24px -28px 0 -28px;
+  height: calc(100% - -100px);
+}
+
 .home-body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 6px 16px;
+  padding: 6px 16px 24px;
+  box-sizing: border-box;
 }
 .home {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding-bottom: 40px;
+  padding-bottom: 8px;
 }
 
 .section-title-row {
@@ -878,7 +902,7 @@ const {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .cal-header {
   display: flex;

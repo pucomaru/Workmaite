@@ -59,7 +59,7 @@ const {
           <line x1="8" y1="17" x2="16" y2="17" />
         </svg>
       </div>
-      <span class="float-btn-label">아젠다 추출</span>
+      <span class="float-btn-label">보고서 검토</span>
     </div>
 
     <div

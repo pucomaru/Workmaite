@@ -125,7 +125,13 @@ watch(
       const myRole = resolveMyRole(id)
       members.value = members.value.map(m => (m.userId === me.id ? { ...m, role: myRole } : m))
     }
-    if (id) await loadAgendas(id)
+    if (id) {
+      await loadAgendas(id)
+      if (props.initialAgendaId != null) {
+        const match = agendas.value.find(a => String(a.id) === String(props.initialAgendaId))
+        if (match) selectedAgendaIds.value = [match.id]
+      }
+    }
   },
 )
 

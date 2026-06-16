@@ -1214,7 +1214,9 @@ function parseAiEvidence(val) {
                         >{{
                           {
                             done: '완료',
+                            ended: '종료',
                             ongoing: '진행중',
+                            scheduled: '예정',
                             in_progress: '진행중',
                             pending: '대기',
                             완료: '완료',
