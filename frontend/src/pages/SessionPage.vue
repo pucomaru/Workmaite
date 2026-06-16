@@ -2719,6 +2719,11 @@ async function downloadChatFile(filePath) {
   display: flex;
   flex-direction: row !important;
   gap: 0;
+  /* page-full-height 오버라이드:
+     layout-main 패딩은 top:24px / sides:28px / bottom:0px
+     → 상단과 좌우만 취소하고 하단 마진은 0으로, height는 24px만 보정 */
+  margin: -24px -28px 0 -28px;
+  height: calc(100% + 24px);
 }
 
 /* ── Left sidebar (session selector) ── */

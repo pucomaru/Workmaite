@@ -763,6 +763,8 @@ onMounted(async () => {
 .mg-page {
   display: flex;
   flex-direction: column;
+  margin: -24px -28px 0 -28px;
+  height: calc(100% + 24px);
 }
 
 /* 목록 레이아웃(lv-*, table-wrap, table-loading)은 style.css 전역 단일 정의 + AppTableSection 사용

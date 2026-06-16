@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../api'
 import { useMeetingsStore } from '../stores/meetings'
 
@@ -11,7 +11,19 @@ import { useTableSort } from '../composables/useTableSort'
 import { fmtISO, formatDateShort as formatDate, getDday } from '../utils/date'
 
 const router = useRouter()
+const route = useRoute()
 const meetingsStore = useMeetingsStore()
+
+// 홈 화면에 다시 진입할 때 최신 회의체 목록 재조회 (구성원 추가 등 외부 변경 반영)
+watch(
+  () => route.path,
+  async (path) => {
+    if (path === '/') {
+      await meetingsStore.fetchMeetings()
+      hydrateMeetingMeta()
+    }
+  }
+)
 
 const calendarEvents = ref([])
 const upcomingSessionsList = ref([])
