@@ -51,7 +51,12 @@ const authStore = useAuthStore()
           </div>
           <div class="app-modal-field">
             <label for="create-meeting-type">유형</label>
-            <select id="create-meeting-type" name="meeting_type" v-model="createForm.meeting_type" class="app-modal-input">
+            <select
+              id="create-meeting-type"
+              name="meeting_type"
+              v-model="createForm.meeting_type"
+              class="app-modal-input"
+            >
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
@@ -60,16 +65,28 @@ const authStore = useAuthStore()
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="create-start-date">시작일</label>
-              <DateInput id="create-start-date" name="start_date" v-model="createForm.start_date" class="app-modal-input" />
+              <DateInput
+                id="create-start-date"
+                name="start_date"
+                v-model="createForm.start_date"
+                class="app-modal-input"
+              />
             </div>
             <div class="app-modal-field">
               <label for="create-end-date">종료일</label>
-              <DateInput id="create-end-date" name="end_date" v-model="createForm.end_date" class="app-modal-input" />
+              <DateInput
+                id="create-end-date"
+                name="end_date"
+                v-model="createForm.end_date"
+                class="app-modal-input"
+              />
             </div>
           </div>
           <div class="app-modal-field">
             <label for="create-guidelines">운영 지침</label>
-            <textarea id="create-guidelines" name="guidelines"
+            <textarea
+              id="create-guidelines"
+              name="guidelines"
               v-model="createForm.guidelines"
               class="app-modal-input"
               rows="3"

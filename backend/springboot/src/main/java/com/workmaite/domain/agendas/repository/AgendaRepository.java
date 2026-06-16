@@ -22,4 +22,9 @@ public interface AgendaRepository extends JpaRepository<Agenda, Long> {
   @Modifying
   @Query("UPDATE Agenda a SET a.sessionId = null WHERE a.sessionId = :sessionId")
   void detachSession(@Param("sessionId") Long sessionId);
+
+  // 회의체 삭제 시: 아젠다 일괄 삭제 (session_agendas·report_agendas는 ON DELETE CASCADE).
+  @Modifying
+  @Query("DELETE FROM Agenda a WHERE a.meetingId = :meetingId")
+  void deleteByMeetingId(@Param("meetingId") Long meetingId);
 }

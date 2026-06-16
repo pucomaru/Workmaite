@@ -66,7 +66,7 @@ function versionKey(groupId, itemIdx) {
         </div>
       </div>
       <div v-if="loading" class="lv-empty">불러오는 중...</div>
-      <div v-else-if="!meetings.length" class="lv-empty">소속된 회의체가 없습니다.</div>
+      <div v-else-if="!meetings.length" class="lg-empty" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; color: var(--text-muted); gap: 8px; padding: 60px 0;">소속된 회의체가 없습니다.</div>
       <AppTable
         v-else
         :columns="lvColumns"

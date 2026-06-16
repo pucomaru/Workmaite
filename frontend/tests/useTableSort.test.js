@@ -45,3 +45,28 @@ describe('useTableSort', () => {
     expect(list.value.map(r => r.name)).toEqual(['나', '가', '다'])
   })
 })
+
+describe('useTableSort - sortValues (커스텀 랭크)', () => {
+  // 역할 정렬: 간사(admin) → 참여자(member) → 역할 없음(null) (HomePage/MeetingsPage 패턴)
+  const roleRows = () =>
+    ref([
+      { name: 'none', role: null },
+      { name: 'admin', role: 'admin' },
+      { name: 'member', role: 'member' },
+    ])
+  const opts = {
+    sortValues: { role: m => (m.role === 'admin' ? 0 : m.role ? 1 : 2) },
+  }
+
+  it('오름차순은 간사 → 참여자 → 없음 순', () => {
+    const { handleSort, sorted } = useTableSort(roleRows(), opts)
+    handleSort({ key: 'role', dir: 'asc' })
+    expect(sorted.value.map(r => r.name)).toEqual(['admin', 'member', 'none'])
+  })
+
+  it('내림차순은 없음 → 참여자 → 간사 순', () => {
+    const { handleSort, sorted } = useTableSort(roleRows(), opts)
+    handleSort({ key: 'role', dir: 'desc' })
+    expect(sorted.value.map(r => r.name)).toEqual(['none', 'member', 'admin'])
+  })
+})

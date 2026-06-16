@@ -53,10 +53,10 @@ SAMPLE_TRANSCRIPTS = [
 
 def test_refine_chunk(base_url: str, token: str, session_id: int, sample_idx: int = 0):
     sample = SAMPLE_TRANSCRIPTS[sample_idx % len(SAMPLE_TRANSCRIPTS)]
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"테스트: [{sample['label']}]")
     print(f"session_id: {session_id}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"입력 텍스트:\n{sample['text'].strip()}\n")
 
     payload = {
@@ -90,9 +90,13 @@ def test_refine_chunk(base_url: str, token: str, session_id: int, sample_idx: in
 
 def main():
     parser = argparse.ArgumentParser(description="실시간 요약 테스트")
-    parser.add_argument("--token", required=True, help="JWT 토큰 (브라우저 sessionStorage에서 복사)")
+    parser.add_argument(
+        "--token", required=True, help="JWT 토큰 (브라우저 sessionStorage에서 복사)"
+    )
     parser.add_argument("--session", required=True, type=int, help="세션 ID")
-    parser.add_argument("--url", default="http://localhost:8000", help="FastAPI 서버 주소")
+    parser.add_argument(
+        "--url", default="http://localhost:8000", help="FastAPI 서버 주소"
+    )
     parser.add_argument("--all", action="store_true", help="샘플 3개 전부 테스트")
     parser.add_argument("--idx", type=int, default=0, help="샘플 번호 (0/1/2)")
     args = parser.parse_args()

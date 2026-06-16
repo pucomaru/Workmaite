@@ -16,7 +16,7 @@
 .lv-td-secretary {
   width: 120px;
 }
-.lv-td-cnt{
+.lv-td-cnt {
   font-size: 12px;
 }
 .lv-secretary-text {
@@ -302,7 +302,7 @@
   color: var(--text-muted);
 }
 .day-mode .list-view {
-  background: var(--surface);
+  background: var(--bg);
 }
 .day-mode .lv-secretary-badge {
   color: var(--warning-text);
@@ -691,6 +691,10 @@
 .sb-pending {
   background: rgba(100, 116, 139, 0.18);
   color: var(--dark-muted);
+}
+.sb-archived {
+  background: rgba(139, 92, 246, 0.18);
+  color: #8b5cf6;
 }
 .sb-critical {
   background: rgba(239, 68, 68, 0.18);

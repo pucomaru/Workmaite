@@ -105,7 +105,16 @@ function toggleGraphPanOnly() {
 const searchHitMgIdxs = ref([])
 const searchHitCurrentIdx = ref(-1)
 
-const SEARCH_NODE_TYPES = new Set(['Meetings', 'report', 'person', 'session', 'minutes'])
+const SEARCH_NODE_TYPES = new Set([
+  'Meetings',
+  'report',
+  'person',
+  'session',
+  'minutes',
+  'company', // 조직(회사)
+  'dept', // 부서
+  'agenda', // 아젠다
+])
 
 function _recomputeSearchHits() {
   const q = search.value
@@ -119,7 +128,19 @@ function _recomputeSearchHits() {
   const hits = []
   gNodes.forEach((n, i) => {
     if (!SEARCH_NODE_TYPES.has(n.type)) return
-    if ((n.label || '').toLowerCase().includes(lower)) hits.push(i)
+    // 라벨뿐 아니라 노드 데이터도 검색한다 — 아젠다 라벨은 10자로 잘려 있어(useGraphBuilder)
+    // 긴 안건 내용/제목이 라벨만으론 안 잡힌다. 사람/회의록/회사명 등도 데이터로 보강.
+    const d = n.data || {}
+    const haystack = [
+      n.label,
+      d.content,
+      d.title,
+      d.name,
+      d.session_title,
+      d.file_name,
+      d.userName,
+    ]
+    if (haystack.some(v => (v ?? '').toString().toLowerCase().includes(lower))) hits.push(i)
   })
   searchHitMgIdxs.value = hits
   searchHitCurrentIdx.value = -1
@@ -1222,6 +1243,8 @@ async function openGroupSetting() {
       end_date: src.end_date ? String(src.end_date).slice(0, 10) : '',
     },
     members,
+    // 기존 멤버의 원래 역할 — 저장 시 변경된 역할만 PATCH하기 위한 기준값
+    originalRoles: Object.fromEntries(members.map(mb => [mb.id, mb.role || 'member'])),
     removedIds: [],
   }
 }
@@ -1233,7 +1256,7 @@ function closeSettings() {
 async function saveSettings() {
   if (!settingsModal.value) return
   savingSettings.value = true
-  const { meeting, form, members, removedIds } = settingsModal.value
+  const { meeting, form, members, removedIds, originalRoles } = settingsModal.value
   const numId = meeting._numId || toNumericId(meeting.id)
   try {
     await api.patch(`/api/v1/meetings/${numId}`, {
@@ -1248,8 +1271,13 @@ async function saveSettings() {
     for (const memberId of removedIds) {
       await api.delete(`/api/v1/meetings/${numId}/members/${memberId}`)
     }
-    for (const mb of members.filter(m => m.id === null)) {
+    // 신규 멤버 추가 — MemberInvite로 추가한 멤버는 id가 undefined이므로 loose(== null)로 매칭한다.
+    for (const mb of members.filter(m => m.id == null)) {
       await api.post(`/api/v1/meetings/${numId}/members`, { userId: mb.userId, role: mb.role })
+    }
+    // 기존 멤버 역할 변경 — 원래 역할과 달라진 것만 PATCH (역할배정 반영)
+    for (const mb of members.filter(m => m.id != null && m.role !== originalRoles?.[m.id])) {
+      await api.patch(`/api/v1/meetings/${numId}/members/${mb.id}`, { meeting_role: mb.role })
     }
     if (detailMeeting.value?.id === meeting.id) {
       detailMeeting.value.title = form.title
@@ -1263,6 +1291,32 @@ async function saveSettings() {
     setTimeout(refreshArchive, 600)
   } catch (e) {
     toast.error(e.response?.data?.detail || '저장 실패')
+  } finally {
+    savingSettings.value = false
+  }
+}
+
+// 회의체 설정 모달의 '삭제' — 확인 후 Spring으로 삭제(로그·대화 보존), 모달·사이드바 닫고 그래프 갱신
+async function deleteSettings() {
+  if (!settingsModal.value) return
+  const { meeting } = settingsModal.value
+  const numId = meeting._numId || toNumericId(meeting.id)
+  const title = meeting.title || '이 회의체'
+  if (
+    !(await confirmDialog(`'${title}' 회의체를 삭제하시겠습니까? 되돌릴 수 없습니다.`, {
+      danger: true,
+    }))
+  )
+    return
+  savingSettings.value = true
+  try {
+    await meetingsStore.deleteMeeting(numId)
+    settingsModal.value = null
+    detailOpen.value = false
+    await meetingsStore.fetchMeetings()
+    setTimeout(refreshArchive, 400)
+  } catch (e) {
+    toast.error(e.response?.data?.detail || '삭제 실패')
   } finally {
     savingSettings.value = false
   }
@@ -2251,9 +2305,14 @@ function _nodeToCtx(n) {
   const type = typeMap[n.type] || 'document'
   const label = n.label || d.title || d.file_name || '노드'
   const typeKo =
-    { meeting: '회의체', department: '부서', person: '구성원', task: '아젠다', session: '회의', document: '문서' }[
-      type
-    ] || ''
+    {
+      meeting: '회의체',
+      department: '부서',
+      person: '구성원',
+      task: '아젠다',
+      session: '회의',
+      document: '문서',
+    }[type] || ''
   const summary = [
     `[${typeKo}] ${label}`,
     d.status ? '상태: ' + d.status : '',
@@ -2606,8 +2665,7 @@ const fileListMap = computed(() => {
         .map(m => m.userName || m.name)
         .filter(Boolean)
         .join(', ') || '간사'
-    const hostDept =
-      adminMembers[0]?.department || adminMembers[0]?.dept || managerName
+    const hostDept = adminMembers[0]?.department || adminMembers[0]?.dept || managerName
     const items = []
     g.minutes
       .filter(m => m.session_status === 'archived')
@@ -2671,10 +2729,11 @@ const filteredFileListMap = computed(() => {
       filtered = filtered.filter(item => item.type === selectedHistoryType.value)
     }
     if (q) {
-      filtered = filtered.filter(item =>
-        (item.fileName || '').toLowerCase().includes(q) ||
-        (item.dept || '').toLowerCase().includes(q) ||
-        (item.session_title || '').toLowerCase().includes(q),
+      filtered = filtered.filter(
+        item =>
+          (item.fileName || '').toLowerCase().includes(q) ||
+          (item.dept || '').toLowerCase().includes(q) ||
+          (item.session_title || '').toLowerCase().includes(q),
       )
     }
     map.set(id, filtered)
@@ -3116,6 +3175,7 @@ provide('archiveModals', {
   closeSettings,
   savingSettings,
   saveSettings,
+  deleteSettings,
 })
 
 // ─── Agenda 편집 모달 ─────────────────────────────────────────
@@ -3459,7 +3519,11 @@ function openSessionEditModal() {
   const d = detailNode.value.data || {}
   sessionEditData.value = {
     id: detailNode.value.neo4jId,
-    meetingId: null,
+    // 세션의 부모 회의체 id(숫자 PG id) — 세션 편집 모달이 이 회의체의 아젠다 목록을 불러와
+    // 이미 연결된 아젠다를 선택(체크) 상태로 보여준다. (없으면 목록이 비어 체크도 안 됐다)
+    // archive 세션 데이터(d.meeting_id='mg-N')에 이미 들어있어 그래프 재빌드 없이도 해석된다.
+    meetingId:
+      toNumericId(d.meeting_id || d.meetingId || detailNode.value.meetingId) || null,
     title: d.session_title || detailNode.value.label || '',
     location: d.location || '',
     scheduled_at: d.date || d.started_at || '',
@@ -3605,6 +3669,7 @@ provide('archiveSidebar', {
   onSidebarResizeStart,
   detailMeeting,
   isDetailAdmin,
+  detailMyRole,
   isAnyAdmin,
   canEditCompany,
   canEditDept,
@@ -3709,10 +3774,10 @@ provide('archiveSidebar', {
           placeholder="노드 검색..."
           @keydown.enter="onSearchEnter"
         />
-        <span
-          v-if="searchHitMgIdxs.length > 1"
-          class="search-hit-counter"
-        >{{ searchHitCurrentIdx >= 0 ? searchHitCurrentIdx + 1 : 1 }} / {{ searchHitMgIdxs.length }}</span>
+        <span v-if="searchHitMgIdxs.length > 1" class="search-hit-counter"
+          >{{ searchHitCurrentIdx >= 0 ? searchHitCurrentIdx + 1 : 1 }} /
+          {{ searchHitMgIdxs.length }}</span
+        >
         <button v-if="search" class="search-clear" @click="search = ''">
           <svg
             width="11"

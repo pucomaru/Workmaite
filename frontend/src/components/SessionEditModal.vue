@@ -28,12 +28,33 @@ const agendas = ref([])
 const selectedAgendaIds = ref([])
 const showAgendaDropdown = ref(false)
 
+// 목록에 노출할 아젠다 = '진행중(ongoing)' + '이미 이 세션에 연결된 것'.
+// 연결된 아젠다는 done 등으로 상태가 바뀌었어도 선택 상태로 보여야 한다(요구사항).
+const displayAgendas = computed(() =>
+  agendas.value.filter(
+    a =>
+      a.status === 'ongoing' ||
+      selectedAgendaIds.value.some(id => String(id) === String(a.id)),
+  ),
+)
+
+// 세션 id 정규화 — 관계도(ArchivePage)는 Neo4j 포맷 'session-{pg_id}'를, SessionPage는 숫자를 넘긴다.
+// Spring(/api/v1/sessions/{Long}) 호출에는 항상 숫자 PG id가 필요하다.
+function sessionPgId(raw) {
+  if (raw == null) return raw
+  const s = String(raw)
+  if (/^\d+$/.test(s)) return Number(s)
+  const m = s.match(/^session-(\d+)$/)
+  return m ? Number(m[1]) : raw
+}
+
 watch(
   () => props.session,
   async s => {
     if (!s) return
+    const sid = sessionPgId(s.id)
     form.value = {
-      id: s.id,
+      id: sid,
       meetingId: s.meetingId ?? s.meeting_id ?? null,
       title: s.title || '',
       location: s.location || '',
@@ -65,9 +86,12 @@ watch(
     selectedAgendaIds.value = []
     showAgendaDropdown.value = false
     const meetingId = s.meetingId ?? s.meeting_id
-    if (meetingId) {
-      await Promise.all([loadAgendas(meetingId), loadSelectedAgendas(s.id)])
-    }
+    // 연결된 아젠다(선택 상태)는 sessionId만 있으면 되므로 meetingId와 무관하게 항상 로드한다.
+    // (회의체 아젠다 목록은 meetingId가 있어야 불러온다.)
+    await Promise.all([
+      meetingId ? loadAgendas(meetingId) : Promise.resolve(),
+      loadSelectedAgendas(sid),
+    ])
   },
   { immediate: true },
 )
@@ -216,9 +240,7 @@ async function doSave() {
                 :aria-expanded="showAgendaDropdown"
                 class="app-modal-input"
                 :style="{
-                  cursor: agendas.filter(a => a.status === 'ongoing').length
-                    ? 'pointer'
-                    : 'default',
+                  cursor: displayAgendas.length ? 'pointer' : 'default',
                 }"
                 style="
                   display: flex;
@@ -226,24 +248,19 @@ async function doSave() {
                   justify-content: space-between;
                   user-select: none;
                 "
-                @click="
-                  agendas.filter(a => a.status === 'ongoing').length &&
-                  (showAgendaDropdown = !showAgendaDropdown)
-                "
+                @click="displayAgendas.length && (showAgendaDropdown = !showAgendaDropdown)"
               >
                 <span style="color: #9ca3af">
                   {{
-                    !agendas.length
+                    !displayAgendas.length
                       ? '등록된 안건이 없습니다'
-                      : !agendas.filter(a => a.status === 'ongoing').length
-                        ? '진행 중인 안건이 없습니다'
-                        : selectedAgendaIds.length
-                          ? `${selectedAgendaIds.length}개 선택됨`
-                          : '안건을 선택하세요'
+                      : selectedAgendaIds.length
+                        ? `${selectedAgendaIds.length}개 선택됨`
+                        : '안건을 선택하세요'
                   }}
                 </span>
                 <svg
-                  v-if="agendas.filter(a => a.status === 'ongoing').length"
+                  v-if="displayAgendas.length"
                   width="10"
                   height="10"
                   viewBox="0 0 24 24"
@@ -276,7 +293,7 @@ async function doSave() {
                 "
               >
                 <label
-                  v-for="agenda in agendas.filter(a => a.status === 'ongoing')"
+                  v-for="agenda in displayAgendas"
                   :key="agenda.id"
                   style="
                     display: flex;

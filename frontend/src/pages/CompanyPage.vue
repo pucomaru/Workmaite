@@ -9,6 +9,9 @@ import { usePagination } from '../composables/usePagination'
 import { useTableSort } from '../composables/useTableSort'
 import { toast } from '../composables/useToast'
 import { useThemeStore } from '../stores/theme'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
 
 const companyColumns = [
   { label: '이름', width: '100px', sortKey: 'name' },
@@ -156,26 +159,57 @@ async function submitAdd() {
 }
 
 async function removeMember(member) {
-  if (
-    !(await confirmDialog(`${member.name || member.email}을(를) 제거하시겠습니까?`, {
-      danger: true,
-    }))
-  )
+  // (A) 본인 자기 삭제 금지 — 관리자라도 자신은 제거할 수 없다.
+  if (member.id === auth.user?.id) {
+    toast.error('자기 자신은 제거할 수 없습니다.')
     return
+  }
   if (member.isCustom) {
+    if (
+      !(await confirmDialog(`${member.name || member.email}을(를) 제거하시겠습니까?`, {
+        danger: true,
+      }))
+    )
+      return
     allMembers.value = allMembers.value.filter(m => m.id !== member.id)
     return
   }
-  const meeting = member.meetings[0]
-  try {
-    if (meeting?.id && meeting?.member_id) {
-      await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
-    } else {
-      await apiAI.delete(`/api/ai/users/${member.id}`)
+
+  const sid = selectedMeetingId.value
+  if (sid !== 'all') {
+    // (B) 특정 회의체 필터 중 — 그 회의체에서만 제외 (PG 원천: Spring)
+    const mship = member.meetings.find(g => String(g.id) === String(sid))
+    if (!mship?.member_id) {
+      toast.error('해당 회의체의 멤버십을 찾을 수 없습니다.')
+      return
     }
-    await fetchAllMembers()
-  } catch (e) {
-    toast.error(e.response?.data?.detail || '제거 실패')
+    if (
+      !(await confirmDialog(`이 회의체에서 ${member.name || member.email}님을 제외하시겠습니까?`, {
+        danger: true,
+      }))
+    )
+      return
+    try {
+      await api.delete(`/api/v1/meetings/${sid}/members/${mship.member_id}`)
+      await fetchAllMembers()
+    } catch (e) {
+      toast.error(e.response?.data?.message || '제외에 실패했습니다.')
+    }
+  } else {
+    // (B) 전체 보기 — 계정 삭제(한 번에). 서버가 모든 회의체 멤버십·FK를 정리하고 소프트 삭제한다.
+    if (
+      !(await confirmDialog(
+        `${member.name || member.email}님의 계정을 삭제하시겠습니까? 모든 회의체에서 제외됩니다.`,
+        { danger: true },
+      ))
+    )
+      return
+    try {
+      await apiAI.delete(`/api/ai/users/${member.id}`)
+      await fetchAllMembers()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || '계정 삭제에 실패했습니다.')
+    }
   }
 }
 
@@ -374,10 +408,12 @@ async function parseAndImportCSV(text) {
 const groupedFilteredMembers = computed(() => filteredMembers.value)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
-const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(
-  groupedFilteredMembers,
-  { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } },
-)
+const {
+  sortKey,
+  sortDir,
+  handleSort,
+  sorted: sortedMembers,
+} = useTableSort(groupedFilteredMembers, { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } })
 
 const MEMBER_PAGE_SIZE = 15
 const {
@@ -580,7 +616,12 @@ const {
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
                 </button>
-                <button class="act-btn danger" @click="removeMember(member)" title="제거">
+                <!-- <button
+                  v-if="member.id !== auth.user?.id"
+                  class="act-btn danger"
+                  @click="removeMember(member)"
+                  title="제거"
+                >
                   <svg
                     width="13"
                     height="13"
@@ -594,9 +635,18 @@ const {
                     <path d="M10 11v6M14 11v6" />
                     <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
                   </svg>
-                </button>
+                </button> -->
               </div>
             </td>
+          </tr>
+          <!-- filler 행 — 마지막 페이지에서 테이블 높이를 유지해 페이지네이션 위치가 튀지 않게 한다 -->
+          <tr
+            v-for="n in memberFillerCount"
+            :key="`filler-${n}`"
+            class="filler-row"
+            aria-hidden="true"
+          >
+            <td :colspan="companyColumns.length"></td>
           </tr>
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">
@@ -604,8 +654,8 @@ const {
                 <p>
                   {{
                     myMeetings.length
-                      ? '표시할 구성원이 없습니다'
-                      : '소속된 회의체가 없어 조회할 구성원이 없습니다'
+                      ? '조회할 구성원이 없습니다'
+                      : '조회할 구성원이 없습니다'
                   }}
                 </p>
               </div>
@@ -639,11 +689,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-name">이름 <span class="req">*</span></label>
-                <input id="add-member-name" v-model="addForm.name" autocomplete="off" class="app-modal-input" placeholder="홍길동" />
+                <input
+                  id="add-member-name"
+                  v-model="addForm.name"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="홍길동"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-email">이메일</label>
-                <input id="add-member-email"
+                <input
+                  id="add-member-email"
                   v-model="addForm.email"
                   autocomplete="off"
                   class="app-modal-input"
@@ -655,11 +712,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-company">회사명</label>
-                <input id="add-member-company" v-model="addForm.company" autocomplete="off" class="app-modal-input" placeholder="예: SK AX" />
+                <input
+                  id="add-member-company"
+                  v-model="addForm.company"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="예: SK AX"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-department">부서명</label>
-                <input id="add-member-department"
+                <input
+                  id="add-member-department"
                   v-model="addForm.department"
                   autocomplete="off"
                   class="app-modal-input"
@@ -671,11 +735,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-position">직책</label>
-                <input id="add-member-position" v-model="addForm.position" autocomplete="off" class="app-modal-input" placeholder="예: 팀장" />
+                <input
+                  id="add-member-position"
+                  v-model="addForm.position"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="예: 팀장"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-password">비밀번호 <span class="req">*</span></label>
-                <input id="add-member-password"
+                <input
+                  id="add-member-password"
                   v-model="addForm.password"
                   type="password"
                   autocomplete="new-password"
@@ -746,6 +817,15 @@ const {
   margin: -24px -28px 0 -28px;
   height: calc(100% + 24px);
   overflow: hidden;
+}
+
+/* filler 행 — 마지막 페이지 높이 유지용. 상호작용·테두리 없음 */
+.filler-row td {
+  height: 41px;
+  border-bottom: none !important;
+}
+.filler-row:hover {
+  background: transparent !important;
 }
 
 .member-count-text {
@@ -926,7 +1006,4 @@ const {
 .dropdown-item-result:hover {
   background: var(--surface-2);
 }
-
-
-
 </style>

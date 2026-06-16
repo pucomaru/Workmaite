@@ -32,7 +32,8 @@ export function useGraphBuilder({
     if (!data.length) {
       // 신규 유저(소속 회의체 없음)도 회사·부서·본인만은 시각화한다(빈 화면 방지).
       const person = currentPerson?.value
-      const coName = currentCompany?.value?.name || person?.company || ''
+      // 본인 회사(person.company)를 우선 — currentCompany는 조직 ambient 값이라 본인과 다를 수 있다.
+      const coName = person?.company || currentCompany?.value?.name || ''
       let coIdx = -1
       if (coName) {
         coIdx = nodes.length
@@ -87,34 +88,38 @@ export function useGraphBuilder({
       if (_hostCoIdx >= 0) edges.push({ from: mgIdx, to: _hostCoIdx, rel: '포함' })
 
       // ── Department + Person nodes ────────────────────────────
-      const membersByDept = new Map()
+      // 모델: 사람 ─소속→ 부서 ─소속→ 회사. (사람과 회사는 직접 잇지 않고 부서를 거친다.)
+      // 부서는 (회사, 부서명) 단위로 분리한다 — 같은 부서명이라도 회사가 다르면 별도 노드.
+      // → 회사를 옮긴 멤버는 '새 회사의 부서' 노드로 이동해, 부서를 거쳐 새 회사가 보인다.
+      const membersByDeptKey = new Map() // key -> { dept, company, members }
       const personIdxByKey = new Map()
       ;(g.members || []).forEach(mb => {
-        const d = mb.department || mb.dept || '미지정'
-        if (!membersByDept.has(d)) membersByDept.set(d, [])
-        membersByDept.get(d).push(mb)
+        const dept = mb.department || mb.dept || '미지정'
+        const company = memberCompany(mb) || ''
+        const key = `${company}${dept}`
+        if (!membersByDeptKey.has(key)) membersByDeptKey.set(key, { dept, company, members: [] })
+        membersByDeptKey.get(key).members.push(mb)
       })
-      const depts = [...membersByDept.keys()]
-      const deptIdxMap = new Map()
+      const deptIdxMap = new Map() // 아젠다 배정용: 부서명 → 첫 부서 노드 idx
 
-      depts.forEach(deptName => {
+      membersByDeptKey.forEach(({ dept: deptName, company, members: deptMembers }) => {
         const deptIdx = nodes.length
-        deptIdxMap.set(deptName, deptIdx)
+        if (!deptIdxMap.has(deptName)) deptIdxMap.set(deptName, deptIdx)
         nodes.push({
-          id: `dept-${deptIdByName.get(deptName) || deptName}`,
+          // 회사별로 분리되도록 id에 회사를 포함 (같은 부서명이 회사 다르면 다른 노드)
+          id: `dept-${company}${deptIdByName.get(deptName) || deptName}`,
           label: deptName,
           type: 'dept',
-          members: membersByDept.get(deptName),
+          members: deptMembers,
           groupIdx: gi,
           meetingId: mgNodeId,
           neo4jId: deptIdByName.get(deptName) || null,
         })
         edges.push({ from: deptIdx, to: mgIdx, rel: '참여' })
-        // dept -[소속]→ 그 부서 멤버의 회사
-        const _deptCompany = (membersByDept.get(deptName) || []).map(memberCompany).find(Boolean)
-        const _deptCoIdx = getCompanyIdx(_deptCompany)
+        // 부서 ─소속→ 그 부서의 회사
+        const _deptCoIdx = getCompanyIdx(company)
         if (_deptCoIdx >= 0) edges.push({ from: deptIdx, to: _deptCoIdx, rel: '소속' })
-        ;(membersByDept.get(deptName) || []).forEach(mb => {
+        deptMembers.forEach(mb => {
           const pIdx = nodes.length
           const pName = mb.userName || mb.name || '?'
           const pKey = mb.userId || mb.email || pName
@@ -129,10 +134,11 @@ export function useGraphBuilder({
             data: mb,
             neo4jId: mb.userId || null,
           })
-          edges.push({ from: pIdx, to: deptIdx, rel: '소속' })
-          edges.push({ from: pIdx, to: mgIdx, rel: mb.role === 'admin' ? '간사' : '구성원' })
+          edges.push({ from: pIdx, to: deptIdx, rel: '소속' }) // 사람 ─소속→ (회사,부서)
+          edges.push({ from: pIdx, to: mgIdx, rel: mb.role === 'admin' ? '운영' : '참여' })
         })
       })
+      const depts = [...deptIdxMap.keys()] // 아젠다 배정용 부서명 목록
 
       // ── Agenda nodes ─────────────────────────────────────────
       const taskList = g.tasks || []
@@ -204,6 +210,7 @@ export function useGraphBuilder({
           label: m.session_title || `${mi + 1}차 회의`,
           type: 'session',
           groupIdx: gi,
+          meetingId: mgNodeId, // 부모 회의체 id — 세션 편집 시 아젠다 목록 조회에 필요
           data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
           ended: groupEnded,
@@ -247,7 +254,7 @@ export function useGraphBuilder({
               generated_at: m.generated_at,
             },
           })
-          edges.push({ from: sIdx, to: dIdx, rel: '산출' })
+          edges.push({ from: sIdx, to: dIdx, rel: '기록' })
           if (m.id != null) minutesFileIdxBySessionNeoId.set(String(m.id), dIdx)
         }
       })

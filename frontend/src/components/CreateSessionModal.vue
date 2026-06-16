@@ -433,7 +433,9 @@ async function doCreate() {
                 "
               >
                 <label
-                  v-for="agenda in agendas.filter(a => a.status === 'ongoing' || a.status === 'done')"
+                  v-for="agenda in agendas.filter(
+                    a => a.status === 'ongoing' || a.status === 'done',
+                  )"
                   :key="agenda.id"
                   style="
                     display: flex;

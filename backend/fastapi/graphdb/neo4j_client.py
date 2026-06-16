@@ -132,7 +132,13 @@ async def get_meeting_graph_context(meeting_id: str | int | None) -> dict:
         if not mg_rows:
             return {}
 
-        agenda_rows, session_rows, member_rows, report_rows, peer_rows = await asyncio.gather(
+        (
+            agenda_rows,
+            session_rows,
+            member_rows,
+            report_rows,
+            peer_rows,
+        ) = await asyncio.gather(
             run_cypher(
                 """MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings {id: $id})
                    OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
@@ -248,9 +254,7 @@ def graph_context_to_str(ctx: dict) -> str:
         lines.append("[최근 세션]")
         for s in sessions:
             date_str = str(s.get("ended_at", ""))[:10].replace("-", ".")
-            lines.append(
-                f"  - {s.get('title', '(제목없음)')} ({date_str})"
-            )
+            lines.append(f"  - {s.get('title', '(제목없음)')} ({date_str})")
 
     reports = ctx.get("reports", [])
     if reports:

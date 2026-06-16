@@ -67,18 +67,23 @@ async def get_archive(
     # User 결과가 나와야 allowed_mg 쿼리를 보낼 수 있으므로,
     # User 는 별도 태스크로 먼저 쏘고 company/dept 와 concurrently 대기한다.
     try:
-        person_rows, company_rows, dept_rows = await asyncio.gather(
+        person_rows, dept_rows = await asyncio.gather(
             _run_cypher(
                 # 사용자 매칭은 pg_id 단일 키 (email/name 매칭은 동명이인·개명 시 오인 — SEC-12)
                 "MATCH (p:User {pg_id: $pg_id}) "
                 "RETURN coalesce(p.id, toString(p.pg_id)) AS pid, p.name AS pname",
                 {"pg_id": current_user.id},
             ),
-            _run_cypher("MATCH (o:Company) RETURN o.name AS name LIMIT 1"),
             _run_cypher("MATCH (d:Department) RETURN d.name AS name ORDER BY d.name"),
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Neo4j 연결 실패: {str(e)}")
+
+    # company는 '로그인 유저 본인'의 회사여야 한다 (PG companies FK 기준).
+    # (이전: `MATCH (o:Company) RETURN o.name LIMIT 1` — 유저와 무관하게 아무 회사나 반환해,
+    #  회의체 없는 유저가 그래프 빈 분기에서 엉뚱한 회사(예: SK AX)에 연결돼 보였다.)
+    _company_name = current_user.company_name or ""
+    user_company = {"name": _company_name} if _company_name else None
 
     # ── Step 2: 소속 회의체 ID 조회 ──────────────────────────────
     try:
@@ -109,13 +114,14 @@ async def get_archive(
             "email": user_email,
             "position": current_user.position or "",
             "department": current_user.department or "",
+            "company": _company_name,  # 본인 회사 — 빈 분기 그래프가 본인을 자기 회사에 연결
         }
         return {
             "meetings": [],
             "minutes": [],
             "reports": [],
             "departments": dept_rows,
-            "company": company_rows[0] if company_rows else None,
+            "company": user_company,
             "current_person": current_person,
         }
 
@@ -252,7 +258,8 @@ async def get_archive(
                         "email": row.get("email", ""),
                         "position": row.get("position", ""),
                         "role": "admin"
-                        if row.get("role") == "간사" or row.get("rel_role") == "admin"
+                        if row.get("role") in ("운영", "간사")
+                        or row.get("rel_role") == "admin"
                         else "member",
                         "department": row.get("department") or "",
                         "company": row.get("company") or "",
@@ -284,7 +291,13 @@ async def get_archive(
             if not _mk:
                 continue
             _members = meetings_map[_mk]["members"]
-            if any(str(m["userId"]) == str(_u.id) for m in _members):
+            _existing = next(
+                (m for m in _members if str(m["userId"]) == str(_u.id)), None
+            )
+            if _existing is not None:
+                # PG meeting_members가 권위 소스 — Neo4j 엣지 타입(운영/참여)으로 추정한
+                # role이 어긋날 수 있어(특히 간사가 참여자로 보이는 문제) PG 값으로 교정한다.
+                _existing["role"] = "admin" if _mm.meeting_role == "admin" else "member"
                 continue
             _members.append(
                 {
@@ -562,7 +575,7 @@ async def get_archive(
                 "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else "",
                 "session_status": s.status or "",
                 "content_summary": mn.content_summary if mn else "",
-                "short_summary": getattr(mn, 'short_summary', None) if mn else None,
+                "short_summary": getattr(mn, "short_summary", None) if mn else None,
                 "minutes_file_name": mn.file_name if mn else "",
                 "minutes_status": mn.status if mn else "",
                 "generated_at": mn.generated_at.isoformat() + "Z"
@@ -622,7 +635,9 @@ async def get_archive(
                             else "",
                             "session_status": str(s.status) if s.status else "",
                             "content_summary": mn.content_summary if mn else "",
-                            "short_summary": getattr(mn, 'short_summary', None) if mn else None,
+                            "short_summary": getattr(mn, "short_summary", None)
+                            if mn
+                            else None,
                             "minutes_file_name": mn.file_name if mn else "",
                             "minutes_status": mn.status if mn else "",
                             "minutes_pg_id": mn.id if mn else None,
@@ -704,7 +719,7 @@ async def get_archive(
                 ],
             }
 
-    # ── 사용자가 수동으로 만든 자유 관계 — 소스 오브 트루스인 PostgreSQL(graph_relations)에서 읽는다 ──
+    # ── 사용자가 수동으로 만든 자유 관계 — 소스 오브 트루스인 PostgreSQL에서 읽는다 ──
     # (buildGraphNodes는 PG 엔티티에서 구조 엣지를 파생하므로, 수동 관계는 이 경로로만 그래프에 복원된다.
     #  프런트는 양 끝 노드가 현재 그래프에 존재하는 엣지만 렌더링하므로 스코프 밖 관계는 자연히 무시된다.)
     manual_relations: list[dict] = []
@@ -721,6 +736,19 @@ async def get_archive(
     except Exception as e:
         logger.warning(f"[graph] 수동 관계 조회 실패: {e}")  # 메인 그래프는 정상 동작
 
+    # 회의체↔회의체 협의 연결(meeting_relations) — 그래프에 협의 엣지로 복원
+    try:
+        for mr in db.query(models.MeetingRelation).limit(5000).all():
+            manual_relations.append(
+                {
+                    "from_id": to_mg_id(mr.from_meeting_id),
+                    "to_id": to_mg_id(mr.to_meeting_id),
+                    "rel": mr.rel_type,
+                }
+            )
+    except Exception as e:
+        logger.warning(f"[graph] 회의체 연결 조회 실패: {e}")
+
     meetings = list(meetings_map.values())
     minutes = [mn for mg in meetings for mn in mg["minutes"]]
     reports = [r for mg in meetings for r in mg["reports"]]
@@ -731,6 +759,7 @@ async def get_archive(
         "email": user_email,
         "position": current_user.position or "",
         "department": current_user.department or "",
+        "company": _company_name,  # 본인 회사 (PG companies FK)
     }
 
     return {
@@ -738,7 +767,7 @@ async def get_archive(
         "minutes": minutes,
         "reports": reports,
         "departments": dept_rows,
-        "company": company_rows[0] if company_rows else None,
+        "company": user_company,
         "current_person": current_person,
         "manual_relations": manual_relations,
     }
@@ -756,7 +785,7 @@ async def create_relationship(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """수동 관계 추가 — PostgreSQL(graph_relations, 소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
+    """수동 관계 추가 — PostgreSQL(소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -765,7 +794,9 @@ async def create_relationship(
     if not from_id or not to_id:
         raise HTTPException(status_code=400, detail="from_id, to_id 필수")
     if from_id == to_id:
-        raise HTTPException(status_code=400, detail="자기 자신과의 관계는 만들 수 없습니다.")
+        raise HTTPException(
+            status_code=400, detail="자기 자신과의 관계는 만들 수 없습니다."
+        )
     # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸되 허용 목록 내여야 함)
     import re
 
@@ -816,7 +847,7 @@ async def delete_relationship(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """두 노드 사이의 관계 삭제 — PostgreSQL(graph_relations)에서 삭제하고 Neo4j에 동기화한다."""
+    """두 노드 사이의 관계 삭제 — PostgreSQL에서 삭제하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -851,13 +882,148 @@ async def delete_relationship(
     return {"ok": True}
 
 
+# ── 회의체↔회의체 연결(협의) — 전용 테이블 meeting_relations(PG 진실) + Neo4j 동기화 ──
+
+
+def _parse_mg_pg_id(raw) -> int:
+    """'mg-123' 또는 123 → 정수 meeting_id."""
+    s = str(raw or "").strip()
+    if s.startswith("mg-"):
+        s = s[3:]
+    if not s.isdigit():
+        raise HTTPException(status_code=400, detail=f"잘못된 회의체 id: {raw}")
+    return int(s)
+
+
+def _mr_pair_filter(a: int, b: int, rel_type: str):
+    """협의는 방향 무관 — (a→b) 또는 (b→a) 매칭."""
+    M = models.MeetingRelation
+    return (M.rel_type == rel_type) & (
+        ((M.from_meeting_id == a) & (M.to_meeting_id == b))
+        | ((M.from_meeting_id == b) & (M.to_meeting_id == a))
+    )
+
+
+@router.get("/meeting-relations/{mg_id}")
+async def list_meeting_relations(
+    mg_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """회의체의 협의 연결 목록(양방향) — 연결된 상대 회의체 정보 반환."""
+    pg_id = _parse_mg_pg_id(mg_id)
+    M = models.MeetingRelation
+    rels = (
+        db.query(M)
+        .filter((M.from_meeting_id == pg_id) | (M.to_meeting_id == pg_id))
+        .order_by(M.id.desc())
+        .all()
+    )
+    out = []
+    for r in rels:
+        other = r.to_meeting_id if r.from_meeting_id == pg_id else r.from_meeting_id
+        m = db.query(models.Meeting).filter(models.Meeting.id == other).first()
+        if not m:
+            continue
+        out.append(
+            {
+                "id": r.id,
+                "meeting_id": to_mg_id(other),  # 'mg-N' (프런트 노드 id 포맷)
+                "pg_id": other,
+                "title": m.title,
+                "status": m.status,
+                "rel_type": r.rel_type,
+            }
+        )
+    return {"relations": out}
+
+
+@router.post("/meeting-relations")
+async def create_meeting_relation(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """회의체↔회의체 협의 연결 생성 — PG(진실) 저장 + Neo4j MERGE."""
+    from_pg = _parse_mg_pg_id(data.get("from_meeting_id"))
+    to_pg = _parse_mg_pg_id(data.get("to_meeting_id"))
+    rel_type = (data.get("rel_type") or "협의").strip()
+    if from_pg == to_pg:
+        raise HTTPException(status_code=400, detail="자기 자신과 연결할 수 없습니다.")
+    found = (
+        db.query(models.Meeting.id)
+        .filter(models.Meeting.id.in_([from_pg, to_pg]))
+        .count()
+    )
+    if found < 2:
+        raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
+    # 1) PG — 멱등(양방향 중복 방지)
+    try:
+        exists = db.query(models.MeetingRelation.id).filter(
+            _mr_pair_filter(from_pg, to_pg, rel_type)
+        ).first()
+        if not exists:
+            db.add(
+                models.MeetingRelation(
+                    from_meeting_id=from_pg,
+                    to_meeting_id=to_pg,
+                    rel_type=rel_type,
+                    created_by=current_user.id,
+                )
+            )
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[meeting-rel] PG 저장 실패: {e}")
+        raise HTTPException(status_code=500, detail="연결 저장에 실패했습니다.")
+    # 2) Neo4j MERGE — 비치명적(실패해도 archive가 PG에서 복원)
+    try:
+        await _run_cypher(
+            "MATCH (a:Meetings {id: $a}), (b:Meetings {id: $b}) "
+            "MERGE (a)-[:`협의`]->(b)",
+            {"a": to_mg_id(from_pg), "b": to_mg_id(to_pg)},
+        )
+    except Exception as e:
+        logger.warning(f"[meeting-rel] Neo4j 동기화 실패(PG 저장됨): {e}")
+    return {"ok": True}
+
+
+@router.delete("/meeting-relations")
+async def delete_meeting_relation(
+    data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """협의 연결 삭제 — PG + Neo4j(양방향)."""
+    from_pg = _parse_mg_pg_id(data.get("from_meeting_id"))
+    to_pg = _parse_mg_pg_id(data.get("to_meeting_id"))
+    rel_type = (data.get("rel_type") or "협의").strip()
+    try:
+        db.query(models.MeetingRelation).filter(
+            _mr_pair_filter(from_pg, to_pg, rel_type)
+        ).delete(synchronize_session=False)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[meeting-rel] PG 삭제 실패: {e}")
+        raise HTTPException(status_code=500, detail="연결 삭제에 실패했습니다.")
+    try:
+        await _run_cypher(
+            "MATCH (a:Meetings {id: $a})-[r:`협의`]-(b:Meetings {id: $b}) DELETE r",
+            {"a": to_mg_id(from_pg), "b": to_mg_id(to_pg)},
+        )
+    except Exception as e:
+        logger.warning(f"[meeting-rel] Neo4j 삭제 동기화 실패(PG 삭제됨): {e}")
+    return {"ok": True}
+
+
 @router.put("/relationships")
 async def update_relationship(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """관계 유형 변경 (old → new) — PostgreSQL(graph_relations)에서 변경하고 Neo4j에 동기화한다."""
+    """관계 유형 변경 (old → new) — PostgreSQL에서 변경하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     old_rel = (data.get("old_rel") or "").strip()
     new_rel = (data.get("new_rel") or "").strip()
@@ -1098,7 +1264,9 @@ async def create_agenda_node(
     # Draft는 PostgreSQL에만 보관 — Neo4j 연동 안 함 (기존 노드 있으면 제거)
     if (status or "").strip().lower() == "draft":
         try:
-            await _run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id})
+            await _run_cypher(
+                "MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id}
+            )
         except Exception:
             pass
         return {"ok": True, "skipped": "draft"}
@@ -1149,7 +1317,9 @@ async def update_agenda_node(
     # Draft로 전환되면 PostgreSQL에만 보관 — Neo4j 노드 제거
     if (fields.get("status") or "").strip().lower() == "draft":
         try:
-            await _run_cypher("MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id})
+            await _run_cypher(
+                "MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id}
+            )
         except Exception:
             pass
         return {"ok": True, "skipped": "draft"}

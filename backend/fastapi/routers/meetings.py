@@ -29,7 +29,6 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["meetings"])
 
 
 def _get_or_create_company_id(db: Session, name) -> int | None:
@@ -45,550 +44,6 @@ def _get_or_create_company_id(db: Session, name) -> int | None:
     return c.id
 
 
-def _my_role_in(user_id: int, meeting_id: int, db: Session):
-    m = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.user_id == user_id,
-            models.MeetingMember.meeting_id == meeting_id,
-        )
-        .first()
-    )
-    return m.meeting_role if m else None
-
-
-@router.get("/meetings")
-def list_meetings(
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    vids = viewable_meeting_ids(db, current_user)  # None이면 전체(SYSTEM_ADMIN)
-    mq = db.query(models.Meeting)
-    if vids is not None:
-        if not vids:
-            return []
-        mq = mq.filter(models.Meeting.id.in_(vids))
-    meetings = mq.order_by(models.Meeting.created_at.desc()).all()
-
-    result = []
-    for m in meetings:
-        role = _my_role_in(current_user.id, m.id, db)
-        result.append(
-            {
-                "id": m.id,
-                "title": m.title,
-                "description": m.description,
-                "start_date": m.start_date,
-                "end_date": m.end_date,
-                "status": m.status,
-                "guidelines": m.guidelines,
-                "meeting_type": m.type,
-                "parent_id": None,
-                "created_by": m.created_by,
-                "created_at": m.created_at,
-                "my_role": role,
-            }
-        )
-    return result
-
-
-@router.post("/meetings", response_model=schemas.MeetingOut)
-async def create_meeting(
-    data: schemas.MeetingCreate,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting = models.Meeting(
-        title=data.title,
-        description=data.description,
-        guidelines=data.guidelines,
-        type=data.meeting_type,
-        start_date=data.start_date,
-        end_date=data.end_date,
-        created_by=current_user.id,
-    )
-    db.add(meeting)
-    db.flush()
-    member = models.MeetingMember(
-        meeting_id=meeting.id, user_id=current_user.id, meeting_role="admin"
-    )
-    db.add(member)
-    db.commit()
-    db.refresh(meeting)
-
-    # Neo4j 동기화 (백그라운드)
-    async def _sync():
-        await sync_meeting(
-            meeting_id=meeting.id,
-            title=meeting.title,
-            description=meeting.description,
-            guidelines=meeting.guidelines,
-            status=str(meeting.status or "active"),
-            meeting_type=str(meeting.type or ""),
-            start_date=meeting.start_date.isoformat() if meeting.start_date else None,
-            end_date=meeting.end_date.isoformat() if meeting.end_date else None,
-            created_by=meeting.created_by,
-            created_at=meeting.created_at.isoformat() if meeting.created_at else None,
-        )
-
-    background_tasks.add_task(_sync)
-    return meeting
-
-
-@router.get("/meetings/{meeting_id}")
-def get_meeting(
-    meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
-    require_view(db, current_user, meeting_id)
-    role = _my_role_in(current_user.id, meeting_id, db)
-    return {
-        "id": meeting.id,
-        "title": meeting.title,
-        "description": meeting.description,
-        "start_date": meeting.start_date,
-        "end_date": meeting.end_date,
-        "status": meeting.status,
-        "guidelines": meeting.guidelines,
-        "created_by": meeting.created_by,
-        "created_at": meeting.created_at,
-        "my_role": role,
-    }
-
-
-@router.patch("/meetings/{meeting_id}")
-async def update_meeting(
-    meeting_id: int,
-    data: dict,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    # 회의체 수정은 간사/회사관리자/시스템관리자만
-    require_meeting_edit(db, current_user, meeting_id)
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Not found")
-    if "title" in data:
-        meeting.title = data["title"]
-    if "status" in data:
-        meeting.status = data["status"]
-        if data["status"] == "ended" and not meeting.end_date:
-            from datetime import datetime
-
-            meeting.end_date = datetime.utcnow()
-    if "description" in data:
-        meeting.description = data["description"]
-    if "start_date" in data:
-        meeting.start_date = data["start_date"]
-    if "end_date" in data:
-        meeting.end_date = data["end_date"]
-    if "guidelines" in data:
-        meeting.guidelines = data["guidelines"]
-    if "context" in data:
-        meeting.context = data["context"]
-    if "meeting_type" in data:
-        meeting.type = data["meeting_type"]
-    db.commit()
-    db.refresh(meeting)
-
-    # Neo4j 동기화 (백그라운드)
-    background_tasks.add_task(
-        sync_meeting,
-        meeting_id=meeting.id,
-        title=meeting.title,
-        description=meeting.description,
-        guidelines=meeting.guidelines,
-        context=meeting.context,
-        status=str(meeting.status or "active"),
-        meeting_type=str(meeting.type or ""),
-        start_date=meeting.start_date.isoformat() if meeting.start_date else None,
-        end_date=meeting.end_date.isoformat() if meeting.end_date else None,
-        created_by=meeting.created_by,
-    )
-    return meeting
-
-
-@router.get(
-    "/meetings/{meeting_id}/members", response_model=List[schemas.MeetingMemberOut]
-)
-def get_members(
-    meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    require_view(db, current_user, meeting_id)
-    return (
-        db.query(models.MeetingMember)
-        .options(joinedload(models.MeetingMember.user))
-        .filter(models.MeetingMember.meeting_id == meeting_id)
-        .all()
-    )
-
-
-@router.post("/meetings/{meeting_id}/members")
-async def add_member(
-    meeting_id: int,
-    data: schemas.MeetingMemberAdd,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    require_meeting_edit(db, current_user, meeting_id)
-    existing = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.meeting_id == meeting_id,
-            models.MeetingMember.user_id == data.user_id,
-        )
-        .first()
-    )
-    if existing:
-        existing.meeting_role = data.meeting_role
-        db.commit()
-        background_tasks.add_task(
-            update_meeting_member_role, meeting_id, data.user_id, data.meeting_role
-        )
-        return existing
-
-    member = models.MeetingMember(
-        meeting_id=meeting_id, user_id=data.user_id, meeting_role=data.meeting_role
-    )
-    db.add(member)
-    db.flush()
-
-    added_user = db.query(models.User).filter(models.User.id == data.user_id).first()
-    db.commit()
-
-    if added_user:
-
-        async def _sync_member():
-            await sync_user(
-                user_id=added_user.id,
-                name=added_user.name,
-                email=added_user.email,
-                company=added_user.company_name,
-                department=added_user.department,
-                position=added_user.position,
-            )
-            await sync_meeting_member(
-                meeting_id=meeting_id, user_id=added_user.id, role=data.meeting_role
-            )
-
-        background_tasks.add_task(_sync_member)
-
-    return member
-
-
-@router.patch("/meetings/{meeting_id}/members/{member_id}")
-async def update_member_role(
-    meeting_id: int,
-    member_id: int,
-    data: dict,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    require_meeting_edit(db, current_user, meeting_id)
-    member = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.id == member_id,
-            models.MeetingMember.meeting_id == meeting_id,
-        )
-        .first()
-    )
-    if not member:
-        raise HTTPException(status_code=404, detail="Not found")
-    new_role = data.get("meeting_role", data.get("role"))  # 구 키 role 하위호환
-    if new_role is not None:
-        member.meeting_role = new_role
-    db.commit()
-    if new_role is not None:
-        background_tasks.add_task(
-            update_meeting_member_role, meeting_id, member.user_id, new_role
-        )
-    return member
-
-
-@router.delete("/meetings/{meeting_id}/members/{member_id}")
-async def remove_member(
-    meeting_id: int,
-    member_id: int,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    target = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.id == member_id,
-            models.MeetingMember.meeting_id == meeting_id,
-        )
-        .first()
-    )
-    if not target:
-        raise HTTPException(status_code=404, detail="Not found")
-    # 본인 탈퇴는 허용, 타인 제거는 간사/회사관리자/시스템관리자만
-    if target.user_id != current_user.id:
-        require_meeting_edit(db, current_user, meeting_id)
-
-    removed_user_id = target.user_id
-    db.delete(target)
-    db.commit()
-    background_tasks.add_task(delete_meeting_member, meeting_id, removed_user_id)
-    return {"ok": True}
-
-
-@router.delete("/meetings/{meeting_id}")
-async def delete_meeting(
-    meeting_id: int,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Not found")
-    # 회의체 삭제는 간사/회사관리자/시스템관리자만
-    require_meeting_edit(db, current_user, meeting_id)
-
-    # ── 1. ID 선수집 ──────────────────────────────────────────────
-    session_ids = [
-        r.id
-        for r in db.query(models.MeetingSession.id)
-        .filter(models.MeetingSession.meeting_id == meeting_id)
-        .all()
-    ]
-    report_ids = [
-        r.id
-        for r in db.query(models.Report.id)
-        .filter(models.Report.meeting_id == meeting_id)
-        .all()
-    ]
-    agent_log_ids = [
-        r.id
-        for r in db.query(models.AgentLog.id)
-        .filter(models.AgentLog.meeting_id == meeting_id)
-        .all()
-    ]
-
-    # ── 2. 세션 하위 (session_id FK) ─────────────────────────────
-    if session_ids:
-        db.query(models.SttSegment).filter(
-            models.SttSegment.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.SessionMember).filter(
-            models.SessionMember.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.Minutes).filter(
-            models.Minutes.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 3. 채팅 메시지 (meeting_id 전체) ─────────────────────────
-    db.query(models.ChatMessage).filter(
-        models.ChatMessage.meeting_id == meeting_id
-    ).delete(synchronize_session=False)
-
-    # ── 4. 세션 ──────────────────────────────────────────────────
-    if session_ids:
-        db.query(models.MeetingSession).filter(
-            models.MeetingSession.id.in_(session_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
-    if report_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.report_id.in_(report_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.ReportScore).filter(
-            models.ReportScore.report_id.in_(report_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 6. 보고서 ─────────────────────────────────────────────────
-    db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-
-    # ── 7. AgentLog 하위 (agent_log_id FK) ───────────────────────
-    if agent_log_ids:
-        db.query(models.TokenUsageLog).filter(
-            models.TokenUsageLog.agent_log_id.in_(agent_log_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.HitlReview).filter(
-            models.HitlReview.agent_log_id.in_(agent_log_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 8. AgentLog ───────────────────────────────────────────────
-    db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-
-    # ── 9. 아젠다 / 멤버 / 회의체 ────────────────────────────────
-    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-    db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id
-    ).delete(synchronize_session=False)
-    db.delete(meeting)
-    db.commit()
-
-    # Neo4j 동기화 (백그라운드)
-    background_tasks.add_task(neo4j_delete_meeting, meeting_id=meeting_id)
-    return {"ok": True}
-
-
-@router.get("/users/search")
-def search_users(
-    q: str = Query(""),
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
-    query = db.query(models.User).filter(
-        models.User.name.contains(q),
-        models.User.is_active.is_(True),  # 탈퇴 계정 제외(MT-6)
-    )
-    if visible is not None:
-        query = query.filter(models.User.id.in_(visible))
-    users = query.limit(20).all()
-    return [
-        {
-            "id": u.id,
-            "name": u.name,
-            "email": u.email,
-            "department": u.department,
-            "company": u.company_name,
-            "position": u.position,
-        }
-        for u in users
-    ]
-
-
-@router.get("/users/all")
-def all_users(
-    limit: int = Query(100, le=500),
-    offset: int = Query(0, ge=0),
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    visible = visible_user_ids(db, current_user)  # MT-3 디렉터리 스코프
-    users_query = (
-        db.query(models.User)
-        .filter(models.User.is_active.is_(True))  # 탈퇴 계정 제외(MT-6)
-        .order_by(models.User.name)
-    )
-    if visible is not None:
-        users_query = users_query.filter(models.User.id.in_(visible))
-    users = users_query.offset(offset).limit(limit).all()  # P8-5 페이지네이션
-
-    # 사용자별 개별 쿼리(N+1, PG-6) → 멤버십+회의체 일괄 2쿼리로 교체
-    user_ids = [u.id for u in users]
-    all_members = (
-        (
-            db.query(models.MeetingMember)
-            .filter(models.MeetingMember.user_id.in_(user_ids))
-            .all()
-        )
-        if user_ids
-        else []
-    )
-    meeting_ids = {mm.meeting_id for mm in all_members}
-    titles = (
-        {
-            m.id: m.title
-            for m in db.query(models.Meeting.id, models.Meeting.title)
-            .filter(models.Meeting.id.in_(meeting_ids))
-            .all()
-        }
-        if meeting_ids
-        else {}
-    )
-    members_by_user: dict[int, list] = {}
-    for mm in all_members:
-        members_by_user.setdefault(mm.user_id, []).append(mm)
-
-    result = []
-    for u in users:
-        meetings = [
-            {
-                "id": mm.meeting_id,
-                "member_id": mm.id,
-                "title": titles.get(mm.meeting_id, ""),
-                "role": mm.meeting_role,
-            }
-            for mm in members_by_user.get(u.id, [])
-        ]
-        result.append(
-            {
-                "id": u.id,
-                "name": u.name,
-                "email": u.email,
-                "department": u.department,
-                "company": u.company_name,
-                "company_id": u.company_id,
-                "position": u.position,
-                "role": u.company_role,  # 역할 변경 UI용 (P1-7②)
-                "meetings": meetings,
-            }
-        )
-    return result
-
-
-@router.patch("/users/{user_id}")
-def update_user(
-    user_id: int,
-    data: dict,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Not found")
-    require_user_update_permission(current_user, user)
-    if "name" in data and data["name"] is not None:
-        user.name = data["name"]
-    if "company" in data:
-        user.company_id = _get_or_create_company_id(db, data["company"])
-    if "department" in data:
-        user.department = data["department"] if data["department"] else None
-    if "position" in data:
-        user.position = data["position"] if data["position"] else None
-    db.commit()
-    db.refresh(user)
-    return {
-        "id": user.id,
-        "name": user.name,
-        "company": user.company_name,
-        "department": user.department,
-        "position": user.position,
-    }
-
-
-@router.get("/meetings/{meeting_id}/my-role")
-def my_role(
-    meeting_id: int,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    member = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.meeting_id == meeting_id,
-            models.MeetingMember.user_id == current_user.id,
-        )
-        .first()
-    )
-    if not member:
-        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
-    return {"role": member.meeting_role}
 
 
 # ── /api/ai prefix 라우터 (Ingress: /api/ai → FastAPI) ───────────────────────
@@ -632,7 +87,9 @@ async def rename_company_endpoint(
         raise HTTPException(status_code=409, detail="이미 존재하는 회사명입니다.")
     company.name = new_name
     db.commit()
-    background_tasks.add_task(neo4j_rename_company, old_name, new_name)
+    # Neo4j(Company 노드 + 소속 User.company 속성) 동기화를 응답 전에 완료한다.
+    # 백그라운드로 두면 프런트의 그래프 새로고침이 갱신 전 stale 데이터를 받아 옛 이름이 굳는다.
+    await neo4j_rename_company(old_name, new_name)
     return {"ok": True, "id": company.id, "name": new_name}
 
 
@@ -682,9 +139,8 @@ async def rename_department_endpoint(
         q = q.filter(models.User.company_id == company.id)
     updated = q.update({models.User.department: new_name}, synchronize_session=False)
     db.commit()
-    background_tasks.add_task(
-        neo4j_rename_department, old_name, new_name, company_name or None
-    )
+    # 응답 전에 Neo4j 동기화 완료 (그래프 새로고침이 갱신된 값을 받도록).
+    await neo4j_rename_department(old_name, new_name, company_name or None)
     return {"ok": True, "name": new_name, "updated": updated}
 
 
@@ -718,18 +174,25 @@ def company_members(
             .all()
         ]
         if not my_meeting_ids:
-            return {"meetings": [], "members": []}
-        shared_user_ids = {
-            mm.user_id
-            for mm in db.query(models.MeetingMember.user_id)
-            .filter(models.MeetingMember.meeting_id.in_(my_meeting_ids))
-            .all()
-        }
-        visible_users = (
-            db.query(models.User).filter(models.User.id.in_(shared_user_ids)).all()
-        )
+            # 소속 회의체가 없어도 본인은 보여준다 (아래 방어 로직이 current_user를 채운다).
+            visible_users = []
+        else:
+            shared_user_ids = {
+                mm.user_id
+                for mm in db.query(models.MeetingMember.user_id)
+                .filter(models.MeetingMember.meeting_id.in_(my_meeting_ids))
+                .all()
+            }
+            visible_users = (
+                db.query(models.User).filter(models.User.id.in_(shared_user_ids)).all()
+            )
 
     visible_ids = {u.id for u in visible_users}
+
+    # 현재 사용자는 관리 화면에 항상 보이도록 보장 — 가시범위 경계로 본인이 누락되는 어떤 경우도 방어한다.
+    if current_user.id not in visible_ids:
+        visible_users.append(current_user)
+        visible_ids.add(current_user.id)
 
     # 2) 가시 사용자들의 회의체 참여 정보 묶기
     member_rows = (
@@ -801,49 +264,7 @@ def company_members(
     return {"meetings": meetings_list, "members": members}
 
 
-@ai_router.delete("/meetings/{meeting_id}/members/{member_id}")
-async def ai_remove_member(
-    meeting_id: int,
-    member_id: int,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    my_role = _my_role_in(current_user.id, meeting_id, db)
-    target = (
-        db.query(models.MeetingMember)
-        .filter(
-            models.MeetingMember.id == member_id,
-            models.MeetingMember.meeting_id == meeting_id,
-        )
-        .first()
-    )
-    if not target:
-        raise HTTPException(status_code=404, detail="Not found")
-    # 제거 권한: 본인 / 회의체 간사 / SYSTEM_ADMIN / 같은 회사 COMPANY_ADMIN
-    target_user = db.query(models.User).filter(models.User.id == target.user_id).first()
-    is_company_admin = (
-        current_user.company_role == "COMPANY_ADMIN"
-        and current_user.company_id is not None
-        and target_user is not None
-        and current_user.company_id == target_user.company_id
-    )
-    if (
-        target.user_id != current_user.id
-        and my_role != "admin"
-        and not is_system_admin(current_user)
-        and not is_company_admin
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="구성원을 제거할 권한이 없습니다. (회의체 간사 또는 관리자만 가능)",
-        )
-
-    removed_user_id = target.user_id
-    db.delete(target)
-    db.commit()
-    background_tasks.add_task(delete_meeting_member, meeting_id, removed_user_id)
-    return {"ok": True}
+# (제거됨) /api/ai/meetings/{id}/members/{member_id} — 프런트가 Spring(/api/v1)로 이전. 중복 제거.
 
 
 @ai_router.delete("/users/{user_id}")
@@ -882,17 +303,57 @@ async def ai_delete_user(
     db.execute(text("DELETE FROM session_members WHERE user_id = :uid"), {"uid": uid})
     db.execute(text("DELETE FROM meeting_members WHERE user_id = :uid"), {"uid": uid})
     # 2) nullable FK → NULL (보고서·채팅 이력은 유지)
-    db.execute(text("UPDATE reports SET upload_id = NULL WHERE upload_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE chat_messages SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE chat_feedback SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE meetings SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
-    db.execute(text("UPDATE agenda SET assignee_id = NULL WHERE assignee_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE stt_segments SET speaker_user_id = NULL WHERE speaker_user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE minutes SET recorder_id = NULL WHERE recorder_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE agent_logs SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE hitl_reviews SET reviewer_id = NULL WHERE reviewer_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE graph_relations SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
-    db.execute(text("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :uid"), {"uid": uid})
+    db.execute(
+        text("UPDATE reports SET upload_id = NULL WHERE upload_id = :uid"), {"uid": uid}
+    )
+    db.execute(
+        text("UPDATE chat_messages SET user_id = NULL WHERE user_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE chat_feedback SET user_id = NULL WHERE user_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE meetings SET created_by = NULL WHERE created_by = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE agenda SET assignee_id = NULL WHERE assignee_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text(
+            "UPDATE stt_segments SET speaker_user_id = NULL WHERE speaker_user_id = :uid"
+        ),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE minutes SET recorder_id = NULL WHERE recorder_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE agent_logs SET user_id = NULL WHERE user_id = :uid"), {"uid": uid}
+    )
+    db.execute(
+        text("UPDATE hitl_reviews SET reviewer_id = NULL WHERE reviewer_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :uid"),
+        {"uid": uid},
+    )
+    # 사용자가 만든 수동 관계(그래프 자유 관계·회의체 협의) created_by → NULL.
+    # 이 둘은 users(id)를 NO ACTION으로 참조해, 누락 시 DELETE FROM users가 FK 위반으로
+    # 실패한다(= 관계를 만든 적 있는 사용자는 계정 삭제 불가). 관계 자체는 보존한다.
+    db.execute(
+        text("UPDATE graph_relations SET created_by = NULL WHERE created_by = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE meeting_relations SET created_by = NULL WHERE created_by = :uid"),
+        {"uid": uid},
+    )
     # 3) users 행 삭제
     db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": uid})
     db.commit()
@@ -955,12 +416,21 @@ async def ai_update_user(
         user.position = data["position"] if data["position"] else None
     db.commit()
     db.refresh(user)
-    background_tasks.add_task(
-        sync_user,
+    # company는 관계(company.name) 경유라 company_id만 바꾸면 stale일 수 있어 id로 직접 조회한다.
+    company_name = None
+    if user.company_id is not None:
+        _co = (
+            db.query(models.Company)
+            .filter(models.Company.id == user.company_id)
+            .first()
+        )
+        company_name = _co.name if _co else None
+    # 동기로 Neo4j(User.company 속성) 반영 — 백그라운드 지연/유실로 그래프에 옛 회사명이 굳는 것 방지.
+    await sync_user(
         user_id=user.id,
         name=user.name,
         email=user.email,
-        company=user.company_name,
+        company=company_name,
         department=user.department,
         position=user.position,
     )
@@ -974,99 +444,5 @@ async def ai_update_user(
     }
 
 
-@ai_router.delete("/meetings/{meeting_id}")
-async def ai_delete_meeting(
-    meeting_id: int,
-    background_tasks: BackgroundTasks,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Not found")
-    # 회의체 삭제는 간사/회사관리자/시스템관리자만
-    require_meeting_edit(db, current_user, meeting_id)
-
-    # ── 1. ID 선수집 ──────────────────────────────────────────────
-    session_ids = [
-        r.id
-        for r in db.query(models.MeetingSession.id)
-        .filter(models.MeetingSession.meeting_id == meeting_id)
-        .all()
-    ]
-    report_ids = [
-        r.id
-        for r in db.query(models.Report.id)
-        .filter(models.Report.meeting_id == meeting_id)
-        .all()
-    ]
-    agent_log_ids = [
-        r.id
-        for r in db.query(models.AgentLog.id)
-        .filter(models.AgentLog.meeting_id == meeting_id)
-        .all()
-    ]
-
-    # ── 2. 세션 하위 (session_id FK) ─────────────────────────────
-    if session_ids:
-        db.query(models.SttSegment).filter(
-            models.SttSegment.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.SessionMember).filter(
-            models.SessionMember.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.Minutes).filter(
-            models.Minutes.session_id.in_(session_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 3. 채팅 메시지 (meeting_id 전체) ─────────────────────────
-    db.query(models.ChatMessage).filter(
-        models.ChatMessage.meeting_id == meeting_id
-    ).delete(synchronize_session=False)
-
-    # ── 4. 세션 ──────────────────────────────────────────────────
-    if session_ids:
-        db.query(models.MeetingSession).filter(
-            models.MeetingSession.id.in_(session_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 5. 보고서 하위 (report_id FK) ────────────────────────────
-    if report_ids:
-        db.query(models.HitlReview).filter(
-            models.HitlReview.report_id.in_(report_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.ReportScore).filter(
-            models.ReportScore.report_id.in_(report_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 6. 보고서 ─────────────────────────────────────────────────
-    db.query(models.Report).filter(models.Report.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-
-    # ── 7. AgentLog 하위 (agent_log_id FK) ───────────────────────
-    if agent_log_ids:
-        db.query(models.TokenUsageLog).filter(
-            models.TokenUsageLog.agent_log_id.in_(agent_log_ids)
-        ).delete(synchronize_session=False)
-        db.query(models.HitlReview).filter(
-            models.HitlReview.agent_log_id.in_(agent_log_ids)
-        ).delete(synchronize_session=False)
-
-    # ── 8. AgentLog ───────────────────────────────────────────────
-    db.query(models.AgentLog).filter(models.AgentLog.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-
-    # ── 9. 아젠다 / 멤버 / 회의체 ────────────────────────────────
-    db.query(models.Agenda).filter(models.Agenda.meeting_id == meeting_id).delete(
-        synchronize_session=False
-    )
-    db.query(models.MeetingMember).filter(
-        models.MeetingMember.meeting_id == meeting_id
-    ).delete(synchronize_session=False)
-    db.delete(meeting)
-    db.commit()
-
-    background_tasks.add_task(neo4j_delete_meeting, meeting_id=meeting_id)
-    return {"ok": True}
+# (제거됨) /api/ai/meetings/{id} 회의체 삭제 — Spring(/api/v1) MeetingService.deleteMeeting로 이전.
+# 회의체 삭제는 PG 원천(Spring) + 아웃박스 → Neo4j 동기화 경로를 사용한다. 중복 제거.

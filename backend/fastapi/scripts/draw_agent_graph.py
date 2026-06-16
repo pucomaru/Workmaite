@@ -42,13 +42,20 @@ os.environ["LANGSMITH_TRACING"] = "false"
 
 
 def main() -> int:
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else _FASTAPI_ROOT / "scripts" / "agent_graph.png"
+    out = (
+        Path(sys.argv[1])
+        if len(sys.argv) > 1
+        else _FASTAPI_ROOT / "scripts" / "agent_graph.png"
+    )
     out = out.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     mmd_path = out.with_suffix(".mmd")
 
     if not os.environ.get("OPENAI_API_KEY"):
-        print("✗ OPENAI_API_KEY 가 없습니다. 레포 루트 .env 를 확인하세요.", file=sys.stderr)
+        print(
+            "✗ OPENAI_API_KEY 가 없습니다. 레포 루트 .env 를 확인하세요.",
+            file=sys.stderr,
+        )
         return 1
 
     # 1) 현재 워크플로우 컴파일 (create_react_agent 는 컴파일된 그래프를 돌려준다)

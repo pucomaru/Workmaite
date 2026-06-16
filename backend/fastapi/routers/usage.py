@@ -1,5 +1,6 @@
 """usage.py — 토큰 / STT 사용량 조회 엔드포인트"""
 
+import re
 from datetime import datetime, timedelta, date as date_type
 from typing import Optional
 
@@ -38,6 +39,22 @@ def _stt_label(prov: str) -> str:
         if prov and prov.startswith(k):
             return v
     return prov or "STT"
+
+
+# 모델명 끝의 날짜 스냅샷 접미사 (예: gpt-4o-mini-2024-07-18) 제거용 — 같은 모델의
+# 버전 변형을 하나로 합쳐 보여준다(gpt-4o-mini-2024-07-18 → gpt-4o-mini).
+_MODEL_DATE_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def _normalize_model(name: str) -> str:
+    return _MODEL_DATE_RE.sub("", name) if name else name
+
+
+def _is_stt_model(name: str) -> bool:
+    """token_usage_logs에 기록되지만 LLM이 아니라 STT(전사/화자분리) 비용인 모델.
+    (예: gpt-4o-transcribe-diarize) — AI 모델 섹션이 아니라 STT 섹션으로 분류한다."""
+    n = (name or "").lower()
+    return "transcribe" in n or "diarize" in n
 
 
 @router.get("/tokens")
@@ -79,21 +96,7 @@ def get_token_usage(
             models.TokenUsageLog.created_at <= until,
         )
 
-    # ── 1. 모델별 합계 ─────────────────────────────────────────────────────────
-    model_rows = (
-        _base(
-            db.query(
-                models.TokenUsageLog.model_name,
-                func.sum(models.TokenUsageLog.prompt_tokens).label("pt"),
-                func.sum(models.TokenUsageLog.completion_tokens).label("ct"),
-                func.sum(models.TokenUsageLog.estimated_cost_usd).label("cost"),
-            )
-        )
-        .group_by(models.TokenUsageLog.model_name)
-        .all()
-    )
-
-    # ── 2. 모델 × context_type 세분화 ──────────────────────────────────────────
+    # ── 1+2. 모델 × context_type 세분화 (모델 합계는 여기서 파생) ────────────────
     mc_rows = (
         _base(
             db.query(
@@ -109,22 +112,33 @@ def get_token_usage(
     )
 
     # by_mc[model][context_type] = {total_tokens, cost};  by_agent[group] = {…} (모델 합산)
+    # 모델명은 날짜 접미사를 제거해 정규화하고, 전사/화자분리(STT) 모델은 LLM 집계에서 분리한다.
     by_mc: dict[str, dict] = {}
     by_agent: dict[str, dict] = {}
+    stt_token_models: dict[str, dict] = {}  # STT(토큰 기반) — STT 섹션으로 분류
     for r in mc_rows:
         ctx = r.context_type
         tokens = int((r.pt or 0) + (r.ct or 0))
         cost = float(r.cost or 0)
-        by_mc.setdefault(r.model_name, {}).setdefault(
-            ctx, {"total_tokens": 0, "cost": 0.0}
-        )
-        by_mc[r.model_name][ctx]["total_tokens"] += tokens
-        by_mc[r.model_name][ctx]["cost"] += cost
+        model = _normalize_model(r.model_name)
+        if _is_stt_model(r.model_name):
+            m = stt_token_models.setdefault(model, {"total_tokens": 0, "cost": 0.0})
+            m["total_tokens"] += tokens
+            m["cost"] += cost
+            continue
+        by_mc.setdefault(model, {}).setdefault(ctx, {"total_tokens": 0, "cost": 0.0})
+        by_mc[model][ctx]["total_tokens"] += tokens
+        by_mc[model][ctx]["cost"] += cost
         grp = by_agent.setdefault(agent_of(ctx), {"total_tokens": 0, "cost": 0.0})
         grp["total_tokens"] += tokens
         grp["cost"] += cost
 
     # ── 3. 전체 기간 누적 ──────────────────────────────────────────────────────
+    # STT(전사/화자분리) 토큰 모델은 LLM 누적에서 제외 — STT 누적에 합산한다.
+    _not_stt = (
+        ~models.TokenUsageLog.model_name.ilike("%transcribe%"),
+        ~models.TokenUsageLog.model_name.ilike("%diarize%"),
+    )
     all_time = (
         db.query(
             func.sum(models.TokenUsageLog.prompt_tokens).label("pt"),
@@ -132,10 +146,22 @@ def get_token_usage(
             func.sum(models.TokenUsageLog.estimated_cost_usd).label("cost"),
         )
         .join(models.AgentLog, models.TokenUsageLog.agent_log_id == models.AgentLog.id)
-        .filter(models.AgentLog.user_id == current_user.id)
+        .filter(models.AgentLog.user_id == current_user.id, *_not_stt)
         .first()
     )
     all_time_llm_cost = float(all_time.cost or 0) if all_time else 0.0
+    # STT 토큰 모델 전체 기간 누적 비용 (STT 섹션 누적에 합산)
+    all_time_stt_token_cost = float(
+        db.query(func.sum(models.TokenUsageLog.estimated_cost_usd))
+        .join(models.AgentLog, models.TokenUsageLog.agent_log_id == models.AgentLog.id)
+        .filter(
+            models.AgentLog.user_id == current_user.id,
+            models.TokenUsageLog.model_name.ilike("%transcribe%")
+            | models.TokenUsageLog.model_name.ilike("%diarize%"),
+        )
+        .scalar()
+        or 0.0
+    )
 
     # ── 4. STT 제공자별 집계 ────────────────────────────────────────────────────
     stt_base = (
@@ -184,7 +210,22 @@ def get_token_usage(
         )
         stt_total_secs += secs
         stt_total_cost += cost
-    by_provider.sort(key=lambda x: x["seconds"], reverse=True)
+    # 토큰 기반 STT 모델(전사/화자분리, 예: gpt-4o-transcribe-diarize)을 STT 섹션에 합류.
+    # 분(minute) 기반이 아니라 토큰 기반이므로 seconds/minutes는 0, tokens 필드로 표기한다.
+    for model, agg in stt_token_models.items():
+        by_provider.append(
+            {
+                "provider": model,
+                "label": _stt_label(model),
+                "seconds": 0,
+                "minutes": 0,
+                "cost_per_min": 0,
+                "cost": round(agg["cost"], 6),
+                "tokens": agg["total_tokens"],  # 토큰 기반 STT 사용량
+            }
+        )
+        stt_total_cost += agg["cost"]
+    by_provider.sort(key=lambda x: (x["seconds"], x.get("tokens", 0)), reverse=True)
 
     # ── 4-1. STT 전체 기간 누적 비용 (누적 비용에 합산) ─────────────────────────
     stt_all_time_rows = (
@@ -209,17 +250,18 @@ def get_token_usage(
         .group_by(models.SttSegment.provider)
         .all()
     )
-    stt_all_time_cost = sum(
-        stt_cost(r.provider, float(r.secs or 0)) for r in stt_all_time_rows
+    stt_all_time_cost = (
+        sum(stt_cost(r.provider, float(r.secs or 0)) for r in stt_all_time_rows)
+        + all_time_stt_token_cost
     )
 
     # ── 5. 모델 목록 조합 (모델별 → context_type별 세분화) ──────────────────────
     by_model = sorted(
         [
             {
-                "model_name": r.model_name,
-                "total_tokens": int((r.pt or 0) + (r.ct or 0)),
-                "cost": round(float(r.cost or 0), 6),
+                "model_name": model,
+                "total_tokens": sum(v["total_tokens"] for v in ctxs.values()),
+                "cost": round(sum(v["cost"] for v in ctxs.values()), 6),
                 "by_context": sorted(
                     [
                         {
@@ -229,13 +271,13 @@ def get_token_usage(
                             "total_tokens": v["total_tokens"],
                             "cost": round(v["cost"], 6),
                         }
-                        for ctx, v in by_mc.get(r.model_name, {}).items()
+                        for ctx, v in ctxs.items()
                     ],
                     key=lambda x: x["total_tokens"],
                     reverse=True,
                 ),
             }
-            for r in model_rows
+            for model, ctxs in by_mc.items()
         ],
         key=lambda x: x["total_tokens"],
         reverse=True,

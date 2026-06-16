@@ -1070,14 +1070,19 @@ html.night-mode .create-btn {
 .create-btn:hover {
   opacity: 0.85;
 }
+
 .create-btn.secondary {
-  background: transparent;
+  background: var(--accent) !important;
   border: 1px solid var(--white-18);
   color: var(--dark-text-2);
 }
 .create-btn.secondary:hover {
-  background: var(--white-07);
-  opacity: 1;
+  opacity: 0.85;
+}
+.day-mode .create-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--dark-border);
+  color: #fff !important;
 }
 /* day-mode 변형 */
 .day-mode .archive-header {
@@ -1377,6 +1382,27 @@ html.night-mode .app-select option {
   color: #2563eb;
   font-weight: 700;
 }
+.app-tab-count {
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--dark-muted);
+  border-radius: 99px;
+  padding: 0 7px;
+  line-height: 1.7;
+}
+.app-tab.active .app-tab-count {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+html.night-mode .app-tab-count {
+  background: var(--white-10);
+  color: var(--text-muted);
+}
+html.night-mode .app-tab.active .app-tab-count {
+  background: rgba(147, 197, 253, 0.2);
+  color: var(--accent-soft);
+}
 /* .app-tab-badge { font-size:12px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
 .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); } */
 html.night-mode .app-tab {
@@ -1454,12 +1480,13 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   color: var(--dark-card);
 }
 .app-modal-body {
+  min-width: 400px;
   padding: 14px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  max-height: 72vh;
+  max-height: 400px;
   flex: 1;
 }
 .app-modal-footer {
@@ -1593,10 +1620,11 @@ html.day-mode-global .app-btn-danger:hover {
 }
 
 .app-btn-danger:hover {
+  opacity: 0.85;
   background: #f7c3c353;
 }
 .app-btn-danger:disabled {
-  opacity: 0.4;
+  opacity: 0.85;
   cursor: not-allowed;
 }
 .app-modal-footer-right {

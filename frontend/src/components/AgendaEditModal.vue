@@ -86,7 +86,12 @@ function priorityColor(val) {
             </div>
             <div class="app-modal-field">
               <label for="agenda-status">상태</label>
-              <select id="agenda-status" name="status" v-model="form.status" class="app-modal-input">
+              <select
+                id="agenda-status"
+                name="status"
+                v-model="form.status"
+                class="app-modal-input"
+              >
                 <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
                   {{ s.label }}
                 </option>
@@ -96,12 +101,23 @@ function priorityColor(val) {
             <!-- 마감일 -->
             <div class="app-modal-field">
               <label for="agenda-due-date">마감일</label>
-              <DateInput id="agenda-due-date" name="due_date" v-model="form.due_date" class="app-modal-input" />
+              <DateInput
+                id="agenda-due-date"
+                name="due_date"
+                v-model="form.due_date"
+                class="app-modal-input"
+              />
             </div>
           </div>
           <!-- 참여 부서 (검색 다중선택) — 회의체 편집의 참여자 mi-section과 동일 UX -->
           <div class="app-modal-field">
-            <DeptSelect id="agenda-department" name="department" v-model="form.department" :options="deptOptions" :night-mode="nightMode" />
+            <DeptSelect
+              id="agenda-department"
+              name="department"
+              v-model="form.department"
+              :options="deptOptions"
+              :night-mode="nightMode"
+            />
           </div>
         </div>
 

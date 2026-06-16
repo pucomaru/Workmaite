@@ -305,7 +305,11 @@ def _build_session_context(db: Session, session_id: int) -> dict:
     )
     user_ids = [m.user_id for m in member_rows]
     role_map = {m.user_id: m.role for m in member_rows}
-    users = db.query(models.User).filter(models.User.id.in_(user_ids)).all() if user_ids else []
+    users = (
+        db.query(models.User).filter(models.User.id.in_(user_ids)).all()
+        if user_ids
+        else []
+    )
 
     # 안건 (SessionAgenda → Agenda)
     sa_rows = (
@@ -322,16 +326,12 @@ def _build_session_context(db: Session, session_id: int) -> dict:
 
     # 부모 회의체
     meeting = (
-        db.query(models.Meeting)
-        .filter(models.Meeting.id == session.meeting_id)
-        .first()
+        db.query(models.Meeting).filter(models.Meeting.id == session.meeting_id).first()
     )
 
     # 회의록
     minutes = (
-        db.query(models.Minutes)
-        .filter(models.Minutes.session_id == session_id)
-        .first()
+        db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
 
     # 실시간 요약 블록 (ongoing 상태에서 활용)
@@ -414,7 +414,9 @@ def _format_session_context_str(ctx: dict) -> str:
                     if b.bullets
                     else ""
                 )
-                block_parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
+                block_parts.append(
+                    f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]"
+                )
             parts.append("[실시간 요약 블록]\n" + "\n\n".join(block_parts))
 
     return "\n\n".join(parts)

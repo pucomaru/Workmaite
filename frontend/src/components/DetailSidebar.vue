@@ -15,6 +15,7 @@ const {
   onSidebarResizeStart,
   detailMeeting,
   isDetailAdmin,
+  detailMyRole,
   isAnyAdmin,
   canEditCompany,
   canEditDept,
@@ -70,12 +71,19 @@ function mgMeta(mg) {
   return parts.join(' · ')
 }
 
-function handleFinishExtract() {
+const savingExtract = ref(false)
+async function handleFinishExtract() {
   if (!isDetailAdmin.value) {
     toast.error('간사만 승인 저장할 수 있습니다', { duration: 1500 })
     return
   }
-  finishExtract()
+  if (savingExtract.value) return // 중복 클릭 차단
+  savingExtract.value = true
+  try {
+    await finishExtract()
+  } finally {
+    savingExtract.value = false
+  }
 }
 
 // ── 아젠다 직접 추가 ─────────────────────────────────────────────
@@ -254,8 +262,14 @@ function parseAiEvidence(val) {
           <div class="detail-header-left">
             <div class="detail-name-badge-row">
               <div class="detail-meeting-name">{{ detailMeeting?.title }}</div>
-              <div class="detail-role-badge" :class="isDetailAdmin ? 'role-admin' : 'role-member'">
-                {{ isDetailAdmin ? '간사' : '참여자' }}
+              <!-- 뱃지는 '실제 멤버십(detailMyRole)' 기준 — 회의체에 속하지 않은 시스템관리자는
+                   관리 권한은 있어도(isDetailAdmin) 간사/참여자 뱃지를 띄우지 않는다. -->
+              <div
+                v-if="detailMyRole === 'admin' || detailMyRole === 'member'"
+                class="detail-role-badge"
+                :class="detailMyRole === 'admin' ? 'role-admin' : 'role-member'"
+              >
+                {{ detailMyRole === 'admin' ? '간사' : '참여자' }}
               </div>
             </div>
             <div class="detail-meta-row">
@@ -995,6 +1009,7 @@ function parseAiEvidence(val) {
                   :memberDepts="detailMemberDepts"
                   :removeOnApprove="false"
                   :showFooter="true"
+                  :saving="savingExtract"
                   @approved="() => {}"
                   @rejected="() => {}"
                   @remove="i => extractResult.splice(i, 1)"
@@ -1100,7 +1115,9 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div class="detail-section">
-                <div class="detail-section-label">부서 구성원 ({{ detailNode.members?.length }}명)</div>
+                <div class="detail-section-label">
+                  부서 구성원 ({{ detailNode.members?.length }}명)
+                </div>
                 <div v-if="detailNode.members?.length" class="detail-member-list">
                   <div
                     v-for="mb in detailNode.members"
@@ -1287,18 +1304,35 @@ function parseAiEvidence(val) {
                   </div>
                   <div class="detail-info-item">
                     <span class="detail-info-key">상태</span>
-                    <span class="detail-info-val">{{
-                      {
-                        scheduled: '예정',
-                        ongoing: '진행중',
-                        in_progress: '진행중',
-                        ended: '종료',
-                        completed: '완료',
-                        cancelled: '취소',
-                      }[detailNode.data?.session_status] ||
-                      detailNode.data?.session_status ||
-                      '-'
-                    }}</span>
+                    <span class="detail-info-val">
+                      <span
+                        class="status-badge"
+                        :class="{
+                          'sb-pending': detailNode.data?.session_status === 'scheduled',
+                          'sb-progress': ['ongoing', 'in_progress'].includes(
+                            detailNode.data?.session_status,
+                          ),
+                          'sb-done': ['ended', 'done', 'completed'].includes(
+                            detailNode.data?.session_status,
+                          ),
+                          'sb-archived': detailNode.data?.session_status === 'archived',
+                        }"
+                        >{{
+                          {
+                            scheduled: '예정',
+                            ongoing: '진행중',
+                            in_progress: '진행중',
+                            ended: '완료',
+                            done: '완료',
+                            completed: '완료',
+                            archived: '아카이브됨',
+                            cancelled: '취소',
+                          }[detailNode.data?.session_status] ||
+                          detailNode.data?.session_status ||
+                          '-'
+                        }}</span
+                      >
+                    </span>
                   </div>
                   <div v-if="detailNode.data?.description" class="detail-info-item">
                     <span class="detail-info-key">설명</span>
@@ -1354,18 +1388,35 @@ function parseAiEvidence(val) {
                     <span class="detail-info-key">장소</span>
                     <span class="detail-info-val">{{ detailNode.data.location }}</span>
                   </div>
-                  <div v-if="detailNode.data?.session_status && detailNode.data.session_status !== 'archived'" class="detail-info-item">
+                  <div v-if="detailNode.data?.session_status" class="detail-info-item">
                     <span class="detail-info-key">상태</span>
-                    <span class="detail-info-val">{{
-                      {
-                        scheduled: '예정',
-                        ongoing: '진행중',
-                        in_progress: '진행중',
-                        ended: '종료',
-                        completed: '완료',
-                        cancelled: '취소',
-                      }[detailNode.data.session_status] || detailNode.data.session_status
-                    }}</span>
+                    <span class="detail-info-val">
+                      <span
+                        class="status-badge"
+                        :class="{
+                          'sb-pending': detailNode.data.session_status === 'scheduled',
+                          'sb-progress': ['ongoing', 'in_progress'].includes(
+                            detailNode.data.session_status,
+                          ),
+                          'sb-done': ['ended', 'done', 'completed'].includes(
+                            detailNode.data.session_status,
+                          ),
+                          'sb-archived': detailNode.data.session_status === 'archived',
+                        }"
+                        >{{
+                          {
+                            scheduled: '예정',
+                            ongoing: '진행중',
+                            in_progress: '진행중',
+                            ended: '완료',
+                            done: '완료',
+                            completed: '완료',
+                            archived: '아카이브됨',
+                            cancelled: '취소',
+                          }[detailNode.data.session_status] || detailNode.data.session_status
+                        }}</span
+                      >
+                    </span>
                   </div>
                   <div v-if="detailNode.data?.description" class="detail-info-item">
                     <span class="detail-info-key">설명</span>
@@ -1499,7 +1550,10 @@ function parseAiEvidence(val) {
                     }}</span>
                   </div>
                   <div
-                    v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                    v-if="
+                      detailNode.type === 'report' &&
+                      !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                    "
                     class="detail-info-item"
                   >
                     <span class="detail-info-key">검토상태</span>
@@ -1515,7 +1569,13 @@ function parseAiEvidence(val) {
               </div>
 
               <!-- AI 검토 결과 — 레이더 차트 (report 타입, 첫 번째 자료 제외) -->
-              <div v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)" class="detail-section">
+              <div
+                v-if="
+                  detailNode.type === 'report' &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
+                class="detail-section"
+              >
                 <div class="detail-section-label">AI 검토 결과</div>
                 <div class="radar-wrap">
                   <div class="radar-svg-pos">
@@ -1640,7 +1700,11 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div
-                v-if="detailNode.type === 'report' && detailNode.data?.feedback && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                v-if="
+                  detailNode.type === 'report' &&
+                  detailNode.data?.feedback &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
                 class="detail-section"
               >
                 <div class="detail-section-label">AI 피드백</div>
@@ -1655,7 +1719,11 @@ function parseAiEvidence(val) {
 
               <!-- 우선 개선사항 -->
               <div
-                v-if="detailNode.type === 'report' && sbTopImprovements.length && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                v-if="
+                  detailNode.type === 'report' &&
+                  sbTopImprovements.length &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
                 class="detail-section"
               >
                 <div class="detail-section-label">

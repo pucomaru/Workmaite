@@ -135,7 +135,9 @@ class MeetingSession(Base):
         BigInteger, default=0, nullable=False
     )
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=datetime.utcnow
+    )
 
     minutes: Mapped["Minutes | None"] = relationship(
         "Minutes", back_populates="session", uselist=False
@@ -380,16 +382,41 @@ class HitlReview(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class MeetingRelation(Base):
+    """회의체↔회의체 수동 연결 (협의). PG 소스 오브 트루스 + Neo4j(`협의`) 동기화.
+    방향은 의미상 무관(협의)하지만 행은 from→to로 저장하고 조회 시 양방향을 본다.
+    """
+
+    __tablename__ = "meeting_relations"
+    __table_args__ = (UniqueConstraint("from_meeting_id", "to_meeting_id", "rel_type"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    from_meeting_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    to_meeting_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
+    )
+    rel_type: Mapped[str] = mapped_column(String(20), nullable=False, default="협의")
+    created_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class GraphRelation(Base):
-    """그래프에서 사용자가 수동 생성한 자유 관계(구조 FK 외). 소스 오브 트루스=PostgreSQL이며
-    Neo4j에는 동기화(MERGE)된다. node id는 그래프 노드 id 문자열(예: mg-001, agenda-12, p-3)."""
+    """아카이브 그래프에서 사용자가 수동으로 그은 노드↔노드 자유 관계.
+    PG 소스 오브 트루스 + Neo4j 동기화. 노드 id는 문자열(mg-/dept-/company-/agenda- 등)
+    이라 단일 테이블 FK가 아니라 문자열로 저장한다.
+    """
 
     __tablename__ = "graph_relations"
+    __table_args__ = (
+        UniqueConstraint("from_node_id", "to_node_id", "rel_type"),
+    )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
-    from_node_id: Mapped[str] = mapped_column(Text, nullable=False)
-    rel_type: Mapped[str] = mapped_column(Text, nullable=False)
-    to_node_id: Mapped[str] = mapped_column(Text, nullable=False)
+    from_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    to_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    rel_type: Mapped[str] = mapped_column(String(20), nullable=False)
     created_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=True
     )

@@ -98,7 +98,10 @@ def _resolve_exec(operation: str, entity: str, row, fields: dict | None) -> dict
     if entity == "minutes":
         if operation == "delete":
             # 회의록 삭제는 세션 단위 엔드포인트
-            return {"method": "delete", "url": f"/api/ai/sessions/{row.session_id}/minutes"}
+            return {
+                "method": "delete",
+                "url": f"/api/ai/sessions/{row.session_id}/minutes",
+            }
         return {
             "method": "patch",
             "url": f"/api/agent/archive/minutes/{row.id}",

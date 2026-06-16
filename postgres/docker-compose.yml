@@ -12,12 +12,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # 최초 기동(빈 데이터 볼륨)에만 알파벳 순으로 실행된다.
-      # ddl/ 의 실행 순서: schema → relation(FK) → index → graph_relations
+      # 최초 기동(빈 데이터 볼륨)에만 알파벳 순으로 실행된다.      
       - ../ddl/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ../ddl/relation.sql:/docker-entrypoint-initdb.d/02-relation.sql:ro
       - ../ddl/index.sql:/docker-entrypoint-initdb.d/03-index.sql:ro
-      - ../ddl/graph_relations.sql:/docker-entrypoint-initdb.d/04-graph_relations.sql:ro
+      
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U team9 -d sk-team-9"]
       interval: 10s

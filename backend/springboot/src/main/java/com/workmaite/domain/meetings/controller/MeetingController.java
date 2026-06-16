@@ -93,6 +93,12 @@ public class MeetingController {
         ApiResponse.ok(meetingService.updateMeeting(meetingId, requesterId, request)));
   }
 
+  @DeleteMapping("/meetings/{meetingId}")
+  public ResponseEntity<ApiResponse<Void>> deleteMeeting(@PathVariable Long meetingId) {
+    meetingService.deleteMeeting(meetingId);
+    return ResponseEntity.ok(ApiResponse.ok(null));
+  }
+
   @GetMapping("/meetings/{meetingId}/members")
   public ResponseEntity<ApiResponse<List<MeetingMemberResponse>>> getMembers(
       @PathVariable Long meetingId) {

@@ -101,19 +101,20 @@ export const useMeetingsStore = defineStore('meetings', () => {
     if (idx !== -1) meetings.value[idx] = data
 
     // 하위 scheduled/ongoing 세션 cascade 종료
-    const sessions = (meetings.value[idx]?.sessions || data.sessions || [])
+    const sessions = meetings.value[idx]?.sessions || data.sessions || []
     await Promise.allSettled(
       sessions
         .filter(s => ['scheduled', 'ongoing'].includes(s.status))
-        .map(s => api.post(`/api/v1/sessions/${s.id}/end`))
+        .map(s => api.post(`/api/v1/sessions/${s.id}/end`)),
     )
 
     return data
   }
 
   async function deleteMeeting(meetingId) {
-    // /api/ai → FastAPI (Ingress 규칙), /api/v1 → Spring Boot (DELETE 없음)
-    await apiAI.delete(`/api/ai/meetings/${meetingId}`)
+    // 회의체 삭제는 PG가 원천 — Spring Boot(/api/v1)가 PG 삭제 + 아웃박스로 Neo4j 동기화.
+    // (로그·토큰사용량·대화는 보존되고 링크만 해제된다.)
+    await api.delete(`/api/v1/meetings/${meetingId}`)
     meetings.value = meetings.value.filter(m => m.id !== meetingId)
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = null
   }

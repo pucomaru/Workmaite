@@ -334,7 +334,7 @@ async function saveProfileSettings() {
           <div class="profile-info">
             <div class="avatar-lg">{{ auth.user.name[0] }}</div>
             <div>
-              <div style="font-weight: 600; color:var(--dark-text)">{{ auth.user.name }}</div>
+              <div style="font-weight: 600; color: var(--dark-text)">{{ auth.user.name }}</div>
               <div style="color: var(--text-muted); font-size: 12px">
                 {{ auth.user.employee_id }}
               </div>
@@ -468,12 +468,26 @@ async function saveProfileSettings() {
               <!-- 이름 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-name">이름</label>
-                <input id="hdr-profile-name" name="name" v-model="profileForm.name" autocomplete="name" class="form-control" placeholder="홍길동" />
+                <input
+                  id="hdr-profile-name"
+                  name="name"
+                  v-model="profileForm.name"
+                  autocomplete="name"
+                  class="form-control"
+                  placeholder="홍길동"
+                />
               </div>
               <!-- 회사명 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-company">회사명</label>
-                <input id="hdr-profile-company" name="company" v-model="profileForm.company" autocomplete="organization" class="form-control" placeholder="-" />
+                <input
+                  id="hdr-profile-company"
+                  name="company"
+                  v-model="profileForm.company"
+                  autocomplete="organization"
+                  class="form-control"
+                  placeholder="-"
+                />
               </div>
               <!-- 부서 -->
               <div class="app-modal-field">
@@ -490,11 +504,20 @@ async function saveProfileSettings() {
               <!-- 직위 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-position">직급</label>
-                <input id="hdr-profile-position" name="position" v-model="profileForm.position" autocomplete="organization-title" class="form-control" placeholder="Manager" />
+                <input
+                  id="hdr-profile-position"
+                  name="position"
+                  v-model="profileForm.position"
+                  autocomplete="organization-title"
+                  class="form-control"
+                  placeholder="Manager"
+                />
               </div>
               <!-- 이메일 (readonly) -->
               <div class="app-modal-field">
-                <label for="hdr-profile-email">이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <label for="hdr-profile-email"
+                  >이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label
+                >
                 <input
                   id="hdr-profile-email"
                   name="email"
@@ -507,7 +530,9 @@ async function saveProfileSettings() {
               </div>
               <!-- 권한 (readonly) -->
               <div class="app-modal-field">
-                <label for="hdr-profile-role">권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label>
+                <label for="hdr-profile-role"
+                  >권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label
+                >
                 <input
                   id="hdr-profile-role"
                   name="role"

@@ -152,7 +152,9 @@ async def _detach_node(label: str, key_prop: str, key_value) -> None:
             {"k": key_value},
         )
     except Exception as e:
-        logger.warning(f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}")
+        logger.warning(
+            f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}"
+        )
 
 
 def _parse_dept_names(department: str | None) -> list[str]:
@@ -231,26 +233,48 @@ async def rename_company(old_name: str, new_name: str) -> None:
 async def rename_department(
     old_name: str, new_name: str, company_name: str | None = None
 ) -> None:
-    """부서명 변경 — User 노드의 department 속성 일괄 갱신 (department 문자열 기반 식별).
+    """부서명 변경 — 회사명 변경(rename_company)과 동일한 패턴: 노드(이름)를 바꾸되 관계는 유지한다.
 
-    부서는 별도 노드 없이 User.department 속성으로만 존재하므로 해당 속성을 변경한다.
-    company_name이 주어지면 그 회사 소속 User로 한정해 타 회사 동명 부서 오염을 막는다.
+    부서는 ① User.department(문자열 속성)와 ② Department 노드(name 유니크) + (User)-[:소속]->(Department)
+    엣지 두 곳에 존재한다. archive 멤버 쿼리가 coalesce(d.name, p.department)로 '노드 이름'을 우선하므로,
+    속성만 바꾸면 그래프에 옛 이름이 남는다 → 노드명도 바꿔야 UI에 반영된다.
+
+    절차:
+      1) User.department 속성 갱신 (회사 scope면 그 회사 User로 한정 — 타 회사 동명 부서 보호)
+      2) 영향받은 User들의 `소속` 엣지를 새 이름 Department 노드로 이전 (관계 유지)
+      3) 더 이상 아무도 소속되지 않은 옛 Department 노드 정리(고아 제거)
     """
     old, new = (old_name or "").strip(), (new_name or "").strip()
     co = (company_name or "").strip()
     if not old or not new or old == new:
         return
     try:
-        if co:
-            await run_cypher(
-                "MATCH (u:User {department: $old, company: $co}) SET u.department = $new",
-                {"old": old, "new": new, "co": co},
-            )
-        else:
-            await run_cypher(
-                "MATCH (u:User {department: $old}) SET u.department = $new",
-                {"old": old, "new": new},
-            )
+        # 1) User.department 속성 — 그래프 표시(coalesce의 p.department)·검색의 원천
+        await run_cypher(
+            "MATCH (u:User {department: $old}) "
+            "WHERE ($co = '' OR u.company = $co) "
+            "SET u.department = $new",
+            {"old": old, "new": new, "co": co},
+        )
+        # 2) `소속` 엣지를 새 이름 부서 노드로 이전 — 노드 이름이 바뀌되 사람↔부서 연결은 유지된다.
+        #    (Department.name은 유니크라 새 노드를 MERGE해 엣지를 옮긴다. 회사 scope면 그 회사 User만.)
+        await run_cypher(
+            "MATCH (u:User {department: $new}) "
+            "WHERE ($co = '' OR u.company = $co) "
+            "OPTIONAL MATCH (u)-[r:`소속`]->(d:Department) WHERE d.name = $old "
+            "DELETE r "
+            "WITH u "
+            "MERGE (nd:Department {name: $new}) "
+            "MERGE (u)-[:`소속`]->(nd)",
+            {"old": old, "new": new, "co": co},
+        )
+        # 3) 고아가 된 옛 부서 노드 정리 (소속 User가 하나도 없을 때만)
+        await run_cypher(
+            "MATCH (d:Department {name: $old}) "
+            "WHERE NOT ( (:User)-[:`소속`]->(d) ) "
+            "DETACH DELETE d",
+            {"old": old},
+        )
     except Exception as e:
         logger.error(f"[Neo4jSync] rename_department 실패 ({old}→{new}): {e}")
 
@@ -278,6 +302,10 @@ async def sync_user(
         u.position   = $position,
         u.created_at = coalesce(u.created_at, $created_at),
         u.updated_at = $updated_at
+    WITH u
+    // 회사 변경 반영: 기존 소속회사 엣지를 모두 끊고 현재 회사로만 재연결한다(스테일 누적 방지).
+    OPTIONAL MATCH (u)-[old:`소속회사`]->(:Company)
+    DELETE old
     WITH u
     FOREACH (_ IN CASE WHEN $company <> '' THEN [1] ELSE [] END |
         MERGE (co:Company {name: $company})
@@ -352,9 +380,14 @@ async def delete_meeting_member(
     meeting_id: int,
     user_id: int,
 ) -> None:
-    """User-Meetings 구성원 관계를 삭제합니다."""
+    """User-Meetings 멤버십 관계를 삭제합니다.
+
+    현행 스킴(참여/운영) 제거한다 —
+    과거 데이터에 두 스킴이 혼재해, 참여 edge만 지우면 구성원/간사 edge가 스테일로 남아
+    아카이브 그래프에 유령 멤버(옛 소속회사 포함)로 보인다.
+    """
     cypher = """
-    MATCH (u:User {pg_id: $user_id})-[r:`참여`]->(mg:Meetings {id: $mg_id})
+    MATCH (u:User {pg_id: $user_id})-[r:`참여`|`운영`]->(mg:Meetings {id: $mg_id})
     DELETE r
     """
     try:
@@ -573,7 +606,7 @@ async def sync_agenda(
     """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다.
 
     HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다
 
     Draft 상태는 사용자 확인 전이므로 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
@@ -696,7 +729,9 @@ async def sync_minutes(
     Draft 상태는 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
     if _is_draft(status):
-        await _detach_node("Minutes", "pg_id", minutes_id)  # draft 전환 시 기존 노드 제거
+        await _detach_node(
+            "Minutes", "pg_id", minutes_id
+        )  # draft 전환 시 기존 노드 제거
         return
     s_id = to_session_id(session_id)
     cypher = """
@@ -1069,7 +1104,11 @@ async def sync_meeting_relation(
     target_meeting_id: int,
     relation_type: str,
 ) -> None:
-    rel_map = {"PARENT_OF": "상위", "RELATED_TO": "관련", "FOLLOW_UP": "후속"} # 레거시 호환
+    rel_map = {
+        "PARENT_OF": "상위",
+        "RELATED_TO": "관련",
+        "FOLLOW_UP": "후속",
+    }  # 레거시 호환
     rel = rel_map.get(relation_type.upper(), "관련")
     cypher = f"""
     MATCH (src:Meetings {{id: $src_id}})
@@ -1235,13 +1274,40 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             stats["meetings"] += 1
 
         # 5. MeetingMembers (User-Meetings 구성원 관계)
+        valid_pairs: list[list] = []  # [meeting_id, user_id] — 정합화용 권위 목록
         for mm in db.query(models.MeetingMember).all():
             await sync_meeting_member(
                 meeting_id=mm.meeting_id,
                 user_id=mm.user_id,
                 role=mm.meeting_role,
             )
+            valid_pairs.append([mm.meeting_id, mm.user_id])
             stats["meeting_members"] += 1
+
+        # 5-1. 멤버십 정합화 — PG meeting_members에 없는 Neo4j 멤버십 edge 제거.
+        # PG에서 멤버를 빼도 삭제 전파가 누락되면 Neo4j에 스테일 멤버십(구성원/간사/참여/운영)이
+        # 남아 그래프에 유령 멤버(옛 소속회사 포함)로 보인다. PG를 권위 소스로 reconcile한다.
+        # 레거시 스킴(구성원/간사)과 현행 스킴(참여/운영) 모두 정리한다.
+        try:
+            removed_mem = await run_cypher(
+                """
+                MATCH (u:User)-[r:`참여`|`운영`]->(mg:Meetings)
+                WHERE mg.id STARTS WITH 'mg-'
+                WITH u, r, mg, toInteger(substring(mg.id, 3)) AS mid
+                WHERE NOT [mid, u.pg_id] IN $pairs
+                DELETE r
+                RETURN count(r) AS n
+                """,
+                {"pairs": valid_pairs},
+            )
+            n_removed_mem = (removed_mem[0]["n"] if removed_mem else 0) or 0
+            if n_removed_mem:
+                logger.info(
+                    f"[Neo4jSync] 멤버십 정합화 — 스테일 edge {n_removed_mem}건 제거"
+                )
+            stats["meeting_members_pruned"] = n_removed_mem
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] 멤버십 정합화 실패 (무시): {e}")
 
         # 4. Session
         for s in db.query(models.MeetingSession).all():

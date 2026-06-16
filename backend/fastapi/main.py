@@ -61,6 +61,16 @@ async def _run_pg_migrations() -> None:
         "ALTER TABLE meeting_sessions ALTER COLUMN created_at SET DEFAULT (now() AT TIME ZONE 'UTC')",
         # KST로 잘못 저장된 기존 값 보정 (9시간 빼기)
         "UPDATE meeting_sessions SET created_at = created_at - INTERVAL '9 hours' WHERE created_at IS NOT NULL AND created_at > (now() AT TIME ZONE 'UTC') + INTERVAL '1 hour'",
+        # 그래프 수동 자유 관계 테이블 (models.GraphRelation) — 없으면 생성
+        """CREATE TABLE IF NOT EXISTS graph_relations (
+            id bigserial PRIMARY KEY,
+            from_node_id varchar(120) NOT NULL,
+            to_node_id varchar(120) NOT NULL,
+            rel_type varchar(20) NOT NULL,
+            created_by bigint REFERENCES users(id),
+            created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'),
+            CONSTRAINT uq_graph_relations UNIQUE (from_node_id, to_node_id, rel_type)
+        )""",
         # 사용자 하드 삭제 지원: FK 컬럼을 nullable로 변경
         "ALTER TABLE reports ALTER COLUMN upload_id DROP NOT NULL",
         "ALTER TABLE chat_messages ALTER COLUMN user_id DROP NOT NULL",
@@ -220,7 +230,10 @@ app.include_router(hitl_router.router)
 app.include_router(chat_history.router)
 app.include_router(neo4j_graph.router)
 app.include_router(sync_router.router)
-app.include_router(meetings_router.router)
+# meetings_router.router(prefix=/api/v1)는 Spring Boot와 경로가 겹치는 '그림자' 라우터였다.
+# Ingress/프록시가 /api/v1을 항상 Spring으로 보내므로 이 라우터는 도달 불가(Spring이 전부 커버).
+# PG 원천·CRUD는 Spring이 단일 소유 → FastAPI에서 /api/v1 등록 제거(중복/혼선 해소).
+# (회의체/멤버/유저 쓰기는 Spring, FastAPI는 /api/ai 고유 기능만 유지)
 app.include_router(meetings_router.ai_router)
 app.include_router(sessions_router.router)
 app.include_router(stt_router.router)

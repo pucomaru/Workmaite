@@ -591,9 +591,12 @@ class _AgendaFillItem(BaseModel):
         None, description="채울 담당 부서명 목록 (추론 불가/불필요하면 null)"
     )
     due_date: Optional[str] = Field(
-        None, description="채울 마감일 YYYY-MM-DD (비어있고 맥락상 추론 가능할 때만, 아니면 null)"
+        None,
+        description="채울 마감일 YYYY-MM-DD (비어있고 맥락상 추론 가능할 때만, 아니면 null)",
     )
-    priority: Optional[str] = Field(None, description="low|medium|high (보정 없으면 null)")
+    priority: Optional[str] = Field(
+        None, description="low|medium|high (보정 없으면 null)"
+    )
     status: Optional[str] = Field(None, description="ongoing|done (변경 없으면 null)")
     reason: str = Field("", description="변경 근거 한 문장")
 
@@ -691,7 +694,10 @@ async def fill_agenda_fields(meeting_ids: List[int]) -> dict:
                 except Exception:
                     pass
             # 우선순위: 유효값이고 다를 때 보정
-            if item.priority in ("low", "medium", "high") and item.priority != ag.priority:
+            if (
+                item.priority in ("low", "medium", "high")
+                and item.priority != ag.priority
+            ):
                 ag.priority = item.priority
                 changed.append(f"우선순위 {item.priority}")
                 stats["priority"] += 1

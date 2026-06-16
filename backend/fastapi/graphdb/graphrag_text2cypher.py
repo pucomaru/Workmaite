@@ -65,7 +65,9 @@ class _FactoryLLM(LLMInterface):
     def _as_text(content) -> str:
         return content if isinstance(content, str) else str(content)
 
-    def invoke(self, input, message_history=None, system_instruction=None) -> LLMResponse:
+    def invoke(
+        self, input, message_history=None, system_instruction=None
+    ) -> LLMResponse:
         from llm.llm_factory import llm_factory
 
         resp = llm_factory(self._profile, streaming=False).invoke(
@@ -183,8 +185,12 @@ def _build_schema(allowed_ids: list[int] | None, is_admin: bool) -> str:
     if not is_admin:
         ids = ", ".join(str(i) for i in (allowed_ids or []))
         parts.append(
-            "★ 보안 제약(반드시 준수): 이 사용자는 pg_id ∈ [" + ids + "] 회의체에만 접근 가능하다. "
-            "모든 쿼리를 이 범위로 제한할 것 — 회의체는 (m:Meetings) WHERE m.pg_id IN [" + ids + "], "
+            "★ 보안 제약(반드시 준수): 이 사용자는 pg_id ∈ ["
+            + ids
+            + "] 회의체에만 접근 가능하다. "
+            "모든 쿼리를 이 범위로 제한할 것 — 회의체는 (m:Meetings) WHERE m.pg_id IN ["
+            + ids
+            + "], "
             "그 외 노드는 가능한 한 meeting_id IN [" + ids + "] 로 필터링한다. "
             "허용 범위 밖의 회의체·사용자·회사 데이터는 어떤 경우에도 조회하지 않는다."
         )

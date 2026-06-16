@@ -284,18 +284,13 @@ CREATE TABLE "session_agendas" (
   CONSTRAINT "session_agendas_agenda_id_fkey" FOREIGN KEY (agenda_id) REFERENCES "agenda" (id) ON DELETE CASCADE
 );
 
-
--- 그래프 수동 관계 (구조 FK 외 자유 관계). 소스 오브 트루스=PG, Neo4j에 동기화.
-CREATE TABLE "graph_relations" (
-  "id" bigserial NOT NULL,
-  "from_node_id" text NOT NULL,
-  "rel_type" text NOT NULL,
-  "to_node_id" text NOT NULL,
-  "created_by" bigint,
-  "created_at" timestamp DEFAULT now() NOT NULL,
-  CONSTRAINT "graph_relations_pkey" PRIMARY KEY (id),
-  CONSTRAINT "uq_graph_relations" UNIQUE (from_node_id, rel_type, to_node_id),
-  CONSTRAINT "graph_relations_created_by_fkey" FOREIGN KEY (created_by) REFERENCES "users" (id)
+CREATE TABLE meeting_relations (
+  id          bigserial PRIMARY KEY,
+  from_meeting_id bigint NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  to_meeting_id   bigint NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  rel_type    varchar(20) NOT NULL DEFAULT '협의',
+  created_by  bigint REFERENCES users(id),
+  created_at  timestamp DEFAULT now(),
+  CONSTRAINT uq_meeting_rel UNIQUE (from_meeting_id, to_meeting_id, rel_type),
+  CONSTRAINT chk_not_self CHECK (from_meeting_id <> to_meeting_id)
 );
-CREATE INDEX "idx_graph_relations_from" ON "graph_relations" (from_node_id);
-CREATE INDEX "idx_graph_relations_to" ON "graph_relations" (to_node_id);
