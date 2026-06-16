@@ -319,7 +319,8 @@ const {
 const {
   page: meetingPage,
   paged: pagedMeetings,
-} = usePagination(sortedMeetings, PAGE_SIZE, { fillEmpty: false })
+  fillerCount: meetingFillerCount,
+} = usePagination(sortedMeetings, PAGE_SIZE, { fillEmpty: true })
 </script>
 
 <template>
@@ -452,6 +453,9 @@ const {
                   <td class="text-muted">{{ m.owner_name || '' }}</td>
                   <td class="text-muted">{{ m.member_count }}명</td>
                 </tr>
+                <tr v-for="i in meetingFillerCount" :key="`mf-${i}`" class="filler-row">
+                  <td v-for="(c, ci) in meetingColumns" :key="ci"></td>
+                </tr>
               </AppTable>
               <AppPagination
                 v-model="meetingPage"
@@ -582,7 +586,7 @@ const {
                         </template>
                         <template v-else-if="e.type === 'agenda' && e.agendaStatus === 'done'">
                           <span class="evt-done-check">✓</span>
-                          <span class="evt-done-label">(보고 완료)</span>
+                          <span class="evt-done-label">(완료된 아젠다)</span>
                         </template>
                       </div>
                       <div class="day-evt-title">{{ e.title }}</div>
@@ -653,18 +657,26 @@ const {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
+
+.home-page.page-full-height {
+  margin: -24px -28px 0 -28px;
+  height: calc(100% - -100px);
+}
+
 .home-body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 6px 16px;
+  padding: 6px 16px 24px;
+  box-sizing: border-box;
 }
 .home {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding-bottom: 40px;
+  padding-bottom: 8px;
 }
 
 .section-title-row {
@@ -871,7 +883,7 @@ const {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .cal-header {
   display: flex;

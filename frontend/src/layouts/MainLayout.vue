@@ -49,7 +49,7 @@ watch(
 .layout-main {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: 24px 28px 0px 28px ;
 }
 .ai-disclaimer {
   text-align: center;
