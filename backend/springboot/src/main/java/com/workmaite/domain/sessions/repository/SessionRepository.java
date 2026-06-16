@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Sort;
 
 public interface SessionRepository extends JpaRepository<MeetingSession, Long> {
 
@@ -25,4 +26,7 @@ public interface SessionRepository extends JpaRepository<MeetingSession, Long> {
       @Param("userId") Long userId,
       @Param("start") LocalDateTime start,
       @Param("end") LocalDateTime end);
+
+  List<MeetingSession> findByMeetingIdInAndStatusOrderByScheduledAtAsc(
+      List<Long> meetingIds, SessionStatus status);
 }
