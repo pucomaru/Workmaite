@@ -220,6 +220,7 @@ async def generate_minutes_stream(
     summary_blocks: list = None,
     report_chunks: list = None,
     overdue_agendas: list = None,
+    clevel_text: str = "",
 ) -> AsyncGenerator[str, None]:
     from datetime import datetime as _dt
 
@@ -248,6 +249,7 @@ async def generate_minutes_stream(
                     session_info=session_info,
                     participants=participants,
                     agenda_text=agenda_text,
+                    clevel_text=clevel_text,
                 )
             ),
         ]

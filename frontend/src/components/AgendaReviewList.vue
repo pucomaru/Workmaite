@@ -205,8 +205,9 @@ function deptList(dept) {
               </div>
             </div>
             <div class="arl-title">{{ ag.title }}</div>
-            <div class="arl-meta" v-if="ag.dept || ag.start_date || ag.end_date">
-              <div class="arl-tags" v-if="ag.dept">
+            <div class="arl-meta" v-if="ag.company || ag.dept || ag.start_date || ag.end_date">
+              <div class="arl-tags" v-if="ag.company || ag.dept">
+                <span class="arl-tag arl-tag-company" v-if="ag.company">{{ ag.company }}</span>
                 <span class="arl-tag arl-tag-dept" v-for="d in deptList(ag.dept)" :key="d">{{
                   d
                 }}</span>
@@ -273,6 +274,14 @@ function deptList(dept) {
               v-model="ag._editTitle"
               placeholder="아젠다 제목"
               style="margin-top: 5px"
+            />
+            <input
+              :id="`edit-company-${i}`"
+              :name="`edit-company-${i}`"
+              class="dei-input"
+              v-model="ag._editCompany"
+              placeholder="담당 회사 (선택)"
+              style="margin-top: 4px"
             />
             <input
               :id="`edit-dept-${i}`"
