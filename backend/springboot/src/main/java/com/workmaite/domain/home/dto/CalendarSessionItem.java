@@ -17,8 +17,10 @@ public class CalendarSessionItem {
   private String location;
   private SessionStatus status;
   private String meetingStatus;
+  private boolean hasMinutes;
 
-  public static CalendarSessionItem from(MeetingSession session, String meetingTitle, String meetingStatus) {
+  public static CalendarSessionItem from(
+      MeetingSession session, String meetingTitle, String meetingStatus, boolean hasMinutes) {
     return CalendarSessionItem.builder()
         .sessionId(session.getId())
         .title(session.getTitle())
@@ -27,6 +29,7 @@ public class CalendarSessionItem {
         .location(session.getLocation())
         .status(session.getStatus())
         .meetingStatus(meetingStatus)
+        .hasMinutes(hasMinutes)
         .build();
   }
 }

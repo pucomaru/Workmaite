@@ -10,6 +10,7 @@ import com.workmaite.domain.home.dto.CalendarSessionItem;
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.meetings.service.MeetingService;
+import com.workmaite.domain.minutes.repository.MinutesRepository;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.domain.sessions.entity.MeetingSession;
@@ -17,8 +18,10 @@ import com.workmaite.domain.sessions.repository.SessionRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +40,7 @@ public class HomeService {
   private final MeetingMemberRepository meetingMemberRepository;
   private final MeetingService meetingService;
   private final UserRepository userRepository;
+  private final MinutesRepository minutesRepository;
 
   public CalendarResponse getCalendar(Long userId, String view, String dateStr) {
     LocalDate date = LocalDate.parse(dateStr);
@@ -91,12 +95,17 @@ public class HomeService {
                 m -> m.getStatus().name().toLowerCase()
             ));
 
+    List<Long> sessionIds = sessions.stream().map(MeetingSession::getId).toList();
+    Set<Long> sessionIdsWithMinutes = new HashSet<>(
+        sessionIds.isEmpty() ? List.of() : minutesRepository.findSessionIdsBySessionIdIn(sessionIds));
+
     List<CalendarSessionItem> sessionItems =
         sessions.stream()
             .map(s -> CalendarSessionItem.from(
                 s,
                 meetingTitleMap.get(s.getMeetingId()),
-                meetingStatusMap.getOrDefault(s.getMeetingId(), "active")))
+                meetingStatusMap.getOrDefault(s.getMeetingId(), "active"),
+                sessionIdsWithMinutes.contains(s.getId())))
             .toList();
 
     List<CalendarAgendaItem> agendaItems =
