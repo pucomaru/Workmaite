@@ -1,6 +1,7 @@
 package com.workmaite.domain.home.dto;
 
 import com.workmaite.domain.agendas.entity.Agenda;
+import com.workmaite.domain.agendas.entity.AgendaStatus;
 import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,6 +15,7 @@ public class CalendarAgendaItem {
   private String meetingTitle;
   private LocalDateTime dueDate;
   private String meetingStatus;
+  private String agendaStatus;
 
   public static CalendarAgendaItem from(Agenda agenda, String meetingTitle, String meetingStatus) {
     return CalendarAgendaItem.builder()
@@ -22,6 +24,7 @@ public class CalendarAgendaItem {
         .meetingTitle(meetingTitle)
         .dueDate(agenda.getDueDate())
         .meetingStatus(meetingStatus)
+        .agendaStatus(agenda.getStatus() != null ? agenda.getStatus().name().toLowerCase() : null)
         .build();
   }
 }
