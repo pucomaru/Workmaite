@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { availableModels, defaultModel, selectedModel, fetchModels } from '../stores/llmModel'
 import { atTypeDot } from '../composables/useAgentMention'
 
@@ -7,7 +7,7 @@ import { atTypeDot } from '../composables/useAgentMention'
  * 공통 AI 입력 컴포저 (textarea + @멘션 드롭다운 + 파일/컨텍스트 칩 + 툴바).
  * 아카이브 AI 사이드바와 회의 AI 사이드바가 동일하게 재사용한다.
  */
-defineProps({
+const props = defineProps({
   modelValue: { type: String, default: '' },
   pendingFiles: { type: Array, default: () => [] },
   mentionedContexts: { type: Array, default: () => [] },
@@ -18,7 +18,7 @@ defineProps({
   loading: { type: Boolean, default: false },
   canSend: { type: Boolean, default: false },
   attachDisabled: { type: Boolean, default: false },
-  placeholder: { type: String, default: '질문하세요... (@ 컨텍스트 추가)' },
+  placeholder: { type: String, default: '@ 로 회의·아젠다·회의체 연결 후 질문하세요' },
   multipleFiles: { type: Boolean, default: true },
 })
 
@@ -46,10 +46,22 @@ onMounted(() => {
   fetchModels()
 })
 
+function autoResize(el) {
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px'
+}
+
 function onInput(e) {
   emit('update:modelValue', e.target.value)
   emit('input', e)
+  autoResize(e.target)
 }
+
+watch(() => props.modelValue, (val) => {
+  if (!val && textareaEl.value) {
+    textareaEl.value.style.height = 'auto'
+  }
+})
 function onFileChange(e) {
   emit('fileChange', e)
 }

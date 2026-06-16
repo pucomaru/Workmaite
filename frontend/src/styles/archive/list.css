@@ -70,9 +70,6 @@
 .day-mode .search-input::placeholder {
   color: var(--dark-muted);
 }
-.day-mode .search-input:focus {
-  border-color: var(--accent);
-}
 .day-mode .search-clear {
   color: var(--dark-muted);
 }

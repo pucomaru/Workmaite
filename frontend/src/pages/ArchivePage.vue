@@ -315,6 +315,14 @@ function onSessionCreated() {
 
 async function doCreateMeeting() {
   if (!createForm.value.title.trim()) return
+  if (
+    createForm.value.start_date &&
+    createForm.value.end_date &&
+    createForm.value.end_date < createForm.value.start_date
+  ) {
+    toast.error('종료일은 시작일 이후여야 합니다.')
+    return
+  }
   creating.value = true
   try {
     const meeting = await meetingsStore.createMeeting({

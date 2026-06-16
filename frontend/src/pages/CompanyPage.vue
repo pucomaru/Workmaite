@@ -381,7 +381,7 @@ const {
   sorted: sortedMembers,
 } = useTableSort(groupedFilteredMembers, { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } })
 
-const MEMBER_PAGE_SIZE = 30
+const MEMBER_PAGE_SIZE = 15
 const {
   page: memberPage,
   paged: pagedMembers,
@@ -599,9 +599,6 @@ const {
                 </button>
               </div>
             </td>
-          </tr>
-          <tr v-for="i in memberFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in companyColumns" :key="ci"></td>
           </tr>
           <tr v-if="!groupedFilteredMembers.length">
             <td colspan="7" class="empty-row">

@@ -84,7 +84,7 @@ const {
   sorted: sortedGroups,
 } = useTableSort(filteredGroups)
 
-const MG_PAGE_SIZE = 30
+const MG_PAGE_SIZE = 15
 const {
   page: mgPage,
   paged: pagedGroups,
@@ -132,6 +132,14 @@ function openCreate() {
 
 async function submitCreate() {
   if (!createForm.value.title.trim()) return
+  if (
+    createForm.value.start_date &&
+    createForm.value.end_date &&
+    createForm.value.end_date < createForm.value.start_date
+  ) {
+    toast.error('종료일은 시작일 이후여야 합니다.')
+    return
+  }
   creating.value = true
   try {
     const meeting = await meetingsStore.createMeeting({
@@ -256,8 +264,16 @@ function closeSettings() {
 const savingSettings = ref(false)
 async function saveSettings() {
   if (!settingsModal.value) return
-  savingSettings.value = true
   const { meeting, form, members, removedIds, originalRoles } = settingsModal.value
+  if (
+    form.start_date &&
+    form.end_date &&
+    form.end_date < form.start_date
+  ) {
+    toast.error('종료일은 시작일 이후여야 합니다.')
+    return
+  }
+  savingSettings.value = true
   try {
     await api.patch(`/api/v1/meetings/${meeting.id}`, {
       title: form.title,
@@ -540,9 +556,6 @@ onMounted(async () => {
                 </button>
               </div>
             </td>
-          </tr>
-          <tr v-for="i in mgFillerCount" :key="`filler-${i}`" class="filler-row">
-            <td v-for="(c, ci) in mgColumns" :key="ci"></td>
           </tr>
         </AppTable>
       </template>
