@@ -484,7 +484,7 @@ function _onFloatDragEnd() {
       agId = null
     if (target?.type === 'agenda') {
       mgId = target.meetingId ? toNumericId(target.meetingId) : null
-      agId = target.neo4jId ?? target.data?.id ?? null
+      agId = target.neo4jId ? toNumericId(target.neo4jId) : (target.data?.id ?? null)
     }
     openSessionModal(mgId || null, agId)
   } else if (type === 'doc') {
