@@ -760,6 +760,8 @@ async def upload_minutes(
         f"recorder_id={params['recorder_id']!r}"
     )
 
+    logger.info(f"[minutes] short_summary 값 — {short_summary!r}")
+
     # PostgreSQL native UPSERT — 원자적으로 INSERT or UPDATE
     try:
         result = db.execute(

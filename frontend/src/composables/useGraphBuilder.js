@@ -68,6 +68,7 @@ export function useGraphBuilder({
       const mgNodeId = typeof rawId === 'string' && rawId.includes('-') ? rawId : `mg-${rawId}`
 
       // ── Meeting node ────────────────────────────────────
+      const groupEnded = g.status === 'ended' || g.status === 'archived'
       const mgIdx = nodes.length
       nodes.push({
         id: mgNodeId,
@@ -76,7 +77,7 @@ export function useGraphBuilder({
         data: g,
         groupIdx: gi,
         neo4jId: g.id || null,
-        ended: g.status === 'ended',
+        ended: groupEnded,
       })
       // meeting -[포함]→ host company (간사 소속 회사, 없으면 첫 멤버 회사)
       const _adminMb = (g.members || []).find(mb => mb.role === 'admin')
@@ -165,6 +166,7 @@ export function useGraphBuilder({
           data: task,
           meetingId: mgNodeId,
           neo4jId: task.id || null,
+          ended: groupEnded,
         })
         // 아젠다는 '부서(관할)'에 연결한다. depts가 있으면 connIdx=부서 노드라 agenda→부서 관할이 그려진다.
         // (이전에 그리던 사람→아젠다 '담당' 엣지는 제거 — 담당자 정보는 노드 상세에서 확인)
@@ -204,6 +206,7 @@ export function useGraphBuilder({
           groupIdx: gi,
           data: { ...m, participants: m.participants?.filter(p => p.userId != null) || [] },
           neo4jId: m.id || null,
+          ended: groupEnded,
         })
         edges.push({ from: sIdx, to: mgIdx, rel: '소속' })
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
@@ -220,6 +223,7 @@ export function useGraphBuilder({
             label: m.minutes_file_name || m.file_name || `${m.session_number || mi + 1}차 회의록`,
             type: 'minutes',
             groupIdx: gi,
+            ended: groupEnded,
             data: {
               title: m.doc_title || (m.session_title ? m.session_title + ' 회의록' : null),
               doc_type: '회의록',
@@ -237,6 +241,7 @@ export function useGraphBuilder({
               location: m.location,
               session_status: m.session_status,
               content_summary: m.content_summary,
+              short_summary: m.short_summary ?? null,
               minutes_status: m.minutes_status,
               minutes_pg_id: m.minutes_pg_id,
               generated_at: m.generated_at,
@@ -266,6 +271,7 @@ export function useGraphBuilder({
           groupIdx: gi,
           data: { ...rp },
           neo4jId: rp.id || null,
+          ended: groupEnded,
         })
         if (agendaIds.length > 0) {
           agendaIds.forEach(aid => {

@@ -1352,7 +1352,7 @@ function parseAiEvidence(val) {
                     <span class="detail-info-key">장소</span>
                     <span class="detail-info-val">{{ detailNode.data.location }}</span>
                   </div>
-                  <div v-if="detailNode.data?.session_status" class="detail-info-item">
+                  <div v-if="detailNode.data?.session_status && detailNode.data.session_status !== 'archived'" class="detail-info-item">
                     <span class="detail-info-key">상태</span>
                     <span class="detail-info-val">{{
                       {
@@ -1375,7 +1375,7 @@ function parseAiEvidence(val) {
               <div class="detail-section">
                 <div class="detail-section-label">회의록</div>
                 <div class="detail-info-grid">
-                  <div v-if="detailNode.data?.minutes_status" class="detail-info-item">
+                  <div v-if="false" class="detail-info-item">
                     <span class="detail-info-key">작성상태</span>
                     <span class="detail-info-val">{{
                       { draft: '초안', completed: '완료', published: '배포' }[
@@ -1415,13 +1415,12 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <!-- 내용 요약 -->
-              <div v-if="detailNode.data?.content_summary" class="detail-section">
+              <div v-if="detailNode.data?.short_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
                 <div
                   class="ai-evidence-box"
                   style="max-height: 300px; overflow-y: auto; font-size: 12px"
-                  v-html="DOMPurify.sanitize(detailNode.data.content_summary)"
-                ></div>
+                >{{ detailNode.data.short_summary }}</div>
               </div>
             </template>
 

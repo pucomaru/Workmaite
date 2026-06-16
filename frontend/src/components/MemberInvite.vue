@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import api from '../api'
 import { avatarColor, initials } from '../utils/avatar'
 
@@ -54,16 +54,22 @@ function add(user) {
   results.value = []
 }
 
-function remove(idx) {
-  const next = [...props.modelValue]
-  next.splice(idx, 1)
-  emit('update:modelValue', next)
+const sortedMembers = computed(() =>
+  [...props.modelValue].sort((a, b) => {
+    if (a.role === 'admin' && b.role !== 'admin') return -1
+    if (b.role === 'admin' && a.role !== 'admin') return 1
+    return 0
+  }),
+)
+
+function remove(userId) {
+  emit('update:modelValue', props.modelValue.filter(m => m.userId !== userId))
 }
 
-function updateRole(idx, role) {
+function updateRole(userId, role) {
   emit(
     'update:modelValue',
-    props.modelValue.map((m, i) => (i === idx ? { ...m, role } : m)),
+    props.modelValue.map(m => (m.userId === userId ? { ...m, role } : m)),
   )
 }
 </script>
@@ -113,7 +119,7 @@ function updateRole(idx, role) {
 
     <div class="mi-member-list">
       <div v-if="!modelValue.length" class="mi-empty">참여자가 없습니다.</div>
-      <div v-for="(mb, idx) in modelValue" :key="mb.userId" class="mi-member-row">
+      <div v-for="mb in sortedMembers" :key="mb.userId" class="mi-member-row">
         <div class="ui-avatar ui-avatar-sm" :style="{ background: avatarColor(mb.name) }">
           {{ initials(mb.name) }}
         </div>
@@ -121,23 +127,23 @@ function updateRole(idx, role) {
           <span class="mi-name">
             {{ mb.name }}
             <span v-if="mb.userId === lockedUserId" class="mi-me-badge">나</span>
+            <span v-if="hideRole && mb.role === 'admin'" class="mi-admin-badge">간사</span>
           </span>
           <span class="mi-email">{{ mb.position || mb.department || mb.email }}</span>
         </div>
         <select
           v-if="!hideRole"
           :value="mb.role"
-          @change="updateRole(idx, $event.target.value)"
+          @change="updateRole(mb.userId, $event.target.value)"
           name="role"
           class="app-select"
         >
           <option v-for="(label, val) in ROLE_MAP" :key="val" :value="val">{{ label }}</option>
         </select>
-        <span v-else class="mi-role-text">{{ ROLE_MAP[mb.role] || '참여자' }}</span>
         <button
           v-if="mb.userId !== lockedUserId"
           class="mi-remove"
-          @click="remove(idx)"
+          @click="remove(mb.userId)"
           title="제거"
         >
           <svg
@@ -302,6 +308,17 @@ html.day-mode-global .mi-name {
   border-radius: 3px;
   background: var(--accent-bg-2);
   color: var(--accent-strong);
+  vertical-align: baseline;
+  line-height: 1.6;
+}
+.mi-admin-badge {
+  margin-left: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(234, 179, 8, 0.15);
+  color: #b45309;
   vertical-align: baseline;
   line-height: 1.6;
 }

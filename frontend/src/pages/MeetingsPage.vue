@@ -772,7 +772,13 @@ onMounted(async () => {
   cursor: default;
   background: transparent;
 }
+.mg-row td:last-child {
+  border-bottom: 1px solid var(--white-06);
+}
 .mg-row:hover {
+  background: var(--white-04);
+}
+.mg-row:hover td:last-child {
   background: var(--white-04);
 }
 .mg-row-title {
@@ -784,7 +790,13 @@ onMounted(async () => {
   border-bottom-color: var(--surface-2);
   background: #fff;
 }
+.day-mode .mg-row td:last-child {
+  border-bottom-color: var(--surface-2);
+}
 .day-mode .mg-row:hover {
+  background: var(--surface);
+}
+.day-mode .mg-row:hover td:last-child {
   background: var(--surface);
 }
 .day-mode .mg-row-title {

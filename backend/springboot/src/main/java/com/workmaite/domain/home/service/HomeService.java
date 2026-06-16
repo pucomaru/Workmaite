@@ -101,7 +101,10 @@ public class HomeService {
 
     List<CalendarAgendaItem> agendaItems =
         agendas.stream()
-            .map(a -> CalendarAgendaItem.from(a, meetingTitleMap.get(a.getMeetingId())))
+            .map(a -> CalendarAgendaItem.from(
+                a,
+                meetingTitleMap.get(a.getMeetingId()),
+                meetingStatusMap.getOrDefault(a.getMeetingId(), "active")))
             .toList();
 
     return CalendarResponse.of(sessionItems, agendaItems);

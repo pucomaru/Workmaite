@@ -244,6 +244,7 @@ class Minutes(Base):
     )
     content_original: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    short_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

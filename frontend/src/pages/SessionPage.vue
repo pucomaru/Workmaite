@@ -548,12 +548,17 @@ async function loadScripts(sessionId, { force = false } = {}) {
           String(a.createdAt || '').localeCompare(String(b.createdAt || '')) ||
           (a.id || 0) - (b.id || 0),
       )
-      .map(seg => ({
-        id: seg.id,
-        time: utcToKst(seg.createdAt),
-        text: seg.content,
-        speaker: seg.speakerLabel || '화자01',
-      }))
+      .map(seg => {
+        const raw = seg.speakerLabel || '화자01'
+        const clevel = raw.startsWith('[C]')
+        return {
+          id: seg.id,
+          time: utcToKst(seg.createdAt),
+          text: seg.content,
+          speaker: clevel ? raw.slice(3) : raw,
+          clevel,
+        }
+      })
     rec.transcriptLines = lines
     if (activeSession.value?.id === sessionId) transcriptLines.value = lines
   } catch (e) {
@@ -563,12 +568,12 @@ async function loadScripts(sessionId, { force = false } = {}) {
 
 // ─── 발화 편집 ────────────────────────────────────────────────
 const editingIdx = ref(null)
-const editDraft = ref({ text: '' })
+const editDraft = ref({ text: '', speaker: '', isClevel: false })
 
 function startEdit(idx) {
   const line = transcriptLines.value[idx]
   editingIdx.value = idx
-  editDraft.value = { text: line.text, speaker: line.speaker || '화자01' }
+  editDraft.value = { text: line.text, speaker: line.speaker === '화자01' ? '' : (line.speaker || ''), isClevel: !!line.clevel }
 }
 function cancelEdit() {
   editingIdx.value = null
@@ -577,12 +582,38 @@ async function saveEdit(idx) {
   const line = transcriptLines.value[idx]
   if (!line.id) return
   const speaker = (editDraft.value.speaker || '').trim() || '화자01'
+  const speakerLabel = editDraft.value.isClevel ? `[C]${speaker}` : speaker
   await api.patch(`/api/v1/sessions/${activeSession.value.id}/scripts`, {
-    segments: [{ id: line.id, content: editDraft.value.text, speakerLabel: speaker }],
+    segments: [{ id: line.id, content: editDraft.value.text, speakerLabel }],
   })
   line.text = editDraft.value.text
   line.speaker = speaker
+  line.clevel = editDraft.value.isClevel
   editingIdx.value = null
+  refreshSummaryBlock(line.id)
+}
+
+async function refreshSummaryBlock(segmentId) {
+  try {
+    const { data } = await apiAI.post(
+      `/api/ai/sessions/${activeSession.value.id}/blocks/refresh`,
+      { segment_id: segmentId }
+    )
+    if (data.ok && data.block_index != null) {
+      const blocks = conversationBlocks.value
+      if (blocks[data.block_index]) {
+        blocks[data.block_index] = {
+          title: data.title,
+          bullets: data.bullets,
+          recording_start_sec: data.recording_start_sec,
+          recording_end_sec: data.recording_end_sec,
+        }
+        conversationBlocks.value = [...blocks]
+        const rec = getOrCreateRecord(activeSession.value.id)
+        rec.conversationBlocks = conversationBlocks.value
+      }
+    }
+  } catch {}
 }
 
 // ─── 화자별 뱃지 색상 ─────────────────────────────────────────────────────────
@@ -690,9 +721,16 @@ function stopRecording() {
 
 async function generateMinutes() {
   if (generatingMinutes.value) return
+  if (activeSession.value?.status === 'ongoing') {
+    showOngoingWarning.value = true
+    setTimeout(() => { showOngoingWarning.value = false }, 10000)
+    return
+  }
   generatingMinutes.value = true
   showMinutesTab.value = true
   activeTab.value = 'minutes'
+  nextAgendaItems.value = []
+  showNextAgendaBlock.value = false
 
   const sessionTitle = activeSession.value?.title || '회의'
   // 같은 발화자의 연속 발화를 하나로 합치기
@@ -824,6 +862,7 @@ function downloadPDF() {
 }
 
 const savingMinutes = ref(false)
+const showOngoingWarning = ref(false)
 const minutesSavedAt = ref(null)
 
 // ── 다음 회의 과제 승인/반려 블록 ─────────────────────────────
@@ -878,6 +917,7 @@ async function extractNextAgendas() {
   if (!meetingId) return
 
   nextAgendaExtracting.value = true
+  nextAgendaItems.value = []
   showNextAgendaBlock.value = true
   try {
     const formData = new FormData()
@@ -1114,6 +1154,11 @@ async function saveApprovedNextAgendas() {
 
 async function saveMinutesToDB() {
   if (!activeSession.value) return
+  if (activeSession.value?.status === 'ongoing') {
+    showOngoingWarning.value = true
+    setTimeout(() => { showOngoingWarning.value = false }, 10000)
+    return
+  }
   if (!generatedMinutes.value?.content_summary) {
     toast.error('회의록을 먼저 생성해주세요.', { icon: false })
     return
@@ -1983,8 +2028,12 @@ async function downloadChatFile(filePath) {
                     name="edit-speaker"
                     v-model="editDraft.speaker"
                     class="tline-edit-speaker"
-                    placeholder="화자"
+                    placeholder="화자 이름"
                   />
+                  <label class="tline-clevel-label">
+                    <input type="checkbox" v-model="editDraft.isClevel" class="tline-clevel-check" />
+                    <span class="tline-clevel-text">임원</span>
+                  </label>
                 </div>
                 <div class="tline-body">
                   <textarea
@@ -2000,11 +2049,11 @@ async function downloadChatFile(filePath) {
                   </div>
                 </div>
               </div>
-              <div v-else class="tline" :class="{ 'tline-corrected': line.corrected }">
+              <div v-else class="tline">
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
                   <span
-                    v-if="line.speaker"
+                    v-if="line.speaker && line.speaker !== '화자01'"
                     class="tline-speaker"
                     :style="speakerStyle(line.speaker)"
                     >{{ line.speaker }}</span
@@ -2378,7 +2427,10 @@ async function downloadChatFile(filePath) {
             </button>
           </div>
           <div class="minutes-bar-right">
-            <span v-if="minutesSavedAt" class="mbar-saved-label">
+            <span v-if="showOngoingWarning" class="mbar-warning-label">
+              발화 탭에 가서 회의를 먼저 종료해주세요
+            </span>
+            <span v-else-if="minutesSavedAt" class="mbar-saved-label">
               <i class="bi bi-check-circle-fill"></i> {{ minutesSavedAt }} 저장됨
             </span>
             <button
@@ -3541,6 +3593,43 @@ html.night-mode .sp-sm-role-tag.member {
   min-width: 200px;
   line-height: 1.5;
 }
+/* 임원 체크박스 */
+.tline-clevel-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  margin-left: 4px;
+}
+.tline-clevel-check {
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  accent-color: #b45309;
+}
+.tline-clevel-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+}
+/* 임원 발화 뱃지 */
+.tline-clevel-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(234, 179, 8, 0.15);
+  color: #b45309;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+/* 임원 발화 줄 강조 */
+.tline-clevel {
+  border-left: 3px solid rgba(234, 179, 8, 0.6);
+  padding-left: 8px;
+}
+
 /* 화자 라벨 (P6) */
 .tline-speaker {
   font-size: 12px;
@@ -4331,6 +4420,19 @@ html.night-mode .sp-sm-role-tag.member {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.mbar-warning-label {
+  font-size: 13px;
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 10px;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .sp-attach-btn {
   display: flex;

@@ -824,10 +824,16 @@ const {
 .member-row:hover {
   background: var(--white-04);
 }
+.member-row:hover td:last-child {
+  background: var(--white-04);
+}
 .day-mode .member-row {
   border-bottom-color: var(--surface-2);
 }
 .day-mode .member-row:hover {
+  background: #fafbff;
+}
+.day-mode .member-row:hover td:last-child {
   background: #fafbff;
 }
 

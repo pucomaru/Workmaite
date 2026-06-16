@@ -5,6 +5,9 @@ import com.workmaite.domain.chat.repository.ChatMessageRepository;
 import com.workmaite.domain.logs.repository.AgentLogRepository;
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
+import com.workmaite.domain.meetings.service.MeetingService;
+import com.workmaite.domain.user.entity.User;
+import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
 import com.workmaite.domain.scripts.repository.ScriptRepository;
 import com.workmaite.domain.sessions.dto.AttendeeRequest;
@@ -49,6 +52,8 @@ public class SessionService {
   private final SessionSummaryBlockRepository summaryBlockRepository;
   private final SessionAgendaRepository sessionAgendaRepository;
   private final MeetingRepository meetingRepository;
+  private final MeetingService meetingService;
+  private final UserRepository userRepository;
   private final NeoSyncService neoSyncService;
   private final ScriptRepository scriptRepository;
   private final MinutesRepository minutesRepository;
@@ -57,13 +62,22 @@ public class SessionService {
   private final AgentLogRepository agentLogRepository;
   private final AgendaRepository agendaRepository;
 
-  // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
+  // 역할 기반 가시 회의체의 예정 세션을 일시 오름차순으로 반환 (SYSTEM_ADMIN=전체, COMPANY_ADMIN=자사, USER=소속)
   public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
+    User user = userRepository.findById(userId).orElseThrow();
+    List<Long> meetingIds = meetingService.getVisibleMeetings(user)
+        .stream()
+        .filter(m -> !"ended".equalsIgnoreCase(m.getStatus().name())
+                  && !"archived".equalsIgnoreCase(m.getStatus().name()))
+        .map(Meeting::getId)
+        .toList();
+    if (meetingIds.isEmpty()) return List.of();
+
     List<MeetingSession> sessions =
-        sessionRepository.findUpcomingByUserId(userId, SessionStatus.SCHEDULED);
+        sessionRepository.findByMeetingIdInAndStatusOrderByScheduledAtAsc(
+            meetingIds, SessionStatus.SCHEDULED);
     if (sessions.isEmpty()) return List.of();
 
-    List<Long> meetingIds = sessions.stream().map(MeetingSession::getMeetingId).distinct().toList();
     Map<Long, String> meetingTitleMap =
         meetingRepository.findAllById(meetingIds).stream()
             .collect(Collectors.toMap(Meeting::getId, Meeting::getTitle));
