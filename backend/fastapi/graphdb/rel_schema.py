@@ -53,7 +53,7 @@ REL_MATRIX: dict[str, str] = {
 REL_COLORS: dict[str, str] = {
     # 조직·구성
     "포함": "#a89fd4",  # 실사용
-    "소속": "rgb(13, 148, 136)",  # 실사용
+    "소속": "#0d9488",  # 실사용 (rgb()·이름색 금지 — 프런트 hexToNum이 #hex만 파싱)
     "소속회사": "#a78bfa", # neo4j 상에는 존재. 미사용, user→company (소속의 회사 직속 변형)
     "운영": "#fbbf24",  # 실사용
     "참여": "#60a5fa", # 실사용

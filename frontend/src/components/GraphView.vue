@@ -1086,9 +1086,15 @@ defineExpose({
 })
 
 // ─── Helpers ─────────────────────────────────────────────────
-function hexToNum(hex) {
-  if (!hex) return 0x60a5fa
-  return parseInt(hex.replace('#', ''), 16)
+function hexToNum(color) {
+  if (!color) return 0x60a5fa
+  const s = String(color).trim()
+  // rgb()/rgba() 문자열도 허용 (rel-schema에 섞여 들어와도 캔버스가 죽지 않도록)
+  const m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  if (m) return (+m[1] << 16) | (+m[2] << 8) | +m[3]
+  const n = parseInt(s.replace('#', ''), 16)
+  // 파싱 실패(NaN)는 PIXI stroke가 throw → 렌더 루프 전체 중단. 반드시 폴백.
+  return Number.isNaN(n) ? 0x60a5fa : n
 }
 
 // ─── Watchers ─────────────────────────────────────────────────

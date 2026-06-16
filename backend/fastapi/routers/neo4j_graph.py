@@ -157,7 +157,7 @@ async def get_archive(
                     mg.id AS meetingId,
                     coalesce(ag.id, toString(ag.pg_id)) AS id,
                     coalesce(ag.title, ag.content) AS content,
-                    ag.description AS description, ag.category AS category,
+                    ag.description AS description,
                     ag.priority AS priority, ag.status AS status,
                     toString(ag.due_date) AS due_date,
                     toString(ag.created_at) AS created_at,
