@@ -2106,6 +2106,7 @@ const meetings = computed(() => {
         title: m.title,
         meeting_type: m.meeting_type || null,
         status: m.status || 'active',
+        my_role: meetingsStore.meetingRoles[m.id] ?? null,
         minutes: [],
         reports: [],
         members: [],
@@ -2114,7 +2115,17 @@ const meetings = computed(() => {
         sessions: [],
       }))
 
-    return [...neo4jResult, ...pgOnly]
+    const numericId = id => {
+      const s = String(id)
+      return s.startsWith('mg-') ? parseInt(s.slice(3)) : parseInt(s)
+    }
+    return [
+      ...neo4jResult.map(mg => ({
+        ...mg,
+        my_role: meetingsStore.meetingRoles[numericId(mg.id)] ?? mg.my_role ?? null,
+      })),
+      ...pgOnly,
+    ]
   }
 
   // fallback: PostgreSQL 기반 조합
