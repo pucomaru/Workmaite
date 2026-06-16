@@ -743,8 +743,8 @@ const {
 .company-page {
   display: flex;
   flex-direction: column;
-  margin: -24px -28px;
-  height: calc(100% + 48px);
+  margin: -24px -28px 0 -28px;
+  height: calc(100% + 24px);
   overflow: hidden;
 }
 
