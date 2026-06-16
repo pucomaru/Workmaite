@@ -287,10 +287,7 @@ async function doCreate() {
                 v-model="form.dateOnly"
                 class="app-modal-input"
                 style="flex: 1"
-                @update:modelValue="
-                  showPastDateAlert = false
-                  errors.dateOnly = null
-                "
+                @update:modelValue="showPastDateAlert = false; errors.dateOnly = null"
               />
               <div style="position: relative; width: 110px">
                 <div

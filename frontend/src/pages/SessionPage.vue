@@ -1761,9 +1761,7 @@ async function downloadChatFile(filePath) {
                   :key="tab.key"
                   class="sp-filter-drop-item"
                   :class="{ active: sessionStatusFilter === tab.key }"
-                  @click="
-                    sessionStatusFilter = tab.key
-                    showFilterDrop = false
+                  @click="sessionStatusFilter = tab.key; showFilterDrop = false"
                   "
                 >
                   {{ tab.label }}
