@@ -86,12 +86,17 @@ const filteredMembers = computed(() => {
   if (sid !== 'all') list = list.filter(m => m.meetings.some(mg => String(mg.id) === String(sid)))
   const q = searchQuery.value.trim().toLowerCase()
   if (q)
-    list = list.filter(
-      m =>
-        (m.name || '').toLowerCase().includes(q) ||
-        (m.email || '').toLowerCase().includes(q) ||
-        (m.position || '').toLowerCase().includes(q) ||
-        (m.department || '').toLowerCase().includes(q),
+    // 모든 컬럼 검색: 이름·회사·부서·직책·권한(표시 라벨)·이메일 + 소속 회의체 제목
+    list = list.filter(m =>
+      [
+        m.name,
+        m.company,
+        m.department,
+        m.position,
+        roleLabel(m.role),
+        m.email,
+        ...(m.meetings || []).map(g => g.title),
+      ].some(v => (v ?? '').toString().toLowerCase().includes(q)),
     )
   return list
 })
@@ -495,7 +500,7 @@ const {
 
       <div v-if="loadingMembers" class="table-loading">
         <span class="spinner-border spinner-border-sm text-primary"></span>
-        <span style="margin-left: 10px; color: var(--text-muted); font-size: 13px"
+        <span style="margin-left: 10px; color: var(--text-muted); font-size: 12px"
           >불러오는 중...</span
         >
       </div>
@@ -682,7 +687,7 @@ const {
                 />
               </div>
             </div>
-            <div v-if="addError" style="color: #ef4444; font-size: 13px; margin-top: 8px">
+            <div v-if="addError" style="color: #ef4444; font-size: 12px; margin-top: 8px">
               {{ addError }}
             </div>
           </div>
@@ -747,7 +752,7 @@ const {
 }
 
 .member-count-text {
-  font-size: 13px;
+  font-size: 12px;
   color: #c8d1dd;
   white-space: nowrap;
   flex-shrink: 0;
@@ -759,7 +764,7 @@ const {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #7dd3fc;
   background: rgba(56, 189, 248, 0.12);
@@ -796,10 +801,16 @@ const {
 .member-row:hover {
   background: var(--white-04);
 }
+.member-row:hover td:last-child {
+  background: var(--white-04);
+}
 .day-mode .member-row {
   border-bottom-color: var(--surface-2);
 }
 .day-mode .member-row:hover {
+  background: #fafbff;
+}
+.day-mode .member-row:hover td:last-child {
   background: #fafbff;
 }
 
@@ -843,7 +854,7 @@ const {
   border: none;
   background: none;
   color: var(--dark-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   padding: 2px 4px;
@@ -918,4 +929,7 @@ const {
 .dropdown-item-result:hover {
   background: var(--surface-2);
 }
+
+
+
 </style>

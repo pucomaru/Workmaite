@@ -60,7 +60,7 @@
   --header-h: 47px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 16px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
   --radius: 8px;
   --radius-lg: 12px;
 
@@ -149,7 +149,7 @@ select {
 }
 .badge {
   border-radius: 99px !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
 }
 
@@ -177,7 +177,7 @@ select {
 .form-select {
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   padding: 8px 12px;
   background: var(--bg-card);
   color: var(--text);
@@ -188,7 +188,7 @@ select {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 .form-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text);
   margin-bottom: 4px;
@@ -198,7 +198,7 @@ select {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   background: var(--bg-card);
   color: var(--text);
 }
@@ -242,7 +242,7 @@ select {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
 }
 .search-item:last-child {
   border-bottom: none;
@@ -279,7 +279,7 @@ select {
   color: var(--text);
 }
 .page-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -323,7 +323,7 @@ select {
   align-items: flex-start;
 }
 .chat-agent-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 4px;
@@ -335,7 +335,7 @@ select {
   max-width: 80%;
   padding: 10px 14px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -395,7 +395,7 @@ select {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 12px;
   resize: none;
   max-height: 100px;
   background: var(--surface);
@@ -415,11 +415,11 @@ select {
   padding: 0 14px;
 }
 .panel-tab {
-  padding: 11px 16px;
+  padding: 12px 16px;
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   display: flex;
@@ -441,7 +441,7 @@ select {
   color: #4338ca;
   border-radius: 99px;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .tab-body {
@@ -462,7 +462,7 @@ select {
 }
 .tab-btn {
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   background: none;
@@ -501,7 +501,7 @@ select {
 .table th {
   background: var(--surface);
   font-weight: 600;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -985,7 +985,7 @@ html.night-mode .empty-state {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--dark-text);
   cursor: pointer;
   white-space: nowrap;
@@ -1049,17 +1049,24 @@ html.night-mode .empty-state {
   padding: 0 14px;
   border-radius: 8px;
   background: var(--accent);
-  border: none;
+  border: 1px solid var(--accent) !important;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
+
+html.night-mode .create-btn {
+  background: none !important;
+  border: 1px solid var(--accent) !important;
+  color: #fff !important;
+}
+
 .create-btn.sm {
   height: 34px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 12px;
   gap: 4px;
   border-radius: 6px;
 }
@@ -1229,12 +1236,12 @@ html.night-mode .empty-state {
 .ui-avatar-sm {
   width: 26px;
   height: 26px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .ui-avatar-md {
   width: 32px;
   height: 32px;
-  font-size: 13px;
+  font-size: 12px;
 }
 .ui-avatar-lg {
   width: 36px;
@@ -1309,7 +1316,7 @@ html.night-mode .empty-state {
 
 /* App Select */
 .app-select {
-  font-size: 11px;
+  font-size: 12px;
   appearance: none;
   -webkit-appearance: none;
   background: var(--surface-2)
@@ -1373,7 +1380,7 @@ html.night-mode .app-select option {
   color: #2563eb;
   font-weight: 700;
 }
-/* .app-tab-badge { font-size:11px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
+/* .app-tab-badge { font-size:12px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
 .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); } */
 html.night-mode .app-tab {
   color: var(--text-muted) !important;
@@ -1429,7 +1436,7 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   flex-shrink: 0;
 }
 .app-modal-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
 }
 .app-modal-close {
@@ -1497,7 +1504,7 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   background: var(--surface);
   outline: none;
   width: 100%;
@@ -1539,7 +1546,7 @@ select.app-modal-input {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   color: var(--text-muted);
@@ -1553,10 +1560,16 @@ select.app-modal-input {
   border: none;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
+
+html.night-mode .app-btn-primary {
+  border: 1px solid var(--accent) !important;
+  background: none !important;
+}
+
 .app-btn-primary:hover {
   opacity: 0.85;
 }
@@ -1568,14 +1581,22 @@ select.app-modal-input {
   padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid #fca5a5;
-  background: #fff;
+  background: transparent;
   color: var(--danger);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
+html.day-mode-global .app-btn-danger {
+  background: #fff !important;
+}
+
+html.day-mode-global .app-btn-danger:hover {
+  background: #fef2f2 !important;
+}
+
 .app-btn-danger:hover {
-  background: #fef2f2;
+  background: #f7c3c353;
 }
 .app-btn-danger:disabled {
   opacity: 0.4;
@@ -1700,7 +1721,7 @@ html.night-mode .app-btn-cancel:hover {
 }
 .field-error {
   color: var(--danger);
-  font-size: 11px;
+  font-size: 12px;
   margin: 2px 0 0;
   padding: 0;
 }
@@ -1729,7 +1750,7 @@ html.night-mode .req {
   background: transparent;
   outline: none;
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
   color: var(--dark-card);
 }

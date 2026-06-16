@@ -20,14 +20,14 @@ defineProps({ label: String, value: { type: [String, Number], default: '' } })
 .sb-info-key {
   flex-shrink: 0;
   width: 58px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #777;
   line-height: 1.5;
 }
 .sb-info-val {
   flex: 1;
-  font-size: 11px;
+  font-size: 12px;
   color: #aaa;
   line-height: 1.5;
 }

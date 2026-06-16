@@ -97,16 +97,41 @@ function onAgentResizeEnd() {
   document.removeEventListener('mouseup', onAgentResizeEnd)
 }
 
+// 회의(세션) 검색: 제목·장소·날짜/시간(원본 ISO + 표시형식)·내용(description) 매칭
+function sessionMatches(s, q) {
+  return [
+    s.title,
+    s.location,
+    s.scheduled_at, // 원본 ISO (예: "2026-06" 검색)
+    formatDateTimeShort(s.scheduled_at, ''), // 표시 형식 (예: "6월", "오후" 검색)
+    s.description, // 내용
+    s.content_summary, // 회의록 요약(있으면)
+  ].some(v => (v ?? '').toString().toLowerCase().includes(q))
+}
+
 const filteredMeetings = computed(() => {
   const q = sidebarSearch.value.trim().toLowerCase()
   const active = meetings.value.filter(m => m.status !== 'ended')
   if (!q) return active
-  return active.filter(
-    m =>
-      m.title.toLowerCase().includes(q) ||
-      (m.sessions || []).some(s => (s.title || '').toLowerCase().includes(q)),
-  )
+  const out = []
+  for (const m of active) {
+    const titleMatch = (m.title || '').toLowerCase().includes(q)
+    if (titleMatch) {
+      // 회의체명이 매칭되면 그 회의체의 모든 회의를 보여준다
+      out.push(m)
+      continue
+    }
+    // 회의(세션)가 매칭된 경우 → 매칭된 회의만 남겨서 노출
+    const matched = (m.sessions || []).filter(s => sessionMatches(s, q))
+    if (matched.length) out.push({ ...m, sessions: matched })
+  }
+  return out
 })
+
+// 검색 중에는 매칭된 회의체를 자동으로 펼쳐 결과(필터된 회의)를 바로 보이게 한다
+function isMtgExpanded(id) {
+  return !!sidebarSearch.value.trim() || expandedMeetingIds.value.has(id)
+}
 
 const selectedMeeting = computed(() => meetings.value.find(m => m.id === selectedMeetingId.value))
 
@@ -809,7 +834,7 @@ function downloadPDF() {
   w.document.write(`<!DOCTYPE html><html><head>
     <meta charset="utf-8"><title>${title}</title>
     <style>
-      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
+      body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:12px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
       h1{font-size:20px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       h2{font-size:16px;font-weight:700;color:#1e40af;margin-top:20px;margin-bottom:6px}
       h3{font-size:14px;font-weight:700;color:var(--text-muted);margin-top:12px;margin-bottom:4px}
@@ -1720,12 +1745,12 @@ async function downloadChatFile(filePath) {
             <div
               class="sp-mtg-header"
               @click="selectMeeting(mtg)"
-              :class="{ expanded: expandedMeetingIds.has(mtg.id) }"
+              :class="{ expanded: isMtgExpanded(mtg.id) }"
             >
-              <span class="sp-mtg-title">{{ mtg.title }}</span>
+              <span class="lv-group-name">{{ mtg.title }}</span>
               <svg
                 class="sp-mtg-chev"
-                :class="{ open: expandedMeetingIds.has(mtg.id) }"
+                :class="{ open: isMtgExpanded(mtg.id) }"
                 width="12"
                 height="12"
                 fill="none"
@@ -1736,18 +1761,18 @@ async function downloadChatFile(filePath) {
                 <path d="M19 9l-7 7-7-7" />
               </svg>
             </div>
-            <div v-if="expandedMeetingIds.has(mtg.id)" class="sp-session-list">
+            <div v-if="isMtgExpanded(mtg.id)" class="sp-session-list">
               <div
                 v-if="!mtg.sessions"
                 class="sp-session-item"
-                style="justify-content: center; color: var(--dark-muted); font-size: 11px"
+                style="justify-content: center; color: var(--dark-muted); font-size: 12px"
               >
                 불러오는 중...
               </div>
               <div
                 v-else-if="!mtg.sessions.filter(s => s.status !== 'archived' && (sessionStatusFilter === 'all' || s.status === sessionStatusFilter)).length && !mtg.sessions.filter(s => s.status === 'archived' && (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')).length"
                 class="sp-session-item"
-                style="justify-content: center; color: var(--dark-muted); font-size: 11px"
+                style="justify-content: center; color: var(--dark-muted); font-size: 12px"
               >
                 등록된 회의가 없습니다
               </div>
@@ -2809,7 +2834,7 @@ async function downloadChatFile(filePath) {
 }
 .sp-ms-email {
   color: var(--dark-muted);
-  font-size: 11px;
+  font-size: 12px;
   display: block;
 }
 .sp-ms-role {
@@ -2818,7 +2843,7 @@ async function downloadChatFile(filePath) {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -2860,7 +2885,7 @@ async function downloadChatFile(filePath) {
 .sp-sm-role-tag {
   padding: 2px 7px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .sp-sm-role-tag.admin {
@@ -2876,7 +2901,7 @@ async function downloadChatFile(filePath) {
   border: none;
   cursor: pointer;
   color: var(--dark-muted);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 .sp-sm-rm:hover {
@@ -2901,6 +2926,7 @@ async function downloadChatFile(filePath) {
   border-bottom: 1px solid var(--surface-2);
 }
 .sp-mtg-header {
+  font-size: 12px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2955,7 +2981,7 @@ async function downloadChatFile(filePath) {
   min-width: 0;
 }
 .sp-session-name {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   display: flex;
@@ -2968,10 +2994,14 @@ async function downloadChatFile(filePath) {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 1;
-  min-width: 0; 
+  min-width: 0;  
+  color: var(--dark-text) !important;
+}
+html.day-mode-global .sp-session-title-text {
+  color: var(--dark-card) !important;
 }
 .sp-session-status {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
   color: var(--text-muted);
@@ -2999,10 +3029,10 @@ async function downloadChatFile(filePath) {
   white-space: nowrap;
 }
 .sp-status-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
-  border-radius: 99px;
+  border-radius: 910px;
   flex-shrink: 0;
 }
 .sp-edit-btn {
@@ -3104,14 +3134,14 @@ async function downloadChatFile(filePath) {
   font-weight: 600;
   color: var(--text-muted);
   padding: 1px 7px;
-  border-radius: 99px;
+  border-radius: 910px;
   background: var(--surface-2, rgba(120, 120, 120, 0.1));
 }
 .sp-participant-count .bi {
-  font-size: 11px;
+  font-size: 12px;
 }
 .sp-panel-location {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 1px;
 }
@@ -3164,18 +3194,18 @@ async function downloadChatFile(filePath) {
   margin-bottom: 8px;
 }
 .conv-block-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text);
 }
 .conv-block-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-family: 'Pretendard', inherit;
   white-space: nowrap;
 }
 .conv-block-bullet {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text);
   line-height: 2;
 }
@@ -3219,7 +3249,7 @@ async function downloadChatFile(filePath) {
   }
 }
 .conv-raw-line {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   line-height: 2;
 }
@@ -3228,7 +3258,7 @@ async function downloadChatFile(filePath) {
   max-width: 90vw;
 }
 .context-modal-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.6;
@@ -3238,7 +3268,7 @@ async function downloadChatFile(filePath) {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: 12px;
   background: var(--surface);
   color: var(--text);
   outline: none;
@@ -3262,7 +3292,7 @@ async function downloadChatFile(filePath) {
   border: 1px solid var(--border);
   background: none;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 .app-modal-confirm {
@@ -3271,7 +3301,7 @@ async function downloadChatFile(filePath) {
   border: none;
   background: var(--primary);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -3404,11 +3434,11 @@ async function downloadChatFile(filePath) {
 .tline-body {
   width: 100%;
   min-width: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .tline-text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--dark-card);
   line-height: 1.5;
 }
@@ -3421,8 +3451,37 @@ html.night-mode .tline-edit-speaker,
 html.night-mode .sp-panel-title,
 html.night-mode .sp-ms-name,
 html.night-mode .sp-sm-name,
-html.night-mode .sp-ms-input {
+html.night-mode .sp-ms-input,
+html.night-mode .ts-summary-body,
+html.night-mode .minutes-md,
+html.night-mode .tiptap-content :deep(.ProseMirror h1) {
   color: var(--dark-text);
+}
+/* 야간모드: 헤딩 — 너무 어두운 네이비(#1e40af)/다크값은 밝은 강조색으로 */
+html.night-mode .minutes-md :deep(h2),
+html.night-mode .tiptap-content :deep(.ProseMirror h2) {
+  color: var(--accent-soft);
+}
+/* 야간모드: 밝은 배경면/hover 글레어 — 다크 표면으로 치환 */
+html.night-mode .ctrl-end {
+  background: rgba(239, 68, 68, 0.12);
+}
+html.night-mode .ctrl-stop:hover,
+html.night-mode .tt-delete:hover {
+  background: rgba(239, 68, 68, 0.16) !important;
+}
+html.night-mode .mbar-btn.regen:hover {
+  background: var(--white-08);
+}
+html.night-mode .wm-suggested-btn:hover {
+  background: var(--surface-2);
+}
+html.night-mode .sp-filter-drop-item:hover {
+  background: var(--surface-2);
+}
+/* 야간모드: 어두운 배경의 초록(green-600) 역할 태그는 더 밝은 초록으로 */
+html.night-mode .sp-sm-role-tag.member {
+  color: #4ade80;
 }
 .tline-edit-btn {
   opacity: 0;
@@ -3431,7 +3490,7 @@ html.night-mode .sp-ms-input {
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 4px;
   border-radius: 4px;
   display: inline-flex;
@@ -3460,7 +3519,7 @@ html.night-mode .sp-ms-input {
 }
 .tline-edit-text {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px 8px;
@@ -3510,12 +3569,12 @@ html.night-mode .sp-ms-input {
 
 /* 화자 라벨 (P6) */
 .tline-speaker {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--accent);
   background: rgba(96, 165, 250, 0.12);
   padding: 1px 7px;
-  border-radius: 99px;
+  border-radius: 910px;
   flex-shrink: 0;
   margin-right: 6px;
   align-self: center;
@@ -3539,7 +3598,7 @@ html.night-mode .sp-ms-input {
   align-items: center;
 }
 .tline-save-btn {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 3px 10px;
   border-radius: 5px;
@@ -3552,7 +3611,7 @@ html.night-mode .sp-ms-input {
   background: #2563eb;
 }
 .tline-cancel-btn {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
   border-radius: 5px;
   border: 1px solid var(--border);
@@ -3564,7 +3623,7 @@ html.night-mode .sp-ms-input {
 /* REC 타이머 */
 .rec-timer {
   font-family: 'Pretendard', inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--danger);
   letter-spacing: 0.02em;
@@ -3593,7 +3652,7 @@ html.night-mode .sp-ms-input {
   background: var(--text-muted);
 }
 .mic-error-msg {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--danger-soft);
   display: flex;
   align-items: center;
@@ -3632,12 +3691,12 @@ html.night-mode .sp-ms-input {
   border: none;
   cursor: pointer;
   color: var(--dark-muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
 }
 .ts-summary-body {
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--dark-border);
   line-height: 1.6;
 }
@@ -3709,12 +3768,12 @@ html.night-mode .sp-ms-input {
 }
 .tiptap-content :deep(.ProseMirror p) {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
   color: var(--text);
 }
 .tiptap-content :deep(.ProseMirror h1) {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 800;
   margin: 0 0 12px;
   padding-bottom: 8px;
@@ -3722,13 +3781,13 @@ html.night-mode .sp-ms-input {
   color: var(--dark-bg);
 }
 .tiptap-content :deep(.ProseMirror h2) {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   margin: 16px 0 6px;
   color: #1e40af;
 }
 .tiptap-content :deep(.ProseMirror h3) {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   margin: 10px 0 4px;
   color: var(--text-muted);
@@ -3749,7 +3808,7 @@ html.night-mode .sp-ms-input {
 }
 .tiptap-content :deep(.ProseMirror li) {
   margin-bottom: 2px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.6;
 }
 .tiptap-content :deep(.ProseMirror li > p) {
@@ -3793,25 +3852,25 @@ html.night-mode .sp-ms-input {
 
 /* Streaming preview uses same styles */
 .minutes-md {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
   color: var(--dark-card);
 }
 .minutes-md :deep(h1) {
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 800;
   margin: 0 0 12px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--border);
 }
 .minutes-md :deep(h2) {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   margin: 16px 0 6px;
   color: #1e40af;
 }
 .minutes-md :deep(h3) {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   margin: 10px 0 4px;
   color: var(--text-muted);
@@ -3853,7 +3912,7 @@ html.night-mode .sp-ms-input {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted);
   padding: 0 4px;
   white-space: nowrap;
@@ -3893,7 +3952,7 @@ html.night-mode .sp-ms-input {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 .ctrl-btn:hover,
@@ -3907,7 +3966,7 @@ html.night-mode .sp-ms-input {
   gap: 4px;
 }
 .ctrl-chev {
-  font-size: 9px;
+  font-size: 10px;
   opacity: 0.6;
 }
 .ctrl-popover {
@@ -3923,7 +3982,7 @@ html.night-mode .sp-ms-input {
   z-index: 200;
 }
 .cpop-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -3945,7 +4004,7 @@ html.night-mode .sp-ms-input {
   accent-color: var(--primary);
 }
 .cpop-val {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   min-width: 28px;
   text-align: right;
@@ -3958,7 +4017,7 @@ html.night-mode .sp-ms-input {
   border-radius: 6px;
   border: none;
   background: none;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   color: var(--text-muted);
 }
@@ -3977,7 +4036,7 @@ html.night-mode .sp-ms-input {
   border: none;
   background: var(--primary);
   color: #fff;
-  font-size: 15px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4092,7 +4151,7 @@ html.night-mode .sp-ms-input {
 .sp-filter-drop-item.active { color: var(--accent); font-weight: 600; }
 .sp-search-icon {
   position: absolute;
-  left: 9px;
+  left: 10px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--dark-muted);
@@ -4212,7 +4271,7 @@ html.night-mode .sp-ms-input {
   cursor: not-allowed;
 }
 .minutes-saved-label {
-  font-size: 11px;
+  font-size: 12px;
   color: #22c55e;
   display: flex;
   align-items: center;
@@ -4282,7 +4341,7 @@ html.night-mode .sp-ms-input {
   cursor: not-allowed;
 }
 .mbar-saved-label {
-  font-size: 11px;
+  font-size: 12px;
   color: #22c55e;
   display: flex;
   align-items: center;
@@ -4411,7 +4470,7 @@ html.night-mode .sp-ms-input {
   color: #818cf8;
 }
 .nab-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -4466,12 +4525,12 @@ html.night-mode .sp-ms-input {
 }
 .wm-suggested-btn {
   text-align: left;
-  background: rgba(255, 255, 255, 0.7);
+  background: none;
   border: 1px solid #c7d2fe;
   border-radius: 6px;
-  padding: 4px 9px;
-  font-size: 11px;
-  color: var(--primary);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
   cursor: pointer;
   font-weight: 500;
   width: 100%;

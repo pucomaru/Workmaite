@@ -599,7 +599,7 @@ function deptList(dept) {
   box-sizing: border-box;
 }
 .dei-app-select {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 6px;
   border-radius: 5px;
 }
@@ -623,7 +623,7 @@ function deptList(dept) {
   border: 1px solid var(--white-08);
   border-radius: 5px;
   padding: 5px 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted, #aaa);
   outline: none;
   resize: none;
@@ -643,7 +643,7 @@ function deptList(dept) {
   margin-top: 5px;
 }
 .dei-fb-submit {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 12px;
   background: var(--indigo);
   color: #fff;
@@ -736,11 +736,11 @@ function deptList(dept) {
   margin-left: auto;
 }
 .nab-count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .nab-add-btn {
-  font-size: 11px;
+  font-size: 12px;
   color: #818cf8;
   background: none;
   border: none;
@@ -751,7 +751,7 @@ function deptList(dept) {
   padding: 0;
 }
 .nab-save-btn {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 5px 12px;
   border-radius: 6px;

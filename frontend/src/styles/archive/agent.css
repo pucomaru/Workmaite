@@ -124,7 +124,7 @@
   flex: 1;
 }
 .supervisor-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--dark-card);
   white-space: nowrap;
@@ -186,7 +186,7 @@
 .agent-sidebar-en {
   font-weight: 400;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .agent-sidebar-subtitle {
   font-size: 10px;
@@ -197,7 +197,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
@@ -235,7 +235,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -246,9 +246,9 @@
   object-fit: cover;
 }
 .agent-bubble {
-  padding: 8px 11px;
+  padding: 8px 12px;
   border-radius: 10px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.55;
   max-width: 90%;
   word-break: break-word;
@@ -328,7 +328,7 @@
   border: 1px solid #c7d2fe;
   border-radius: 6px;
   padding: 4px 9px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--primary);
   cursor: pointer;
   font-weight: 500;
@@ -419,7 +419,7 @@
   flex: 1;
   min-width: 0;
   color: #374151;
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -451,7 +451,7 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -615,7 +615,7 @@ html.night-mode .agent-step-data .agent-step-text {
   margin: 0;
 }
 .agent-file-chip {
-  font-size: 11px;
+  font-size: 12px;
   background: var(--accent-bg);
   border: 1px solid #bfdbfe;
   border-radius: 4px;
@@ -635,10 +635,6 @@ html.night-mode .agent-step-data .agent-step-text {
   border-radius: 14px;
   background: var(--surface);
   padding: 7px 10px 5px;
-}
-.agent-composer:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 /* ── 응답 중: 컴포저 테두리가 은은한 무지개빛으로 빛난다 (loading=true → .responding) ── */
@@ -713,10 +709,18 @@ html.night-mode .agent-step-data .agent-step-text {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   max-width: 160px;
 }
+
+html.night-mode .model-select-btn,
+html.night-mode .model-select-btn:hover,
+html.night-mode .model-select-btn:open {
+  color: var(--text-muted) !important;
+  border-color: var(--border) !important;
+}
+
 .model-select-btn:hover,
 .model-select-btn.open {
   background: var(--surface-2);
@@ -788,8 +792,8 @@ html.night-mode .model-menu-item:hover {
 }
 /* 노드 타입별 동그란 색상 아이콘 (그래프 legend와 동일) — @메뉴·컨텍스트 칩 공용 */
 .at-dot {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow:
@@ -797,7 +801,7 @@ html.night-mode .model-menu-item:hover {
     0 1px 2px rgba(0, 0, 0, 0.25);
 }
 .agent-ctx-chip {
-  font-size: 11px;
+  font-size: 12px;
   background: #f0fdf4;
   border: 1px solid #86efac;
   border-radius: 9px;
@@ -813,7 +817,7 @@ html.night-mode .model-menu-item:hover {
   cursor: pointer;
   color: #166534;
   padding: 0 0 0 2px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   opacity: 0.6;
 }
@@ -891,7 +895,7 @@ html.night-mode .ctx-chip-remove {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 11px;
+  padding: 7px 12px;
   cursor: pointer;
 }
 .at-menu-item.active,
@@ -928,7 +932,7 @@ html.night-mode .at-type {
 .at-menu-hint {
   font-size: 10px;
   color: var(--text-muted);
-  padding: 4px 11px;
+  padding: 4px 12px;
   border-top: 1px solid var(--border);
   text-align: right;
 }
@@ -974,7 +978,7 @@ html.night-mode .at-type {
   border: none;
   border-radius: 0;
   padding: 0;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
   font-family: inherit;
   line-height: 1.5;

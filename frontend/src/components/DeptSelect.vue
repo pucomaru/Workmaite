@@ -137,7 +137,7 @@ function onEnter() {
   gap: 8px;
 }
 .mi-cnt-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   background: rgba(96, 165, 250, 0.15);
   color: var(--accent-soft);
@@ -192,7 +192,7 @@ function onEnter() {
   background: var(--surface);
 }
 .mi-add-hint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
@@ -227,7 +227,7 @@ function onEnter() {
   min-width: 0;
 }
 .mi-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;

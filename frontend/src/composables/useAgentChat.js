@@ -30,7 +30,7 @@ export function useAgentChat({
       '회의체별 아젠다 현황 알려줘',
       '최근 보고서 제출 현황 알려줘',
     ],
-    suggestedAt: ['@ 회의체 · 회의 범위 지정'],
+    suggestedAt: ['@ 컨텍스트 추가'],
     endpoint: '/api/agent/supervisor/chat',
   }
 

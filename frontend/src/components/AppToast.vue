@@ -50,7 +50,7 @@ const ICONS = {
   border: 1px solid var(--white-12);
   border-radius: 10px;
   padding: 10px 16px 12px 16px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   pointer-events: auto;

@@ -335,13 +335,13 @@ function onResizeEnd() {
                 {{ s }}
               </button>
               <template v-if="agentInfo.suggestedAt?.length">
-                <div class="suggested-section-label">@ 붙여서 범위 지정</div>
+                <div class="suggested-section-label">@ 문맥 추가</div>
                 <button
                   v-for="s in agentInfo.suggestedAt"
                   :key="'at-' + s"
                   class="suggested-btn suggested-btn--at"
                   :disabled="agentLoading"
-                  :title="'클릭하면 회의체·회의 목록에서 선택할 수 있어요'"
+                  :title="'채팅에 문맥을 추가할 수 있습니다.'"
                   @click="triggerAtSuggest()"
                 >
                   {{ s }}
@@ -444,7 +444,7 @@ function onResizeEnd() {
 .agent-action-summary {
   display: flex;
   gap: 7px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--dark-text, #e2e8f0);
   line-height: 1.5;

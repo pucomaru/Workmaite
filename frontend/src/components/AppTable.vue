@@ -141,7 +141,7 @@ function startResize(e, colIndex) {
 .app-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 .app-table thead tr {
   border-bottom: 1px solid var(--border);
@@ -150,9 +150,9 @@ function startResize(e, colIndex) {
 .app-table th {
   position: relative;
   padding: 8px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--dark-text) !important;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   text-align: left;
@@ -165,8 +165,11 @@ function startResize(e, colIndex) {
   align-items: center;
   gap: 5px;
 }
-.sortable-th {
-  cursor: pointer;
+
+
+html.day-mode-global .app-table th {
+  color: var(--dark-card) !important; /* 주간: 어두운 텍스트 (밝은 배경 대비) */
+
 }
 .sortable-th:hover {
   color: var(--dark-border);
@@ -205,6 +208,12 @@ function startResize(e, colIndex) {
    36px = 가장 높은 셀 내용(28px 버튼) + td 상하 패딩 8px. table-row의 height는 min-height처럼 동작한다. */
 .app-table tbody tr {
   height: 36px;
+}
+.app-table .filler-row td {
+  border: none;
+}
+.app-table .filler-row td:last-child {
+  background: transparent;
 }
 .app-table td {
   padding: 4px 4px;
@@ -267,7 +276,7 @@ function startResize(e, colIndex) {
   background: #1e2d3e;
 }
 .app-table-dark .app-table td {
-  color: var(--dark-text);
+  color: var(--text-muted);
   border-right-color: var(--white-05);
 }
 .app-table-dark .app-table td:last-child {

@@ -38,7 +38,7 @@
   padding: 0 2px;
 }
 .member-cnt-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   background: rgba(96, 165, 250, 0.15);
   border-radius: 99px;
@@ -47,7 +47,7 @@
 }
 .ms-role-btn {
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
   border: 1px solid var(--text-muted);
@@ -80,7 +80,7 @@
   border: none;
   background: none;
   color: var(--dark-card);
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
 }
 .member-search-input::placeholder {
@@ -128,11 +128,11 @@
   color: var(--dark-card);
 }
 .ms-email {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted);
 }
 .ms-add-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   font-weight: 600;
   flex-shrink: 0;
@@ -237,7 +237,7 @@
   color: var(--text-muted);
 }
 .conn-rel {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 4px;
@@ -382,7 +382,7 @@
   border: 1px solid var(--white-12);
   background: var(--white-05);
   color: var(--dark-muted);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .tt-edit-btn:hover {
@@ -398,7 +398,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--warning);
   margin-top: 6px;
   padding: 5px 8px;
@@ -500,7 +500,7 @@
   color: var(--dark-card);
 }
 .criteria-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -530,17 +530,17 @@
   }
 }
 .ai-loading-text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   line-height: 1.6;
 }
 .ai-stream-score {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 500;
 }
 .ai-stream-score strong {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
 }
 .ai-stream-feedback {
@@ -583,7 +583,7 @@
   margin-bottom: 16px;
 }
 .ai-score-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted);
   margin-bottom: 6px;
   font-weight: 600;
@@ -597,7 +597,7 @@
   margin-bottom: 8px;
 }
 .ai-score-desc {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 .ai-feedback-list {
@@ -700,7 +700,7 @@
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -739,7 +739,7 @@
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 9px 11px;
+  padding: 9px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -783,7 +783,7 @@
   color: #8b5cf6;
 }
 .agenda-section-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -807,7 +807,7 @@
   background: rgba(139, 92, 246, 0.15);
   border: 1px solid rgba(139, 92, 246, 0.35);
   color: var(--violet-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 .agenda-tag-remove {
   background: none;
@@ -815,7 +815,7 @@
   color: var(--violet-soft);
   cursor: pointer;
   padding: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   opacity: 0.7;
 }
@@ -996,7 +996,7 @@
   border: 1px solid rgba(96, 165, 250, 0.4);
   background: rgba(96, 165, 250, 0.08);
   color: var(--accent-light);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -1070,7 +1070,7 @@
   border-color: var(--border);
 }
 .stats-chart-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--dark-muted);
   margin-bottom: 14px;
@@ -1096,7 +1096,7 @@
 }
 .stats-bar-label {
   width: 90px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1121,7 +1121,7 @@
   border-radius: 99px;
 }
 .stats-bar-val {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   width: 22px;
   text-align: right;
@@ -1147,7 +1147,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .stats-pie-dot {
   width: 9px;

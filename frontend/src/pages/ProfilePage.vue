@@ -114,7 +114,7 @@ async function save() {
             color: #991b1b;
             padding: 10px 14px;
             border-radius: 6px;
-            font-size: 13px;
+            font-size: 12px;
             margin-bottom: 12px;
           "
         >
@@ -127,7 +127,7 @@ async function save() {
             color: #166534;
             padding: 10px 14px;
             border-radius: 6px;
-            font-size: 13px;
+            font-size: 12px;
             margin-bottom: 12px;
           "
         >

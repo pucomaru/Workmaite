@@ -68,6 +68,6 @@ public class Minutes {
     if (contentSummary != null) {
       this.contentSummary = contentSummary;
     }
-    this.status = MinutesStatus.CONFIRMED;
+    this.status = MinutesStatus.completed;
   }
 }

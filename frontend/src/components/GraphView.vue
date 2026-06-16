@@ -2,6 +2,7 @@
 import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import * as PIXI from 'pixi.js'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force'
+import { nodeIconSvg, NODE_ICON_PATHS } from '../graph/nodeIcons'
 
 // ─── Props / Emits ────────────────────────────────────────────
 const props = defineProps({
@@ -220,7 +221,14 @@ async function initPixi() {
   // Ticker
   app.ticker.add(tick)
 
+  // 노드는 즉시 렌더하고, 아이콘 텍스처는 백그라운드로 로드해 준비되면 부착한다.
+  // (아이콘 로드 실패/지연이 노드 렌더를 막지 않도록 분리 — await로 묶지 않는다.)
   buildSimulation()
+  preloadIconTextures()
+    .then(() => {
+      if (containerRef.value) attachMissingIcons()
+    })
+    .catch(() => {})
 }
 
 function resizePixi() {
@@ -354,6 +362,15 @@ function rebuildNodeObjects() {
     if (existing) {
       // 기존 PIXI 객체 재사용 — 인덱스·핸들러만 갱신
       existing.node = n
+      // 타입이 바뀌었거나(드문 경우), 텍스처 프리로드 전 생성돼 아이콘이 빠졌으면 부착/교체
+      if (existing.type !== type || (!existing.icon && ICON_TEX[type])) {
+        if (existing.icon) {
+          existing.gfx.removeChild(existing.icon)
+          existing.icon.destroy()
+        }
+        existing.icon = createIcon(existing.gfx, type)
+        if (existing.icon) existing.icon.width = existing.icon.height = r * ICON_FIT
+      }
       existing.type = type
       existing.r = r
       existing._drawSig = null // 재빌드 시 데이터/색/반경 변경 반영 위해 다음 틱 재드로잉 강제
@@ -416,7 +433,10 @@ function rebuildNodeObjects() {
       label.eventMode = 'none'
       labelContainer.addChild(label)
 
-      newNodeObjs.set(i, { gfx, label, node: n, type, r, hovered: false, focused: false })
+      const icon = createIcon(gfx, type)
+      if (icon) icon.width = icon.height = r * ICON_FIT // 첫 드로잉 전 초기 크기
+
+      newNodeObjs.set(i, { gfx, label, icon, node: n, type, r, hovered: false, focused: false })
     }
   })
 
@@ -425,7 +445,8 @@ function rebuildNodeObjects() {
     if (!newNodeIdSet.has(nodeId)) {
       nodeContainer.removeChild(obj.gfx)
       labelContainer.removeChild(obj.label)
-      obj.gfx.destroy()
+      // children:true 로 아이콘 Sprite 자식까지 파괴(공유 텍스처 ICON_TEX는 보존 — texture 옵션 false 기본)
+      obj.gfx.destroy({ children: true })
       obj.label.destroy()
     }
   })
@@ -484,126 +505,60 @@ function drawNode(obj, sn) {
     gfx.stroke({ color: isDark ? 0xffffff : 0x1e293b, width: 3, alpha: 0.85 })
   }
 
-  // Icon drawing (inline via Graphics)
-  drawIcon(gfx, type, r)
+  // 아이콘은 노드 gfx의 자식(obj.icon) Sprite로 분리돼 있어 여기서 그리지 않는다.
+  // 크기만 현재 반경에 맞춰 갱신한다. (정의: graph/nodeIcons.js SSOT)
+  if (obj.icon) obj.icon.width = obj.icon.height = r * ICON_FIT
 }
 
-function drawIcon(gfx, type, r) {
-  const ic = 0xffffff
-  if (type === 'Meetings') {
-    // hub icon: center dot + 3 outer dots connected by lines
-    const spoke = r * 0.42
-    const angles = [
-      Math.PI * 1.5,
-      Math.PI * 1.5 + (Math.PI * 2) / 3,
-      Math.PI * 1.5 + (Math.PI * 4) / 3,
-    ]
-    for (const a of angles) {
-      const ox = Math.cos(a) * spoke,
-        oy = Math.sin(a) * spoke
-      gfx.moveTo(0, 0).lineTo(ox, oy)
-      gfx.stroke({ color: ic, width: Math.max(1, r * 0.1), alpha: 0.7, cap: 'round' })
-      gfx.circle(ox, oy, r * 0.14).fill({ color: ic, alpha: 0.9 })
-    }
-    gfx.circle(0, 0, r * 0.18).fill({ color: ic, alpha: 0.95 })
-  } else if (type === 'agenda') {
-    // checkmark
-    const cs = r * 0.45
-    gfx
-      .moveTo(-cs, cs * 0.1)
-      .lineTo(-cs * 0.18, cs * 0.78)
-      .lineTo(cs, -cs * 0.62)
-    gfx.stroke({
-      color: ic,
-      width: Math.max(1.5, r * 0.13),
-      alpha: 0.92,
-      cap: 'round',
-      join: 'round',
-    })
-  } else if (type === 'session') {
-    // microphone icon (SVG 24x24 centered at 12,12 → PIXI coords)
-    const s = r / 18,
-      sw = Math.max(1.2, r * 0.09)
-    // capsule body: x ±3s, y -11s to 0
-    gfx.roundRect(-3 * s, -11 * s, 6 * s, 11 * s, 3 * s)
-    gfx.stroke({ color: ic, width: sw, alpha: 0.92 })
-    // stand arc: M19 10v2a7 7 0 01-14 0v-2
-    gfx.moveTo(7 * s, -2 * s).lineTo(7 * s, 0)
-    gfx.arc(0, 0, 7 * s, 0, Math.PI, false)
-    gfx.lineTo(-7 * s, -2 * s)
-    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
-    // stem: M12 19v4
-    gfx.moveTo(0, 7 * s).lineTo(0, 11 * s)
-    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
-    // base: M8 23h8
-    gfx.moveTo(-4 * s, 11 * s).lineTo(4 * s, 11 * s)
-    gfx.stroke({ color: ic, width: sw, alpha: 0.92, cap: 'round' })
-  } else if (type === 'minutes' || type === 'report') {
-    // folded doc — minutes: plain, report: with line accent
-    const fw = r * 0.44,
-      fh = r * 0.56,
-      fold = fw * 0.3
-    const fx = -fw / 2,
-      fy = -fh / 2
-    gfx
-      .moveTo(fx, fy)
-      .lineTo(fx + fw - fold, fy)
-      .lineTo(fx + fw, fy + fold)
-      .lineTo(fx + fw, fy + fh)
-      .lineTo(fx, fy + fh)
-      .closePath()
-    gfx.stroke({ color: ic, width: Math.max(1, r * 0.08), alpha: 0.9 })
-    if (type === 'report') {
-      // 가로선 2개로 보고서 느낌
-      const lx1 = fx + fw * 0.18,
-        lx2 = fx + fw * 0.82,
-        ly1 = fy + fh * 0.52,
-        ly2 = fy + fh * 0.7
-      gfx
-        .moveTo(lx1, ly1)
-        .lineTo(lx2, ly1)
-        .stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.7 })
-      gfx
-        .moveTo(lx1, ly2)
-        .lineTo(lx2, ly2)
-        .stroke({ color: ic, width: Math.max(1, r * 0.07), alpha: 0.7 })
-    }
-  } else if (type === 'dept') {
-    // two-people icon
-    const shr = r * 0.13,
-      sbr = r * 0.16,
-      shx = -r * 0.24,
-      shy = -r * 0.14
-    gfx.circle(shx, shy, shr).fill({ color: ic, alpha: 0.92 })
-    gfx.arc(shx, shy + shr + sbr * 1.1, sbr, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.92 })
-    const bhr = r * 0.18,
-      bbr = r * 0.22,
-      bhx = r * 0.2,
-      bhy = -r * 0.17
-    gfx.circle(bhx, bhy, bhr).fill({ color: ic, alpha: 0.92 })
-    gfx.arc(bhx, bhy + bhr + bbr * 1.1, bbr, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.92 })
-  } else if (type === 'person') {
-    const hr = r * 0.22,
-      br = r * 0.28
-    gfx.circle(0, -r * 0.18, hr).fill({ color: ic, alpha: 0.88 })
-    gfx.arc(0, -r * 0.18 + hr + br * 1.1, br, Math.PI, Math.PI * 2).fill({ color: ic, alpha: 0.88 })
-  } else if (type === 'company') {
-    // building / company icon
-    const bw = r * 0.62,
-      bh = r * 0.66
-    const bx = -bw / 2,
-      by = -bh / 2 + r * 0.04
-    gfx.rect(bx, by, bw, bh).stroke({ color: ic, width: Math.max(1, r * 0.08), alpha: 0.92 })
-    // windows (2 columns x 3 rows)
-    const wsz = r * 0.1
-    const cols = [bx + bw * 0.28, bx + bw * 0.72]
-    const rows = [by + bh * 0.22, by + bh * 0.5, by + bh * 0.78]
-    for (const cx of cols) {
-      for (const cy of rows) {
-        gfx.rect(cx - wsz / 2, cy - wsz / 2, wsz, wsz).fill({ color: ic, alpha: 0.92 })
+// 아이콘은 graph/nodeIcons.js(SSOT)의 SVG를 "브라우저로 래스터화한 텍스처"로 노드별 Sprite에 붙인다.
+// ★ PIXI v8의 GraphicsContext.svg() 파서는 타원 arc(a/A) 커맨드에서 깨진 geometry를 만들어
+//   렌더 시점에 throw → 렌더 루프 전체가 죽는다. 따라서 파서를 쓰지 않고 브라우저 래스터화를 쓴다.
+const ICON_FIT = 1 // 아이콘 지름 = 노드 반경 r 의 배수(튜닝 값)
+const ICON_TEX = {} // type → PIXI.Texture | null
+let _iconsReady = false
+
+/** 8개 타입 아이콘 SVG를 data URL → 텍스처로 1회 프리로드(브라우저 래스터화). */
+async function preloadIconTextures() {
+  if (_iconsReady) return
+  await Promise.all(
+    Object.keys(NODE_ICON_PATHS).map(async type => {
+      // 64px로 래스터화(고해상) — Sprite에서 r 크기에 맞춰 축소
+      const svg = nodeIconSvg(type, '#ffffff', 2).replace('<svg ', '<svg width="64" height="64" ')
+      const url = 'data:image/svg+xml;charset=utf8,' + encodeURIComponent(svg)
+      try {
+        ICON_TEX[type] = await PIXI.Assets.load({
+          src: url,
+          data: { parseAsGraphicsContext: false }, // GraphicsContext 파서 금지 → 텍스처로 래스터화
+        })
+      } catch {
+        ICON_TEX[type] = null
       }
+    })
+  )
+  _iconsReady = true
+}
+
+/** 노드 gfx에 타입별 아이콘 Sprite 자식을 부착하고 반환(텍스처 없으면 null). */
+function createIcon(gfx, type) {
+  const tex = ICON_TEX[type]
+  if (!tex) return null
+  const icon = new PIXI.Sprite(tex)
+  icon.eventMode = 'none' // 클릭/호버는 부모 gfx가 처리
+  icon.anchor.set(0.5) // 노드 원점 중심 정렬
+  
+  gfx.addChild(icon) // gfx.clear()는 자식을 지우지 않음 → 원 재드로잉에도 보존
+  return icon
+}
+
+/** 텍스처 로드 완료 후, 아이콘이 빠진 기존 노드에 부착(시뮬레이션 재빌드 없이). */
+function attachMissingIcons() {
+  nodeObjs.forEach(obj => {
+    if (!obj.icon && ICON_TEX[obj.type]) {
+      obj.icon = createIcon(obj.gfx, obj.type)
+      if (obj.icon) obj.icon.width = obj.icon.height = obj.r * ICON_FIT
     }
-  }
+  })
+  _simDirty = true // 다음 틱에 리드로우
 }
 
 // ─── Tick / Render ───────────────────────────────────────────
@@ -989,6 +944,11 @@ function resetView() {
   focusedIdx = null
   _simDirty = true
 }
+/** 노드 선택(포커스) 해제 — 뷰포트는 유지. (예: 선택 노드 삭제 후) */
+function clearFocus() {
+  focusedIdx = null
+  _simDirty = true
+}
 /** 이동 전용 모드 토글 — 켜면 노드 클릭/드래그 없이 배경 팬만 가능 */
 function togglePanOnly() {
   panOnly.value = !panOnly.value
@@ -1077,6 +1037,7 @@ defineExpose({
   zoomIn,
   zoomOut,
   resetView,
+  clearFocus,
   togglePanOnly,
   panOnly,
   reloadGraph: buildSimulation,

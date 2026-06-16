@@ -90,7 +90,7 @@ function onMembersUpdate(newList) {
           />
         </div>
         <div class="app-modal-footer modal-footer-split">
-          <button class="app-btn-danger" @click="emit('delete')">삭제</button>
+          <div></div>
           <div class="footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button
