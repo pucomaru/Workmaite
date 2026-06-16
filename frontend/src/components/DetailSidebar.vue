@@ -1197,7 +1197,9 @@ function parseAiEvidence(val) {
                         >{{
                           {
                             done: '완료',
+                            ended: '종료',
                             ongoing: '진행중',
+                            scheduled: '예정',
                             in_progress: '진행중',
                             pending: '대기',
                             완료: '완료',
@@ -1288,7 +1290,9 @@ function parseAiEvidence(val) {
                     <span class="detail-info-val">{{
                       {
                         scheduled: '예정',
+                        ongoing: '진행중',
                         in_progress: '진행중',
+                        ended: '종료',
                         completed: '완료',
                         cancelled: '취소',
                       }[detailNode.data?.session_status] ||
@@ -1355,7 +1359,9 @@ function parseAiEvidence(val) {
                     <span class="detail-info-val">{{
                       {
                         scheduled: '예정',
+                        ongoing: '진행중',
                         in_progress: '진행중',
+                        ended: '종료',
                         completed: '완료',
                         cancelled: '취소',
                       }[detailNode.data.session_status] || detailNode.data.session_status

@@ -107,11 +107,11 @@ def generate_minutes_human(
     secretaries = [p for p in (participants or []) if p.get("role") == "admin"]
     members = [p for p in (participants or []) if p.get("role") != "admin"]
     secretary_cell = ", ".join(
-        p["dept"] if p.get("dept") else p["name"]
+        p["name"] if p.get("name") else p.get("dept", "?")
         for p in secretaries
     ) or "-"
     member_cell = ", ".join(
-        p["dept"] if p.get("dept") else p["name"]
+        p["name"] if p.get("name") else p.get("dept", "?")
         for p in members
     ) or "-"
 

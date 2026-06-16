@@ -77,7 +77,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   min: { type: String, default: '1900-01-01' },
   max: { type: String, default: '9999-12-31' },
-  placeholder: { type: String, default: 'YYYY-MM-DD' },
+  placeholder: { type: String, default: 'YYYY.MM.DD' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -105,24 +105,41 @@ watch(
 
 function formatFromValue(v) {
   if (!v) return ''
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v)
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : ''
+  // YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM:SS... 형식 모두 처리
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v)
+  return m ? `${m[1]}.${m[2]}.${m[3]}` : ''
 }
 
 function formatDigits(digits) {
   const y = digits.slice(0, 4)
   const mo = digits.slice(4, 6)
   const d = digits.slice(6, 8)
-  let out = y
-  if (digits.length >= 4) out += '-' + mo
-  if (digits.length >= 6) out += '-' + d
-  return out
+  // 4자리 미만은 연도만, 4자리면 '.'을 아직 붙이지 않음 (cursor 점프 방지)
+  if (digits.length < 4) return y
+  if (digits.length === 4) return y + '.'
+  if (digits.length < 6) return y + '.' + mo
+  if (digits.length === 6) return y + '.' + mo + '.'
+  return y + '.' + mo + '.' + d
 }
 
 function onInput(e) {
-  const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
-  display.value = formatDigits(digits)
-  if (digits.length === 8) commit(display.value)
+  const input = e.target
+  const prevLen = input.value.length
+  const digits = input.value.replace(/\D/g, '').slice(0, 8)
+  const formatted = formatDigits(digits)
+  // Vue가 DOM을 바꾸면 cursor가 끝으로 이동하므로 직접 세팅 후 cursor 복원
+  if (input.value !== formatted) {
+    const cursorEnd = input.selectionEnd ?? prevLen
+    input.value = formatted
+    display.value = formatted
+    // 포맷 길이 변화량만큼 커서 위치 보정 (dot 자동 삽입 등)
+    const delta = formatted.length - prevLen
+    const next = Math.min(formatted.length, Math.max(0, cursorEnd + delta))
+    input.setSelectionRange(next, next)
+  } else {
+    display.value = formatted
+  }
+  if (digits.length === 8) commit(formatted)
 }
 
 function onKeydown(e) {
@@ -134,6 +151,7 @@ function onBlur() {
 }
 
 function clamp(val) {
+  // val is YYYY-MM-DD
   if (props.min && val < props.min) return props.min
   if (props.max && val > props.max) return props.max
   return val
@@ -146,9 +164,10 @@ function isValid(y, mo, d) {
 }
 
 function commit(str) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str)
+  // 한 자리 일(日) 자동 패딩: "2026.01.1" → "2026.01.01"
+  const padded = str.replace(/^(\d{4}\.\d{2}\.)(\d)$/, '$10$2')
+  const m = /^(\d{4})\.(\d{2})\.(\d{2})$/.exec(padded)
   if (!m) {
-    // incomplete/invalid -> revert to current model value
     display.value = formatFromValue(props.modelValue)
     return
   }
@@ -159,8 +178,10 @@ function commit(str) {
     display.value = formatFromValue(props.modelValue)
     return
   }
-  const next = clamp(str)
-  display.value = next
+  // modelValue는 API 호환을 위해 YYYY-MM-DD 유지
+  const iso = `${m[1]}-${m[2]}-${m[3]}`
+  const next = clamp(iso)
+  display.value = formatFromValue(next)
   if (next !== props.modelValue) emit('update:modelValue', next)
 }
 
