@@ -63,13 +63,9 @@ function toNumericId(id) {
 
 // 회의체에서 현재 사용자의 역할(간사=admin / 참여자=member)을 자동 판별 — 회의 생성 시 role 수동선택 불필요
 function resolveMyRole(meetingId) {
-  const me = authStore.user
-  if (!me || !meetingId) return 'member'
+  if (!meetingId) return 'member'
   const mg = (props.meetings || []).find(m => toNumericId(m.id) === toNumericId(meetingId))
-  const mine = (mg?.members || []).find(
-    mb => (mb.userId ?? mb.user_id ?? mb.user?.id ?? mb.id) === me.id,
-  )
-  return mine?.role === 'admin' ? 'admin' : 'member'
+  return mg?.my_role === 'admin' ? 'admin' : 'member'
 }
 
 watch(

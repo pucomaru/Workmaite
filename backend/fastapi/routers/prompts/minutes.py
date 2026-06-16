@@ -77,7 +77,7 @@ def generate_minutes_system(
 7. 주제별 소제목(###) 필수 사용 — 형식: `### 주제명 — 담당부서` (괄호 없이). 소제목 없이 이어서 쓰는 것 금지
 8. 관련 보고서 내용은 해당 섹션에 통합하고 출처 표기: → [보고서명]
 9. 회의록 상단 표(안건·일시·장소·간사·참여자)는 제공된 내용 그대로 출력할 것. 절대 수정하거나 내용을 추가하지 말 것
-10. ## 4. 액션 아이템 과 ## 5. 다음 회의 아젠다 섹션은 제목 줄만 출력하고 내용은 한 줄도 쓰지 말 것""")
+10. '액션 아이템' 섹션과 '다음 회의 아젠다' 섹션은 번호에 관계없이 **제목 줄 한 줄만 출력**. 그 아래에 bullet, 표, 설명, 주석 등 어떤 내용도 절대 추가하지 말 것. 빈 줄 하나만 남기고 다음 섹션으로 넘어갈 것""")
 
     return "\n\n".join(parts)
 
@@ -89,6 +89,7 @@ def generate_minutes_human(
     session_info: dict = None,
     participants: list = None,
     agenda_text: str = "",
+    clevel_text: str = "",
 ) -> str:
     blocks_section = ""
     if summary_blocks:
@@ -125,6 +126,30 @@ def generate_minutes_human(
         f"| 참여자 | {member_cell} |",
     ]
     header_table = "| 항목 | 내용 |\n|------|------|\n" + "\n".join(header_rows)
+
+    has_clevel = bool(clevel_text)
+    n = 4  # 임원 섹션 번호 (있을 때)
+    n_action    = 5 if has_clevel else 4
+    n_next      = 6 if has_clevel else 5
+    n_conclusion= 7 if has_clevel else 6
+
+    clevel_section = ""
+    if has_clevel:
+        clevel_section = f"""## {n}. 임원 핵심 발언
+아래 임원 발화에서 임원별로 구분해 핵심 발언을 정리. 형식: **임원이름** 아래에 bullet point로 방향 제시·강조 사항·핵심 의견·결정·지시만 선별. 단순 진행 멘트·인사말 제외. 결정 사항 섹션과 중복 금지.
+
+형식 예시:
+**홍길동**
+- 핵심 발언 요약 1
+- 핵심 발언 요약 2
+
+**김철수**
+- 핵심 발언 요약 1
+
+[임원 발화]
+{clevel_text}
+
+"""
 
     return f"""\
 다음 STT 대화 기록으로 회의록을 작성해주세요.
@@ -198,11 +223,11 @@ def generate_minutes_human(
 확정된 내용만. 배경 한 줄 포함.
 - **[결정 내용]** ← 배경: ~
 
-## 4. 액션 아이템
+{clevel_section}## {n_action}. 액션 아이템
 
-## 5. 다음 회의 아젠다
+## {n_next}. 다음 회의 아젠다
 
-## 6. 결론
+## {n_conclusion}. 결론
 위 [실시간 논의 요약 블록]을 바탕으로 이 회의 전체를 한두 문장으로 압축. ~됨 / ~결정 어투."""
 
 

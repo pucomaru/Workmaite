@@ -343,3 +343,106 @@ async def refine_chunk(
     db.commit()
 
     return RefineChunkResponse(title=title, bullets=bullets)
+
+
+class RefreshBlockRequest(BaseModel):
+    segment_id: int
+
+
+REFINE_EVERY = 5  # 프론트와 동일한 청크 크기
+
+
+@router.post("/sessions/{session_id}/blocks/refresh")
+async def refresh_block(
+    session_id: int,
+    body: RefreshBlockRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    require_meeting_edit(db, current_user, meeting_id_of_session(db, session_id))
+
+    # 세션의 모든 세그먼트를 createdAt/id 순으로 정렬
+    all_segs = (
+        db.query(models.SttSegment)
+        .filter(models.SttSegment.session_id == session_id)
+        .order_by(models.SttSegment.created_at, models.SttSegment.id)
+        .all()
+    )
+    seg_ids = [s.id for s in all_segs]
+    if body.segment_id not in seg_ids:
+        return {"ok": False, "message": "segment not found"}
+
+    seg_pos = seg_ids.index(body.segment_id)
+    block_index = seg_pos // REFINE_EVERY
+
+    block = (
+        db.query(models.SessionSummaryBlock)
+        .filter(
+            models.SessionSummaryBlock.session_id == session_id,
+            models.SessionSummaryBlock.block_index == block_index,
+        )
+        .first()
+    )
+    if not block:
+        return {"ok": False, "message": "no block found"}
+
+    # 해당 블록에 속한 세그먼트만 추출
+    chunk_start = block_index * REFINE_EVERY
+    chunk_end = chunk_start + REFINE_EVERY
+    segs = all_segs[chunk_start:chunk_end]
+    text = "\n".join(s.content for s in segs if s.content)
+    if not text.strip():
+        return {"ok": False, "message": "no text in block"}
+
+    prev_block_titles = (
+        db.query(models.SessionSummaryBlock.title)
+        .filter(
+            models.SessionSummaryBlock.session_id == session_id,
+            models.SessionSummaryBlock.block_index < block.block_index,
+            models.SessionSummaryBlock.title.isnot(None),
+        )
+        .order_by(models.SessionSummaryBlock.block_index)
+        .all()
+    )
+    prev_line = ""
+    if prev_block_titles:
+        titles = "\n".join(f"  • {row.title}" for row in prev_block_titles)
+        prev_line = f"[이번 회의 앞선 논의]\n{titles}\n"
+
+    prompt = f"""{prev_line}아래는 회의 중 발화된 원문입니다.
+        다음 조건에 따라 정리해주세요:
+        1. 필러워드(어, 음, 그, 아 등) 제거
+        2. 오탈자 교정
+        3. 핵심 내용을 나타내는 짧은 제목 1개 생성
+        4. 핵심 내용을 3~5개 불릿포인트로 요약
+
+        반드시 아래 JSON 형식으로만 응답하세요:
+        {{"title": "제목", "bullets": ["• 내용1", "• 내용2", "• 내용3"]}}
+
+        원문:
+        {text}"""
+
+    import json as _json
+
+    resp = await _openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+    )
+    result = _json.loads(cast(str, resp.choices[0].message.content))
+    new_title = result.get("title", block.title)
+    new_bullets = result.get("bullets", block.bullets)
+
+    block.title = new_title
+    block.bullets = new_bullets
+    db.commit()
+
+    return {
+        "ok": True,
+        "block_index": block.block_index,
+        "title": new_title,
+        "bullets": new_bullets,
+        "recording_start_sec": block.recording_start_sec,
+        "recording_end_sec": block.recording_end_sec,
+    }
