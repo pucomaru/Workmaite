@@ -47,7 +47,7 @@ public class MinutesController {
     return ResponseEntity.ok(ApiResponse.ok(minutesService.getMinutes(sessionId)));
   }
 
-  // 회의록 수동 수정 - CONFIRMED 상태에서는 불가
+  // 회의록 수동 수정 - completed 상태에서는 불가
   @PatchMapping
   public ResponseEntity<ApiResponse<MinutesResponse>> updateMinutes(
       @PathVariable Long sessionId, @Valid @RequestBody MinutesUpdateRequest request) {

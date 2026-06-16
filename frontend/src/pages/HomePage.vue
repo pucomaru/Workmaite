@@ -277,7 +277,7 @@ const sessionColumns = [
 const meetingColumns = [
   { label: '회의체명', sortKey: 'title' },
   { label: '유형', width: '80px', sortKey: 'meeting_type' },
-  { label: '역할', width: '70px' },
+  { label: '역할', width: '70px', sortKey: 'role' },
   { label: '간사', width: '90px', sortKey: 'owner_name' },
   { label: '참여자', width: '70px', sortKey: 'member_count' },
 ]
@@ -298,7 +298,12 @@ const {
   sortDir: meetingSortDir,
   handleSort: handleMeetingSort,
   sorted: sortedMeetings,
-} = useTableSort(displayActiveMeetings)
+} = useTableSort(displayActiveMeetings, {
+  sortValues: {
+    // 역할 정렬: 오름차순 = 간사 → 참여자 → 역할 없음
+    role: m => (m.role === 'admin' ? 0 : m.role ? 1 : 2),
+  },
+})
 
 // ── 페이지네이션 (공통 컴포저블, 빈 목록도 빈 행으로 높이 유지) ──
 const SESSION_PAGE_SIZE = 7
@@ -341,7 +346,7 @@ const {
           </div>
           <div v-if="initialLoading" class="table-loading">
             <span class="spinner-border spinner-border-sm text-primary"></span>
-            <span style="margin-left: 10px; color: var(--text-muted); font-size: 13px"
+            <span style="margin-left: 10px; color: var(--text-muted); font-size: 12px"
               >불러오는 중...</span
             >
           </div>
@@ -415,7 +420,7 @@ const {
             <!-- 회의체 테이블 -->
             <div v-if="initialLoading" class="table-loading">
               <span class="spinner-border spinner-border-sm text-primary"></span>
-              <span style="margin-left: 10px; color: var(--text-muted); font-size: 13px"
+              <span style="margin-left: 10px; color: var(--text-muted); font-size: 12px"
                 >불러오는 중...</span
               >
             </div>
@@ -675,7 +680,7 @@ const {
   margin-bottom: 12px;
 }
 .empty-inline {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   padding: 4px 0;
 }
@@ -718,10 +723,10 @@ const {
 }
 .agenda-content {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
 }
 .agenda-dday {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 99px;
@@ -735,7 +740,7 @@ const {
   color: var(--warning-text);
 }
 .agenda-meeting {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   background: var(--accent-bg);
   border-radius: 99px;
@@ -817,7 +822,7 @@ const {
   line-height: 1.4;
 }
 .meeting-dates {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .meeting-card-actions {
@@ -859,7 +864,7 @@ const {
   padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   gap: 8px;
-  font-size: 13px;
+  font-size: 12px;
   height: 36px;
   flex-shrink: 0;
 }
@@ -880,11 +885,11 @@ const {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 .cal-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   width: 190px;
@@ -905,7 +910,7 @@ const {
   border-radius: 6px;
   background: none;
   border: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   cursor: pointer;
   line-height: 1;
@@ -922,7 +927,7 @@ const {
 }
 .view-btn {
   padding: 3px 10px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   background: none;
   border: none;
@@ -955,7 +960,7 @@ const {
 }
 .wd-cell {
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   padding: 4px 0;
@@ -994,7 +999,7 @@ const {
   font-weight: 700;
 }
 .day-num {
-  font-size: 13px;
+  font-size: 12px;
   width: 22px;
   height: 22px;
   display: flex;
@@ -1045,13 +1050,13 @@ const {
   background: var(--surface-2);
 }
 .week-wd {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
 }
 .week-daynum {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   width: 24px;
   height: 24px;
@@ -1146,7 +1151,7 @@ const {
   box-shadow: var(--shadow-md);
 }
 .mini-month-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--primary);
   margin-bottom: 4px;
@@ -1158,7 +1163,7 @@ const {
   margin-bottom: 2px;
 }
 .mini-weekrow span {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
   text-align: center;
@@ -1169,7 +1174,7 @@ const {
   gap: 1px;
 }
 .mini-cell {
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
   border-radius: 3px;
   padding: 1px 0;
@@ -1189,7 +1194,7 @@ const {
   color: var(--accent);
 }
 .evt-pill {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   border-radius: 3px;
   padding: 1px 4px;
@@ -1217,7 +1222,7 @@ const {
 
 /* 우선순위 배지 */
 .section-count {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -1233,7 +1238,7 @@ const {
 }
 /* 유형 텍스트 (배지 없음) */
 .type-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .type-badge-weekly {
@@ -1249,7 +1254,7 @@ const {
   color: var(--accent);
 }
 .role-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 6px;
@@ -1267,7 +1272,7 @@ const {
   color: #92400e;
 }
 .evt-more {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
   padding-left: 2px;
 }
@@ -1276,7 +1281,7 @@ const {
   gap: 14px;
   padding: 8px 16px;
   border-top: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .cal-legend span {
@@ -1296,5 +1301,11 @@ const {
 }
 .dot-agenda {
   background: var(--warning);
+}
+.fw-semibold {
+  color: var(--dark-text) !important; /* 야간(기본): 밝은 텍스트 */
+}
+html.day-mode-global .fw-semibold {
+  color: var(--dark-card) !important; /* 주간: 어두운 텍스트 (밝은 배경 대비) */
 }
 </style>

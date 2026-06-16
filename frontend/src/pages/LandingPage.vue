@@ -488,7 +488,7 @@ const trustItems = [
   border: 1px solid var(--white-18);
   border-radius: 8px;
   color: var(--dark-text);
-  font-size: 13px;
+  font-size: 12px;
   padding: 7px 16px;
   cursor: pointer;
   transition: background 0.15s;
@@ -502,9 +502,9 @@ const trustItems = [
   border: 1px solid var(--white-18);
   border-radius: 8px;
   color: var(--dark-text);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
-  padding: 6px 11px;
+  padding: 6px 12px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -534,7 +534,7 @@ const trustItems = [
 }
 .btn-cta.sm {
   height: 34px;
-  font-size: 13px;
+  font-size: 12px;
   padding: 8px 16px;
 }
 .btn-cta.lg {
@@ -546,7 +546,7 @@ const trustItems = [
   border: 1px solid var(--white-18);
   border-radius: 10px;
   color: var(--dark-text);
-  font-size: 15px;
+  font-size: 16px;
   padding: 15px 28px;
   cursor: pointer;
   transition: background 0.15s;
@@ -591,7 +591,7 @@ const trustItems = [
   background: var(--white-08);
   border: 1px solid var(--white-15);
   color: var(--accent-soft);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 99px;
   padding: 7px 16px;
@@ -645,7 +645,7 @@ const trustItems = [
   color: rgba(255, 255, 255, 0.85);
   font-size: 12.5px;
   border-radius: 8px;
-  padding: 7px 13px;
+  padding: 7px 12px;
   backdrop-filter: blur(6px);
 }
 .hero-chip i {
@@ -779,7 +779,7 @@ const trustItems = [
   margin-bottom: 16px;
 }
 .step-num {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   color: #fbbf24;
 }
@@ -799,7 +799,7 @@ const trustItems = [
   margin-bottom: 10px;
 }
 .step-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
   line-height: 1.7;
   margin: 0;
@@ -867,7 +867,7 @@ const trustItems = [
   justify-content: center;
   background: var(--accent-bg);
   color: var(--accent);
-  font-size: 17px;
+  font-size: 20px;
 }
 .flow-item b {
   display: block;
@@ -882,7 +882,7 @@ const trustItems = [
 }
 .flow-arrow {
   color: var(--dark-muted);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 /* ── CTA ── */
@@ -896,7 +896,7 @@ const trustItems = [
   margin-bottom: 10px;
 }
 .cta-sub {
-  font-size: 15px;
+  font-size: 16px;
   color: rgba(255, 255, 255, 0.7);
   margin-bottom: 28px;
 }
@@ -953,7 +953,7 @@ const trustItems = [
   z-index: 10;
   background: none;
   border: none;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--dark-muted);
   cursor: pointer;
   padding: 4px;

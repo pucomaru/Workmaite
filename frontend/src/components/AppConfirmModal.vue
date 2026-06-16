@@ -67,6 +67,11 @@ function cancel() {
   margin: 0;
   white-space: pre-line;
 }
+
+html.night-mode .confirm-msg{
+  color: var(--dark-text) !important;
+}
+
 .app-confirm-modal .app-modal-field {
   margin-top: 14px;
 }

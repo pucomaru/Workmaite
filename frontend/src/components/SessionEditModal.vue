@@ -283,7 +283,7 @@ async function doSave() {
                     gap: 8px;
                     padding: 8px 12px;
                     cursor: pointer;
-                    font-size: 13px;
+                    font-size: 12px;
                   "
                 >
                   <input

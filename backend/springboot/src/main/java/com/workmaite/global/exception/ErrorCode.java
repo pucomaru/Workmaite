@@ -27,7 +27,7 @@ public enum ErrorCode {
   // 회의록
   MINUTES_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 회의록입니다."),
   MINUTES_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 생성된 회의록입니다."),
-  MINUTES_ALREADY_CONFIRMED(HttpStatus.BAD_REQUEST, "이미 확정된 회의록입니다."),
+  MINUTES_ALREADY_COMPLETED(HttpStatus.BAD_REQUEST, "이미 완료된 회의록입니다."),
 
   // 안건
   AGENDA_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 안건입니다."),

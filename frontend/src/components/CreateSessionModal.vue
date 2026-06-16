@@ -346,7 +346,7 @@ async function doCreate() {
                     :style="{
                       padding: '6px 12px',
                       cursor: 'pointer',
-                      fontSize: '13px',
+                      fontSize: '12px',
                       background: form.timeOnly === t ? 'var(--primary, #6366f1)' : 'transparent',
                       color: form.timeOnly === t ? '#fff' : 'inherit',
                     }"
@@ -439,7 +439,7 @@ async function doCreate() {
                     gap: 8px;
                     padding: 8px 12px;
                     cursor: pointer;
-                    font-size: 13px;
+                    font-size: 12px;
                   "
                 >
                   <input

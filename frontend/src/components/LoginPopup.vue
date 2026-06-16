@@ -138,6 +138,6 @@ async function submit() {
 }
 .form-control {
   border-color: var(--border);
-  font-size: 13px;
+  font-size: 12px;
 }
 </style>

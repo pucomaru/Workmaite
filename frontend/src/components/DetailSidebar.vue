@@ -4,6 +4,7 @@ import { computed, inject, ref, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import AgendaReviewList from './AgendaReviewList.vue'
 import FileUploadArea from './FileUploadArea.vue'
+import NodeIcon from './NodeIcon.vue'
 import ProcessStepBar from './ProcessStepBar.vue'
 import RelationTab from './RelationTab.vue'
 import SidebarInfoRow from './SidebarInfoRow.vue'
@@ -57,6 +58,17 @@ const {
   nodeReviewing,
   startNodeReview,
 } = inject('archiveSidebar')
+
+// 회의체 카드 메타 라인: "유형 · N명 · 안건 N"
+function mgMeta(mg) {
+  const parts = []
+  if (mg.meeting_type) parts.push(mg.meeting_type)
+  const mc = mg.members?.length || 0
+  if (mc) parts.push(`${mc}명`)
+  const ac = mg.tasks?.length || 0
+  if (ac) parts.push(`안건 ${ac}`)
+  return parts.join(' · ')
+}
 
 function handleFinishExtract() {
   if (!isDetailAdmin.value) {
@@ -225,7 +237,7 @@ function parseAiEvidence(val) {
   }
 }
 
-// 관계 탭은 RelationTab.vue로 분리 (회의체·노드 상세에서 동일하게 재사용)
+// 관계 탭은 RelationTab.vue로 분리
 </script>
 
 <template>
@@ -237,22 +249,7 @@ function parseAiEvidence(val) {
       <template v-if="detailMeeting">
         <div class="detail-header">
           <div class="detail-header-icon">
-            <svg
-              width="15"
-              height="15"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="19" cy="17" r="2" />
-              <circle cx="5" cy="17" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <line x1="12" y1="7" x2="12" y2="10" />
-              <line x1="12" y1="14" x2="17.4" y2="15.6" />
-              <line x1="12" y1="14" x2="6.6" y2="15.6" />
-            </svg>
+            <NodeIcon type="Meetings" :size="15" />
           </div>
           <div class="detail-header-left">
             <div class="detail-name-badge-row">
@@ -1016,105 +1013,9 @@ function parseAiEvidence(val) {
       <!-- ── Node detail (부서/과제/회의/파일/사람/아젠다) ── -->
       <template v-else-if="detailNode">
         <div class="detail-header">
-          <!-- 노드 유형별 아이콘 -->
+          <!-- 노드 유형별 아이콘 (정의는 graph/nodeIcons.js SSOT) -->
           <div class="detail-header-icon">
-            <!-- 부서 -->
-            <svg
-              v-if="detailNode.type === 'dept'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-            </svg>
-            <!-- 회사 -->
-            <svg
-              v-else-if="detailNode.type === 'company'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <rect x="4" y="2" width="16" height="20" rx="1" />
-              <path d="M9 22v-4h6v4" />
-              <path
-                d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"
-              />
-            </svg>
-            <!-- 아젠다 -->
-            <svg
-              v-else-if="detailNode.type === 'agenda'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M9 11l3 3L22 4" />
-              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-            </svg>
-            <!-- 회의(session) -->
-            <svg
-              v-else-if="detailNode.type === 'session'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-              <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
-            </svg>
-            <!-- 회의록 -->
-            <svg
-              v-else-if="detailNode.type === 'minutes'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            <!-- 보고자료 -->
-            <svg
-              v-else-if="detailNode.type === 'report'"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="8" y1="13" x2="16" y2="13" />
-              <line x1="8" y1="17" x2="16" y2="17" />
-            </svg>
-            <!-- 사람 -->
-            <svg
-              v-else
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
+            <NodeIcon :type="detailNode.type" :size="14" />
           </div>
           <div class="detail-header-left">
             <div class="detail-meeting-name">
@@ -1240,9 +1141,19 @@ function parseAiEvidence(val) {
               </div>
               <div v-if="meetings.length" class="detail-section">
                 <div class="detail-section-label">회의체 목록 ({{ meetings.length }}개)</div>
-                <div class="detail-info-grid">
-                  <div v-for="mg in meetings" :key="mg.id" class="detail-info-item">
-                    <span class="detail-info-val">{{ mg.title }}</span>
+                <div class="mg-list">
+                  <div v-for="mg in meetings" :key="mg.id" class="mg-card">
+                    <div class="mg-icon"><NodeIcon type="Meetings" :size="14" /></div>
+                    <div class="mg-body">
+                      <span class="mg-title" :title="mg.title">{{ mg.title }}</span>
+                      <span v-if="mgMeta(mg)" class="mg-meta">{{ mgMeta(mg) }}</span>
+                    </div>
+                    <span
+                      class="mg-status"
+                      :class="mg.status === 'ended' ? 'mg-status--ended' : 'mg-status--active'"
+                    >
+                      {{ mg.status === 'ended' ? '종료' : '진행' }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1922,5 +1833,77 @@ function parseAiEvidence(val) {
 .ai-evidence-box :deep(th):nth-child(3),
 .ai-evidence-box :deep(td):nth-child(3) {
   width: 30%;
+}
+
+/* ── 회의체 목록 카드 (조직 노드 상세) ───────────────────────── */
+.mg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mg-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--white-03);
+  border: 1px solid var(--border);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.mg-card:hover {
+  background: var(--white-05);
+  border-color: var(--accent-soft);
+}
+.mg-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff; /* NodeIcon 의 currentColor → 흰색 허브 */
+  background: linear-gradient(135deg, #60a5fa, #2563eb);
+  flex-shrink: 0;
+}
+.mg-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mg-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mg-meta {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mg-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.mg-status--active {
+  color: #0d9488;
+  background: rgba(13, 148, 136, 0.14);
+}
+.mg-status--ended {
+  color: var(--text-muted);
+  background: var(--white-05);
 }
 </style>

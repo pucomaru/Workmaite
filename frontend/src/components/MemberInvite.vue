@@ -175,8 +175,8 @@ function updateRole(idx, role) {
   gap: 8px;
 }
 .mi-cnt-badge {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   background: rgba(96, 165, 250, 0.15);
   color: var(--accent-soft);
   border-radius: 99px;
@@ -235,7 +235,7 @@ function updateRole(idx, role) {
   background: var(--surface);
 }
 .mi-add-hint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
@@ -271,21 +271,24 @@ function updateRole(idx, role) {
   min-width: 0;
 }
 .mi-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--dark-text) !important;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+html.day-mode-global .mi-name {
+  color: var(--dark-card) !important;
+}
 .mi-role-text {
   align-self: flex-start;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
 }
 .mi-email {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dark-muted);
   white-space: nowrap;
   overflow: hidden;

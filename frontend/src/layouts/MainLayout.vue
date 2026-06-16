@@ -53,7 +53,7 @@ watch(
 }
 .ai-disclaimer {
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   background: var(--bg);
   padding: 4px 12px;

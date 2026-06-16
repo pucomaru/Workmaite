@@ -7,6 +7,7 @@ import { confirmDialog } from '../composables/useConfirm'
 import { useThemeStore } from '../stores/theme'
 import api from '../api'
 import TokenUsageModal from './TokenUsageModal.vue'
+import AppIcon from './AppIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -253,18 +254,7 @@ async function saveProfileSettings() {
     <!-- 중앙 네비게이션 -->
     <nav class="header-center-nav">
       <router-link to="/" class="center-nav-item" :class="{ active: route.path === '/' }">
-        <svg
-          width="14"
-          height="14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <path
-            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-          />
-        </svg>
+        <AppIcon name="home" :size="18" />
         홈
       </router-link>
       <router-link
@@ -272,18 +262,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/archive' }"
       >
-        <svg
-          width="14"
-          height="14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <path
-            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-          />
-        </svg>
+        <AppIcon name="archive" :size="18" />
         아카이브
       </router-link>
       <router-link
@@ -291,20 +270,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/company' }"
       >
-        <svg
-          width="14"
-          height="14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <rect x="4" y="2" width="16" height="20" rx="1" />
-          <path d="M9 22v-4h6v4" />
-          <path
-            d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"
-          />
-        </svg>
+        <AppIcon name="company" :size="18" />
         조직
       </router-link>
       <router-link
@@ -312,22 +278,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/meetings' }"
       >
-        <svg
-          width="15"
-          height="15"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <circle cx="12" cy="5" r="2" />
-          <circle cx="19" cy="17" r="2" />
-          <circle cx="5" cy="17" r="2" />
-          <circle cx="12" cy="12" r="2" />
-          <line x1="12" y1="7" x2="12" y2="10" />
-          <line x1="12" y1="14" x2="17.4" y2="15.6" />
-          <line x1="12" y1="14" x2="6.6" y2="15.6" />
-        </svg>
+        <AppIcon name="Meetings" :size="18" />
         회의체
       </router-link>
       <router-link
@@ -335,17 +286,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/session-record' }"
       >
-        <svg
-          width="14"
-          height="14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-          <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
-        </svg>
+        <AppIcon name="session" :size="18" />
         회의
       </router-link>
     </nav>
@@ -399,7 +340,7 @@ async function saveProfileSettings() {
               </div>
               <div
                 v-if="auth.user.department"
-                style="color: var(--text-muted); font-size: 11px; margin-top: 2px"
+                style="color: var(--text-muted); font-size: 12px; margin-top: 2px"
               >
                 {{ auth.user.department }}
               </div>
@@ -467,7 +408,7 @@ async function saveProfileSettings() {
           >
             <span class="avatar-sm">{{ u.name[0] }}</span>
             <span>{{ u.name }}</span>
-            <span style="color: var(--text-muted); font-size: 11px">{{ u.employee_id }}</span>
+            <span style="color: var(--text-muted); font-size: 12px">{{ u.employee_id }}</span>
             <span class="add-label">+ 추가</span>
           </div>
         </div>
@@ -713,10 +654,10 @@ async function saveProfileSettings() {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 13px;
+  padding: 5px 12px;
   border-radius: 7px;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   text-decoration: none;
@@ -750,7 +691,7 @@ async function saveProfileSettings() {
 }
 .meeting-title-inline {
   color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   max-width: 240px;
@@ -783,7 +724,7 @@ async function saveProfileSettings() {
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 4px;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   padding: 3px 8px;
   outline: none;
   min-width: 160px;
@@ -821,7 +762,7 @@ async function saveProfileSettings() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
@@ -839,7 +780,7 @@ async function saveProfileSettings() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
   white-space: nowrap;
@@ -892,7 +833,7 @@ async function saveProfileSettings() {
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
   box-sizing: border-box;
 }
@@ -918,7 +859,7 @@ async function saveProfileSettings() {
   gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
 }
 .search-result-item:hover {
   background: var(--surface);
@@ -950,11 +891,11 @@ async function saveProfileSettings() {
   flex-direction: column;
 }
 .mgmt-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 .mgmt-emp {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .avatar-sm {
@@ -971,7 +912,7 @@ async function saveProfileSettings() {
   flex-shrink: 0;
 }
 .role-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 99px;
@@ -1068,7 +1009,7 @@ async function saveProfileSettings() {
   color: var(--dark-muted);
 }
 .ps-divider {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;

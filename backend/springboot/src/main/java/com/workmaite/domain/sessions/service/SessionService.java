@@ -1,5 +1,8 @@
 package com.workmaite.domain.sessions.service;
 
+import com.workmaite.domain.agendas.repository.AgendaRepository;
+import com.workmaite.domain.chat.repository.ChatMessageRepository;
+import com.workmaite.domain.logs.repository.AgentLogRepository;
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
@@ -50,6 +53,9 @@ public class SessionService {
   private final ScriptRepository scriptRepository;
   private final MinutesRepository minutesRepository;
   private final MeetingAccessGuard meetingAccessGuard;
+  private final ChatMessageRepository chatMessageRepository;
+  private final AgentLogRepository agentLogRepository;
+  private final AgendaRepository agendaRepository;
 
   // 내가 속한 모든 회의체의 예정 세션을 일시 오름차순으로 반환, D-day는 오늘 기준 계산
   public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
@@ -180,6 +186,12 @@ public class SessionService {
     sessionMemberRepository.deleteBySessionId(sessionId);
     sessionAgendaRepository.deleteBySessionId(sessionId);
     minutesRepository.deleteBySessionId(sessionId);
+    // CASCADE 없는 잔여 FK 정리 — 미처리 시 FK 위반으로 세션 삭제 500.
+    // 챗·에이전트로그·아젠다는 이력/데이터라 '보존'하고 세션 링크(session_id)만 해제한다.
+    // (행을 지우지 않으므로 token_usage_logs·hitl_reviews·chat_feedback 등 손자 FK도 안전)
+    chatMessageRepository.detachSession(sessionId);
+    agentLogRepository.detachSession(sessionId);
+    agendaRepository.detachSession(sessionId);
     sessionRepository.delete(session);
     neoSyncService.deleteSession(sessionId); // 삭제 전파 (DATA-4)
   }
