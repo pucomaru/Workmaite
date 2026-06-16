@@ -1502,13 +1502,12 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <!-- 내용 요약 -->
-              <div v-if="detailNode.data?.content_summary" class="detail-section">
+              <div v-if="detailNode.data?.short_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
                 <div
                   class="ai-evidence-box"
                   style="max-height: 300px; overflow-y: auto; font-size: 12px"
-                  v-html="DOMPurify.sanitize(detailNode.data.content_summary)"
-                ></div>
+                >{{ detailNode.data.short_summary }}</div>
               </div>
             </template>
 
