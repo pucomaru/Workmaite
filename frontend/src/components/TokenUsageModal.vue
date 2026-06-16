@@ -259,13 +259,13 @@ const sec = computed(() => data.value?.sections || null)
 }
 .tum-date-err {
   margin: 4px 20px 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--danger);
 }
 .tum-placeholder {
   text-align: center;
   padding: 40px 20px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted, var(--text-muted));
 }
 
@@ -380,10 +380,13 @@ const sec = computed(() => data.value?.sections || null)
 .tum-m-desc {
   flex: 1;
   font-weight: 500;
-  color: var(--text, var(--dark-card));
+  color: var(--dark-text) !important;
+}
+html.day-mode-global .tum-m-desc {
+  color: var(--dark-card) !important;
 }
 .tum-m-note {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted, var(--text-muted));
   white-space: nowrap;
 }

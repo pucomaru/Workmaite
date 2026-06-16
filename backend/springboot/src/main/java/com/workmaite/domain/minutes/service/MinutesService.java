@@ -60,8 +60,8 @@ public class MinutesService {
     meetingAccessGuard.requireOwnedEdit(
         meetingAccessGuard.meetingIdOfSession(sessionId), minutes.getRecorderId());
 
-    if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
-      throw new BusinessException(ErrorCode.MINUTES_ALREADY_CONFIRMED);
+    if (minutes.getStatus() == MinutesStatus.completed) {
+      throw new BusinessException(ErrorCode.MINUTES_ALREADY_COMPLETED);
     }
 
     minutes.updateSummary(request.getContentSummary());
@@ -75,8 +75,8 @@ public class MinutesService {
     meetingAccessGuard.requireOwnedEdit(
         meetingAccessGuard.meetingIdOfSession(sessionId), minutes.getRecorderId());
 
-    if (minutes.getStatus() == MinutesStatus.CONFIRMED) {
-      throw new BusinessException(ErrorCode.MINUTES_ALREADY_CONFIRMED);
+    if (minutes.getStatus() == MinutesStatus.completed) {
+      throw new BusinessException(ErrorCode.MINUTES_ALREADY_COMPLETED);
     }
 
     minutes.confirm(request.getContentSummary());

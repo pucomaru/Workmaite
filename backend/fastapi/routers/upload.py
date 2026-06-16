@@ -96,7 +96,7 @@ _PDF_CSS = """
 }
 body {
     font-family: 'NanumGothic', 'Noto Sans CJK KR', 'Apple SD Gothic Neo', sans-serif;
-    font-size: 13px; line-height: 1.7; color: #1e293b;
+    font-size: 12px; line-height: 1.7; color: #1e293b;
     padding: 40px; max-width: 820px; margin: 0 auto;
 }
 h1 { font-size: 20px; font-weight: 800; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 16px; }

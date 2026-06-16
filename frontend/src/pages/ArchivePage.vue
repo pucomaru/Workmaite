@@ -1117,7 +1117,7 @@ async function addDirectAgenda(form) {
   })
   // 아젠다 목록 즉시 갱신 (과제 탭)
   detailAgendas.value = (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
-  // 관계도 + 기본탭 로그: Neo4j 동기화 완료 후 두 번 갱신 (빠른 표시 + 확실한 반영)
+  // 그래프 + 기본탭 로그: Neo4j 동기화 완료 후 두 번 갱신 (빠른 표시 + 확실한 반영)
   setTimeout(refreshArchive, 600)
   setTimeout(refreshArchive, 2500)
 }
@@ -2267,7 +2267,7 @@ watch(detailMeeting, mg => {
   }
 })
 
-// ─── 관계도 분석·재설정 (Supervisor → Knowledge agent) ─────────
+// ─── 그래프 분석·재설정 (Supervisor → Knowledge agent) ─────────
 // 새로고침 버튼 클릭 시 AI가 Neo4j 소속 관계를 분석/재설정하고 근거를 보고합니다.
 const analyzingRelations = ref(false)
 async function analyzeRelationships() {
@@ -2885,10 +2885,19 @@ async function downloadNode(node) {
   }
 }
 const downloadDummy = downloadNode
+// 선택된 노드(보고서/회의록/아젠다 등) 삭제 후: 그래프 선택 해제 + 상세 사이드바 닫기
+function _afterNodeDeleted() {
+  detailNode.value = null
+  detailMeeting.value = null
+  detailOpen.value = false
+  graphViewRef.value?.clearFocus()
+}
+
 async function deleteMinutes(sessionId) {
   if (!(await confirmDialog('회의록을 삭제하시겠습니까?', { danger: true }))) return
   try {
     await apiAI.delete(`/api/ai/sessions/${sessionId}/minutes`)
+    _afterNodeDeleted()
     setTimeout(refreshArchive, 600)
   } catch {
     toast.error('삭제에 실패했습니다.')
@@ -2908,7 +2917,7 @@ async function downloadScript(sessionId) {
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>STT 스크립트</title>
-      <style>body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:13px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
+      <style>body{font-family:'Malgun Gothic',Arial,sans-serif;font-size:12px;line-height:1.7;color:var(--dark-card);padding:40px;max-width:820px;margin:0 auto}
       h1{font-size:18px;font-weight:800;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:16px}
       table{width:100%;border-collapse:collapse;font-size:12px}
       td{border:1px solid #e2e8f0;padding:6px 10px;vertical-align:top}
@@ -2941,7 +2950,7 @@ async function deleteReport(reportId) {
       gNodes.splice(idx, 1)
       graphViewRef.value?.reloadGraph(gNodes, gEdges)
     }
-    detailNode.value = null
+    _afterNodeDeleted()
     setTimeout(refreshArchive, 600)
   } catch {
     toast.error('삭제에 실패했습니다.')
@@ -3140,7 +3149,7 @@ async function deleteAgendaEdit() {
   if (!(await confirmDialog('이 아젠다를 삭제하시겠습니까?', { danger: true }))) return
   try {
     await apiAI.delete(`/api/agent/archive/agendas/${numId}`)
-    detailNode.value = null
+    _afterNodeDeleted()
     setTimeout(refreshArchive, 600)
   } catch (e) {
     console.error('[deleteAgendaEdit]', e)
@@ -3678,7 +3687,7 @@ provide('archiveSidebar', {
           v-model="search"
           :class="['search-input', { 'with-counter': searchHitMgIdxs.length > 1 }]"
           name="search"
-          placeholder="회의체명, 회의록, 보고서, 인물 검색..."
+          placeholder="노드 검색..."
           @keydown.enter="onSearchEnter"
         />
         <span
@@ -3728,7 +3737,7 @@ provide('archiveSidebar', {
             <circle cx="19" cy="19" r="2" />
             <path d="M7 12h5l5-5M12 12l5 5" />
           </svg>
-          관계도
+          그래프
         </button>
         <button class="app-tab" :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'">
           <svg

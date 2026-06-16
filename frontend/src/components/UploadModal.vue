@@ -426,7 +426,7 @@ function toggleAgendaDropdown() {
           <div class="app-modal-header">
             <span class="app-modal-title"
               >AI 검토 결과
-              <span style="font-size: 11px; opacity: 0.6; font-weight: 400">
+              <span style="font-size: 12px; opacity: 0.6; font-weight: 400">
                 — {{ uploadForm.label }}</span
               >
             </span>
@@ -1018,7 +1018,7 @@ function toggleAgendaDropdown() {
   border-radius: 2px;
 }
 .cs-sub-num {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--dark-text-2);
   width: 22px;
   flex-shrink: 0;
@@ -1049,7 +1049,7 @@ function toggleAgendaDropdown() {
   list-style: disc;
 }
 .cs-fb-item {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   line-height: 1.55;
 }
@@ -1105,7 +1105,7 @@ function toggleAgendaDropdown() {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--dark-card);
 }
@@ -1119,7 +1119,7 @@ function toggleAgendaDropdown() {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 12px;
   resize: vertical;
   outline: none;
   transition: border-color 0.15s;
@@ -1136,10 +1136,15 @@ function toggleAgendaDropdown() {
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: #f8f5ff;
-  border: 1px solid #e9d5ff;
+  background: transparent !important;
+  border: 1px solid #e9d5ff !important;
   cursor: pointer;
   margin-bottom: 4px;
+}
+
+html.day-mode-global .resubmit-toggle{
+  background: #f8f5ff !important;
+  color: #8b5cf6 !important;
 }
 .resubmit-toggle input[type='checkbox'] {
   width: 14px;
@@ -1147,13 +1152,20 @@ function toggleAgendaDropdown() {
   accent-color: #8b5cf6;
   flex-shrink: 0;
 }
+
 .resubmit-toggle-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #6d28d9;
+  color: #f8f5ff !important;
 }
+
+html.day-mode-global .resubmit-toggle-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6d28d9 !important;
+}
+
+
 .resubmit-toggle-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: #9ca3af;
 }
 
@@ -1164,7 +1176,7 @@ function toggleAgendaDropdown() {
   gap: 5px;
   padding: 8px 16px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   border: 1.5px solid var(--danger);
   color: var(--danger);

@@ -35,21 +35,11 @@ const expandedId = ref(null)
 const membersCache = computed(() => meetingsStore.membersByMeeting)
 const loadingMembers = ref({})
 
-const filteredGroups = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return meetingsStore.meetings.filter(m => {
-    // 가시성 스코프는 백엔드 getMeetings가 이미 적용(SYSTEM_ADMIN=전체·COMPANY_ADMIN=자사·USER=멤버).
-    // 프런트에서 my_role(멤버십)로 재필터하면 관리자가 비멤버 회의체를 못 본다 → 멤버십 막 제거.
-    const matchStatus =
-      statusTab.value === 'active' ? !m.status || m.status === 'active' : m.status === 'ended'
-    const matchSearch = !q || (m.title || '').toLowerCase().includes(q)
-    return matchStatus && matchSearch
-  })
-})
-
-// 테이블 표시·정렬용 파생 필드 부여 (간사/참여조직/참여자 컬럼)
+// 테이블 표시·정렬·검색용 파생 필드 부여 (역할/간사/참여조직/참여자 컬럼).
+// 검색이 파생 컬럼까지 커버하도록 필터보다 먼저 계산한다.
+// (간사/참여조직/참여자는 membersCache가 로드된 회의체에 한해 채워짐 — 표시값과 동일)
 const enrichedGroups = computed(() =>
-  filteredGroups.value.map(g => {
+  meetingsStore.meetings.map(g => {
     const members = membersCache.value[g.id] || []
     const admins = members.filter(mb => mb.role === 'admin')
     const companies = [
@@ -70,13 +60,30 @@ const enrichedGroups = computed(() =>
   }),
 )
 
+const filteredGroups = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  // 가시성 스코프는 백엔드 getMeetings가 이미 적용(SYSTEM_ADMIN=전체·COMPANY_ADMIN=자사·USER=멤버).
+  // 프런트에서 my_role(멤버십)로 재필터하면 관리자가 비멤버 회의체를 못 본다 → 멤버십 막 제거.
+  return enrichedGroups.value.filter(m => {
+    const matchStatus =
+      statusTab.value === 'active' ? !m.status || m.status === 'active' : m.status === 'ended'
+    // 모든 컬럼 검색: 회의체명·역할·유형·간사·참여조직·참여자
+    const matchSearch =
+      !q ||
+      [m.title, m._role, m.meeting_type, m._adminName, m._companyCount, m._memberCount].some(v =>
+        (v ?? '').toString().toLowerCase().includes(q),
+      )
+    return matchStatus && matchSearch
+  })
+})
+
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
 const {
   sortKey: mgSortKey,
   sortDir: mgSortDir,
   handleSort: handleMgSort,
   sorted: sortedGroups,
-} = useTableSort(enrichedGroups)
+} = useTableSort(filteredGroups)
 
 const MG_PAGE_SIZE = 30
 const {
@@ -391,7 +398,7 @@ onMounted(async () => {
 
       <div v-if="initialLoading" class="table-loading">
         <span class="spinner-border spinner-border-sm text-primary"></span>
-        <span style="margin-left: 10px; color: var(--text-muted); font-size: 13px"
+        <span style="margin-left: 10px; color: var(--text-muted); font-size: 12px"
           >불러오는 중...</span
         >
       </div>
@@ -758,7 +765,7 @@ onMounted(async () => {
   background: var(--white-04);
 }
 .mg-row-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--dark-text);
 }
@@ -850,7 +857,7 @@ onMounted(async () => {
   height: 28px;
   padding: 0 9px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--white-10);
@@ -905,29 +912,46 @@ onMounted(async () => {
   margin-top: 2px;
 }
 .delete-confirm-msg {
-  font-size: 13px;
+  font-size: 12px;
   color: #111827;
   line-height: 1.6;
   margin: 0;
 }
+
+html.night-mode .delete-confirm-msg{
+  color: var(--dark-text) !important;
+}
+
 .delete-confirm-sub {
   font-size: 11.5px;
   color: #6b7280;
 }
+
 .app-btn-danger {
-  padding: 7px 18px;
+  padding: 8px 16px;
   border-radius: 8px;
-  border: none;
-  background: var(--danger);
-  color: #fff;
-  font-size: 13px;
+  border: 1px solid #fca5a5;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
-.app-btn-danger:hover {
-  background: #dc2626;
+html.day-mode-global .app-btn-danger {
+  background: #fff !important;
 }
 
+html.day-mode-global .app-btn-danger:hover {
+  background: #fef2f2 !important;
+}
+
+.app-btn-danger:hover {
+  background: #f7c3c353;
+}
+.app-btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 /* 역할 텍스트 */
 .mg-role-text {
   font-size: 12px;
