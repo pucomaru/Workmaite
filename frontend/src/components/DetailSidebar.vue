@@ -1439,7 +1439,7 @@ function parseAiEvidence(val) {
                     <span class="detail-info-key">장소</span>
                     <span class="detail-info-val">{{ detailNode.data.location }}</span>
                   </div>
-                  <div v-if="detailNode.data?.session_status" class="detail-info-item">
+                  <div v-if="detailNode.data?.session_status && detailNode.data.session_status !== 'archived'" class="detail-info-item">
                     <span class="detail-info-key">상태</span>
                     <span class="detail-info-val">{{
                       {
@@ -1462,7 +1462,7 @@ function parseAiEvidence(val) {
               <div class="detail-section">
                 <div class="detail-section-label">회의록</div>
                 <div class="detail-info-grid">
-                  <div v-if="detailNode.data?.minutes_status" class="detail-info-item">
+                  <div v-if="false" class="detail-info-item">
                     <span class="detail-info-key">작성상태</span>
                     <span class="detail-info-val">{{
                       { draft: '초안', completed: '완료', published: '배포' }[
