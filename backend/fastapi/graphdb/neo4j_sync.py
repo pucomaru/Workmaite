@@ -683,6 +683,7 @@ async def sync_minutes(
     minutes_id: int,
     session_id: int,
     content_summary: str | None = None,
+    short_summary: str | None = None,
     content_original: str | None = None,
     file_name: str | None = None,
     file_path: str | None = None,
@@ -708,6 +709,7 @@ async def sync_minutes(
     MERGE (mn:Minutes {pg_id: $pg_id})
     SET mn.session_id       = $session_id,
         mn.content_summary  = $content_summary,
+        mn.short_summary    = $short_summary,
         mn.content_original = $content_original,
         mn.file_name        = $file_name,
         mn.file_path        = $file_path,
@@ -737,6 +739,7 @@ async def sync_minutes(
         "session_id": session_id,
         "s_id": s_id,
         "content_summary": content_summary or "",
+        "short_summary": short_summary or "",
         "content_original": content_original or "",
         "file_name": file_name or "",
         "file_path": file_path or "",

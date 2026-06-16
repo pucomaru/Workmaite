@@ -13,6 +13,7 @@ import re
 import uuid
 from typing import Optional
 
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -722,6 +723,24 @@ async def upload_minutes(
     r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
     logger.info(f"[minutes] R2 업로드 완료 — key={key}, url={r2_url}")
 
+    # ── short_summary LLM 생성 ─────────────────────────────────────
+    short_summary = None
+    try:
+        from openai import AsyncOpenAI
+        openai_client = AsyncOpenAI()
+        summary_response = await openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": f"다음 회의록을 3~5줄로 핵심만 요약해줘. 결정사항과 액션아이템 위주로. 불릿포인트 없이 자연스러운 문장으로.\n\n{content}"
+            }]
+        )
+        short_summary = summary_response.choices[0].message.content
+    except Exception as e:
+        logger.warning(f"[minutes] short_summary 생성 실패 — {e}")
+        short_summary = None
+
     # ── 파라미터 사전 확인 ──────────────────────────────────────────
     params = {
         "session_id": session_id,
@@ -742,13 +761,14 @@ async def upload_minutes(
     try:
         result = db.execute(
             text("""
-            INSERT INTO minutes (session_id, file_name, file_path, recorder_id, content_summary, status, generated_at)
-            VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, 'completed', NOW())
+            INSERT INTO minutes (session_id, file_name, file_path, recorder_id, content_summary, short_summary, status, generated_at)
+            VALUES (:session_id, :file_name, :file_path, :recorder_id, :content_summary, :short_summary, 'completed', NOW())
             ON CONFLICT (session_id) DO UPDATE SET
                 file_name        = EXCLUDED.file_name,
                 file_path        = EXCLUDED.file_path,
                 recorder_id      = EXCLUDED.recorder_id,
                 content_summary  = EXCLUDED.content_summary,
+                short_summary    = EXCLUDED.short_summary,
                 status           = 'completed',
                 generated_at     = NOW()
             RETURNING id
@@ -759,6 +779,7 @@ async def upload_minutes(
                 "file_path": r2_url,
                 "recorder_id": current_user.id,
                 "content_summary": content,
+                "short_summary": short_summary,
             },
         )
 
@@ -780,6 +801,7 @@ async def upload_minutes(
             minutes_id=minutes_id,
             session_id=session_id,
             content_summary=content,
+            short_summary=short_summary,
             file_name=stored_name,
             file_path=r2_url,
             status="completed",
