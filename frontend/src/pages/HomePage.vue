@@ -301,19 +301,16 @@ const {
   sorted: sortedMeetings,
 } = useTableSort(displayActiveMeetings)
 
-// ── 페이지네이션 (공통 컴포저블, 빈 목록도 빈 행으로 높이 유지) ──
-const SESSION_PAGE_SIZE = 7
-const MEETING_PAGE_SIZE = 15
+// ── 페이지네이션 (둘 다 10건, 데이터 수만큼 높이 늘어남) ──
+const PAGE_SIZE = 10
 const {
   page: sessionPage,
   paged: pagedSessions,
-  fillerCount: sessionFillerCount,
-} = usePagination(sortedSessions, SESSION_PAGE_SIZE, { fillEmpty: true })
+} = usePagination(sortedSessions, PAGE_SIZE, { fillEmpty: false })
 const {
   page: meetingPage,
   paged: pagedMeetings,
-  fillerCount: meetingFillerCount,
-} = usePagination(sortedMeetings, MEETING_PAGE_SIZE, { fillEmpty: true })
+} = usePagination(sortedMeetings, PAGE_SIZE, { fillEmpty: false })
 </script>
 
 <template>
@@ -374,14 +371,11 @@ const {
                   </span>
                 </td>
               </tr>
-              <tr v-for="i in sessionFillerCount" :key="`filler-${i}`" class="filler-row">
-                <td v-for="(c, ci) in sessionColumns" :key="ci"></td>
-              </tr>
             </AppTable>
             <AppPagination
               v-model="sessionPage"
               :totalItems="sortedSessions.length"
-              :pageSize="SESSION_PAGE_SIZE"
+              :pageSize="PAGE_SIZE"
             />
           </template>
         </div>
@@ -449,14 +443,11 @@ const {
                   <td class="text-muted">{{ m.owner_name || '' }}</td>
                   <td class="text-muted">{{ m.member_count }}명</td>
                 </tr>
-                <tr v-for="i in meetingFillerCount" :key="`filler-${i}`" class="filler-row">
-                  <td v-for="(c, ci) in meetingColumns" :key="ci"></td>
-                </tr>
               </AppTable>
               <AppPagination
                 v-model="meetingPage"
                 :totalItems="sortedMeetings.length"
-                :pageSize="MEETING_PAGE_SIZE"
+                :pageSize="PAGE_SIZE"
               />
             </template>
           </div>
@@ -757,6 +748,12 @@ const {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: auto !important;
+  min-height: unset !important;
+}
+.sessions-section :deep(.app-table thead tr),
+.sessions-section :deep(.app-table th) {
+  background: transparent;
 }
 
 /* app-table 행 hover — 회사·회의체 탭(.member-row/.mg-row)과 동일한 색상 변화 */
@@ -777,6 +774,7 @@ const {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  align-self: stretch;
 }
 .meeting-grid {
   display: grid;
@@ -852,6 +850,9 @@ const {
 .cal-card {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .cal-header {
   display: flex;
@@ -948,6 +949,8 @@ const {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .cal-weekrow {
   display: grid;
@@ -975,7 +978,7 @@ const {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .month-cell:not(.empty):hover {
   background: var(--surface-2);
@@ -1014,7 +1017,8 @@ const {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  height: 220px;
+  flex: 1;
+  min-height: 0;
 }
 .week-col {
   border-radius: 6px;
@@ -1081,7 +1085,7 @@ const {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 140px;
+  min-height: unset;
 }
 .day-evt-row {
   display: flex;
