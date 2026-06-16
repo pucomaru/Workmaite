@@ -131,15 +131,7 @@ function _recomputeSearchHits() {
     // 라벨뿐 아니라 노드 데이터도 검색한다 — 아젠다 라벨은 10자로 잘려 있어(useGraphBuilder)
     // 긴 안건 내용/제목이 라벨만으론 안 잡힌다. 사람/회의록/회사명 등도 데이터로 보강.
     const d = n.data || {}
-    const haystack = [
-      n.label,
-      d.content,
-      d.title,
-      d.name,
-      d.session_title,
-      d.file_name,
-      d.userName,
-    ]
+    const haystack = [n.label, d.content, d.title, d.name, d.session_title, d.file_name, d.userName]
     if (haystack.some(v => (v ?? '').toString().toLowerCase().includes(lower))) hits.push(i)
   })
   searchHitMgIdxs.value = hits
@@ -331,7 +323,8 @@ function openSessionModal(meetingId = null, agendaId = null) {
   agentSidebarOpen.value = false
 }
 function onSessionCreated() {
-  setTimeout(refreshArchive, 600)
+  // 새 세션·논의 아젠다는 PG 기반 archive 조회로 즉시 반영된다(600ms 대기 불필요).
+  refreshArchive()
 }
 
 async function doCreateMeeting() {
@@ -2057,11 +2050,12 @@ function doAddFile() {
   }
   gNodes.push(newNode)
   const fileIdx = gNodes.length - 1
-  // agenda에 연결할 때는 '도출'(복수 가능), 부서에 연결할 때는 REL_MATRIX 기준
+  // 문서→안건 관계: 회의록=도출, 보고자료=취급 (복수 가능). 부서 연결은 REL_MATRIX 기준.
+  const docAgendaRel = uploadForm.value.fileType === '회의록' ? '도출' : '취급'
   if (agendaNodes.length) {
     agendaNodes.forEach(ag => {
       const agIdx = gNodes.indexOf(ag)
-      if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: '도출' })
+      if (agIdx >= 0) gEdges.push({ from: fileIdx, to: agIdx, rel: docAgendaRel })
       // Neo4j에 파일-아젠다 관계 저장
       if (reportId.value && ag.neo4jId) {
         apiAI
@@ -2070,7 +2064,7 @@ function doAddFile() {
             from_label: 'Document',
             to_id: ag.neo4jId,
             to_label: 'Agenda',
-            rel_type: '도출',
+            rel_type: docAgendaRel,
           })
           .catch(e => console.warn('[doAddFile] agenda 관계 Neo4j 저장 실패:', e))
       }
@@ -2100,7 +2094,8 @@ function doAddFile() {
       })
       deptNodeIdx = gNodes.length - 1
     }
-    gEdges.push({ from: fileIdx, to: deptNodeIdx, rel: '첨부' })
+    // 부서 → 보고자료: dept-[:작성]->report (REL_MATRIX "dept→report": 작성)
+    gEdges.push({ from: deptNodeIdx, to: fileIdx, rel: '작성' })
   })
 
   // AI가 추천한 아젠다 노드 생성 (미래 회의 연결)
@@ -3522,8 +3517,7 @@ function openSessionEditModal() {
     // 세션의 부모 회의체 id(숫자 PG id) — 세션 편집 모달이 이 회의체의 아젠다 목록을 불러와
     // 이미 연결된 아젠다를 선택(체크) 상태로 보여준다. (없으면 목록이 비어 체크도 안 됐다)
     // archive 세션 데이터(d.meeting_id='mg-N')에 이미 들어있어 그래프 재빌드 없이도 해석된다.
-    meetingId:
-      toNumericId(d.meeting_id || d.meetingId || detailNode.value.meetingId) || null,
+    meetingId: toNumericId(d.meeting_id || d.meetingId || detailNode.value.meetingId) || null,
     title: d.session_title || detailNode.value.label || '',
     location: d.location || '',
     scheduled_at: d.date || d.started_at || '',
@@ -3538,8 +3532,32 @@ function openSessionEditModal() {
   showSessionEdit.value = true
 }
 
-function onSessionEditSaved() {
-  setTimeout(refreshArchive, 600)
+// 선택한 '논의 아젠다' → 세션 엣지를 그래프에 즉시(낙관적) 추가한다. 노드 위치는 보존되고
+// (buildSimulation이 id 기준 warm-start) 곧 refreshArchive가 서버 기준으로 정합한다.
+function applyOptimisticDiscussionEdges(sessionId, agendaIds) {
+  if (sessionId == null || !Array.isArray(agendaIds) || !gNodes.length) return
+  const sIdx = gNodes.findIndex(n => n.type === 'session' && n.neo4jId === `session-${sessionId}`)
+  if (sIdx < 0) return
+  let changed = false
+  for (const aid of agendaIds) {
+    const aIdx = gNodes.findIndex(n => n.type === 'agenda' && n.neo4jId === `agenda-${aid}`)
+    if (aIdx < 0) continue
+    if (!gEdges.some(e => e.from === aIdx && e.to === sIdx && e.rel === '논의')) {
+      gEdges.push({ from: aIdx, to: sIdx, rel: '논의' })
+      changed = true
+    }
+  }
+  if (changed) {
+    gNodesRef.value = gNodes
+    graphViewRef.value?.reloadGraph(gNodes, gEdges)
+  }
+}
+
+function onSessionEditSaved({ sessionId, agendaIds } = {}) {
+  // 수정 즉시 반영: 낙관적으로 엣지를 그리고, 서버 재조회는 지연 없이 백그라운드로 정합한다.
+  // (그래프의 논의 연결은 PG 기반이라 600ms 대기가 불필요)
+  applyOptimisticDiscussionEdges(sessionId, agendaIds)
+  refreshArchive()
 }
 
 /** 회사 노드 설정: 회사명 변경 (SYSTEM_ADMIN / 해당 회사 COMPANY_ADMIN) */

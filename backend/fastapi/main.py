@@ -187,7 +187,46 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="workma!te AI API", lifespan=lifespan)
+# OpenAPI 태그 설명 — 라우터의 tags=[...] 그룹에 사람이 읽을 설명을 붙인다(존재하는 태그에만 적용).
+_OPENAPI_TAGS = [
+    {
+        "name": "agents",
+        "description": "AI 슈퍼바이저 채팅·아카이브 분석·HITL 검토·지식그래프 에이전트 (대부분 SSE 스트리밍)",
+    },
+    {
+        "name": "ai",
+        "description": "회의록 등 AI 보조 CRUD 및 조직(회사/부서) 보조 관리 API",
+    },
+    {"name": "chat", "description": "에이전트 채팅 이력 (context_type별, 본인 스코프)"},
+    {"name": "neo4j", "description": "지식 그래프 조회 및 관계(엣지) CRUD"},
+    {
+        "name": "stt",
+        "description": "음성 전사(STT) — 배치 업로드 (실시간 전사는 WebSocket)",
+    },
+    {"name": "upload", "description": "보고서/회의록 파일 업로드 및 AI 채점"},
+    {"name": "usage", "description": "LLM 토큰·STT 사용량 및 추정 비용 집계"},
+    {
+        "name": "sync",
+        "description": "내부 전용 — Spring→FastAPI PG→Neo4j 동기화 (X-Internal-Secret 헤더 인증, 외부 비공개)",
+    },
+]
+
+app = FastAPI(
+    title="Workma!te AI API",
+    description=(
+        "회의체 운영 AI Agent 서비스의 **AI · 실시간 · 지식그래프** 백엔드 (FastAPI).\n\n"
+        "- **인증**: Spring이 발급한 JWT access token을 `Authorize`(HTTPBearer)에 입력하세요. "
+        "(`JWT_SECRET`을 Spring과 공유, HS256)\n"
+        "- **스트리밍**: 다수 엔드포인트가 SSE(`text/event-stream`)로 토큰 단위 응답합니다.\n"
+        "- **데이터 스코프**: AI 도구는 사용자의 소속 회의체로 접근을 제한합니다(IDOR 이중 방어).\n"
+        "- 인증·도메인 CRUD는 별도 Spring Boot 서버(`/api/v1`)가 담당합니다."
+    ),
+    version="0.1.0",
+    contact={"name": "Team No.9"},
+    license_info={"name": "Internal"},
+    openapi_tags=_OPENAPI_TAGS,
+    lifespan=lifespan,
+)
 
 # CORS: 허용 오리진 화이트리스트 (추가 오리진은 CORS_ALLOWED_ORIGINS 환경변수, 콤마 구분)
 _default_origins = [

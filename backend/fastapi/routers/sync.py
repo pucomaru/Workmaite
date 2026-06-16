@@ -64,7 +64,7 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 # ─── 재시도 트리거 ────────────────────────────────────────────────────────────
 
 
-@router.post("/retry")
+@router.post("/retry", summary="실패 동기화 재시도 트리거")
 async def trigger_retry(
     max_retries: int = 3,
     current_user: models.User = Depends(get_current_user),
@@ -84,13 +84,16 @@ async def trigger_retry(
 # ─── User 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────────────
 
 
-@router.post("/user/{user_id}")
+@router.post("/user/{user_id}", summary="User 동기화 (내부 전용)")
 async def sync_user_manual(
     user_id: int,
     _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
-    """특정 User를 Neo4j에 동기화합니다. Spring Boot에서 유저 생성/수정 시 호출합니다."""
+    """특정 User를 Neo4j에 동기화합니다. Spring Boot에서 유저 생성/수정 시 호출합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User를 찾을 수 없습니다.")
@@ -102,16 +105,21 @@ async def sync_user_manual(
         department=user.department,
         position=user.position,
         created_at=user.created_at.isoformat() + "Z" if user.created_at else None,
+        # 부서 변경이 그가 속한 회의체들의 (Department)-[:참여]->(Meetings) 파생에 즉시 반영되도록
+        recompute_dept_participation=True,
     )
     return {"success": True, "user_id": user_id}
 
 
-@router.delete("/user/{user_id}")
+@router.delete("/user/{user_id}", summary="User 삭제 동기화 (내부 전용)")
 async def delete_user_sync(
     user_id: int,
     _: None = Depends(verify_internal),
 ):
-    """User 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
+    """User 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await run_cypher(
         "MATCH (u:User {pg_id: $pg_id}) DETACH DELETE u",
         {"pg_id": user_id},
@@ -122,24 +130,30 @@ async def delete_user_sync(
 # ─── Department / Company 수동 동기화 ───────────────────────────────────
 
 
-@router.post("/department")
+@router.post("/department", summary="Department 동기화 (내부 전용)")
 async def sync_department_manual(
     name: str,
     _: None = Depends(verify_internal),
 ):
-    """Department 노드를 Neo4j에 수동으로 동기화합니다."""
+    """Department 노드를 Neo4j에 수동으로 동기화합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     if not name:
         raise HTTPException(status_code=400, detail="name 필수")
     await sync_department(name)
     return {"success": True, "name": name}
 
 
-@router.post("/company")
+@router.post("/company", summary="Company 동기화 (내부 전용)")
 async def sync_company_manual(
     name: str,
     _: None = Depends(verify_internal),
 ):
-    """Company 노드를 Neo4j에 수동으로 동기화합니다."""
+    """Company 노드를 Neo4j에 수동으로 동기화합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     if not name:
         raise HTTPException(status_code=400, detail="name 필수")
     await sync_company(name)
@@ -149,12 +163,17 @@ async def sync_company_manual(
 # ─── Meeting 삭제 동기화 (SpringBoot → FastAPI → Neo4j) ──────────────────────
 
 
-@router.delete("/meeting/{meeting_id}/delete")
+@router.delete(
+    "/meeting/{meeting_id}/delete", summary="Meeting 삭제 동기화 (내부 전용)"
+)
 async def delete_meeting_sync(
     meeting_id: int,
     _: None = Depends(verify_internal),
 ):
-    """Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다."""
+    """Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await delete_meeting(meeting_id=meeting_id)
     return {"success": True, "meeting_id": meeting_id}
 
@@ -162,13 +181,16 @@ async def delete_meeting_sync(
 # ─── Meeting 수동 동기화 ──────────────────────────────────────────────────────
 
 
-@router.post("/meeting/{meeting_id}")
+@router.post("/meeting/{meeting_id}", summary="Meeting 동기화 (내부 전용)")
 async def sync_meeting_manual(
     meeting_id: int,
     _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
-    """특정 Meeting을 Neo4j에 수동으로 동기화합니다."""
+    """특정 Meeting을 Neo4j에 수동으로 동기화합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting을 찾을 수 없습니다.")
@@ -190,13 +212,16 @@ async def sync_meeting_manual(
 # ─── Session 수동 동기화 ──────────────────────────────────────────────────────
 
 
-@router.post("/session/{session_id}")
+@router.post("/session/{session_id}", summary="Session 동기화 (내부 전용)")
 async def sync_session_manual(
     session_id: int,
     _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
-    """특정 Session을 Neo4j에 수동으로 동기화합니다."""
+    """특정 Session을 Neo4j에 수동으로 동기화합니다(참석자·논의 안건 포함).
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     session = (
         db.query(models.MeetingSession)
         .filter(models.MeetingSession.id == session_id)
@@ -210,6 +235,14 @@ async def sync_session_manual(
         .all()
     )
     attendees = [{"user_id": m.user_id, "role": m.role or "member"} for m in members]
+    # '논의 아젠다' 선택(SessionAgenda) — agenda-[:논의]->session 엣지의 권위 소스.
+    # 항상 목록을 넘겨 선택분 MERGE·해제분 제거를 수행한다(빈 목록이면 전부 해제).
+    discussion_agenda_ids = [
+        row.agenda_id
+        for row in db.query(models.SessionAgenda.agenda_id)
+        .filter(models.SessionAgenda.session_id == session_id)
+        .all()
+    ]
     await sync_session(
         session_id=session.id,
         meeting_id=session.meeting_id,
@@ -222,6 +255,7 @@ async def sync_session_manual(
         session_type=session.type,
         description=session.description,
         attendees=attendees,
+        discussion_agenda_ids=discussion_agenda_ids,
     )
     return {"success": True, "session_id": session_id, "title": session.title}
 
@@ -229,7 +263,7 @@ async def sync_session_manual(
 # ─── 전체 동기화 (부트스트랩 / 복구) ─────────────────────────────────────────
 
 
-@router.post("/all")
+@router.post("/all", summary="전체 동기화 (부트스트랩·복구)")
 async def sync_all(
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
@@ -257,13 +291,16 @@ async def _run_sync_all() -> None:
 # ─── Agenda 수동 동기화 ───────────────────────────────────────────────────────
 
 
-@router.post("/agenda/{agenda_id}")
+@router.post("/agenda/{agenda_id}", summary="Agenda 동기화 (내부 전용)")
 async def sync_agenda_manual(
     agenda_id: int,
     _: None = Depends(verify_internal),
     db: DBSession = Depends(get_db),
 ):
-    """특정 Agenda를 Neo4j에 수동으로 동기화합니다."""
+    """특정 Agenda를 Neo4j에 수동으로 동기화합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         raise HTTPException(status_code=404, detail="Agenda를 찾을 수 없습니다.")
@@ -292,22 +329,28 @@ async def sync_agenda_manual(
     return {"success": True, "agenda_id": agenda_id, "title": agenda.title}
 
 
-@router.delete("/agenda/{agenda_id}")
+@router.delete("/agenda/{agenda_id}", summary="Agenda 삭제 동기화 (내부 전용)")
 async def delete_agenda_sync(
     agenda_id: int,
     _: None = Depends(verify_internal),
 ):
-    """Agenda 삭제를 Neo4j에 전파합니다 (DATA-4)."""
+    """Agenda 삭제를 Neo4j에 전파합니다 (DATA-4).
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await delete_agenda(agenda_id)
     return {"success": True, "agenda_id": agenda_id}
 
 
-@router.delete("/session/{session_id}")
+@router.delete("/session/{session_id}", summary="Session 삭제 동기화 (내부 전용)")
 async def delete_session_sync(
     session_id: int,
     _: None = Depends(verify_internal),
 ):
-    """Session 삭제를 Neo4j에 전파합니다 (DATA-4)."""
+    """Session 삭제를 Neo4j에 전파합니다 (DATA-4).
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await delete_session(session_id)
     return {"success": True, "session_id": session_id}
 
@@ -315,13 +358,13 @@ async def delete_session_sync(
 # ─── Minutes 수동 동기화 ──────────────────────────────────────────────────────
 
 
-@router.post("/minutes/{minutes_id}")
+@router.post("/minutes/{minutes_id}", summary="Minutes 수동 동기화")
 async def sync_minutes_manual(
     minutes_id: int,
     current_user: models.User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """특정 Minutes를 Neo4j에 수동으로 동기화합니다."""
+    """특정 Minutes를 Neo4j에 수동으로 동기화합니다. 인증 필요."""
     m = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Minutes를 찾을 수 없습니다.")
@@ -342,14 +385,17 @@ async def sync_minutes_manual(
 # ─── Member 동기화 (SpringBoot → FastAPI → Neo4j) ────────────────────────────
 
 
-@router.post("/member")
+@router.post("/member", summary="회의 멤버 관계 동기화 (내부 전용)")
 async def sync_member_manual(
     meetingId: int,
     userId: int,
     role: str = "member",
     _: None = Depends(verify_internal),
 ):
-    """Spring Boot에서 회의 멤버 추가/수정 시 Neo4j에 (User)-[:구성원]->(Meetings) 관계를 동기화합니다."""
+    """Spring Boot에서 회의 멤버 추가/수정 시 (User)-[:구성원]->(Meetings) 관계를 동기화합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await sync_meeting_member(
         meeting_id=meetingId,
         user_id=userId,
@@ -358,13 +404,16 @@ async def sync_member_manual(
     return {"status": "ok"}
 
 
-@router.delete("/member/delete")
+@router.delete("/member/delete", summary="회의 멤버 관계 삭제 동기화 (내부 전용)")
 async def delete_member_manual(
     meetingId: int,
     userId: int,
     _: None = Depends(verify_internal),
 ):
-    """Spring Boot에서 회의 멤버 삭제 시 Neo4j의 (User)-[:구성원]->(Meetings) 관계를 제거합니다."""
+    """Spring Boot에서 회의 멤버 삭제 시 (User)-[:구성원]->(Meetings) 관계를 제거합니다.
+
+    내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.
+    """
     await delete_meeting_member(
         meeting_id=meetingId,
         user_id=userId,
@@ -375,13 +424,13 @@ async def delete_member_manual(
 # ─── Report 수동 동기화 ───────────────────────────────────────────────────────
 
 
-@router.post("/report/{report_id}")
+@router.post("/report/{report_id}", summary="Report 수동 동기화")
 async def sync_report_manual(
     report_id: int,
     current_user: models.User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """특정 Report를 Neo4j에 수동으로 동기화합니다."""
+    """특정 Report를 Neo4j에 수동으로 동기화합니다. 인증 필요."""
     r = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Report를 찾을 수 없습니다.")

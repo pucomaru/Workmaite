@@ -32,9 +32,7 @@ const showAgendaDropdown = ref(false)
 // 연결된 아젠다는 done 등으로 상태가 바뀌었어도 선택 상태로 보여야 한다(요구사항).
 const displayAgendas = computed(() =>
   agendas.value.filter(
-    a =>
-      a.status === 'ongoing' ||
-      selectedAgendaIds.value.some(id => String(id) === String(a.id)),
+    a => a.status === 'ongoing' || selectedAgendaIds.value.some(id => String(id) === String(a.id)),
   ),
 )
 
@@ -155,7 +153,12 @@ async function doSave() {
       attendees: members.value.map(m => ({ user_id: m.userId, role: m.role || 'member' })),
       agenda_ids: selectedAgendaIds.value,
     })
-    emit('saved', { meetingId: form.value.meetingId })
+    // sessionId·선택 아젠다를 함께 넘겨 부모가 그래프에 즉시(낙관적) 반영할 수 있게 한다
+    emit('saved', {
+      meetingId: form.value.meetingId,
+      sessionId: form.value.id,
+      agendaIds: [...selectedAgendaIds.value],
+    })
     emit('close')
   } catch (e) {
     toast.error(e.response?.data?.message || '수정 실패')
@@ -206,7 +209,11 @@ async function doSave() {
           <div class="app-modal-field">
             <label for="session-edit-date">회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <DateInput id="session-edit-date" v-model="form.dateOnly" class="datetime-split-date" />
+              <DateInput
+                id="session-edit-date"
+                v-model="form.dateOnly"
+                class="datetime-split-date"
+              />
               <span class="datetime-split-sep"></span>
               <input
                 id="session-edit-time"

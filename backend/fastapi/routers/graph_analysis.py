@@ -113,9 +113,9 @@ async def _analyze_graph() -> dict:
     # ⓪-b 회의 생명주기 공백
     try:
         lg_rows = await run_cypher(
-            "MATCH (mn:Minutes)-[:`기록`]->(s:Session)-[:`소속`]->(mg:Meetings) "
+            "MATCH (mn:Minutes)<-[:`기록`]-(s:Session)-[:`소속`]->(mg:Meetings) "
             "WHERE coalesce(mn.content_summary,'') <> '' AND NOT (mn)-[:`도출`]->(:Agenda) "
-            "OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg) "
+            "OPTIONAL MATCH (mg)-[:`추출`|`관할`]-(ag:Agenda) "
             "WITH mn, s, mg, collect(DISTINCT {id: coalesce(ag.id, toString(ag.pg_id)), title: ag.title})[..25] AS ags "
             "RETURN mn.pg_id AS minutes_pg_id, s.id AS session_id, coalesce(s.title,'') AS session_title, "
             "       coalesce(mg.title,'') AS mg, left(mn.content_summary, 1800) AS content, ags AS agendas "
@@ -138,13 +138,13 @@ async def _analyze_graph() -> dict:
     # ① 잠재 연결 — 회의 간 의미 유사 안건쌍
     try:
         rows = await run_cypher(
-            "MATCH (a:Agenda)-[:`관할`]->(mga:Meetings) "
+            "MATCH (mga:Meetings)-[:`추출`|`관할`]-(a:Agenda) "
             "WHERE a.embedding IS NOT NULL "
             "CALL db.index.vector.queryNodes('agendaEmbedding', 5, a.embedding) "
             "YIELD node, score "
             "WITH a, mga, node, score "
             "WHERE a.id < node.id AND score >= $th AND node.embedding IS NOT NULL "
-            "MATCH (node)-[:`관할`]->(mgb:Meetings) "
+            "MATCH (mgb:Meetings)-[:`추출`|`관할`]-(node) "
             "WHERE mgb.id <> mga.id AND NOT (a)-[:`관련`]-(node) "
             "RETURN a.id AS a_id, a.title AS a_title, mga.title AS a_mg, "
             "       node.id AS b_id, node.title AS b_title, mgb.title AS b_mg, score "
@@ -173,9 +173,8 @@ async def _analyze_graph() -> dict:
             "CALL db.index.vector.queryNodes('agendaEmbedding', 3, d.embedding) "
             "YIELD node, score "
             "WITH d, node, score "
-            # 안건으로 들어오는 문서 관계는 도출(보고자료·회의록)뿐 — 이미 연결된 건 제외
-            # (첨부는 구 데이터 호환용으로 함께 제외)
-            "WHERE score >= $th AND NOT (d)-[:`발제`]->(node) AND NOT (d)-[:`도출`]->(node) "
+            # 문서→안건은 보고자료=취급, 회의록=도출 — 이미 연결된 건 제외 (레거시 발제도 제외)
+            "WHERE score >= $th AND NOT (d)-[:`취급`|`도출`|`발제`]->(node) "
             "RETURN d.id AS doc_id, coalesce(d.title, d.file_name) AS doc_title, "
             "       node.id AS ag_id, node.title AS ag_title, score "
             "ORDER BY score DESC LIMIT 30",
@@ -198,7 +197,7 @@ async def _analyze_graph() -> dict:
     try:
         rows = await run_cypher(
             "MATCH (ag:Agenda) WHERE NOT (:User)-[:`담당`]->(ag) "
-            "OPTIONAL MATCH (ag)-[:`관할`]->(mg:Meetings) "
+            "OPTIONAL MATCH (mg:Meetings)-[:`추출`|`관할`]-(ag) "
             "RETURN ag.id AS id, ag.title AS title, mg.title AS mg LIMIT 50"
         )
         structural["ownerless_agendas"] = [
@@ -211,7 +210,7 @@ async def _analyze_graph() -> dict:
     # ② 구조 공백 — 고아 문서
     try:
         rows = await run_cypher(
-            "MATCH (d:Report) WHERE NOT (d)-[:`발제`]->() "
+            "MATCH (d:Report) WHERE NOT (d)-[:`첨부`|`발제`]->() "
             "RETURN d.id AS id, coalesce(d.title, d.file_name) AS title, "
             "       (d.embedding IS NOT NULL) AS emb LIMIT 50"
         )
@@ -225,7 +224,7 @@ async def _analyze_graph() -> dict:
     # ② 구조 공백 — 회의록 없는 세션
     try:
         rows = await run_cypher(
-            "MATCH (s:Session) WHERE NOT (:Minutes)-[:`기록`]->(s) "
+            "MATCH (s:Session) WHERE NOT (:Minutes)<-[:`기록`]-(s) "
             "OPTIONAL MATCH (s)-[:`소속`]->(mg:Meetings) "
             "RETURN s.id AS id, mg.title AS mg LIMIT 50"
         )
@@ -353,7 +352,7 @@ async def _analyze_graph() -> dict:
     # 라이프사이클 도출(r.kind 보유)·사용자 수동 연결은 제외한다.
     try:
         rows = await run_cypher(
-            "MATCH (d)-[r:`발제`|`도출`]->(ag:Agenda) "
+            "MATCH (d)-[r:`취급`|`도출`|`발제`]->(ag:Agenda) "
             "WHERE (d:Report OR d:Minutes) AND r.discovered_by = 'knowledge_agent' "
             "  AND r.kind IS NULL AND r.score IS NOT NULL AND r.score < $th "
             "RETURN d.id AS from_id, ag.id AS to_id, type(r) AS rel, "
@@ -378,7 +377,7 @@ async def _analyze_graph() -> dict:
     # weak 자동연결 (낮은 유사도 auto_linked 문서→안건 — 도출, 구 데이터는 첨부)
     try:
         rows = await run_cypher(
-            "MATCH (d)-[r:`발제`|`도출`]->(ag:Agenda) "
+            "MATCH (d)-[r:`취급`|`도출`|`발제`]->(ag:Agenda) "
             "WHERE (d:Report OR d:Minutes) AND r.auto_linked = true AND r.score IS NOT NULL AND r.score < $th "
             "RETURN d.id AS from_id, ag.id AS to_id, type(r) AS rel, "
             "       coalesce(d.title, d.file_name, '?') AS doc_title, ag.title AS ag_title, r.score AS score "
@@ -431,19 +430,51 @@ async def _normalize_rel_directions() -> dict:
             "MATCH (d:Department)-[r:`소속`]->(u:User) RETURN count(r) AS cnt",
             "MATCH (d:Department)-[r:`소속`]->(u:User) MERGE (u)-[:`소속`]->(d) DELETE r",
         ),
+        # ── 관계명·방향 변경 마이그레이션 (신 스키마) ─────────────────────
+        # 안건↔회의체: 과거 'agenda→관할→Meetings'(및 역방향)를 'Meetings→추출→agenda'로 일원화.
+        # 프로퍼티 보존. 'agenda→dept 담당부서'는 별개라 영향 없음(라벨로 한정).
         (
-            "아젠다→회의체 방향 복구 (관할, 작은→큰)",
-            "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
-            "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) MERGE (ag)-[:`관할`]->(mg) DELETE r",
+            "관할(아젠다→회의체) → 추출(회의체→아젠다) 변경",
+            "MATCH (ag:Agenda)-[r:`관할`]->(mg:Meetings) RETURN count(r) AS cnt",
+            "MATCH (ag:Agenda)-[old:`관할`]->(mg:Meetings) "
+            "MERGE (mg)-[new:`추출`]->(ag) SET new += properties(old) DELETE old",
         ),
-        # ── 관계명 변경 마이그레이션 ───────────────────────────────────────
-        # 보고자료→안건: 첨부 → 도출 (회의록과 동일하게 통일). 프로퍼티(score·discovered_by·
-        # auto_linked 등) 보존. report→Meetings 첨부는 건드리지 않는다(라벨로 한정).
         (
-            "보고자료→안건 관계명 변경 (첨부→도출)",
+            "관할(회의체→아젠다, 역방향) → 추출 변경",
+            "MATCH (mg:Meetings)-[r:`관할`]->(ag:Agenda) RETURN count(r) AS cnt",
+            "MATCH (mg:Meetings)-[old:`관할`]->(ag:Agenda) "
+            "MERGE (mg)-[new:`추출`]->(ag) SET new += properties(old) DELETE old",
+        ),
+        # 보고자료→회의체: 발제 → 첨부. (라벨로 Meetings 한정)
+        (
+            "보고자료→회의체 관계명 변경 (발제→첨부)",
+            "MATCH (r:Report)-[rel:`발제`]->(mg:Meetings) RETURN count(rel) AS cnt",
+            "MATCH (r:Report)-[old:`발제`]->(mg:Meetings) "
+            "MERGE (r)-[new:`첨부`]->(mg) SET new += properties(old) DELETE old",
+        ),
+        # 보고자료→안건: 발제·도출 → 취급. (라벨로 Report·Agenda 한정 → minutes→agenda '도출'은 보존)
+        (
+            "보고자료→안건 관계명 변경 (발제→취급)",
             "MATCH (r:Report)-[rel:`발제`]->(ag:Agenda) RETURN count(rel) AS cnt",
             "MATCH (r:Report)-[old:`발제`]->(ag:Agenda) "
-            "MERGE (r)-[new:`도출`]->(ag) SET new += properties(old) DELETE old",
+            "MERGE (r)-[new:`취급`]->(ag) SET new += properties(old) DELETE old",
+        ),
+        (
+            "보고자료→안건 관계명 변경 (도출→취급)",
+            "MATCH (r:Report)-[rel:`도출`]->(ag:Agenda) RETURN count(rel) AS cnt",
+            "MATCH (r:Report)-[old:`도출`]->(ag:Agenda) "
+            "MERGE (r)-[new:`취급`]->(ag) SET new += properties(old) DELETE old",
+        ),
+        # 잔여 폐지 관계 정리 (위 마이그레이션 후 남은 것 — 안전망)
+        (
+            "폐지 관계 '관할' 잔여 삭제 (canonical=추출)",
+            "MATCH ()-[r:`관할`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`관할`]->() DELETE r",
+        ),
+        (
+            "폐지 관계 '발제' 잔여 삭제 (canonical=첨부/취급)",
+            "MATCH ()-[r:`발제`]->() RETURN count(r) AS cnt",
+            "MATCH ()-[r:`발제`]->() DELETE r",
         ),
         # ── 폐지 관계 purge ──────────────────────────────────────────────
         # canonical(논의·기록)은 PG sync가 만든다. 과거 reconcile/인코딩 버그가 남긴 잔재
@@ -488,12 +519,20 @@ async def _normalize_rel_directions() -> dict:
     return {"total": total, "details": details}
 
 
-@router.post("/knowledge/analyze-relationships")
+@router.post(
+    "/knowledge/analyze-relationships",
+    summary="지식 그래프 관계 분석·재구성 — SSE 스트리밍",
+)
 async def analyze_relationships_stream(
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """전체 지식 그래프를 점검해 끊긴 흐름·미연결 안건/문서를 찾아 자동 재구성한다.
+
+    분석 계획·진행·요약을 SSE(text/event-stream)로 스트리밍하며, 관계 방향·명칭
+    정규화도 수행한다. (로그인 사용자 인증)
+    """
     background_tasks.add_task(
         _log_activity,
         0,
@@ -549,7 +588,7 @@ async def analyze_relationships_stream(
             try:
                 _sa_rows = await run_cypher(
                     "MATCH (s:Session)-[:`소속`]->(mg:Meetings) "
-                    "WHERE (mg)<-[:`관할`]-(:Agenda) "
+                    "WHERE (mg)-[:`추출`|`관할`]-(:Agenda) "
                     "  AND NOT (:Agenda)-[:`논의`]->(s) "
                     "RETURN count(s) AS cnt"
                 )
@@ -750,7 +789,10 @@ async def analyze_relationships_stream(
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-@router.post("/knowledge/fill-fields")
+@router.post(
+    "/knowledge/fill-fields",
+    summary="안건 빈 필드 자동 채우기 — SSE 스트리밍",
+)
 async def fill_fields_stream(
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
@@ -758,7 +800,8 @@ async def fill_fields_stream(
 ):
     """'채우기' — 사용자가 비워둔 안건 필드(담당 부서)·우선순위·완료 상태를 맥락에 맞게 자동 보정한다.
 
-    기존 analyze-relationships('관계 재설정')와 달리 노드 메타데이터를 채우는 데 집중한다.
+    기존 analyze-relationships('관계 재설정')와 달리 노드 메타데이터를 채우는 데 집중하며,
+    진행·요약을 SSE(text/event-stream)로 스트리밍한다.
     스코프: 사용자가 속한 회의체(관리자는 자사 구성원 회의체까지).
     """
     is_admin = current_user.company_role == "SYSTEM_ADMIN"

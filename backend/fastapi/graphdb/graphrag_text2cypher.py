@@ -145,26 +145,29 @@ _NODE_SCHEMA = """노드 라벨과 주요 프로퍼티:
 - (:User)     사용자    : id, pg_id, name, department, company
 - (:Company)  회사/조직 : name"""
 
-_REL_PATTERNS = """관계 패턴 (관계 타입은 전부 한글 — Cypher에서 반드시 백틱으로 감쌀 것. 예: -[:`관할`]->):
-- (:Agenda)-[:`관할`]->(:Meetings)     안건이 속한 회의체
+_REL_PATTERNS = """관계 패턴 (관계 타입은 전부 한글 — Cypher에서 반드시 백틱으로 감쌀 것. 예: -[:`추출`]->):
+- (:Meetings)-[:`추출`]->(:Agenda)     회의체가 (회의록·보고자료에서) 추출한 안건
+- (:Agenda)-[:`담당부서`]->(:Department) 안건의 담당 부서
 - (:User)-[:`참여`]->(:Meetings)       참여자
 - (:User)-[:`운영`]->(:Meetings)       간사/운영자
+- (:Department)-[:`참여`]->(:Meetings) 부서가 (구성원을 통해) 참여하는 회의체
 - (:User)-[:`담당`]->(:Agenda)         안건 담당자
 - (:Agenda)-[:`논의`]->(:Session)      안건이 논의된 회의
 - (:Session)-[:`소속`]->(:Meetings)    회의가 속한 회의체
 - (:Session)-[:`기록`]->(:Minutes)     회의의 회의록
 - (:Minutes)-[:`도출`]->(:Agenda)      회의록에서 도출된 안건
-- (:Report)-[:`발제`]->(:Meetings)     보고자료-회의체
-- (:Report)-[:`도출`]->(:Agenda)       보고자료에서 도출된 안건
+- (:Report)-[:`첨부`]->(:Meetings)     보고자료가 첨부된 회의체
+- (:Report)-[:`취급`]->(:Agenda)       보고자료가 다루는 안건
+- (:Department)-[:`작성`]->(:Report)   부서가 작성한 보고자료
 - (:Agenda)-[:`관련`]-(:Agenda)        안건 간 연관(방향 무관)
 - (:Meetings)-[:`협의`]-(:Meetings)    회의체 간 협의(방향 무관)
 - (:User)-[:`참석`]->(:Session)
 - (:Session)-[:`후속`]->(:Session)
-- (:User)-[:`소속`]->(:Company)"""
+- (:User)-[:`소속`]->(:Department)·(:Company)"""
 
 _EXAMPLES = [
     "질문: 'IT 인프라' 회의체의 미완료 안건 수\n"
-    "MATCH (a:Agenda)-[:`관할`]->(m:Meetings) "
+    "MATCH (m:Meetings)-[:`추출`]->(a:Agenda) "
     "WHERE m.title CONTAINS 'IT 인프라' AND a.status <> 'done' "
     "RETURN count(a) AS 미완료안건수",
     "질문: pg_id가 12인 회의체의 보고자료별 검토 상태\n"

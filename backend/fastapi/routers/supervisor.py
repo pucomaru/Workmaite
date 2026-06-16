@@ -193,12 +193,17 @@ from core.access_guard import require_view_by_session
 
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
-@router.post("/minutes/sessions-chat")
+@router.post("/minutes/sessions-chat", summary="회의록(아라) 세션 챗 — SSE 스트리밍")
 async def minutes_sessions_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의 세션 목록·세션별 회의록을 컨텍스트로 회의록 에이전트와 대화한다.
+
+    meeting_id가 있으면 require_view 가드로 열람 권한을 확인한다.
+    응답은 SSE(text/event-stream)로 토큰 스트리밍된다.
+    """
     if data.meeting_id:
         require_view(db, current_user, data.meeting_id)
     sessions = (
@@ -276,18 +281,33 @@ async def minutes_sessions_chat(
     )  # TTFT 측정 (P5-1)
 
 
-@router.post("/minutes/generate-minutes")
+@router.post("/minutes/generate-minutes", summary="회의록 생성 — SSE 스트리밍")
 async def minutes_generate_minutes(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """전사·안건·참석자·이전 회의록·보고서(GraphRAG) 맥락으로 회의록을 생성한다.
+
+    meeting_id가 있으면 require_view 가드로 열람 권한을 확인한다.
+    생성 결과는 미리보기만 SSE(text/event-stream)로 스트리밍하며 DB·그래프에 영속화하지 않는다.
+    """
     if data.meeting_id:
         require_view(db, current_user, data.meeting_id)
     transcript = data.message or ""
     meeting_context = (
         _get_meeting_context(db, data.meeting_id) if data.meeting_id else ""
     )
+    # 회의록 생성도 보고자료-[:취급]->안건 + 추출 근거(ai_evidence) 맥락에 근거하도록 보강 (GraphRAG)
+    if data.meeting_id:
+        try:
+            from core.meeting_context import meeting_report_agenda_context
+
+            _rag = meeting_report_agenda_context(db, data.meeting_id)
+            if _rag:
+                meeting_context = (meeting_context + "\n\n" + _rag).strip()
+        except Exception:
+            pass
     if data.session_id:
         _sa_rows = (
             db.query(models.SessionAgenda)
@@ -575,7 +595,7 @@ async def _get_rolling_summary_text(summary_blocks: list) -> str:
 
 
 # ─── 세션 전용 챗 ────────────────────────────────────────────────────────────
-@router.post("/session/chat")
+@router.post("/session/chat", summary="세션 전용 챗봇 — SSE 스트리밍")
 async def session_chat(
     data: schemas.AgentChatRequest,
     current_user: models.User = Depends(get_current_user),
@@ -583,6 +603,8 @@ async def session_chat(
 ):
     """세션 상태에 따라 분기하는 회의 전용 챗봇.
 
+    require_view_by_session 가드로 세션 열람 권한을 확인하며, 응답은
+    SSE(text/event-stream)로 스트리밍한다.
     scheduled → 기본 정보(일정·참석자·안건)만 안내
     ongoing   → 진행 중 안내
     ended     → 회의록 미생성 안내
@@ -736,9 +758,12 @@ async def session_chat(
 
 
 # ─── 모델 목록 ────────────────────────────────────────────────────────────────
-@router.get("/models")
+@router.get("/models", summary="선택 가능한 LLM 모델 목록")
 async def list_models(current_user: models.User = Depends(get_current_user)):
-    """컴포저에서 선택 가능한 LLM 모델 목록 — pricing.yaml에 단가가 등록된 모델만 노출."""
+    """컴포저에서 선택 가능한 LLM 모델 목록 — pricing.yaml에 단가가 등록된 모델만 노출.
+
+    로그인 사용자(get_current_user)만 조회할 수 있다.
+    """
     return {
         "models": sorted(PRICING.keys()),
         "default": os.environ.get("OPENAI_MODEL", ""),
@@ -746,13 +771,19 @@ async def list_models(current_user: models.User = Depends(get_current_user)):
 
 
 # ─── Supervisor Chat ──────────────────────────────────────────────────────────
-@router.post("/supervisor/chat")
+@router.post("/supervisor/chat", summary="슈퍼바이저 챗봇 — SSE 스트리밍")
 async def supervisor_chat(
     data: schemas.AgentChatRequest,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """LLM이 의도를 분류해 하위 에이전트로 라우팅하는 통합 슈퍼바이저 챗봇.
+
+    탈옥·유해 요청은 최전선에서 차단하고, 일일 토큰 예산을 검사한다. 멀티테넌트
+    검색 스코프로 본인 소속 회의체만 조회하도록 강제(IDOR 방지)하며, 응답은
+    SSE(text/event-stream)로 스트리밍한다.
+    """
     msg = data.message or ""
 
     # 사용자 선택 모델 — pricing.yaml에 등록된 모델만 허용 (임의 모델명 차단)
@@ -1048,7 +1079,7 @@ async def supervisor_chat(
                                OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
                                WITH mg, sec_info, member_depts,
                                     max(s.scheduled_at) AS latest_session_date
-                               OPTIONAL MATCH (d:Report)-[:`발제`]->(mg)
+                               OPTIONAL MATCH (d:Report)-[:`첨부`|`발제`]->(mg)
                                RETURN mg.id AS mg_id, mg.title AS title,
                                       coalesce(mg.meeting_type, '') AS meeting_type,
                                       sec_info, member_depts, latest_session_date,
@@ -1070,7 +1101,7 @@ async def supervisor_chat(
                                OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
                                WITH mg, sec_info, member_depts,
                                     max(s.scheduled_at) AS latest_session_date
-                               OPTIONAL MATCH (d:Report)-[:`발제`]->(mg)
+                               OPTIONAL MATCH (d:Report)-[:`첨부`|`발제`]->(mg)
                                RETURN mg.id AS mg_id, mg.title AS title,
                                       coalesce(mg.meeting_type, '') AS meeting_type,
                                       sec_info, member_depts, latest_session_date,
@@ -1551,13 +1582,16 @@ class FeedbackRequest(BaseModel):
     content_snippet: Optional[str] = None
 
 
-@router.post("/feedback")
+@router.post("/feedback", summary="챗봇 응답 피드백 등록")
 async def submit_feedback(
     data: FeedbackRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """응답 수집"""
+    """챗봇 응답에 대한 좋아요/싫어요(rating ±1) 피드백을 저장한다.
+
+    로그인 사용자(get_current_user) 본인 명의로 기록된다.
+    """
     if data.rating not in (1, -1):
         from fastapi import HTTPException
 
@@ -1575,12 +1609,16 @@ async def submit_feedback(
     return {"ok": True, "id": fb.id}
 
 
-@router.get("/supervisor/chat/history")
+@router.get("/supervisor/chat/history", summary="슈퍼바이저 채팅 이력 조회")
 async def supervisor_chat_history(
     meeting_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """특정 회의체의 슈퍼바이저 채팅 이력을 시간순으로 반환한다.
+
+    시스템 관리자가 아니면 해당 회의체 멤버인지 확인(미소속 시 403).
+    """
     is_admin = (
         current_user.company_role == "SYSTEM_ADMIN"
     )  # RBAC (P1-3) — position 자가신고 판별 제거

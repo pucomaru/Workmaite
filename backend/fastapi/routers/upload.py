@@ -133,12 +133,12 @@ def _html_to_pdf(html_content: str, title: str = "회의록") -> bytes:
 # ── 보고자료 업로드 ────────────────────────────────────────────────────────────
 
 
-@router.get("/reports/rejected")
+@router.get("/reports/rejected", summary="반려된 보고서 목록 조회")
 async def get_rejected_reports(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다."""
+    """현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다(본인 업로드분만)."""
     # 재제출된 항목(자식 버전이 있는 항목) 제외
     resubmitted_ids = (
         db.query(models.Report.parent_id)
@@ -170,7 +170,7 @@ async def get_rejected_reports(
     ]
 
 
-@router.post("/reports/{meeting_id}")
+@router.post("/reports/{meeting_id}", summary="보고자료 업로드")
 async def upload_report(
     meeting_id: int,
     background_tasks: BackgroundTasks,
@@ -181,7 +181,10 @@ async def upload_report(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다."""
+    """보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다.
+
+    회의체 조회 권한 필요. 파일 크기 상한(_MAX_BYTES)을 초과하면 413으로 거부한다.
+    """
     require_view(db, current_user, meeting_id)
     content = await file.read()
     if len(content) > _MAX_BYTES:
@@ -267,13 +270,13 @@ async def upload_report(
     }
 
 
-@router.get("/reports/{report_id}/score")
+@router.get("/reports/{report_id}/score", summary="보고서 AI 검토 결과 조회")
 async def get_report_score(
     report_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용)."""
+    """저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용). 회의체 조회 권한 필요."""
     require_view_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
@@ -315,14 +318,17 @@ async def get_report_score(
     }
 
 
-@router.post("/reports/{report_id}/score")
+@router.post("/reports/{report_id}/score", summary="보고서 AI 검토 결과 저장")
 async def save_report_score(
     report_id: int,
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다."""
+    """AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다.
+
+    검토(운영) 행위 — 간사/회사관리자/시스템관리자만.
+    """
     # 점수 저장은 검토(운영) 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
 
@@ -364,14 +370,17 @@ async def save_report_score(
     return {"status": "ok"}
 
 
-@router.post("/reports/{report_id}/review")
+@router.post("/reports/{report_id}/review", summary="보고서 검토 결정 제출")
 async def submit_report_review(
     report_id: int,
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장합니다."""
+    """사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장하고 연결 안건 상태를 갱신합니다.
+
+    검토 결정(운영) 행위 — 간사/회사관리자/시스템관리자만.
+    """
     # 보고서 검토 결정은 운영 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
     from datetime import datetime as _dt
@@ -555,14 +564,17 @@ async def submit_report_review(
     return {"status": "ok", "action": action}
 
 
-@router.delete("/reports/{report_id}")
+@router.delete("/reports/{report_id}", summary="보고서 삭제")
 async def delete_report(
     report_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """보고서를 R2, report_scores, hitl_reviews, reports 테이블에서 삭제합니다."""
+    """보고서를 R2·report_scores·hitl_reviews·reports·Neo4j에서 삭제합니다.
+
+    업로더 본인 또는 간사/회사관리자/시스템관리자만.
+    """
     require_view_by_report(db, current_user, report_id)
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
@@ -681,7 +693,7 @@ def _first_sentence_title(html: str) -> str:
     return ""
 
 
-@router.post("/minutes/{session_id}")
+@router.post("/minutes/{session_id}", summary="회의록 PDF 저장")
 async def upload_minutes(
     session_id: int,
     background_tasks: BackgroundTasks,
@@ -689,7 +701,10 @@ async def upload_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다."""
+    """Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다.
+
+    회의체 조회 권한 필요. PDF 변환 실패 시에도 회의록 내용은 저장한다.
+    """
     require_view_by_session(db, current_user, session_id)
     logger.info(
         f"[minutes] 요청 — session_id={session_id}, user_id={current_user.id}, content_len={len(content)}"
@@ -864,7 +879,7 @@ async def upload_minutes(
 # ── 채팅 첨부파일 업로드 ───────────────────────────────────────────────────────
 
 
-@router.post("/chat")
+@router.post("/chat", summary="채팅 첨부파일 업로드")
 async def upload_chat_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -875,7 +890,10 @@ async def upload_chat_file(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다."""
+    """채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다.
+
+    meeting_id/session_id가 있으면 해당 회의체 조회 권한 필요. 파일 크기 상한 초과 시 413.
+    """
     if meeting_id:
         require_view(db, current_user, meeting_id)
     if session_id:
@@ -960,7 +978,7 @@ def _authorize_presigned_access(db, current_user, file_path: str, key: str) -> N
     raise HTTPException(status_code=403, detail="파일 접근 권한이 없습니다.")
 
 
-@router.get("/presigned")
+@router.get("/presigned", summary="다운로드용 presigned URL 발급")
 def get_presigned_url(
     file_path: str,
     expires_in: int = 3600,

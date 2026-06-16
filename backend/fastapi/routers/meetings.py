@@ -1,26 +1,15 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from sqlalchemy.orm import Session, joinedload
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
 from sqlalchemy import text
 from db import models
-from db import schemas
 from db.database import get_db
 from core.auth import get_current_user
 from core.access_guard import (
-    require_view,
-    require_meeting_edit,
     require_user_update_permission,
-    visible_user_ids,
-    viewable_meeting_ids,
     is_system_admin,
 )
 from graphdb.neo4j_sync import (
-    sync_meeting,
     sync_user,
-    sync_meeting_member,
-    delete_meeting_member,
-    update_meeting_member_role,
-    delete_meeting as neo4j_delete_meeting,
     delete_user as neo4j_delete_user,
     rename_company as neo4j_rename_company,
     rename_department as neo4j_rename_department,
@@ -28,7 +17,6 @@ from graphdb.neo4j_sync import (
 import logging
 
 _logger = logging.getLogger(__name__)
-
 
 
 def _get_or_create_company_id(db: Session, name) -> int | None:
@@ -44,13 +32,11 @@ def _get_or_create_company_id(db: Session, name) -> int | None:
     return c.id
 
 
-
-
 # ── /api/ai prefix 라우터 (Ingress: /api/ai → FastAPI) ───────────────────────
 ai_router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
-@ai_router.patch("/companies/rename")
+@ai_router.patch("/companies/rename", summary="회사명 변경")
 async def rename_company_endpoint(
     data: dict,
     background_tasks: BackgroundTasks,
@@ -93,7 +79,7 @@ async def rename_company_endpoint(
     return {"ok": True, "id": company.id, "name": new_name}
 
 
-@ai_router.patch("/departments/rename")
+@ai_router.patch("/departments/rename", summary="부서명 변경")
 async def rename_department_endpoint(
     data: dict,
     background_tasks: BackgroundTasks,
@@ -144,7 +130,7 @@ async def rename_department_endpoint(
     return {"ok": True, "name": new_name, "updated": updated}
 
 
-@ai_router.get("/company/members")
+@ai_router.get("/company/members", summary="회사 구성원 목록 조회")
 def company_members(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -267,7 +253,7 @@ def company_members(
 # (제거됨) /api/ai/meetings/{id}/members/{member_id} — 프런트가 Spring(/api/v1)로 이전. 중복 제거.
 
 
-@ai_router.delete("/users/{user_id}")
+@ai_router.delete("/users/{user_id}", summary="사용자 계정 삭제")
 async def ai_delete_user(
     user_id: int,
     background_tasks: BackgroundTasks,
@@ -361,7 +347,7 @@ async def ai_delete_user(
     return {"ok": True}
 
 
-@ai_router.patch("/users/{user_id}")
+@ai_router.patch("/users/{user_id}", summary="사용자 정보 수정")
 async def ai_update_user(
     user_id: int,
     data: dict,
@@ -369,6 +355,11 @@ async def ai_update_user(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """사용자 정보(이름·이메일·회사·부서·직책)를 수정하고 Neo4j에 동기화합니다.
+
+    권한: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 가능(MT-1).
+    이메일(로그인 자격) 변경은 관리자만 허용 — 본인 자가수정으로는 불가.
+    """
     # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:

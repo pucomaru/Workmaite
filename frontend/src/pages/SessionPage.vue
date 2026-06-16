@@ -1075,7 +1075,7 @@ async function removeNextAgendaItem(i) {
 
 const savingNextAgendas = ref(false)
 async function saveApprovedNextAgendas() {
-  if (savingNextAgendas.value)  // 중복 클릭 차단
+  if (savingNextAgendas.value) {  // 중복 클릭 차단
     toast.info('회의록에 반영 중입니다.', { duration: 1500 })
     return
   }

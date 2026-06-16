@@ -71,7 +71,7 @@ async def _transcribe_openai(
     return (resp.text or "").strip()
 
 
-@router.post("/transcribe")
+@router.post("/transcribe", summary="음성 파일 전사")
 async def transcribe(
     audio: UploadFile = File(...),
     lang: str = Form("ko"),
@@ -81,6 +81,11 @@ async def transcribe(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """업로드된 음성 파일을 STT로 전사하고 stt_segments에 저장합니다.
+
+    도메인 어휘 프롬프트로 고유명사 인식률을 높이고 사용량을 녹음자에 귀속한다.
+    session_id가 있으면 해당 회의체 구성원만 호출 가능. 인증 필요.
+    """
     if session_id:
         require_meeting_member_by_session(db, current_user, session_id)
     lang_code = lang.split("-")[0].lower() if lang else "ko"

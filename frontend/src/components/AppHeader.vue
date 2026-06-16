@@ -1,13 +1,13 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import api from '../api'
+import { confirmDialog } from '../composables/useConfirm'
 import { useAuthStore } from '../stores/auth'
 import { useMeetingsStore } from '../stores/meetings'
-import { confirmDialog } from '../composables/useConfirm'
 import { useThemeStore } from '../stores/theme'
-import api from '../api'
-import TokenUsageModal from './TokenUsageModal.vue'
 import AppIcon from './AppIcon.vue'
+import TokenUsageModal from './TokenUsageModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -270,7 +270,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/company' }"
       >
-        <AppIcon name="company" :size="18" />
+        <AppIcon name="company" :size="18" :color="'#6ee7b7'"/>
         조직
       </router-link>
       <router-link
@@ -278,7 +278,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/meetings' }"
       >
-        <AppIcon name="Meetings" :size="18" />
+        <AppIcon name="Meetings" :size="18" :color="'#60a5fa'" />
         회의체
       </router-link>
       <router-link
@@ -286,7 +286,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/session-record' }"
       >
-        <AppIcon name="session" :size="18" />
+        <AppIcon name="session" :size="17" :color="'#fdba74'" />
         회의
       </router-link>
     </nav>

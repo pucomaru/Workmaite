@@ -43,7 +43,11 @@ class MinutesSaveRequest(BaseModel):
     file_name: Optional[str] = None  # 저장할 파일명 (없으면 자동 생성)
 
 
-@router.post("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+@router.post(
+    "/sessions/{session_id}/minutes",
+    response_model=schemas.MinutesOut,
+    summary="회의록 저장",
+)
 async def save_minutes(
     session_id: int,
     body: MinutesSaveRequest,
@@ -139,13 +143,16 @@ async def save_minutes(
 
 
 @router.get(
-    "/sessions/{session_id}/minutes", response_model=Optional[schemas.MinutesOut]
+    "/sessions/{session_id}/minutes",
+    response_model=Optional[schemas.MinutesOut],
+    summary="회의록 조회",
 )
 def get_minutes(
     session_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """세션의 회의록을 조회합니다(없으면 200 + null). 회의체 조회 권한 필요."""
     require_view_by_session(db, current_user, session_id)
     # 회의록이 없으면 404가 아니라 200 + null — "아직 생성/저장 안 함"은 에러가 아닌 정상 빈 상태.
     # (#3 수정 후 '생성'만으론 저장 안 되므로 미저장 세션이 흔해 404 소음만 났다.)
@@ -162,13 +169,18 @@ class MinutesContentUpdate(BaseModel):
     content_summary: Optional[str] = None
 
 
-@router.patch("/sessions/{session_id}/minutes", response_model=schemas.MinutesOut)
+@router.patch(
+    "/sessions/{session_id}/minutes",
+    response_model=schemas.MinutesOut,
+    summary="회의록 내용 수정",
+)
 async def update_minutes_content(
     session_id: int,
     body: MinutesContentUpdate,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의록 본문·요약을 수정합니다. 작성자 본인 또는 간사/회사관리자/시스템관리자만."""
     require_view_by_session(db, current_user, session_id)
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
@@ -190,13 +202,14 @@ async def update_minutes_content(
 # ─── 회의록 삭제 ──────────────────────────────────────────────────────────────
 
 
-@router.delete("/sessions/{session_id}/minutes")
+@router.delete("/sessions/{session_id}/minutes", summary="회의록 삭제")
 async def delete_minutes(
     session_id: int,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의록을 PostgreSQL·Neo4j에서 삭제합니다(멱등). 작성자 본인 또는 간사/회사관리자/시스템관리자만."""
     require_view_by_session(db, current_user, session_id)
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
@@ -222,7 +235,7 @@ async def delete_minutes(
     background_tasks.add_task(
         run_cypher,
         "MATCH (mn:Minutes) "
-        "WHERE mn.session_id = $sid OR (mn)-[:`기록`]->(:Session {pg_id: $sid}) "
+        "WHERE mn.session_id = $sid OR (mn)<-[:`기록`]-(:Session {pg_id: $sid}) "
         "DETACH DELETE mn",
         {"sid": session_id},
     )
@@ -245,12 +258,21 @@ class RefineChunkResponse(BaseModel):
     bullets: List[str]
 
 
-@router.post("/sessions/refine-chunk", response_model=RefineChunkResponse)
+@router.post(
+    "/sessions/refine-chunk",
+    response_model=RefineChunkResponse,
+    summary="실시간 발화 청크 정제·요약",
+)
 async def refine_chunk(
     body: RefineChunkRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """회의 중 발화 원문을 LLM으로 정제해 제목·요약 블록으로 저장합니다.
+
+    GraphRAG(보고자료·안건 맥락)를 주입해 전문용어 교정 정확도를 높인다.
+    회의체 운영 행위 — 간사/회사관리자/시스템관리자만.
+    """
     # 실시간 요약 블록 기록은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_session(db, body.session_id))
     session = (
@@ -299,7 +321,18 @@ async def refine_chunk(
         prev_line = f"[이번 회의 앞선 논의]\n{titles}\n"
     else:
         prev_line = ""
-    prompt = f"""{context_line}{agenda_line}{prev_line}아래는 회의 중 발화된 원문입니다.
+    # 보고자료-[:취급]->안건 + 추출 근거 맥락 — 전문용어 교정·요약 정확도 향상(GraphRAG)
+    rag_line = ""
+    if session:
+        try:
+            from core.meeting_context import meeting_report_agenda_context
+
+            _ctx = meeting_report_agenda_context(db, session.meeting_id)
+            if _ctx:
+                rag_line = f"[관련 보고자료·안건]\n{_ctx}\n"
+        except Exception:
+            rag_line = ""
+    prompt = f"""{context_line}{agenda_line}{prev_line}{rag_line}아래는 회의 중 발화된 원문입니다.
         다음 조건에 따라 정리해주세요:
         1. 필러워드(어, 음, 그, 아 등) 제거
         2. 오탈자 교정
@@ -352,13 +385,20 @@ class RefreshBlockRequest(BaseModel):
 REFINE_EVERY = 5  # 프론트와 동일한 청크 크기
 
 
-@router.post("/sessions/{session_id}/blocks/refresh")
+@router.post(
+    "/sessions/{session_id}/blocks/refresh",
+    summary="요약 블록 재정제",
+)
 async def refresh_block(
     session_id: int,
     body: RefreshBlockRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """지정 세그먼트가 속한 요약 블록을 LLM으로 다시 정제합니다.
+
+    회의체 운영 행위 — 간사/회사관리자/시스템관리자만.
+    """
     require_meeting_edit(db, current_user, meeting_id_of_session(db, session_id))
 
     # 세션의 모든 세그먼트를 createdAt/id 순으로 정렬
@@ -409,7 +449,24 @@ async def refresh_block(
         titles = "\n".join(f"  • {row.title}" for row in prev_block_titles)
         prev_line = f"[이번 회의 앞선 논의]\n{titles}\n"
 
-    prompt = f"""{prev_line}아래는 회의 중 발화된 원문입니다.
+    # 보고자료-[:취급]->안건 + 추출 근거 맥락 (GraphRAG) — 재정제에도 동일하게 주입
+    rag_line = ""
+    try:
+        from core.meeting_context import meeting_report_agenda_context
+
+        _sess = (
+            db.query(models.MeetingSession)
+            .filter(models.MeetingSession.id == session_id)
+            .first()
+        )
+        if _sess:
+            _ctx = meeting_report_agenda_context(db, _sess.meeting_id)
+            if _ctx:
+                rag_line = f"[관련 보고자료·안건]\n{_ctx}\n"
+    except Exception:
+        rag_line = ""
+
+    prompt = f"""{prev_line}{rag_line}아래는 회의 중 발화된 원문입니다.
         다음 조건에 따라 정리해주세요:
         1. 필러워드(어, 음, 그, 아 등) 제거
         2. 오탈자 교정

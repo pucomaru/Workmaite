@@ -1325,7 +1325,7 @@ function parseAiEvidence(val) {
                             ended: '완료',
                             done: '완료',
                             completed: '완료',
-                            archived: '아카이브됨',
+                            archived: '아카이브',
                             cancelled: '취소',
                           }[detailNode.data?.session_status] ||
                           detailNode.data?.session_status ||
@@ -1411,7 +1411,7 @@ function parseAiEvidence(val) {
                             ended: '완료',
                             done: '완료',
                             completed: '완료',
-                            archived: '아카이브됨',
+                            archived: '아카이브',
                             cancelled: '취소',
                           }[detailNode.data.session_status] || detailNode.data.session_status
                         }}</span

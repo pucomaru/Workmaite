@@ -174,10 +174,10 @@ export function useGraphBuilder({
           neo4jId: task.id || null,
           ended: groupEnded,
         })
-        // 아젠다는 '부서(관할)'에 연결한다. depts가 있으면 connIdx=부서 노드라 agenda→부서 관할이 그려진다.
-        // (이전에 그리던 사람→아젠다 '담당' 엣지는 제거 — 담당자 정보는 노드 상세에서 확인)
-        edges.push({ from: agIdx, to: connIdx, rel: '관할' })
-        if (connIdx !== mgIdx) edges.push({ from: agIdx, to: mgIdx, rel: '관할' })
+        // 안건→담당부서('담당부서') + 회의체→안건('추출'). depts가 있으면 connIdx=부서 노드.
+        // (사람→아젠다 '담당' 엣지는 그리지 않는다 — 담당자 정보는 노드 상세에서 확인)
+        if (connIdx !== mgIdx) edges.push({ from: agIdx, to: connIdx, rel: '담당부서' })
+        edges.push({ from: mgIdx, to: agIdx, rel: '추출' })
         agendaIdxById.set(String(task.id), agIdx)
         if (task.id != null) globalAgendaIdxMap.set(String(task.id), agIdx)
       }
@@ -215,7 +215,8 @@ export function useGraphBuilder({
           neo4jId: m.id || null,
           ended: groupEnded,
         })
-        edges.push({ from: sIdx, to: mgIdx, rel: '소속' })
+        // session→Meetings('소속') 엣지는 시각화하지 않는다(DB에는 보존). 세션은 후속 체인·
+        // 안건(논의)·회의록(기록)을 통해 그래프에 연결된다.
         if (prevSessionIdx >= 0) edges.push({ from: prevSessionIdx, to: sIdx, rel: '후속' })
         prevSessionIdx = sIdx
         if (m.id != null) sessionIdxByNeoId.set(String(m.id), sIdx)
@@ -281,17 +282,19 @@ export function useGraphBuilder({
           ended: groupEnded,
         })
         if (agendaIds.length > 0) {
+          // 보고자료가 다루는 안건: report→agenda '취급'
           agendaIds.forEach(aid => {
             if (agendaIdxById.has(aid))
-              edges.push({ from: rIdx, to: agendaIdxById.get(aid), rel: '도출' })
+              edges.push({ from: rIdx, to: agendaIdxById.get(aid), rel: '취급' })
           })
         } else {
+          // 연결 안건이 없으면 회의체에 첨부: report→Meetings '첨부'
           edges.push({ from: rIdx, to: primaryFromIdx, rel: '첨부' })
         }
-        // dept → report '첨부' (제출 부서가 그래프에 있으면 연결) — REL_MATRIX "dept→report": 첨부
+        // 제출 부서 → 보고자료 '작성' (제출 부서가 그래프에 있으면 연결) — REL_MATRIX "dept→report": 작성
         const _subDept = rp.submitter_department || rp.department || rp.dept || ''
         if (_subDept && deptIdxMap.has(_subDept)) {
-          edges.push({ from: deptIdxMap.get(_subDept), to: rIdx, rel: '첨부' })
+          edges.push({ from: deptIdxMap.get(_subDept), to: rIdx, rel: '작성' })
         }
       })
 

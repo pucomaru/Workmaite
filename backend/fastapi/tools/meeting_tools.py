@@ -260,6 +260,30 @@ def get_meeting_transcript(meeting_id: int, config: RunnableConfig) -> str:
         db.close()
 
 
+@tool
+def meeting_report_brief(meeting_id: int, config: RunnableConfig) -> str:
+    """회의체의 보고자료와 그 보고자료가 다루는(취급) 안건, 그리고 각 안건의 추출 근거(ai_evidence)를
+    한 번에 모아 보여준다. 그래프 경로 보고자료-[:취급]->안건·회의체-[:추출]->안건을 따른다.
+
+    회의 중 "이 보고서가 어떤 안건과 관련 있나 / 안건 근거가 뭔가 / 보고자료·안건 맥락에 맞게
+    문장을 다듬어줘" 같은, 현재 회의의 보고자료·안건 맥락이 필요한 질문·언어 교정에 사용한다.
+
+    Args:
+        meeting_id: 회의체 ID
+    """
+    _, allowed, is_admin = _scope(cast(RunnableConfig, config))
+    if not _check(meeting_id, allowed, is_admin):
+        return _denied(meeting_id)
+    db = SessionLocal()
+    try:
+        from core.meeting_context import meeting_report_agenda_context
+
+        ctx = meeting_report_agenda_context(db, meeting_id)
+        return ctx or "이 회의체에는 아직 등록된 보고자료·안건 맥락이 없습니다."
+    finally:
+        db.close()
+
+
 SUPERVISOR_TOOLS = [
     list_my_meetings,
     get_meeting_status,
@@ -268,5 +292,6 @@ SUPERVISOR_TOOLS = [
     search_minutes,
     search_with_context,
     get_meeting_transcript,
+    meeting_report_brief,
     graph_query,
 ]

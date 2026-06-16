@@ -11,49 +11,51 @@ import { apiAI } from '../api'
 
 // 관계명 → 색상 (그래프 엣지·배지 공용)
 export const REL_COLORS = reactive({
-  포함: '#a89fd4',
-  소속: '#0d9488',
+  포함: '#0d9488',
+  소속: '#a78bfa',
   소속회사: '#a78bfa',
-  운영: '#fbbf24',
+  운영: '#1e3a5f',
   참여: '#60a5fa',
   참석: '#93c5fd',
   협의: '#60a5fa',
   담당: '#34d399',
-  담당부서: '#34d399',
-  관할: '#60a5fa',
+  담당부서: '#a78bfa', // agenda→dept (안건 담당 부서)
+  추출: '#fbbf24', // Meetings→agenda (회의체가 추출한 안건)
   관련: '#fcd34d',
-  논의: '#c9a870',
-  도출: '#fb923c',
-  기록: '#a8a5a2',
-  작성: '#c4b5fd',
-  후속: '#e879f9',
-  발제: '#fb923c',
+  논의: '#ea580c',
+  도출: '#d97706', // minutes→agenda
+  기록: '#0891b2',
+  작성: '#c4b5fd', // dept→report (부서가 작성한 보고자료)
+  후속: '#ea580c',
+  첨부: '#60a5fa', // report→Meetings (보고자료 첨부)
+  취급: '#f472b6', // report→agenda (보고자료가 다루는 안건)
   참조: '#7a8090',
-  첨부: '#34d399',
+  // 폐지(레거시): 관할(→추출), 발제(→첨부/취급) — 미마이그레이션 잔존 엣지는 회색 폴백.
 })
 
-// 노드 타입쌍("from→to") → canonical 관계명 (neo4j_sync.py와 일치)
+// 노드 타입쌍("from→to") → canonical 관계명 (rel_schema.py / neo4j_sync.py와 일치)
 export const REL_MATRIX = reactive({
   'Meetings→company': '포함',
   'dept→company': '소속',
   'person→dept': '소속',
-  'dept→Meetings': '포함',
+  'dept→Meetings': '참여', // 부서가 구성원을 통해 참여하는 회의체 (neo4j_sync가 (Department)-[:참여]->(Meetings) 실제 생성)
   'dept→dept': '포함',
   'Meetings→Meetings': '협의',
   'agenda→agenda': '관련',
-  'agenda→Meetings': '관할',
+  'Meetings→agenda': '추출', // 회의체가 추출한 안건 (← 과거 'agenda→Meetings 관할' 폐지)
+  'agenda→dept': '담당부서', // 안건의 담당 부서
   'person→Meetings': '참여',
   'person→agenda': '담당',
   'agenda→session': '논의',
-  'session→Meetings': '소속',
+  'session→Meetings': '소속', // DB 보존(질의용) — 시각화에서는 그리지 않음
   'session→minutes': '기록',
   'person→minutes': '작성',
   'person→session': '참석',
   'session→session': '후속',
   'minutes→agenda': '도출',
-  'report→agenda': '도출',
-  'report→Meetings': '발제',
-  'dept→report': '발제',
+  'report→Meetings': '첨부', // 보고자료 첨부 (← 과거 '발제' 폐지)
+  'report→agenda': '취급', // 보고자료가 다루는 안건 (← 과거 '발제'/'도출' 폐지)
+  'dept→report': '작성',
 })
 
 /** 타입쌍 → 관계명 (정/역 양방향 시도, 폴백 '참조') */

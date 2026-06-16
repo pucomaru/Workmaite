@@ -3,11 +3,12 @@
 // - ICON_IMAGES[name] 이 있으면 <img>(자체 색/그라데이션 로고 등) 로 렌더.
 // - 아니면 ICON_PATHS[name] 을 currentColor stroke 라인 아이콘으로 렌더.
 import { computed } from 'vue'
-import { ICON_PATHS, ICON_IMAGES } from '../icons/uiIcons'
+import { ICON_IMAGES, ICON_PATHS } from '../icons/uiIcons'
 
 const props = defineProps({
   name: { type: String, required: true },
   size: { type: [Number, String], default: 14 },
+  color: { type: String, default: 'currentColor' },
 })
 
 const imgSrc = computed(() => ICON_IMAGES[props.name] || null)
@@ -29,7 +30,7 @@ const inner = computed(() => ICON_PATHS[props.name] || '')
     :width="size"
     :height="size"
     fill="none"
-    stroke="currentColor"
+    :stroke="color"
     stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"

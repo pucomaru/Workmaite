@@ -43,13 +43,17 @@ class HitlReviewCreate(BaseModel):
     comment: Optional[str] = None
 
 
-@router.post("/hitl-reviews")
+@router.post("/hitl-reviews", summary="HITL 검토 생성")
 async def create_hitl_review(
     data: HitlReviewCreate,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """보고서/아젠다에 대한 사람(HITL) 검토 결과를 저장하고 대상 노드에 흡수 동기화한다.
+
+    대상 회의체의 require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.
+    """
     # 검토 작성은 회의체 운영 행위 — 대상 보고서/아젠다의 회의체 편집 권한 필요
     if data.report_id is not None:
         require_meeting_edit(db, current_user, meeting_id_of_report(db, data.report_id))
@@ -85,7 +89,7 @@ class HitlReviewPatch(BaseModel):
     comment: Optional[str] = None
 
 
-@router.patch("/hitl-reviews/{hj_id}")
+@router.patch("/hitl-reviews/{hj_id}", summary="HITL 검토 수정")
 async def update_hitl_review(
     hj_id: int,
     data: HitlReviewPatch,
@@ -93,6 +97,10 @@ async def update_hitl_review(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """기존 HITL 검토의 상태·코멘트를 수정하고 대상 노드에 다시 흡수 동기화한다.
+
+    대상 회의체의 require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.
+    """
     from fastapi import HTTPException
 
     review = db.query(models.HitlReview).filter(models.HitlReview.id == hj_id).first()
@@ -137,12 +145,19 @@ class GlobalReviewRequest(BaseModel):
     chat_history: Optional[List[dict]] = []
 
 
-@router.post("/reports/global-review/stream")
+@router.post(
+    "/reports/global-review/stream",
+    summary="보고서 종합 검토 — SSE 스트리밍",
+)
 async def global_review_stream_ep(
     data: GlobalReviewRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의체의 여러 보고서를 종합 검토한 결과를 SSE(text/event-stream)로 스트리밍한다.
+
+    require_view 가드로 회의체 열람 권한을 확인한다.
+    """
     require_view(db, current_user, data.meeting_id)
     meeting_context = _get_meeting_context(db, data.meeting_id)
 
@@ -168,11 +183,15 @@ class ReviewReportRequest(BaseModel):
     agenda: Optional[str] = ""
 
 
-@router.post("/reports/review")
+@router.post("/reports/review", summary="보고서 단건 검토")
 async def review_report_ep(
     data: ReviewReportRequest,
     current_user: models.User = Depends(get_current_user),
 ):
+    """단일 보고서 내용을 안건 기준으로 검토해 점수·피드백을 반환한다.
+
+    로그인 사용자(get_current_user) 인증이 필요하며, 검토 생성 실패 시 502를 반환한다.
+    """
     try:
         result = await report_agent.review_report(
             report_content=data.report_content,
@@ -193,11 +212,15 @@ class StartReportReviewRequest(BaseModel):
     agenda: Optional[str] = ""
 
 
-@router.post("/reports/review/start")
+@router.post("/reports/review/start", summary="보고서 HITL 검토 시작")
 async def start_report_review_ep(
     data: StartReportReviewRequest,
     current_user: models.User = Depends(get_current_user),
 ):
+    """보고서 HITL 검토 워크플로우를 시작하고 서버 발급 thread_id(run_id)를 반환한다.
+
+    로그인 사용자(get_current_user) 인증이 필요하다.
+    """
     thread_id = data.thread_id or f"run-{uuid.uuid4()}"  # 서버 발급 run_id (P3A-1)
     result = await report_agent.start_report_review(
         thread_id=thread_id,
@@ -217,12 +240,17 @@ class ConfirmReportReviewRequest(BaseModel):
     meeting_id: Optional[int] = None
 
 
-@router.post("/reports/review/confirm")
+@router.post("/reports/review/confirm", summary="보고서 HITL 검토 확정")
 async def confirm_report_review_ep(
     data: ConfirmReportReviewRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """보고서 HITL 검토를 승인/반려로 확정하고 결과를 저장한다.
+
+    meeting_id가 있으면 require_meeting_edit 가드를 적용하고, 멱등성 가드로
+    더블클릭·재시도 중복을 차단한다.
+    """
     if data.meeting_id is not None:
         require_meeting_edit(db, current_user, data.meeting_id)
     from core.service_guards import idempotency_guard, release_idempotency
@@ -251,12 +279,16 @@ class StartExtractionRequest(BaseModel):
     org_dept_list: Optional[str] = ""
 
 
-@router.post("/extraction/review/start")
+@router.post("/extraction/review/start", summary="과제 추출 HITL 검토 시작")
 async def start_extraction_review_ep(
     data: StartExtractionRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """과제(아젠다) 추출 HITL 검토를 시작하고 서버 발급 thread_id(run_id)를 반환한다.
+
+    로그인 사용자(get_current_user) 인증이 필요하다.
+    """
     thread_id = data.thread_id or f"run-{uuid.uuid4()}"  # 서버 발급 run_id (P3A-1)
     result = await task_agent.start_extraction_review(
         thread_id=thread_id,
@@ -274,12 +306,17 @@ class ConfirmExtractionRequest(BaseModel):
     meeting_id: Optional[int] = None
 
 
-@router.post("/extraction/review/confirm")
+@router.post("/extraction/review/confirm", summary="과제 추출 HITL 검토 확정")
 async def confirm_extraction_review_ep(
     data: ConfirmExtractionRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """과제(아젠다) 추출 HITL 검토를 승인/반려로 확정하고 결과를 저장한다.
+
+    meeting_id가 있으면 require_meeting_edit 가드를 적용하고, 멱등성 가드로
+    더블클릭·재시도 중복을 차단한다.
+    """
     if data.meeting_id is not None:
         require_meeting_edit(db, current_user, data.meeting_id)
     from core.service_guards import idempotency_guard, release_idempotency

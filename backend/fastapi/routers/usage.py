@@ -57,13 +57,17 @@ def _is_stt_model(name: str) -> bool:
     return "transcribe" in n or "diarize" in n
 
 
-@router.get("/tokens")
+@router.get("/tokens", summary="토큰·STT 사용량 조회")
 def get_token_usage(
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """본인의 LLM 토큰·STT 사용량과 비용을 기간별·모델별·에이전트별로 집계해 반환합니다.
+
+    모델별/context_type별 세분화와 전체 기간 누적을 함께 제공한다. 인증 필요(본인 데이터만).
+    """
     today = date_type.today()
     try:
         date_from = (

@@ -43,11 +43,64 @@ describe('useGraphBuilder.buildGraphNodes', () => {
     expect(mg.label).toBe('반도체 위원회')
   })
 
-  it('아젠다는 관할 엣지로 연결된다 (담당 엣지는 만들지 않음)', () => {
+  it('아젠다는 담당부서·추출 엣지로 연결된다 (관할 폐지, 담당 엣지는 만들지 않음)', () => {
     const { buildGraphNodes } = makeBuilder(oneMeeting)
     const { edges } = buildGraphNodes()
-    expect(edges.some(e => e.rel === '관할')).toBe(true)
+    // 안건→담당부서 (Dev 부서가 있으므로), 회의체→안건 추출
+    expect(edges.some(e => e.rel === '담당부서')).toBe(true)
+    expect(edges.some(e => e.rel === '추출')).toBe(true)
+    // 폐지된 '관할', 만들지 않는 '담당'
+    expect(edges.some(e => e.rel === '관할')).toBe(false)
     expect(edges.some(e => e.rel === '담당')).toBe(false)
+  })
+
+  it('session_agendas로 agenda-[:논의]->session 엣지를 그린다 (논의 아젠다 반영)', () => {
+    const m = [
+      {
+        id: 'mg-1',
+        title: 'M',
+        status: 'active',
+        members: [
+          { userId: 1, userName: 'Kim', department: 'Dev', role: 'admin', company: 'Acme' },
+        ],
+        tasks: [{ id: 'agenda-5', content: '안건A', assignee_dept: 'Dev', status: 'ongoing' }],
+        minutes: [{ id: 'session-9', session_title: '1차', date: '2025-01-01' }],
+        reports: [],
+        session_agendas: [{ session_id: 'session-9', agenda_id: 'agenda-5' }],
+      },
+    ]
+    const { buildGraphNodes } = makeBuilder(m)
+    const { nodes, edges } = buildGraphNodes()
+    const agIdx = nodes.findIndex(n => n.type === 'agenda' && n.neo4jId === 'agenda-5')
+    const sIdx = nodes.findIndex(n => n.type === 'session' && n.neo4jId === 'session-9')
+    expect(agIdx).toBeGreaterThanOrEqual(0)
+    expect(sIdx).toBeGreaterThanOrEqual(0)
+    expect(edges.some(e => e.rel === '논의' && e.from === agIdx && e.to === sIdx)).toBe(true)
+  })
+
+  it('session→Meetings(소속) 엣지는 시각화하지 않는다 (DB에는 보존)', () => {
+    const withSession = [
+      {
+        id: 'mg-2',
+        title: 'S',
+        status: 'active',
+        members: [
+          { userId: 1, userName: 'Kim', department: 'Dev', role: 'admin', company: 'Acme' },
+        ],
+        tasks: [],
+        minutes: [{ id: 's1', session_title: '1차', date: '2025-01-01' }],
+        reports: [],
+      },
+    ]
+    const { buildGraphNodes } = makeBuilder(withSession)
+    const { nodes, edges } = buildGraphNodes()
+    const sIdx = nodes.findIndex(n => n.type === 'session')
+    const mgIdx = nodes.findIndex(n => n.type === 'Meetings')
+    expect(sIdx).toBeGreaterThanOrEqual(0)
+    // 세션↔회의체 직접 엣지가 없어야 함 (양방향 모두)
+    expect(
+      edges.some(e => (e.from === sIdx && e.to === mgIdx) || (e.from === mgIdx && e.to === sIdx)),
+    ).toBe(false)
   })
 
   it('같은 부서명이라도 회사가 다르면 부서 노드가 분리되고 각자 자기 회사에 연결된다 (사람→부서→회사)', () => {
@@ -160,10 +213,7 @@ describe('useGraphBuilder.computeUrgency', () => {
   it('완료된(done) 아젠다와 마감일 없는 항목은 무시한다', () => {
     expect(
       computeUrgency({
-        tasks: [
-          { status: 'done', due_date: new Date().toISOString() },
-          { status: 'todo' },
-        ],
+        tasks: [{ status: 'done', due_date: new Date().toISOString() }, { status: 'todo' }],
       }),
     ).toBe('normal')
   })
