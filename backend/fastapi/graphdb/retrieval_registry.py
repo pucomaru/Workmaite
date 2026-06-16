@@ -302,7 +302,9 @@ async def graph_expanded_search(
                 if row.get("minutes"):
                     parts.append("회의록: " + ", ".join(filter(None, row["minutes"])))
                 if row.get("related"):
-                    parts.append("관련 안건: " + ", ".join(filter(None, row["related"])))
+                    parts.append(
+                        "관련 안건: " + ", ".join(filter(None, row["related"]))
+                    )
                 out.append(
                     {"title": title, "path": " → ".join(parts), "score": s.get("score")}
                 )

@@ -256,14 +256,28 @@ function toggleAgendaDropdown() {
           <div class="app-modal-body">
             <!-- 재검토 토글 -->
             <label for="upload-resubmit-toggle" class="resubmit-toggle">
-              <input type="checkbox" id="upload-resubmit-toggle" v-model="isResubmit" @change="onResubmitToggle" />
-              <span class="resubmit-toggle-label">비슷한 자료를 검토한 적이 있습니다. (재검토)</span>
+              <input
+                type="checkbox"
+                id="upload-resubmit-toggle"
+                v-model="isResubmit"
+                @change="onResubmitToggle"
+              />
+              <span class="resubmit-toggle-label"
+                >비슷한 자료를 검토한 적이 있습니다. (재검토)</span
+              >
             </label>
 
             <!-- 반려 보고서 선택 -->
             <div v-if="isResubmit" class="app-modal-field">
-              <label for="upload-rejected-report">반려된 보고서 선택 <span class="req">*</span></label>
-              <select id="upload-rejected-report" v-model="selectedParentId" class="app-modal-input" @change="onParentSelect">
+              <label for="upload-rejected-report"
+                >반려된 보고서 선택 <span class="req">*</span></label
+              >
+              <select
+                id="upload-rejected-report"
+                v-model="selectedParentId"
+                class="app-modal-input"
+                @change="onParentSelect"
+              >
                 <option :value="null">반려된 보고서 선택...</option>
                 <option v-for="r in rejectedReports" :key="r.id" :value="r.id">
                   {{ r.file_name }} (v{{ r.version
@@ -339,14 +353,17 @@ function toggleAgendaDropdown() {
             </div>
 
             <div v-if="uploadForm.connectNodeId && uploadForm.label" class="conn-preview-box">
-              <span class="conn-node" style="flex: auto;">
+              <span class="conn-node" style="flex: auto">
                 <span
                   class="legend-onto-dot legend-dot-circle"
-                  style="background: radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed); display: inline-block; margin-right: 3px;"
+                  style="
+                    background: radial-gradient(circle at 38% 38%, #c4b5fd, #7c3aed);
+                    display: inline-block;
+                    margin-right: 3px;
+                  "
                 ></span>
-                {{
-                deptConnectableNodes.find(n => n.id === uploadForm.connectNodeId)?.label
-              }}</span>
+                {{ deptConnectableNodes.find(n => n.id === uploadForm.connectNodeId)?.label }}</span
+              >
               <span class="conn-arrow">→</span>
               <span
                 class="conn-rel"
@@ -356,12 +373,17 @@ function toggleAgendaDropdown() {
                 >{{ autoRel(uploadForm.connectNodeId, 'report') }}</span
               >
               <span class="conn-arrow">→</span>
-              <span class="conn-node file" style="flex: auto;">
+              <span class="conn-node file" style="flex: auto">
                 <span
                   class="legend-onto-dot legend-dot-circle"
-                  style="background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706); display: inline-block; margin-right: 3px;"
+                  style="
+                    background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706);
+                    display: inline-block;
+                    margin-right: 3px;
+                  "
                 ></span>
-                {{ uploadForm.label }}</span>
+                {{ uploadForm.label }}</span
+              >
 
               <span class="conn-arrow">→</span>
               <span
@@ -372,12 +394,17 @@ function toggleAgendaDropdown() {
                 >{{ '도출' }}</span
               >
               <span class="conn-arrow">→</span>
-              <span class="conn-node" style="flex: auto;">
+              <span class="conn-node" style="flex: auto">
                 <span
                   class="legend-onto-dot legend-dot-circle"
-                  style="background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706); display: inline-block; margin-right: 3px;"
+                  style="
+                    background: radial-gradient(circle at 38% 38%, #fcd34d, #d97706);
+                    display: inline-block;
+                    margin-right: 3px;
+                  "
                 ></span>
-                아젠다</span>
+                아젠다</span
+              >
             </div>
 
             <p class="agenda-auto-note">
@@ -780,7 +807,11 @@ function toggleAgendaDropdown() {
                         )"
                         :key="t.id"
                       >
-                        <label :for="'upload-agenda-' + t.id" class="agenda-dropdown-item" @click.stop>
+                        <label
+                          :for="'upload-agenda-' + t.id"
+                          class="agenda-dropdown-item"
+                          @click.stop
+                        >
                           <input
                             type="checkbox"
                             :id="'upload-agenda-' + t.id"
@@ -1142,7 +1173,7 @@ function toggleAgendaDropdown() {
   margin-bottom: 4px;
 }
 
-html.day-mode-global .resubmit-toggle{
+html.day-mode-global .resubmit-toggle {
   background: #f8f5ff !important;
   color: #8b5cf6 !important;
 }
@@ -1162,7 +1193,6 @@ html.day-mode-global .resubmit-toggle-label {
   font-weight: 600;
   color: #6d28d9 !important;
 }
-
 
 .resubmit-toggle-desc {
   font-size: 12px;

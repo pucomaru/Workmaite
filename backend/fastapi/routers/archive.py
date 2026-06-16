@@ -157,7 +157,9 @@ async def archive_extract_agendas(
     if previous_minutes:
         context_parts.append(
             "[과거 회의록 — 배경 참고용. 다음 아젠다는 반드시 위 '현재 회의록' 기준으로만 도출하세요]\n"
-            + "\n\n".join(f"[과거 {i + 1}]\n{m}" for i, m in enumerate(previous_minutes))
+            + "\n\n".join(
+                f"[과거 {i + 1}]\n{m}" for i, m in enumerate(previous_minutes)
+            )
         )
     if pending_todos_text:
         context_parts.append(f"[미완료 과제]\n{pending_todos_text}")
@@ -1109,7 +1111,9 @@ async def update_report(
         from sqlalchemy import cast as _cast
         from sqlalchemy.dialects.postgresql import JSONB as _JSONB
 
-        related_ids = [int(i) for i in (report.related_agenda_ids or []) if str(i).isdigit()]
+        related_ids = [
+            int(i) for i in (report.related_agenda_ids or []) if str(i).isdigit()
+        ]
         for ag_id in related_ids:
             still_approved = (
                 db.query(models.Report)

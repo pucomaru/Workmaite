@@ -76,7 +76,8 @@ class _Gate(BaseModel):
         description="요청을 처리하기에 필요한 정보가 충분하면 true (단순 인사·사용법은 충분으로 본다)"
     )
     clarifying_question: str = Field(
-        default="", description="정보 부족 시 사용자에게 할 되물음 1개. 충분하면 빈 문자열."
+        default="",
+        description="정보 부족 시 사용자에게 할 되물음 1개. 충분하면 빈 문자열.",
     )
     plan: str = Field(default="", description="요청 처리 계획 1~2문장")
     rewritten: str = Field(
@@ -229,7 +230,11 @@ async def qa_handle(state: WState) -> dict:
         result = await _get_agent().ainvoke({"messages": msgs}, config)
         answer = ""
         for m in reversed(result.get("messages", [])):
-            if isinstance(m, AIMessage) and isinstance(m.content, str) and m.content.strip():
+            if (
+                isinstance(m, AIMessage)
+                and isinstance(m.content, str)
+                and m.content.strip()
+            ):
                 answer = m.content
                 break
         return {"answer": answer, "attempts": attempts + 1}
@@ -272,7 +277,9 @@ async def hallucination_guard(state: WState) -> dict:
     if not ans:
         return {"grounded": True}
     q = state.get("rewritten") or state["message"]
-    mids = None if state.get("is_admin") else list(state.get("allowed_meeting_ids") or [])
+    mids = (
+        None if state.get("is_admin") else list(state.get("allowed_meeting_ids") or [])
+    )
     try:
         ctx = await _gather_grounding_context(q, mids)
     except Exception as e:
@@ -297,7 +304,11 @@ def _after_gate(state: WState) -> str:
         return "clarify"
     if state.get("qa_type") == "external":
         return "external_refuse"
-    if state.get("intent") in ("task_extractor", "minutes_generator", "report_reviewer"):
+    if state.get("intent") in (
+        "task_extractor",
+        "minutes_generator",
+        "report_reviewer",
+    ):
         return "delegate"
     return "qa_handle"
 

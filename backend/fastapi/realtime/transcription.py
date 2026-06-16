@@ -66,7 +66,9 @@ _HAS_WORD = re.compile(
     r"[0-9A-Za-z가-힣]"
 )  # 실제 단어 포함 여부 — 구두점만인 조각 제외용
 _MAX_BUF_CHARS = 160  # 종결부호 없이 길어지면 강제로 한 줄 확정(버퍼 무한증가 방지)
-_IDLE_FLUSH_SEC = 3.0  # 미확정 버퍼가 이 시간 동안 새 delta 없이 멈춰 있으면 한 줄로 확정
+_IDLE_FLUSH_SEC = (
+    3.0  # 미확정 버퍼가 이 시간 동안 새 delta 없이 멈춰 있으면 한 줄로 확정
+)
 
 try:
     from kiwipiepy import Kiwi as _Kiwi
@@ -233,7 +235,9 @@ async def _correct_terms(text: str, glossary: str) -> tuple[str, int, int]:
     s = (text or "").strip()
     if not _TERM_FIX_ENABLED or len(s) < _TERM_FIX_MIN_CHARS:
         return text, 0, 0
-    user = (f"[이 회의 고유명사 참고]\n{glossary}\n\n" if glossary else "") + f"문장: {s}"
+    user = (
+        f"[이 회의 고유명사 참고]\n{glossary}\n\n" if glossary else ""
+    ) + f"문장: {s}"
     try:
         resp = await asyncio.wait_for(
             _client().chat.completions.create(
@@ -366,7 +370,9 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
             if model.startswith(("gpt-4o-transcribe", "gpt-4o-mini-transcribe")):
                 if vocab_prompt:
                     _transcription_cfg["prompt"] = vocab_prompt
-                    logger.info(f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…")
+                    logger.info(
+                        f"[Realtime STT] 어휘 프롬프트 적용: {vocab_prompt[:80]}…"
+                    )
             _input_cfg = {
                 "format": {"type": "audio/pcm", "rate": _SAMPLE_RATE},
                 "transcription": _transcription_cfg,

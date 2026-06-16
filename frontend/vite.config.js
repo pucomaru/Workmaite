@@ -5,6 +5,11 @@ import { fileURLToPath, URL } from 'node:url'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  // 컴포넌트 마운트 테스트(@vue/test-utils)를 위해 jsdom 환경 사용.
+  // 순수 모듈 테스트도 jsdom에서 그대로 통과한다.
+  test: {
+    environment: 'jsdom',
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

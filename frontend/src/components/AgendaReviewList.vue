@@ -322,8 +322,18 @@ function deptList(dept) {
       <slot name="footer-left" />
       <div class="nab-footer-right">
         <span class="nab-count">승인 {{ approvedCount }} / 반려 {{ rejectedCount }}</span>
-        <button class="nab-save-btn" :disabled="!approvedCount && !rejectedCount" @click="emit('save')">
-          {{ approvedCount ? `승인 ${approvedCount}건 저장` : rejectedCount ? `반려 ${rejectedCount}건 처리` : '승인 0건 처리' }}
+        <button
+          class="nab-save-btn"
+          :disabled="!approvedCount && !rejectedCount"
+          @click="emit('save')"
+        >
+          {{
+            approvedCount
+              ? `승인 ${approvedCount}건 저장`
+              : rejectedCount
+                ? `반려 ${rejectedCount}건 처리`
+                : '승인 0건 처리'
+          }}
         </button>
       </div>
     </div>

@@ -166,10 +166,8 @@ function startResize(e, colIndex) {
   gap: 5px;
 }
 
-
 html.day-mode-global .app-table th {
   color: var(--dark-card) !important; /* 주간: 어두운 텍스트 (밝은 배경 대비) */
-
 }
 .sortable-th:hover {
   color: var(--dark-border);

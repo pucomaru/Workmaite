@@ -122,9 +122,7 @@ def _get_agent():
     return agent
 
 
-def _build_agent_hint(
-    meeting_id: int | None, thread_id: str | None
-) -> str:
+def _build_agent_hint(meeting_id: int | None, thread_id: str | None) -> str:
     """신호 활용: meeting_id가 있으면 그 회의체의 지침·설명·맥락을, 같은 스레드에 최근 부정
     피드백(rating=-1)이 있으면 '피해야 할 점'을 주입해 답변 품질을 끌어올린다."""
     parts: list[str] = []
@@ -148,7 +146,8 @@ def _build_agent_hint(
                         brief.append(f"배경: {mg.context}")
                     if brief:
                         parts.append(
-                            "[이 회의체 지침·맥락 — 답변에 반영하세요]\n" + "\n".join(brief)
+                            "[이 회의체 지침·맥락 — 답변에 반영하세요]\n"
+                            + "\n".join(brief)
                         )
             if thread_id:
                 rows = (

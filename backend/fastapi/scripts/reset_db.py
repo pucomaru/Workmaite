@@ -23,7 +23,6 @@ _DROP_ORDER = [
     "report_reviews",
     "reports",  # 구 테이블명 (혹시 남아있을 경우 대비)
     "agendas",
-    "graph_relations",
     "meeting_relations",
     "meeting_sessions",
     "meeting_members",

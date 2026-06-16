@@ -654,7 +654,7 @@ html.night-mode .agent-step-data .agent-step-text {
   content: '';
   position: absolute;
   inset: -1.5px;
-  border-radius: inherit; ;
+  border-radius: inherit;
   padding: 1.2px;
   background: conic-gradient(
     from var(--composer-ang),

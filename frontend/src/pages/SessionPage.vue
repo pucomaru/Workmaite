@@ -48,7 +48,6 @@ const expandedMeetingIds = ref(new Set())
 const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sessionStatusFilter = ref('all') // 'all' | 'scheduled' | 'ongoing' | 'ended'
-const hideEndedSessions = ref(false)
 const showFilterDrop = ref(false)
 const sidebarCollapsed = ref(false)
 const sidebarW = ref(330)
@@ -1071,11 +1070,13 @@ async function saveApprovedNextAgendas() {
       let html = editor.value.getHTML()
 
       // 4. 액션 아이템 → 표로 주입 (담당자=부서, 내용=제목, 기한=마감일)
-      const tableRows = approved.map(a => {
-        const dept = a._editDept || a.dept || '-'
-        const date = a._editEndDate || a.end_date || '-'
-        return `<tr><td><p>${dept}</p></td><td><p>${a.title}</p></td><td><p>${date}</p></td></tr>`
-      }).join('')
+      const tableRows = approved
+        .map(a => {
+          const dept = a._editDept || a.dept || '-'
+          const date = a._editEndDate || a.end_date || '-'
+          return `<tr><td><p>${dept}</p></td><td><p>${a.title}</p></td><td><p>${date}</p></td></tr>`
+        })
+        .join('')
       const tableHtml = `<table><tbody><tr><th><p>담당자</p></th><th><p>내용</p></th><th><p>기한</p></th></tr>${tableRows}</tbody></table>`
       html = html.replace(
         /(<h2[^>]*>(?:.*?액션 아이템.*?)<\/h2>)([\s\S]*?)(?=<h2|$)/,
@@ -1092,7 +1093,8 @@ async function saveApprovedNextAgendas() {
       loadMinutesToEditor(html)
       if (generatedMinutes.value) {
         generatedMinutes.value = { ...generatedMinutes.value, content_summary: html }
-        if (activeSession.value) getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
+        if (activeSession.value)
+          getOrCreateRecord(activeSession.value.id).generatedMinutes = generatedMinutes.value
       }
     }
     nextAgendaItems.value = []
@@ -1266,11 +1268,16 @@ const _WM_GREETING =
 // 회의 채팅 추천 문구 — 세션 status별로 다름
 const WM_SUGGESTIONS = computed(() => {
   switch (activeSession.value?.status) {
-    case 'scheduled': return ['참석자 알려줘', '안건이 뭐야?', '언제 어디서 해?']
-    case 'ongoing':   return ['지금까지 뭐 얘기했어?', '현재 안건이 뭐야?']
-    case 'ended':     return ['지금까지 뭐 얘기했어?', '안건이 뭐였어?', '참석자 알려줘']
-    case 'archived':  return ['회의 요약해줘', '결정사항 뭐야?', '액션아이템 알려줘']
-    default:          return ['곧 시작하는 회의 있어?', '내 회의 일정 알려줘']
+    case 'scheduled':
+      return ['참석자 알려줘', '안건이 뭐야?', '언제 어디서 해?']
+    case 'ongoing':
+      return ['지금까지 뭐 얘기했어?', '현재 안건이 뭐야?']
+    case 'ended':
+      return ['지금까지 뭐 얘기했어?', '안건이 뭐였어?', '참석자 알려줘']
+    case 'archived':
+      return ['회의 요약해줘', '결정사항 뭐야?', '액션아이템 알려줘']
+    default:
+      return ['곧 시작하는 회의 있어?', '내 회의 일정 알려줘']
   }
 })
 
@@ -1665,8 +1672,20 @@ async function downloadChatFile(filePath) {
               <circle cx="11" cy="11" r="8" />
               <path d="M21 21l-4.35-4.35" />
             </svg>
-            <input id="sidebar-search" name="sidebar-search" v-model="sidebarSearch" class="sp-search-input" placeholder="회의 검색" />
-            <button id="sidebar-search-clear" name="sidebar-search-clear" v-if="sidebarSearch" class="sp-search-clear" @click="sidebarSearch = ''">
+            <input
+              id="sidebar-search"
+              name="sidebar-search"
+              v-model="sidebarSearch"
+              class="sp-search-input"
+              placeholder="회의 검색"
+            />
+            <button
+              id="sidebar-search-clear"
+              name="sidebar-search-clear"
+              v-if="sidebarSearch"
+              class="sp-search-clear"
+              @click="sidebarSearch = ''"
+            >
               &times;
             </button>
             <div class="sp-filter-icon-btn-wrap">
@@ -1675,18 +1694,35 @@ async function downloadChatFile(filePath) {
                 :class="{ active: sessionStatusFilter !== 'all' }"
                 @click="showFilterDrop = !showFilterDrop"
               >
-                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path d="M4 6h16M7 12h10M10 18h4"/>
+                <svg
+                  width="13"
+                  height="13"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M4 6h16M7 12h10M10 18h4" />
                 </svg>
               </button>
               <div v-if="showFilterDrop" class="sp-filter-drop">
                 <button
-                  v-for="tab in [{ key: 'all', label: '전체' }, { key: 'scheduled', label: '예정' }, { key: 'ongoing', label: '진행중' }, { key: 'ended', label: '종료' }]"
+                  v-for="tab in [
+                    { key: 'all', label: '전체' },
+                    { key: 'scheduled', label: '예정' },
+                    { key: 'ongoing', label: '진행중' },
+                    { key: 'ended', label: '종료' },
+                  ]"
                   :key="tab.key"
                   class="sp-filter-drop-item"
                   :class="{ active: sessionStatusFilter === tab.key }"
-                  @click="sessionStatusFilter = tab.key; showFilterDrop = false"
-                >{{ tab.label }}</button>
+                  @click="
+                    sessionStatusFilter = tab.key
+                    showFilterDrop = false
+                  "
+                >
+                  {{ tab.label }}
+                </button>
               </div>
             </div>
           </div>
@@ -1725,14 +1761,29 @@ async function downloadChatFile(filePath) {
                 불러오는 중...
               </div>
               <div
-                v-else-if="!mtg.sessions.filter(s => s.status !== 'archived' && (sessionStatusFilter === 'all' || s.status === sessionStatusFilter)).length && !mtg.sessions.filter(s => s.status === 'archived' && (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')).length"
+                v-else-if="
+                  !mtg.sessions.filter(
+                    s =>
+                      s.status !== 'archived' &&
+                      (sessionStatusFilter === 'all' || s.status === sessionStatusFilter),
+                  ).length &&
+                  !mtg.sessions.filter(
+                    s =>
+                      s.status === 'archived' &&
+                      (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended'),
+                  ).length
+                "
                 class="sp-session-item"
                 style="justify-content: center; color: var(--dark-muted); font-size: 12px"
               >
                 등록된 회의가 없습니다
               </div>
               <div
-                v-for="s in (mtg.sessions || []).filter(s => s.status !== 'archived' && (sessionStatusFilter === 'all' || s.status === sessionStatusFilter))"
+                v-for="s in (mtg.sessions || []).filter(
+                  s =>
+                    s.status !== 'archived' &&
+                    (sessionStatusFilter === 'all' || s.status === sessionStatusFilter),
+                )"
                 :key="s.id"
                 class="sp-session-item"
                 :class="{ active: activeSession?.id === s.id }"
@@ -1765,8 +1816,15 @@ async function downloadChatFile(filePath) {
                 </button>
               </div>
               <!-- archived 세션 구분선 + 목록 -->
-              <template v-if="mtg.sessions.filter(s => s.status === 'archived').length && (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')">
-                <div style="margin: 4px 8px; border-top: 1px solid var(--border-color); opacity: 0.4"></div>
+              <template
+                v-if="
+                  mtg.sessions.filter(s => s.status === 'archived').length &&
+                  (sessionStatusFilter === 'all' || sessionStatusFilter === 'ended')
+                "
+              >
+                <div
+                  style="margin: 4px 8px; border-top: 1px solid var(--border-color); opacity: 0.4"
+                ></div>
                 <div
                   v-for="s in (mtg.sessions || []).filter(s => s.status === 'archived')"
                   :key="s.id"
@@ -1788,7 +1846,14 @@ async function downloadChatFile(filePath) {
                     </div>
                   </div>
                   <button class="sp-edit-btn" @click="openEditSession(s, $event)" title="편집">
-                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <svg
+                      width="13"
+                      height="13"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
@@ -1836,11 +1901,7 @@ async function downloadChatFile(filePath) {
             <div class="sp-panel-title-group">
               <div class="sp-panel-title-line">
                 <div class="sp-panel-title">{{ activeSession.title }}</div>
-                <span
-                  v-if="participantCount"
-                  class="sp-participant-count"
-                  title="회의 참여자 수"
-                >
+                <span v-if="participantCount" class="sp-participant-count" title="회의 참여자 수">
                   <i class="bi bi-people-fill"></i> {{ participantCount }}
                 </span>
               </div>
@@ -1926,7 +1987,13 @@ async function downloadChatFile(filePath) {
                   />
                 </div>
                 <div class="tline-body">
-                  <textarea name="tline-edit" id="tline-edit" v-model="editDraft.text" class="tline-edit-text" rows="2" />
+                  <textarea
+                    name="tline-edit"
+                    id="tline-edit"
+                    v-model="editDraft.text"
+                    class="tline-edit-text"
+                    rows="2"
+                  />
                   <div class="tline-edit-btns">
                     <button class="tline-save-btn" @click="saveEdit(idx)">저장</button>
                     <button class="tline-cancel-btn" @click="cancelEdit">취소</button>
@@ -2150,7 +2217,14 @@ async function downloadChatFile(filePath) {
               <template v-else-if="nextAgendaItems.length">
                 <div class="nab-list">
                   <button class="nab-direct-add-btn" @click="addNextAgendaItem">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <svg
+                      width="10"
+                      height="10"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      viewBox="0 0 24 24"
+                    >
                       <path d="M12 5v14M5 12h14" />
                     </svg>
                     아젠다 직접 추가
@@ -2284,10 +2358,7 @@ async function downloadChatFile(filePath) {
 
             <button class="ctrl-end" @click.stop="endMeeting">기록 종료</button>
           </div>
-          <span
-            v-if="['archived', 'ended'].includes(activeSession?.status)"
-            class="ctrl-ended-msg"
-          >
+          <span v-if="['archived', 'ended'].includes(activeSession?.status)" class="ctrl-ended-msg">
             <i class="bi bi-check-circle"></i> 종료된 회의입니다. 회의록을 생성할 수 있습니다.
           </span>
           <div class="ctrl-group-right">
@@ -2942,7 +3013,7 @@ async function downloadChatFile(filePath) {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 1;
-  min-width: 0;  
+  min-width: 0;
   color: var(--dark-text) !important;
 }
 html.day-mode-global .sp-session-title-text {
@@ -3309,15 +3380,7 @@ html.day-mode-global .sp-session-title-text {
   animation: ai-glow 2.4s ease-out 1;
 }
 .tline-corrected .tline-text {
-  background: linear-gradient(
-    90deg,
-    #f43f5e,
-    #f59e0b,
-    #22c55e,
-    #38bdf8,
-    #a855f7,
-    #f43f5e
-  );
+  background: linear-gradient(90deg, #f43f5e, #f59e0b, #22c55e, #38bdf8, #a855f7, #f43f5e);
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -4020,7 +4083,10 @@ html.night-mode .sp-sm-role-tag.member {
   align-items: center;
   margin-top: 10px;
 }
-.sp-filter-icon-btn-wrap { position: relative; margin-left: 4px; }
+.sp-filter-icon-btn-wrap {
+  position: relative;
+  margin-left: 4px;
+}
 .sp-filter-icon-btn {
   width: 30px;
   height: 30px;
@@ -4034,7 +4100,10 @@ html.night-mode .sp-sm-role-tag.member {
   color: var(--dark-muted);
   flex-shrink: 0;
 }
-.sp-filter-icon-btn.active { border-color: var(--accent); color: var(--accent); }
+.sp-filter-icon-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .sp-filter-drop {
   position: absolute;
   top: 34px;
@@ -4042,7 +4111,7 @@ html.night-mode .sp-sm-role-tag.member {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   z-index: 100;
   min-width: 90px;
   overflow: hidden;
@@ -4058,8 +4127,13 @@ html.night-mode .sp-sm-role-tag.member {
   cursor: pointer;
   color: var(--text);
 }
-.sp-filter-drop-item:hover { background: var(--bg-hover, #f5f5f5); }
-.sp-filter-drop-item.active { color: var(--accent); font-weight: 600; }
+.sp-filter-drop-item:hover {
+  background: var(--bg-hover, #f5f5f5);
+}
+.sp-filter-drop-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
 .sp-search-icon {
   position: absolute;
   left: 10px;

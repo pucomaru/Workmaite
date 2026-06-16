@@ -26,8 +26,7 @@ def _clean_transcript(text: str) -> str:
     text = text.replace("�", "")
     # 제어 문자 제거 (탭·줄바꿈 제외)
     text = "".join(
-        ch for ch in text
-        if unicodedata.category(ch)[0] != "C" or ch in ("\n", "\t")
+        ch for ch in text if unicodedata.category(ch)[0] != "C" or ch in ("\n", "\t")
     )
     # 단독 한글 자모(ㄱ~ㅣ, U+3131~U+314E/U+314F~U+3163) 연속 2개 이상 → 제거
     # (정상 한글은 완성형 U+AC00~U+D7A3, 자모 단독은 인코딩 깨짐 신호)
@@ -35,6 +34,7 @@ def _clean_transcript(text: str) -> str:
     # 공백 정리
     text = re.sub(r" {2,}", " ", text).strip()
     return text
+
 
 # 배치 전사 기본 모델. gpt-realtime-whisper는 실시간 전용(P5)이라 배치에선 제외.
 _DEFAULT_STT_MODEL = os.environ.get("STT_MODEL", "gpt-realtime-whisper")

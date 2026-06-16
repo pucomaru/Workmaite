@@ -96,12 +96,15 @@ async function submit() {
 
       <!-- 이메일 -->
       <div class="mb-3">
-        <label for="register-email" class="form-label">이메일 <span class="text-danger">*</span></label>
+        <label for="register-email" class="form-label"
+          >이메일 <span class="text-danger">*</span></label
+        >
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-envelope text-muted"></i>
           </span>
-          <input id="register-email"
+          <input
+            id="register-email"
             v-model="form.email"
             type="email"
             autocomplete="email"
@@ -117,12 +120,15 @@ async function submit() {
 
       <!-- 이름 -->
       <div class="mb-3">
-        <label for="register-name" class="form-label">이름 <span class="text-danger">*</span></label>
+        <label for="register-name" class="form-label"
+          >이름 <span class="text-danger">*</span></label
+        >
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-person text-muted"></i>
           </span>
-          <input id="register-name"
+          <input
+            id="register-name"
             v-model="form.name"
             type="text"
             autocomplete="name"
@@ -135,12 +141,24 @@ async function submit() {
       <!-- 조직 / 부서 -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px" class="mb-3">
         <div>
-          <label for="register-company" class="form-label">회사 <span class="text-danger">*</span></label>
-          <input id="register-company" v-model="form.company" type="text" autocomplete="organization" class="form-control" placeholder="예: SK AX" />
+          <label for="register-company" class="form-label"
+            >회사 <span class="text-danger">*</span></label
+          >
+          <input
+            id="register-company"
+            v-model="form.company"
+            type="text"
+            autocomplete="organization"
+            class="form-control"
+            placeholder="예: SK AX"
+          />
         </div>
         <div>
-          <label for="register-department" class="form-label">부서명 <span class="text-danger">*</span></label>
-          <input id="register-department"
+          <label for="register-department" class="form-label"
+            >부서명 <span class="text-danger">*</span></label
+          >
+          <input
+            id="register-department"
             v-model="form.department"
             type="text"
             autocomplete="off"
@@ -152,13 +170,24 @@ async function submit() {
 
       <!-- 직책 -->
       <div class="mb-3">
-        <label for="register-position" class="form-label">직책 <span class="text-danger">*</span></label>
-        <input id="register-position" v-model="form.position" type="text" autocomplete="organization-title" class="form-control" placeholder="예: 매니저" />
+        <label for="register-position" class="form-label"
+          >직책 <span class="text-danger">*</span></label
+        >
+        <input
+          id="register-position"
+          v-model="form.position"
+          type="text"
+          autocomplete="organization-title"
+          class="form-control"
+          placeholder="예: 매니저"
+        />
       </div>
 
       <!-- 비밀번호 -->
       <div class="mb-3">
-        <label for="register-password" class="form-label">비밀번호 <span class="text-danger">*</span></label>
+        <label for="register-password" class="form-label"
+          >비밀번호 <span class="text-danger">*</span></label
+        >
         <div class="input-group">
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock text-muted"></i>
@@ -222,7 +251,8 @@ async function submit() {
           <span class="input-group-text bg-light border-end-0">
             <i class="bi bi-lock-fill text-muted"></i>
           </span>
-          <input id="register-confirm"
+          <input
+            id="register-confirm"
             v-model="form.confirm"
             :type="showConfirm ? 'text' : 'password'"
             autocomplete="new-password"

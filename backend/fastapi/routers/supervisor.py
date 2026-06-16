@@ -297,7 +297,8 @@ async def minutes_generate_minutes(
         _agenda_ids = [sa.agenda_id for sa in _sa_rows]
         agendas = (
             db.query(models.Agenda).filter(models.Agenda.id.in_(_agenda_ids)).all()
-            if _agenda_ids else []
+            if _agenda_ids
+            else []
         )
     elif data.meeting_id:
         agendas = (
@@ -499,7 +500,7 @@ async def minutes_generate_minutes(
 
 # ─── 롤링 요약 캐시 (session_id + 마지막 블록 id → 압축 텍스트) ─────────────
 _rolling_summary_cache: dict[tuple, str] = {}
-_ROLLING_THRESHOLD = 5   # 이 블록 수 초과 시 오래된 블록 압축
+_ROLLING_THRESHOLD = 5  # 이 블록 수 초과 시 오래된 블록 압축
 _ROLLING_KEEP_RECENT = 3  # 최근 N개 블록은 항상 전문 유지
 
 
@@ -509,7 +510,9 @@ async def _get_rolling_summary_text(summary_blocks: list) -> str:
         # 전부 그대로 렌더링
         parts = []
         for b in summary_blocks:
-            bullets = "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+            bullets = (
+                "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+            )
             parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
         return "\n\n".join(parts)
 
@@ -524,14 +527,20 @@ async def _get_rolling_summary_text(summary_blocks: list) -> str:
         )
         try:
             from langchain_core.messages import HumanMessage as _HM
+
             _llm = make_llm(temperature=0.1, streaming=False)
-            _res = await _llm.ainvoke([
-                _HM(content=(
-                    "아래는 회의 진행 중 생성된 실시간 요약 블록들입니다. "
-                    "핵심 결정사항과 액션아이템만 남겨 3~5줄로 압축하세요. "
-                    "불필요한 설명 없이 bullet 형식으로만 작성하세요.\n\n" + old_text
-                ))
-            ])
+            _res = await _llm.ainvoke(
+                [
+                    _HM(
+                        content=(
+                            "아래는 회의 진행 중 생성된 실시간 요약 블록들입니다. "
+                            "핵심 결정사항과 액션아이템만 남겨 3~5줄로 압축하세요. "
+                            "불필요한 설명 없이 bullet 형식으로만 작성하세요.\n\n"
+                            + old_text
+                        )
+                    )
+                ]
+            )
             merged = f"[전반부 요약]\n{_res.content.strip()}"
         except Exception:
             merged = "\n".join(f"[{b.title}]" for b in old_blocks)
@@ -539,7 +548,9 @@ async def _get_rolling_summary_text(summary_blocks: list) -> str:
 
     recent_parts = []
     for b in recent_blocks:
-        bullets = "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+        bullets = (
+            "\n".join(f"  • {bl}" for bl in (b.bullets or [])) if b.bullets else ""
+        )
         recent_parts.append(f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]")
 
     return _rolling_summary_cache[cache_key] + "\n\n" + "\n\n".join(recent_parts)
@@ -562,6 +573,7 @@ async def session_chat(
     if not data.session_id:
         # 세션 미선택 시 supervisor 로직으로 fallback
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
 
     require_view_by_session(db, current_user, data.session_id)
@@ -569,6 +581,7 @@ async def session_chat(
     ctx = _build_session_context(db, data.session_id)
     if not ctx:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
     session = ctx["session"]
@@ -579,6 +592,7 @@ async def session_chat(
         # Neo4j RAG — 회의록 임베딩 검색
         try:
             from graphdb.retrieval_registry import vector_search
+
             rag_rows = await vector_search(
                 "Minutes",
                 data.message,
@@ -660,7 +674,9 @@ async def session_chat(
         )
         full_response = ""
         try:
-            async for chunk in make_llm(temperature=0.3, streaming=True).astream(messages):
+            async for chunk in make_llm(temperature=0.3, streaming=True).astream(
+                messages
+            ):
                 if chunk.content:
                     full_response += chunk.content
                     yield sse_token(chunk.content)
@@ -670,23 +686,27 @@ async def session_chat(
             try:
                 db_local = SessionLocal()
                 try:
-                    db_local.add(models.ChatMessage(
-                        thread_id=thread_id,
-                        user_id=current_user.id,
-                        context_type="sessions",
-                        role="user",
-                        content=data.message,
-                        session_id=data.session_id,
-                    ))
-                    if full_response:
-                        db_local.add(models.ChatMessage(
+                    db_local.add(
+                        models.ChatMessage(
                             thread_id=thread_id,
                             user_id=current_user.id,
                             context_type="sessions",
-                            role="agent",
-                            content=full_response,
+                            role="user",
+                            content=data.message,
                             session_id=data.session_id,
-                        ))
+                        )
+                    )
+                    if full_response:
+                        db_local.add(
+                            models.ChatMessage(
+                                thread_id=thread_id,
+                                user_id=current_user.id,
+                                context_type="sessions",
+                                role="agent",
+                                content=full_response,
+                                session_id=data.session_id,
+                            )
+                        )
                     db_local.commit()
                 finally:
                     db_local.close()
@@ -1166,8 +1186,10 @@ async def supervisor_chat(
                                     .count()
                                 )
                                 _status_ko_map = {
-                                    "scheduled": "예정됨", "ongoing": "진행 중",
-                                    "ended": "종료됨", "archived": "완료",
+                                    "scheduled": "예정됨",
+                                    "ongoing": "진행 중",
+                                    "ended": "종료됨",
+                                    "archived": "완료",
                                 }
                                 _type_label = f" — {_mg.type}" if _mg.type else ""
                                 ctx_lines.append(f"\n📋 {_mg.title}{_type_label}")
@@ -1190,10 +1212,13 @@ async def supervisor_chat(
                                 if _sessions:
                                     ctx_lines.append("  - 회의 목록:")
                                     for _s in _sessions:
-                                        _s_status = _status_ko_map.get(_s.status, _s.status)
+                                        _s_status = _status_ko_map.get(
+                                            _s.status, _s.status
+                                        )
                                         _s_date = (
                                             _s.scheduled_at.strftime("%Y.%m.%d")
-                                            if _s.scheduled_at else "일정 미정"
+                                            if _s.scheduled_at
+                                            else "일정 미정"
                                         )
                                         ctx_lines.append(
                                             f"    · {_s.title} ({_s_date}, {_s_status})"
@@ -1233,8 +1258,14 @@ async def supervisor_chat(
             _status_ko = {"scheduled": "예정됨", "ongoing": "진행 중"}
             _upcoming = (
                 db.query(models.MeetingSession, models.Meeting.title)
-                .join(models.SessionMember, models.SessionMember.session_id == models.MeetingSession.id)
-                .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                .join(
+                    models.SessionMember,
+                    models.SessionMember.session_id == models.MeetingSession.id,
+                )
+                .join(
+                    models.Meeting,
+                    models.Meeting.id == models.MeetingSession.meeting_id,
+                )
                 .filter(
                     models.SessionMember.user_id == current_user.id,
                     models.MeetingSession.status.in_(["scheduled", "ongoing"]),
@@ -1247,7 +1278,10 @@ async def supervisor_chat(
             if not _upcoming and pg_meeting_ids:
                 _upcoming = (
                     db.query(models.MeetingSession, models.Meeting.title)
-                    .join(models.Meeting, models.Meeting.id == models.MeetingSession.meeting_id)
+                    .join(
+                        models.Meeting,
+                        models.Meeting.id == models.MeetingSession.meeting_id,
+                    )
                     .filter(
                         models.MeetingSession.meeting_id.in_(list(pg_meeting_ids)),
                         models.MeetingSession.status.in_(["scheduled", "ongoing"]),
@@ -1261,7 +1295,8 @@ async def supervisor_chat(
                 for _s, _ in _upcoming:
                     _date = (
                         _s.scheduled_at.strftime("%Y.%m.%d %H:%M")
-                        if _s.scheduled_at else "일정 미정"
+                        if _s.scheduled_at
+                        else "일정 미정"
                     )
                     _lines.append(
                         f"  - 제목: {_s.title} / 일시: {_date}"
@@ -1291,7 +1326,16 @@ async def supervisor_chat(
 
             if _route in ("supervisor_direct", "knowledge_manager"):
                 # ── 일정 조회 fast path: Neo4j 도구 없이 DB 데이터로 직접 답변 ──
-                _SCHEDULE_KEYWORDS = ["일정", "곧 시작", "예정된 회의", "다음 회의", "언제 있", "회의 있어", "회의있어", "회의 언제"]
+                _SCHEDULE_KEYWORDS = [
+                    "일정",
+                    "곧 시작",
+                    "예정된 회의",
+                    "다음 회의",
+                    "언제 있",
+                    "회의 있어",
+                    "회의있어",
+                    "회의 언제",
+                ]
                 _is_schedule_query = any(kw in msg for kw in _SCHEDULE_KEYWORDS)
                 if _is_schedule_query and _upcoming_ctx:
                     _now_str = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
@@ -1313,8 +1357,13 @@ async def supervisor_chat(
                         "- 도입 문구나 마무리 인사 없이 바로 답하세요.\n\n"
                         + _upcoming_ctx
                     )
-                    _sched_msgs = [SystemMessage(content=_sched_system), HumanMessage(content=msg)]
-                    async for _chunk in make_llm(temperature=0.2, streaming=True).astream(_sched_msgs):
+                    _sched_msgs = [
+                        SystemMessage(content=_sched_system),
+                        HumanMessage(content=msg),
+                    ]
+                    async for _chunk in make_llm(
+                        temperature=0.2, streaming=True
+                    ).astream(_sched_msgs):
                         if _chunk.content:
                             _assistant_chunks.append(_chunk.content)
                             yield sse_token(_chunk.content)

@@ -258,7 +258,7 @@ function updateRole(idx, role) {
   align-items: center;
   gap: 10px;
   padding: 5px 6px;
-  border-radius: 7px; 
+  border-radius: 7px;
 }
 .mi-member-row:hover {
   background: var(--surface);

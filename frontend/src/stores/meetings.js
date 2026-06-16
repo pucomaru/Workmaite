@@ -101,11 +101,11 @@ export const useMeetingsStore = defineStore('meetings', () => {
     if (idx !== -1) meetings.value[idx] = data
 
     // 하위 scheduled/ongoing 세션 cascade 종료
-    const sessions = (meetings.value[idx]?.sessions || data.sessions || [])
+    const sessions = meetings.value[idx]?.sessions || data.sessions || []
     await Promise.allSettled(
       sessions
         .filter(s => ['scheduled', 'ongoing'].includes(s.status))
-        .map(s => api.post(`/api/v1/sessions/${s.id}/end`))
+        .map(s => api.post(`/api/v1/sessions/${s.id}/end`)),
     )
 
     return data

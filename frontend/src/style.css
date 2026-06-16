@@ -1073,14 +1073,19 @@ html.night-mode .create-btn {
 .create-btn:hover {
   opacity: 0.85;
 }
+
 .create-btn.secondary {
-  background: transparent;
+  background: var(--accent) !important;
   border: 1px solid var(--white-18);
   color: var(--dark-text-2);
 }
 .create-btn.secondary:hover {
-  background: var(--white-07);
-  opacity: 1;
+  opacity: 0.85;
+}
+.day-mode .create-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--dark-border);
+  color: #fff !important;
 }
 /* day-mode 변형 */
 .day-mode .archive-header {
@@ -1457,12 +1462,13 @@ html.night-mode .app-tab.active .app-tab-badge { background:rgba(147,197,253,.2)
   color: var(--dark-card);
 }
 .app-modal-body {
+  min-width: 400px;
   padding: 14px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  max-height: 72vh;
+  max-height: 400px;
   flex: 1;
 }
 .app-modal-footer {
@@ -1596,10 +1602,11 @@ html.day-mode-global .app-btn-danger:hover {
 }
 
 .app-btn-danger:hover {
+  opacity: 0.85;
   background: #f7c3c353;
 }
 .app-btn-danger:disabled {
-  opacity: 0.4;
+  opacity: 0.85;
   cursor: not-allowed;
 }
 .app-modal-footer-right {

@@ -562,7 +562,7 @@ async def get_archive(
                 "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else "",
                 "session_status": s.status or "",
                 "content_summary": mn.content_summary if mn else "",
-                "short_summary": getattr(mn, 'short_summary', None) if mn else None,
+                "short_summary": getattr(mn, "short_summary", None) if mn else None,
                 "minutes_file_name": mn.file_name if mn else "",
                 "minutes_status": mn.status if mn else "",
                 "generated_at": mn.generated_at.isoformat() + "Z"
@@ -622,7 +622,9 @@ async def get_archive(
                             else "",
                             "session_status": str(s.status) if s.status else "",
                             "content_summary": mn.content_summary if mn else "",
-                            "short_summary": getattr(mn, 'short_summary', None) if mn else None,
+                            "short_summary": getattr(mn, "short_summary", None)
+                            if mn
+                            else None,
                             "minutes_file_name": mn.file_name if mn else "",
                             "minutes_status": mn.status if mn else "",
                             "minutes_pg_id": mn.id if mn else None,
@@ -756,7 +758,7 @@ async def create_relationship(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """수동 관계 추가 — PostgreSQL(graph_relations, 소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
+    """수동 관계 추가 — PostgreSQL(소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -765,7 +767,9 @@ async def create_relationship(
     if not from_id or not to_id:
         raise HTTPException(status_code=400, detail="from_id, to_id 필수")
     if from_id == to_id:
-        raise HTTPException(status_code=400, detail="자기 자신과의 관계는 만들 수 없습니다.")
+        raise HTTPException(
+            status_code=400, detail="자기 자신과의 관계는 만들 수 없습니다."
+        )
     # Cypher 관계 타입: 영문/숫자/밑줄만 허용 (한국어는 백틱으로 감싸되 허용 목록 내여야 함)
     import re
 
@@ -816,7 +820,7 @@ async def delete_relationship(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """두 노드 사이의 관계 삭제 — PostgreSQL(graph_relations)에서 삭제하고 Neo4j에 동기화한다."""
+    """두 노드 사이의 관계 삭제 — PostgreSQL에서 삭제하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -857,7 +861,7 @@ async def update_relationship(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """관계 유형 변경 (old → new) — PostgreSQL(graph_relations)에서 변경하고 Neo4j에 동기화한다."""
+    """관계 유형 변경 (old → new) — PostgreSQL에서 변경하고 Neo4j에 동기화한다."""
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     old_rel = (data.get("old_rel") or "").strip()
     new_rel = (data.get("new_rel") or "").strip()
@@ -1098,7 +1102,9 @@ async def create_agenda_node(
     # Draft는 PostgreSQL에만 보관 — Neo4j 연동 안 함 (기존 노드 있으면 제거)
     if (status or "").strip().lower() == "draft":
         try:
-            await _run_cypher("MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id})
+            await _run_cypher(
+                "MATCH (ag:Agenda {id: $id}) DETACH DELETE ag", {"id": ag_id}
+            )
         except Exception:
             pass
         return {"ok": True, "skipped": "draft"}
@@ -1149,7 +1155,9 @@ async def update_agenda_node(
     # Draft로 전환되면 PostgreSQL에만 보관 — Neo4j 노드 제거
     if (fields.get("status") or "").strip().lower() == "draft":
         try:
-            await _run_cypher("MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id})
+            await _run_cypher(
+                "MATCH (ag:Agenda {id: $ag_id}) DETACH DELETE ag", {"ag_id": ag_id}
+            )
         except Exception:
             pass
         return {"ok": True, "skipped": "draft"}

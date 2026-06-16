@@ -68,7 +68,7 @@ function cancel() {
   white-space: pre-line;
 }
 
-html.night-mode .confirm-msg{
+html.night-mode .confirm-msg {
   color: var(--dark-text) !important;
 }
 

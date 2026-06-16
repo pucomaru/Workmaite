@@ -299,3 +299,14 @@ CREATE TABLE "graph_relations" (
 );
 CREATE INDEX "idx_graph_relations_from" ON "graph_relations" (from_node_id);
 CREATE INDEX "idx_graph_relations_to" ON "graph_relations" (to_node_id);
+
+CREATE TABLE meeting_relations (
+  id          bigserial PRIMARY KEY,
+  from_meeting_id bigint NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  to_meeting_id   bigint NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  rel_type    varchar(20) NOT NULL DEFAULT '협의',
+  created_by  bigint REFERENCES users(id),
+  created_at  timestamp DEFAULT now(),
+  CONSTRAINT uq_meeting_rel UNIQUE (from_meeting_id, to_meeting_id, rel_type),
+  CONSTRAINT chk_not_self CHECK (from_meeting_id <> to_meeting_id)
+);

@@ -374,10 +374,12 @@ async function parseAndImportCSV(text) {
 const groupedFilteredMembers = computed(() => filteredMembers.value)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
-const { sortKey, sortDir, handleSort, sorted: sortedMembers } = useTableSort(
-  groupedFilteredMembers,
-  { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } },
-)
+const {
+  sortKey,
+  sortDir,
+  handleSort,
+  sorted: sortedMembers,
+} = useTableSort(groupedFilteredMembers, { sortValues: { role: m => ROLE_RANK[m.role] ?? 99 } })
 
 const MEMBER_PAGE_SIZE = 30
 const {
@@ -642,11 +644,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-name">이름 <span class="req">*</span></label>
-                <input id="add-member-name" v-model="addForm.name" autocomplete="off" class="app-modal-input" placeholder="홍길동" />
+                <input
+                  id="add-member-name"
+                  v-model="addForm.name"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="홍길동"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-email">이메일</label>
-                <input id="add-member-email"
+                <input
+                  id="add-member-email"
                   v-model="addForm.email"
                   autocomplete="off"
                   class="app-modal-input"
@@ -658,11 +667,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-company">회사명</label>
-                <input id="add-member-company" v-model="addForm.company" autocomplete="off" class="app-modal-input" placeholder="예: SK AX" />
+                <input
+                  id="add-member-company"
+                  v-model="addForm.company"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="예: SK AX"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-department">부서명</label>
-                <input id="add-member-department"
+                <input
+                  id="add-member-department"
                   v-model="addForm.department"
                   autocomplete="off"
                   class="app-modal-input"
@@ -674,11 +690,18 @@ const {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-position">직책</label>
-                <input id="add-member-position" v-model="addForm.position" autocomplete="off" class="app-modal-input" placeholder="예: 팀장" />
+                <input
+                  id="add-member-position"
+                  v-model="addForm.position"
+                  autocomplete="off"
+                  class="app-modal-input"
+                  placeholder="예: 팀장"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="add-member-password">비밀번호 <span class="req">*</span></label>
-                <input id="add-member-password"
+                <input
+                  id="add-member-password"
                   v-model="addForm.password"
                   type="password"
                   autocomplete="new-password"
@@ -923,7 +946,4 @@ const {
 .dropdown-item-result:hover {
   background: var(--surface-2);
 }
-
-
-
 </style>

@@ -570,7 +570,12 @@ const {
                   <div v-if="!dayEvents.length" class="empty-state" style="padding: 32px 16px">
                     <p>이 날에 등록된 일정이 없습니다.</p>
                   </div>
-                  <div v-for="e in dayEvents" :key="e.id" class="day-evt-row" :class="{ 'day-evt-row-ended': e.meetingStatus === 'ended' }">
+                  <div
+                    v-for="e in dayEvents"
+                    :key="e.id"
+                    class="day-evt-row"
+                    :class="{ 'day-evt-row-ended': e.meetingStatus === 'ended' }"
+                  >
                     <div class="day-evt-bar" :class="evtCls(e)" />
                     <div class="day-evt-info">
                       <span
@@ -584,7 +589,9 @@ const {
                         <span :class="{ 'evt-meta-strikethrough': e.meetingStatus === 'ended' }">
                           {{ e.meeting_title }}
                         </span>
-                        <span v-if="e.meetingStatus === 'ended'" class="evt-ended-label"> (종료된 회의체)</span>
+                        <span v-if="e.meetingStatus === 'ended'" class="evt-ended-label">
+                          (종료된 회의체)</span
+                        >
                       </div>
                       <div v-if="e.scheduledAt" class="day-evt-meta">
                         {{ fmtScheduledAt(e.scheduledAt) }}

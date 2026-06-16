@@ -20,7 +20,10 @@ for _stream in (sys.stdout, sys.stderr):
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("사용법: python scripts/render_mermaid.py <입력.mmd> [출력.png]", file=sys.stderr)
+        print(
+            "사용법: python scripts/render_mermaid.py <입력.mmd> [출력.png]",
+            file=sys.stderr,
+        )
         return 1
     src = Path(sys.argv[1]).resolve()
     if not src.exists():

@@ -87,7 +87,9 @@ registerProcessor('pcm-worklet', PcmWorklet)
 let _workletUrl = null
 function workletUrl() {
   if (!_workletUrl && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
-    _workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' }))
+    _workletUrl = URL.createObjectURL(
+      new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' }),
+    )
   }
   return _workletUrl
 }

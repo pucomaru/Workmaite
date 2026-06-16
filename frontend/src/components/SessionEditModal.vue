@@ -181,7 +181,12 @@ async function doSave() {
           <div class="app-modal-field">
             <label for="session-edit-date">회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <input type="date" id="session-edit-date" v-model="form.dateOnly" class="datetime-split-date" />
+              <input
+                type="date"
+                id="session-edit-date"
+                v-model="form.dateOnly"
+                class="datetime-split-date"
+              />
               <span class="datetime-split-sep"></span>
               <input
                 id="session-edit-time"

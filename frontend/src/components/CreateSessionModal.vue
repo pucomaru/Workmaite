@@ -291,7 +291,10 @@ async function doCreate() {
                 v-model="form.dateOnly"
                 class="app-modal-input"
                 style="flex: 1"
-                @update:modelValue="showPastDateAlert = false; errors.dateOnly = null"
+                @update:modelValue="
+                  showPastDateAlert = false
+                  errors.dateOnly = null
+                "
               />
               <div style="position: relative; width: 110px">
                 <div
@@ -431,7 +434,9 @@ async function doCreate() {
                 "
               >
                 <label
-                  v-for="agenda in agendas.filter(a => a.status === 'ongoing' || a.status === 'done')"
+                  v-for="agenda in agendas.filter(
+                    a => a.status === 'ongoing' || a.status === 'done',
+                  )"
                   :key="agenda.id"
                   style="
                     display: flex;

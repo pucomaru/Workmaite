@@ -75,7 +75,7 @@ const MODEL_COLORS = {
   'gpt-4.1-mini': '#f59e0b',
   'gpt-4.1-nano': '#8b5cf6',
   'gpt-4-turbo': '#ef4444',
-  'o1': '#ec4899',
+  o1: '#ec4899',
   'o1-mini': '#14b8a6',
   'o3-mini': '#f97316',
 }

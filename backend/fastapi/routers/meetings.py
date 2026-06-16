@@ -882,17 +882,46 @@ async def ai_delete_user(
     db.execute(text("DELETE FROM session_members WHERE user_id = :uid"), {"uid": uid})
     db.execute(text("DELETE FROM meeting_members WHERE user_id = :uid"), {"uid": uid})
     # 2) nullable FK → NULL (보고서·채팅 이력은 유지)
-    db.execute(text("UPDATE reports SET upload_id = NULL WHERE upload_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE chat_messages SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE chat_feedback SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE meetings SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
-    db.execute(text("UPDATE agenda SET assignee_id = NULL WHERE assignee_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE stt_segments SET speaker_user_id = NULL WHERE speaker_user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE minutes SET recorder_id = NULL WHERE recorder_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE agent_logs SET user_id = NULL WHERE user_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE hitl_reviews SET reviewer_id = NULL WHERE reviewer_id = :uid"), {"uid": uid})
-    db.execute(text("UPDATE graph_relations SET created_by = NULL WHERE created_by = :uid"), {"uid": uid})
-    db.execute(text("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :uid"), {"uid": uid})
+    db.execute(
+        text("UPDATE reports SET upload_id = NULL WHERE upload_id = :uid"), {"uid": uid}
+    )
+    db.execute(
+        text("UPDATE chat_messages SET user_id = NULL WHERE user_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE chat_feedback SET user_id = NULL WHERE user_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE meetings SET created_by = NULL WHERE created_by = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE agenda SET assignee_id = NULL WHERE assignee_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text(
+            "UPDATE stt_segments SET speaker_user_id = NULL WHERE speaker_user_id = :uid"
+        ),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE minutes SET recorder_id = NULL WHERE recorder_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE agent_logs SET user_id = NULL WHERE user_id = :uid"), {"uid": uid}
+    )
+    db.execute(
+        text("UPDATE hitl_reviews SET reviewer_id = NULL WHERE reviewer_id = :uid"),
+        {"uid": uid},
+    )
+    db.execute(
+        text("UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :uid"),
+        {"uid": uid},
+    )
     # 3) users 행 삭제
     db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": uid})
     db.commit()

@@ -37,7 +37,10 @@ def generate_minutes_system(
             f"- {p.get('dept') or p.get('name', '?')} ({'간사' if p.get('role') == 'admin' else '참여자'})"
             for p in participants
         ]
-        parts.append("[참석자 — 참고용. 회의록 상단 표를 수정하는 데 사용하지 말 것]\n" + "\n".join(lines))
+        parts.append(
+            "[참석자 — 참고용. 회의록 상단 표를 수정하는 데 사용하지 말 것]\n"
+            + "\n".join(lines)
+        )
 
     if prev_minutes:
         # 연속성 참고용일 뿐 — 이번 회의록 본문은 반드시 아래 [STT 대화 기록]만으로 작성한다.
@@ -100,19 +103,19 @@ def generate_minutes_human(
 """
 
     # 상단 표 구성
-    agenda_cell = agenda_text.replace("\n- ", " / ").lstrip("- ") if agenda_text else "안건 미정"
+    agenda_cell = (
+        agenda_text.replace("\n- ", " / ").lstrip("- ") if agenda_text else "안건 미정"
+    )
     datetime_cell = (session_info or {}).get("started_at") or now
     location_cell = (session_info or {}).get("location") or ""
     secretaries = [p for p in (participants or []) if p.get("role") == "admin"]
     members = [p for p in (participants or []) if p.get("role") != "admin"]
-    secretary_cell = ", ".join(
-        p["dept"] if p.get("dept") else p["name"]
-        for p in secretaries
-    ) or "-"
-    member_cell = ", ".join(
-        p["dept"] if p.get("dept") else p["name"]
-        for p in members
-    ) or "-"
+    secretary_cell = (
+        ", ".join(p["dept"] if p.get("dept") else p["name"] for p in secretaries) or "-"
+    )
+    member_cell = (
+        ", ".join(p["dept"] if p.get("dept") else p["name"] for p in members) or "-"
+    )
 
     header_rows = [
         f"| 안건 | {agenda_cell} |",

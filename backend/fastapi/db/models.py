@@ -135,7 +135,9 @@ class MeetingSession(Base):
         BigInteger, default=0, nullable=False
     )
     last_resumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=datetime.utcnow
+    )
 
     minutes: Mapped["Minutes | None"] = relationship(
         "Minutes", back_populates="session", uselist=False
@@ -377,19 +379,4 @@ class HitlReview(Base):
     )
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-
-class GraphRelation(Base):
-    """그래프에서 사용자가 수동 생성한 자유 관계(구조 FK 외). 소스 오브 트루스=PostgreSQL이며
-    Neo4j에는 동기화(MERGE)된다. node id는 그래프 노드 id 문자열(예: mg-001, agenda-12, p-3)."""
-
-    __tablename__ = "graph_relations"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
-    from_node_id: Mapped[str] = mapped_column(Text, nullable=False)
-    rel_type: Mapped[str] = mapped_column(Text, nullable=False)
-    to_node_id: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

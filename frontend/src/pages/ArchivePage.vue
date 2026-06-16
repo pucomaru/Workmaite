@@ -2232,9 +2232,14 @@ function _nodeToCtx(n) {
   const type = typeMap[n.type] || 'document'
   const label = n.label || d.title || d.file_name || '노드'
   const typeKo =
-    { meeting: '회의체', department: '부서', person: '구성원', task: '아젠다', session: '회의', document: '문서' }[
-      type
-    ] || ''
+    {
+      meeting: '회의체',
+      department: '부서',
+      person: '구성원',
+      task: '아젠다',
+      session: '회의',
+      document: '문서',
+    }[type] || ''
   const summary = [
     `[${typeKo}] ${label}`,
     d.status ? '상태: ' + d.status : '',
@@ -2587,8 +2592,7 @@ const fileListMap = computed(() => {
         .map(m => m.userName || m.name)
         .filter(Boolean)
         .join(', ') || '간사'
-    const hostDept =
-      adminMembers[0]?.department || adminMembers[0]?.dept || managerName
+    const hostDept = adminMembers[0]?.department || adminMembers[0]?.dept || managerName
     const items = []
     g.minutes
       .filter(m => m.session_status === 'archived')
@@ -2652,10 +2656,11 @@ const filteredFileListMap = computed(() => {
       filtered = filtered.filter(item => item.type === selectedHistoryType.value)
     }
     if (q) {
-      filtered = filtered.filter(item =>
-        (item.fileName || '').toLowerCase().includes(q) ||
-        (item.dept || '').toLowerCase().includes(q) ||
-        (item.session_title || '').toLowerCase().includes(q),
+      filtered = filtered.filter(
+        item =>
+          (item.fileName || '').toLowerCase().includes(q) ||
+          (item.dept || '').toLowerCase().includes(q) ||
+          (item.session_title || '').toLowerCase().includes(q),
       )
     }
     map.set(id, filtered)
@@ -3690,10 +3695,10 @@ provide('archiveSidebar', {
           placeholder="노드 검색..."
           @keydown.enter="onSearchEnter"
         />
-        <span
-          v-if="searchHitMgIdxs.length > 1"
-          class="search-hit-counter"
-        >{{ searchHitCurrentIdx >= 0 ? searchHitCurrentIdx + 1 : 1 }} / {{ searchHitMgIdxs.length }}</span>
+        <span v-if="searchHitMgIdxs.length > 1" class="search-hit-counter"
+          >{{ searchHitCurrentIdx >= 0 ? searchHitCurrentIdx + 1 : 1 }} /
+          {{ searchHitMgIdxs.length }}</span
+        >
         <button v-if="search" class="search-clear" @click="search = ''">
           <svg
             width="11"

@@ -727,14 +727,17 @@ async def upload_minutes(
     short_summary = None
     try:
         from openai import AsyncOpenAI
+
         openai_client = AsyncOpenAI()
         summary_response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             max_tokens=300,
-            messages=[{
-                "role": "user",
-                "content": f"다음 회의록을 3~5줄로 핵심만 요약해줘. 결정사항과 액션아이템 위주로. 불릿포인트 없이 자연스러운 문장으로.\n\n{content}"
-            }]
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"다음 회의록을 3~5줄로 핵심만 요약해줘. 결정사항과 액션아이템 위주로. 불릿포인트 없이 자연스러운 문장으로.\n\n{content}",
+                }
+            ],
         )
         short_summary = summary_response.choices[0].message.content
     except Exception as e:

@@ -67,5 +67,7 @@ def build_vocab_prompt(db: Session, session_id) -> str:
         prompt = "회의 관련 고유명사: " + ", ".join(uniq)
         return prompt[:_MAX_PROMPT_CHARS]
     except Exception as e:
-        logger.warning(f"[STT prompt] 어휘 프롬프트 생성 실패(session={session_id}): {e}")
+        logger.warning(
+            f"[STT prompt] 어휘 프롬프트 생성 실패(session={session_id}): {e}"
+        )
         return ""

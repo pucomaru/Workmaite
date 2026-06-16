@@ -1100,7 +1100,9 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div class="detail-section">
-                <div class="detail-section-label">부서 구성원 ({{ detailNode.members?.length }}명)</div>
+                <div class="detail-section-label">
+                  부서 구성원 ({{ detailNode.members?.length }}명)
+                </div>
                 <div v-if="detailNode.members?.length" class="detail-member-list">
                   <div
                     v-for="mb in detailNode.members"
@@ -1494,7 +1496,10 @@ function parseAiEvidence(val) {
                     }}</span>
                   </div>
                   <div
-                    v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                    v-if="
+                      detailNode.type === 'report' &&
+                      !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                    "
                     class="detail-info-item"
                   >
                     <span class="detail-info-key">검토상태</span>
@@ -1510,7 +1515,13 @@ function parseAiEvidence(val) {
               </div>
 
               <!-- AI 검토 결과 — 레이더 차트 (report 타입, 첫 번째 자료 제외) -->
-              <div v-if="detailNode.type === 'report' && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)" class="detail-section">
+              <div
+                v-if="
+                  detailNode.type === 'report' &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
+                class="detail-section"
+              >
                 <div class="detail-section-label">AI 검토 결과</div>
                 <div class="radar-wrap">
                   <div class="radar-svg-pos">
@@ -1635,7 +1646,11 @@ function parseAiEvidence(val) {
                 </div>
               </div>
               <div
-                v-if="detailNode.type === 'report' && detailNode.data?.feedback && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                v-if="
+                  detailNode.type === 'report' &&
+                  detailNode.data?.feedback &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
                 class="detail-section"
               >
                 <div class="detail-section-label">AI 피드백</div>
@@ -1650,7 +1665,11 @@ function parseAiEvidence(val) {
 
               <!-- 우선 개선사항 -->
               <div
-                v-if="detailNode.type === 'report' && sbTopImprovements.length && !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)"
+                v-if="
+                  detailNode.type === 'report' &&
+                  sbTopImprovements.length &&
+                  !(detailNode.data?.version === 1 && !detailNode.data?.parent_id)
+                "
                 class="detail-section"
               >
                 <div class="detail-section-label">

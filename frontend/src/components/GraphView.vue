@@ -533,7 +533,7 @@ async function preloadIconTextures() {
       } catch {
         ICON_TEX[type] = null
       }
-    })
+    }),
   )
   _iconsReady = true
 }
@@ -545,7 +545,7 @@ function createIcon(gfx, type) {
   const icon = new PIXI.Sprite(tex)
   icon.eventMode = 'none' // 클릭/호버는 부모 gfx가 처리
   icon.anchor.set(0.5) // 노드 원점 중심 정렬
-  
+
   gfx.addChild(icon) // gfx.clear()는 자식을 지우지 않음 → 원 재드로잉에도 보존
   return icon
 }

@@ -65,7 +65,11 @@ const STATUS_OPTIONS = [
             </div>
             <div class="app-modal-field">
               <label for="report-edit-human-status">검토 상태</label>
-              <select id="report-edit-human-status" v-model="form.human_status" class="app-modal-input">
+              <select
+                id="report-edit-human-status"
+                v-model="form.human_status"
+                class="app-modal-input"
+              >
                 <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
                   {{ s.label }}
                 </option>

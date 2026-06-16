@@ -49,7 +49,9 @@ function onMembersUpdate(newList) {
           </div>
           <div class="app-modal-field">
             <label for="meeting-purpose">소개</label>
-            <textarea id="meeting-purpose" name="purpose"
+            <textarea
+              id="meeting-purpose"
+              name="purpose"
               v-model="form.purpose"
               class="app-modal-input"
               rows="2"
@@ -58,7 +60,12 @@ function onMembersUpdate(newList) {
           </div>
           <div class="app-modal-field">
             <label for="meeting-type">유형</label>
-            <select id="meeting-type" name="meeting_type" v-model="form.meeting_type" class="app-modal-input">
+            <select
+              id="meeting-type"
+              name="meeting_type"
+              v-model="form.meeting_type"
+              class="app-modal-input"
+            >
               <option value="Weekly">Weekly</option>
               <option value="Monthly">Monthly</option>
               <option value="Quarterly">Quarterly</option>
@@ -67,7 +74,11 @@ function onMembersUpdate(newList) {
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="meeting-start-date">시작일</label>
-              <DateInput id="meeting-start-date" v-model="form.start_date" class="app-modal-input" />
+              <DateInput
+                id="meeting-start-date"
+                v-model="form.start_date"
+                class="app-modal-input"
+              />
             </div>
             <div class="app-modal-field">
               <label for="meeting-end-date">종료일</label>
@@ -76,7 +87,9 @@ function onMembersUpdate(newList) {
           </div>
           <div class="app-modal-field">
             <label for="meeting-guidelines">회의체 지침</label>
-            <textarea id="meeting-guidelines" name="guidelines"
+            <textarea
+              id="meeting-guidelines"
+              name="guidelines"
               v-model="form.guidelines"
               class="app-modal-input"
               rows="4"

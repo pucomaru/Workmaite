@@ -127,7 +127,13 @@ async function remove() {
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="member-name">이름</label>
-              <input id="member-name" v-model="form.name" autocomplete="off" class="app-modal-input" placeholder="홍길동" />
+              <input
+                id="member-name"
+                v-model="form.name"
+                autocomplete="off"
+                class="app-modal-input"
+                placeholder="홍길동"
+              />
             </div>
             <div class="app-modal-field">
               <label for="member-email">이메일</label>
@@ -162,17 +168,35 @@ async function remove() {
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="member-company">회사명</label>
-              <input id="member-company" v-model="form.company" autocomplete="off" class="app-modal-input" placeholder="예: SK AX" />
+              <input
+                id="member-company"
+                v-model="form.company"
+                autocomplete="off"
+                class="app-modal-input"
+                placeholder="예: SK AX"
+              />
             </div>
             <div class="app-modal-field">
               <label for="member-department">부서명</label>
-              <input id="member-department" v-model="form.department" autocomplete="off" class="app-modal-input" placeholder="예: 전략기획팀" />
+              <input
+                id="member-department"
+                v-model="form.department"
+                autocomplete="off"
+                class="app-modal-input"
+                placeholder="예: 전략기획팀"
+              />
             </div>
           </div>
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="member-position">직책</label>
-              <input id="member-position" v-model="form.position" autocomplete="off" class="app-modal-input" placeholder="예: 팀장" />
+              <input
+                id="member-position"
+                v-model="form.position"
+                autocomplete="off"
+                class="app-modal-input"
+                placeholder="예: 팀장"
+              />
             </div>
           </div>
         </div>

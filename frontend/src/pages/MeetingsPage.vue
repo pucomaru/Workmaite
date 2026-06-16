@@ -10,7 +10,6 @@ import AppTableSection from '../components/AppTableSection.vue'
 import { useTableSort } from '../composables/useTableSort'
 import { usePagination } from '../composables/usePagination'
 import { toast } from '../composables/useToast'
-import DateInput from '../components/DateInput.vue'
 import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 
 const mgColumns = [
@@ -245,9 +244,7 @@ async function openSettings(m) {
       position: mb.user?.position || mb.position || '',
       role: mb.role || 'member',
     })),
-    originalRoles: Object.fromEntries(
-      members.map(mb => [mb.id, mb.role || 'member'])
-    ),
+    originalRoles: Object.fromEntries(members.map(mb => [mb.id, mb.role || 'member'])),
     removedIds: [],
   }
 }
@@ -592,7 +589,11 @@ onMounted(async () => {
             </div>
             <div class="app-modal-field">
               <label for="create-meeting-type">유형</label>
-              <select id="create-meeting-type" v-model="createForm.meeting_type" class="app-modal-input">
+              <select
+                id="create-meeting-type"
+                v-model="createForm.meeting_type"
+                class="app-modal-input"
+              >
                 <option value="Weekly">Weekly</option>
                 <option value="Monthly">Monthly</option>
                 <option value="Quarterly">Quarterly</option>
@@ -601,11 +602,21 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="create-meeting-start-date">시작일</label>
-                <input id="create-meeting-start-date" type="date" v-model="createForm.start_date" class="app-modal-input" />
+                <input
+                  id="create-meeting-start-date"
+                  type="date"
+                  v-model="createForm.start_date"
+                  class="app-modal-input"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="create-meeting-end-date">종료일</label>
-                <input id="create-meeting-end-date" type="date" v-model="createForm.end_date" class="app-modal-input" />
+                <input
+                  id="create-meeting-end-date"
+                  type="date"
+                  v-model="createForm.end_date"
+                  class="app-modal-input"
+                />
               </div>
             </div>
             <div class="app-modal-field">
@@ -918,7 +929,7 @@ onMounted(async () => {
   margin: 0;
 }
 
-html.night-mode .delete-confirm-msg{
+html.night-mode .delete-confirm-msg {
   color: var(--dark-text) !important;
 }
 
@@ -947,9 +958,10 @@ html.day-mode-global .app-btn-danger:hover {
 
 .app-btn-danger:hover {
   background: #f7c3c353;
+  opacity: 0.85;
 }
 .app-btn-danger:disabled {
-  opacity: 0.4;
+  opacity: 0.85;
   cursor: not-allowed;
 }
 /* 역할 텍스트 */

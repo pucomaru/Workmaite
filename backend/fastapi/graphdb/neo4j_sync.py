@@ -152,7 +152,9 @@ async def _detach_node(label: str, key_prop: str, key_value) -> None:
             {"k": key_value},
         )
     except Exception as e:
-        logger.warning(f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}")
+        logger.warning(
+            f"[Neo4jSync] {label} {key_value} Neo4j 제외 처리 실패 (무시): {e}"
+        )
 
 
 def _parse_dept_names(department: str | None) -> list[str]:
@@ -573,7 +575,7 @@ async def sync_agenda(
     """Agenda 노드를 upsert하고 Meetings / Session / 담당자와 연결합니다.
 
     HITL 검토 결과(승인·반려 status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
-    임베딩 텍스트에도 포함해 벡터 검색에 활용한다 
+    임베딩 텍스트에도 포함해 벡터 검색에 활용한다
 
     Draft 상태는 사용자 확인 전이므로 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
@@ -696,7 +698,9 @@ async def sync_minutes(
     Draft 상태는 PostgreSQL에만 보관하고 Neo4j에는 연동하지 않는다.
     """
     if _is_draft(status):
-        await _detach_node("Minutes", "pg_id", minutes_id)  # draft 전환 시 기존 노드 제거
+        await _detach_node(
+            "Minutes", "pg_id", minutes_id
+        )  # draft 전환 시 기존 노드 제거
         return
     s_id = to_session_id(session_id)
     cypher = """
@@ -1069,7 +1073,11 @@ async def sync_meeting_relation(
     target_meeting_id: int,
     relation_type: str,
 ) -> None:
-    rel_map = {"PARENT_OF": "상위", "RELATED_TO": "관련", "FOLLOW_UP": "후속"} # 레거시 호환
+    rel_map = {
+        "PARENT_OF": "상위",
+        "RELATED_TO": "관련",
+        "FOLLOW_UP": "후속",
+    }  # 레거시 호환
     rel = rel_map.get(relation_type.upper(), "관련")
     cypher = f"""
     MATCH (src:Meetings {{id: $src_id}})
