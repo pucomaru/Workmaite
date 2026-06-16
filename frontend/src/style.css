@@ -947,9 +947,6 @@ html.night-mode .empty-state {
 .search-input::placeholder {
   color: var(--dark-border);
 }
-.search-input:focus {
-  border-color: rgba(96, 165, 250, 0.5);
-}
 .search-clear {
   position: absolute;
   right: 7px;

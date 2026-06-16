@@ -4168,9 +4168,6 @@ html.night-mode .sp-sm-role-tag.member {
   outline: none;
   box-sizing: border-box;
 }
-.sp-search-input:focus {
-  border-color: var(--accent);
-}
 .sp-search-input::placeholder {
   color: var(--dark-muted);
 }
