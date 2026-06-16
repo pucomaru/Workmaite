@@ -10,7 +10,11 @@ import os
 import re
 
 from fastapi import HTTPException
-from neo4j import AsyncDriver, AsyncGraphDatabase
+from neo4j import (
+    AsyncDriver,
+    AsyncGraphDatabase,
+    NotificationDisabledClassification,
+)
 from neo4j.exceptions import Neo4jError
 
 from graphdb.neo4j_ids import to_mg_id
@@ -51,6 +55,13 @@ async def _get_driver() -> AsyncDriver:
                     auth=(NEO4J_USER, NEO4J_PASSWORD),
                     connection_acquisition_timeout=10.0,
                     max_connection_pool_size=20,
+                    # 스키마가 점진적으로 채워지는 그래프라 OPTIONAL MATCH로 '아직 없는'
+                    # 관계 타입(예: 담당)·속성을 자주 참조한다. 이때 서버가 보내는
+                    # 01N42(UNRECOGNIZED) 알림은 양성(빈 매치=null)이며 로그만 더럽히므로 억제한다.
+                    # (오타로 인한 실제 누락도 가릴 수 있으니 새 Cypher 작성 시 주의)
+                    notifications_disabled_classifications=[
+                        NotificationDisabledClassification.UNRECOGNIZED
+                    ],
                 )
     return _driver
 

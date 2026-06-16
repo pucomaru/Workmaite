@@ -12,7 +12,7 @@ import { apiAI } from '../api'
 // 관계명 → 색상 (그래프 엣지·배지 공용)
 export const REL_COLORS = reactive({
     포함: '#a89fd4',
-    소속: 'rgb(13, 148, 136)',
+    소속: '#0d9488',
     소속회사: '#a78bfa',
     운영: '#fbbf24', 
     참여: '#60a5fa',
