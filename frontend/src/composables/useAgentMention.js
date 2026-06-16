@@ -45,14 +45,6 @@ export function useAgentMention({
   const mentionedContexts = ref([]) // [{id, type, label, icon, summary, auto, pinned}]
   const autoCtxId = ref(null) // 클릭한 노드/세션의 자동 컨텍스트(단일 슬롯) id
 
-  const AT_TYPE_ICONS = {
-    meeting: '🏢',
-    person: '👤',
-    task: '✅',
-    department: '🏬',
-    session: '📅',
-    document: '📄',
-  }
   const AT_TYPE_LABELS = {
     meeting: '회의체',
     company: '회사',
@@ -387,7 +379,6 @@ export function useAgentMention({
     atCursorPos,
     atHighlight,
     mentionedContexts,
-    AT_TYPE_ICONS,
     AT_TYPE_LABELS,
     atMenuItems,
     onAgentInput,

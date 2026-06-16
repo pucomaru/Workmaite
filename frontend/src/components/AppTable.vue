@@ -220,7 +220,7 @@ html.day-mode-global .app-table th {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 0;
+  max-width: 0; 
 }
 .app-table td:first-child {
   padding-left: 12px !important;

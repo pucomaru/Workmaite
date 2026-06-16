@@ -5,10 +5,18 @@ import com.workmaite.domain.meetings.entity.MeetingMemberRole;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface MeetingMemberRepository extends JpaRepository<MeetingMember, Long> {
 
   List<MeetingMember> findByMeetingId(Long meetingId);
+
+  // 회의체 삭제 시: 참여자 일괄 삭제.
+  @Modifying
+  @Query("DELETE FROM MeetingMember m WHERE m.meetingId = :meetingId")
+  void deleteByMeetingId(@Param("meetingId") Long meetingId);
 
   Optional<MeetingMember> findByMeetingIdAndUserId(Long meetingId, Long userId);
 

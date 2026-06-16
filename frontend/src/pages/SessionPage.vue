@@ -801,7 +801,7 @@ async function generateMinutes() {
               })
               .catch(e => console.error('초안 자동저장 실패', e))
           }
-          agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n결정 사항이나 액션 아이템에 대해 더 궁금한 점이 있으면 질문해 주세요.`
+          agentMsg.content = `회의록 생성이 완료되었습니다.\n\n📄 **${sessionTitle}** 회의록이 회의록 탭에 저장되었습니다.\n\n궁금한 점이 있으면 질문해 주세요.`
           wmLoading.value = false
         } catch (e) {
           console.error('[generateMinutes onDone]', e)
@@ -1072,7 +1072,9 @@ async function removeNextAgendaItem(i) {
   nextAgendaItems.value.splice(i, 1)
 }
 
+const savingNextAgendas = ref(false)
 async function saveApprovedNextAgendas() {
+  if (savingNextAgendas.value) return // 중복 클릭 차단
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   const rejected = nextAgendaItems.value.filter(a => a._state === 'rejected' && a.db_id)
   if (!approved.length && !rejected.length) return
@@ -1093,6 +1095,7 @@ async function saveApprovedNextAgendas() {
     return
   }
 
+  savingNextAgendas.value = true
   try {
     await apiAI.post('/api/agent/archive/agendas/commit', {
       meeting_id: meetingId,
@@ -1149,6 +1152,8 @@ async function saveApprovedNextAgendas() {
     toast.error(
       '저장에 실패했습니다: ' + (e?.response?.data?.detail || e?.message || '알 수 없는 오류'),
     )
+  } finally {
+    savingNextAgendas.value = false
   }
 }
 
@@ -2047,7 +2052,7 @@ async function downloadChatFile(filePath) {
                   </div>
                 </div>
               </div>
-              <div v-else class="tline">
+              <div v-else class="tline" :class="{ 'tline-corrected': line.corrected }">
                 <div class="tline-head">
                   <span class="tline-time">{{ line.time }}</span>
                   <span
@@ -2282,6 +2287,7 @@ async function downloadChatFile(filePath) {
                     :memberDepts="sessionMemberDepts"
                     :removeOnApprove="false"
                     :showFooter="true"
+                    :saving="savingNextAgendas"
                     @approved="() => {}"
                     @rejected="() => {}"
                     @remove="removeNextAgendaItem"

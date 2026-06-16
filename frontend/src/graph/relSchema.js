@@ -52,8 +52,8 @@ export const REL_MATRIX = reactive({
   'session→session': '후속',
   'minutes→agenda': '도출',
   'report→agenda': '도출',
-  'report→Meetings': '첨부',
-  'dept→report': '첨부',
+  'report→Meetings': '발제',
+  'dept→report': '발제',
 })
 
 /** 타입쌍 → 관계명 (정/역 양방향 시도, 폴백 '참조') */

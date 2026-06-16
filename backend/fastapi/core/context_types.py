@@ -53,7 +53,7 @@ CONTEXT_LABELS = {
     MINUTES_GENERATE: "회의록 생성",
     MINUTES_STREAM: "회의록 생성",
     FILE_EMBED: "파일 임베딩",
-    STT_TERM_CORRECTION: "전문용어 교정",
+    STT_TERM_CORRECTION: "회의 지원",
 }
 
 # context_type → 색상/요약용 에이전트 그룹 키
@@ -77,7 +77,7 @@ AGENT_LABELS = {
     "report": "보고서 검토",
     "minutes": "회의록 생성",
     "embedding": "파일 임베딩",
-    "meeting": "회의",
+    "meeting": "회의 지원",
     "other": "기타",
 }
 AGENT_ORDER = [

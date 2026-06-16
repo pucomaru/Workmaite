@@ -10,6 +10,7 @@ const props = defineProps({
   removeOnApprove: { type: Boolean, default: true },
   showFooter: { type: Boolean, default: false },
   showFeedback: { type: Boolean, default: true },
+  saving: { type: Boolean, default: false }, // 저장 처리중 — 버튼 비활성 + 무지개 글로우
 })
 
 const emit = defineEmits(['approved', 'rejected', 'remove', 'save'])
@@ -333,15 +334,19 @@ function deptList(dept) {
         <span class="nab-count">승인 {{ approvedCount }} / 반려 {{ rejectedCount }}</span>
         <button
           class="nab-save-btn"
-          :disabled="!approvedCount && !rejectedCount"
+          :class="{ saving }"
+          :disabled="saving || (!approvedCount && !rejectedCount)"
           @click="emit('save')"
         >
+          <span v-if="saving" class="nab-save-spinner" aria-hidden="true"></span>
           {{
-            approvedCount
-              ? `승인 ${approvedCount}건 저장`
-              : rejectedCount
-                ? `반려 ${rejectedCount}건 처리`
-                : '승인 0건 처리'
+            saving
+              ? '저장 중…'
+              : approvedCount
+                ? `승인 ${approvedCount}건 저장`
+                : rejectedCount
+                  ? `반려 ${rejectedCount}건 처리`
+                  : '승인 0건 처리'
           }}
         </button>
       </div>
@@ -773,5 +778,45 @@ function deptList(dept) {
 .nab-save-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+/* 저장 처리중 — 비활성(중복 클릭 차단)이지만 밝게 유지하고 무지개빛 테두리가 빙글빙글 빛난다 */
+.nab-save-btn.saving,
+.nab-save-btn.saving:disabled {
+  opacity: 1;
+  cursor: wait;
+  animation: nab-rainbow-glow 1.6s linear infinite;
+}
+@keyframes nab-rainbow-glow {
+  0% {
+    box-shadow: 0 0 0 1.5px #f43f5e, 0 0 10px 1px rgba(244, 63, 94, 0.6);
+  }
+  25% {
+    box-shadow: 0 0 0 1.5px #f59e0b, 0 0 10px 1px rgba(245, 158, 11, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 1.5px #22c55e, 0 0 10px 1px rgba(34, 197, 94, 0.6);
+  }
+  75% {
+    box-shadow: 0 0 0 1.5px #38bdf8, 0 0 10px 1px rgba(56, 189, 248, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 1.5px #a855f7, 0 0 10px 1px rgba(168, 85, 247, 0.6);
+  }
+}
+.nab-save-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: nab-spin 0.6s linear infinite;
+}
+@keyframes nab-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

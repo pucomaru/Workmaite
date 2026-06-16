@@ -15,11 +15,11 @@ import MeetingSettingsModal from '../components/MeetingSettingsModal.vue'
 const mgColumns = [
   { label: '회의체명', sortKey: 'title' },
   { label: '역할', width: '100px', sortKey: '_role' },
-  { label: '유형', width: '130px', sortKey: 'meeting_type' },
+  { label: '유형', width: '100px', sortKey: 'meeting_type' },
   { label: '간사', width: '120px', sortKey: '_adminName' },
   { label: '참여조직', width: '150px', sortKey: '_companyCount' },
-  { label: '참여자', width: '100px', sortKey: '_memberCount' },
-  { label: '', width: '170px', noResize: true },
+  { label: '참여자', width: '70px', sortKey: '_memberCount' },
+  { label: '', width: '110px', noResize: true },
 ]
 
 const meetingsStore = useMeetingsStore()
@@ -75,6 +75,14 @@ const filteredGroups = computed(() => {
     return matchStatus && matchSearch
   })
 })
+
+// 탭 뱃지용 진행중/종료 회의체 수 (상태 필터 전 전체 기준)
+const activeCount = computed(
+  () => enrichedGroups.value.filter(m => !m.status || m.status === 'active').length,
+)
+const endedCount = computed(
+  () => enrichedGroups.value.filter(m => m.status === 'ended').length,
+)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
 const {
@@ -194,6 +202,13 @@ const deleteTarget = ref(null)
 
 function confirmDelete(m) {
   deleteTarget.value = m
+}
+// 편집 모달의 '회의체 삭제' — 모달을 닫고 삭제 확인 다이얼로그로 넘긴다.
+function onSettingsDelete() {
+  const m = settingsModal.value?.meeting
+  if (!m) return
+  settingsModal.value = null
+  confirmDelete(m)
 }
 function cancelDelete() {
   deleteTarget.value = null
@@ -364,6 +379,7 @@ onMounted(async () => {
           @click="statusTab = 'active'"
         >
           진행 중
+          <span class="app-tab-count">{{ activeCount }}</span>
         </button>
         <button
           class="app-tab"
@@ -371,6 +387,7 @@ onMounted(async () => {
           @click="statusTab = 'ended'"
         >
           종료
+          <span class="app-tab-count">{{ endedCount }}</span>
         </button>
       </div>
       <div class="plus-wrap">
@@ -416,8 +433,7 @@ onMounted(async () => {
         >
       </div>
       <div v-else-if="!meetingsStore.meetings.length" class="mg-empty">
-        <div class="empty-icon">🗂️</div>
-        <p>아직 참여 중인 회의체가 없습니다.</p>
+        <p>참여 중인 회의체가 없습니다.</p>
       </div>
       <div v-else-if="!filteredGroups.length" class="mg-empty">
         <div class="empty-icon">🔍</div>
@@ -532,8 +548,8 @@ onMounted(async () => {
                   </svg>
                   {{ endingId === g.id ? '처리 중…' : '종료' }}
                 </button>
-                <!-- 삭제 버튼 (항상) -->
-                <button
+                <!-- 삭제 버튼 -->
+                <!-- <button
                   v-if="canManage(g)"
                   class="mg-action-btn mg-btn-delete"
                   @click.stop="confirmDelete(g)"
@@ -553,7 +569,7 @@ onMounted(async () => {
                     <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
                   </svg>
                   {{ deletingId === g.id ? '삭제 중…' : '삭제' }}
-                </button>
+                </button> -->
               </div>
             </td>
           </tr>
@@ -668,6 +684,7 @@ onMounted(async () => {
         :saving="savingSettings"
         @close="closeSettings"
         @save="saveSettings"
+        @delete="onSettingsDelete"
       />
     </Teleport>
 
@@ -855,9 +872,13 @@ onMounted(async () => {
 /* 아이콘 버튼 (설정) */
 .action-btns {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
+  width: fit-content;
+  margin-left: auto !important;
+  justify-content: right;
 }
+
 .mg-icon-btn {
   width: 28px;
   height: 28px;

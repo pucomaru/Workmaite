@@ -703,25 +703,28 @@ async def upload_minutes(
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
-    try:
-        pdf_bytes = _html_to_pdf(content, session.title or f"회의록_{session_id}")
-    except Exception as e:
-        logger.error(
-            f"[minutes] PDF 변환 실패 — session_id={session_id}, error={e}",
-            exc_info=True,
-        )
-        raise HTTPException(status_code=500, detail=f"PDF 변환 실패: {e}")
-
     # 저장되는 회의록 제목 = 본문 첫 문장. 없으면 세션 제목으로 폴백.
     doc_title = _first_sentence_title(content) or (
         session.title or f"회의_{session_id}"
     )
     safe_title = doc_title.replace("/", "_").replace(" ", "_")[:60]
-    clean_name = f"{safe_title}.pdf"
-    key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{clean_name}"
-    stored_name = clean_name
-    r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
-    logger.info(f"[minutes] R2 업로드 완료 — key={key}, url={r2_url}")
+    stored_name = f"{safe_title}.pdf"
+
+    # HTML → PDF 변환 후 R2 업로드. 변환 실패(예: WeasyPrint 시스템 라이브러리
+    # libgobject/pango 미설치 환경)에도 회의록 '내용'은 저장한다 — 작업 유실 방지.
+    # (PDF 파일은 file_path=NULL로 남고, 다음 저장 시 환경이 갖춰지면 재생성된다.)
+    r2_url: Optional[str] = None
+    try:
+        pdf_bytes = _html_to_pdf(content, session.title or f"회의록_{session_id}")
+        key = f"minutes/{session_id}/{uuid.uuid4().hex[:8]}_{stored_name}"
+        r2_url = upload_bytes(pdf_bytes, key, "application/pdf")
+        logger.info(f"[minutes] R2 업로드 완료 — key={key}, url={r2_url}")
+    except Exception as e:
+        logger.error(
+            f"[minutes] PDF 변환/R2 업로드 실패 — 내용만 저장 — "
+            f"session_id={session_id}, error={e}",
+            exc_info=True,
+        )
 
     # ── short_summary LLM 생성 ─────────────────────────────────────
     short_summary = None

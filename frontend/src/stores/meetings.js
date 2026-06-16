@@ -112,8 +112,9 @@ export const useMeetingsStore = defineStore('meetings', () => {
   }
 
   async function deleteMeeting(meetingId) {
-    // /api/ai → FastAPI (Ingress 규칙), /api/v1 → Spring Boot (DELETE 없음)
-    await apiAI.delete(`/api/ai/meetings/${meetingId}`)
+    // 회의체 삭제는 PG가 원천 — Spring Boot(/api/v1)가 PG 삭제 + 아웃박스로 Neo4j 동기화.
+    // (로그·토큰사용량·대화는 보존되고 링크만 해제된다.)
+    await api.delete(`/api/v1/meetings/${meetingId}`)
     meetings.value = meetings.value.filter(m => m.id !== meetingId)
     if (currentMeeting.value?.id === meetingId) currentMeeting.value = null
   }

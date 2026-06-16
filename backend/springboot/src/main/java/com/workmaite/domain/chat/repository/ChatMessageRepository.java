@@ -24,4 +24,9 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
   @Modifying
   @Query("UPDATE ChatMessage c SET c.sessionId = null WHERE c.sessionId = :sessionId")
   void detachSession(@Param("sessionId") Long sessionId);
+
+  // 회의체 삭제 시에도 대화는 보존하고 회의체 링크만 해제한다.
+  @Modifying
+  @Query("UPDATE ChatMessage c SET c.meetingId = null WHERE c.meetingId = :meetingId")
+  void detachMeeting(@Param("meetingId") Long meetingId);
 }

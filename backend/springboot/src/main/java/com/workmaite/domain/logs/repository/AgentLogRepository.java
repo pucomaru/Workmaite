@@ -13,4 +13,9 @@ public interface AgentLogRepository extends JpaRepository<AgentLog, Long> {
   @Modifying
   @Query("UPDATE AgentLog a SET a.sessionId = null WHERE a.sessionId = :sessionId")
   void detachSession(@Param("sessionId") Long sessionId);
+
+  // 회의체 삭제 시에도 로그는 보존하고 회의체 링크만 해제한다.
+  @Modifying
+  @Query("UPDATE AgentLog a SET a.meetingId = null WHERE a.meetingId = :meetingId")
+  void detachMeeting(@Param("meetingId") Long meetingId);
 }

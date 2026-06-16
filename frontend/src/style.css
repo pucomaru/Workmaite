@@ -1382,6 +1382,27 @@ html.night-mode .app-select option {
   color: #2563eb;
   font-weight: 700;
 }
+.app-tab-count {
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--dark-muted);
+  border-radius: 99px;
+  padding: 0 7px;
+  line-height: 1.7;
+}
+.app-tab.active .app-tab-count {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+html.night-mode .app-tab-count {
+  background: var(--white-10);
+  color: var(--text-muted);
+}
+html.night-mode .app-tab.active .app-tab-count {
+  background: rgba(147, 197, 253, 0.2);
+  color: var(--accent-soft);
+}
 /* .app-tab-badge { font-size:12px;font-weight:700;background:rgba(0,0,0,.07);border-radius:99px;padding:0px 6px; }
 .app-tab.active .app-tab-badge { background:rgba(29,78,216,.12); } */
 html.night-mode .app-tab {

@@ -80,17 +80,22 @@ async function remove() {
     toast.error('구성원 식별 정보를 찾을 수 없어 제거할 수 없습니다.')
     return
   }
-  if (!(await confirmDialog(`${m.name || m.email}을(를) 제거하시겠습니까?`, { danger: true })))
+  // 본인 자기 삭제 금지 — 관리자라도 자신은 제거할 수 없다.
+  if (m.id === auth.user?.id) {
+    toast.error('자기 자신은 제거할 수 없습니다.')
+    return
+  }
+  if (
+    !(await confirmDialog(
+      `${m.name || m.email}님의 계정을 삭제하시겠습니까? 모든 회의체에서 제외됩니다.`,
+      { danger: true },
+    ))
+  )
     return
   saving.value = true
   try {
-    // CompanyPage 제거 로직과 동일: 회의체 멤버십이 있으면 해당 회의체에서 제외, 없으면 계정 비활성화
-    const meeting = m.meetings?.[0]
-    if (meeting?.id && meeting?.member_id) {
-      await apiAI.delete(`/api/ai/meetings/${meeting.id}/members/${meeting.member_id}`)
-    } else {
-      await apiAI.delete(`/api/ai/users/${m.id}`)
-    }
+    // 계정 삭제(한 번에) — 서버가 모든 회의체 멤버십·FK를 정리하고 소프트 삭제한다.
+    await apiAI.delete(`/api/ai/users/${m.id}`)
     emit('deleted')
     emit('close')
   } catch (e) {
@@ -203,7 +208,14 @@ async function remove() {
 
         <!-- Footer: 좌측 삭제 / 우측 취소·저장 -->
         <div class="app-modal-footer modal-footer-split">
-          <button class="app-btn-danger" :disabled="saving" @click="remove">삭제</button>
+          <button
+            v-if="member?.id !== auth.user?.id"
+            class="app-btn-danger"
+            :disabled="saving"
+            @click="remove"
+          >
+            삭제
+          </button>
           <div class="footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button class="app-btn-primary" :disabled="saving" @click="save">
@@ -223,5 +235,7 @@ async function remove() {
 .footer-right {
   display: flex;
   gap: 8px;
+  /* 삭제 버튼(좌측)이 숨겨져도 취소·저장은 항상 우측에 고정 */
+  margin-left: auto;
 }
 </style>

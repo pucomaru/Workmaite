@@ -82,7 +82,7 @@ function getNodeGradient(centerHex, edgeHex) {
   return grad
 }
 const NODE_RADIUS = {
-  Meetings: 11,
+  Meetings: 10,
   agenda: 10,
   session: 10,
   minutes: 10,
@@ -93,8 +93,9 @@ const NODE_RADIUS = {
 }
 // inbound 기반 노드 크기
 const BACKLINK_STEP = 2.4 // 백링크 1개당 가중치
-const BACKLINK_MAX = 28 // 최대 추가 반경
-const SELF_RADIUS = 11 // "나" 노드 고정 반경
+const BACKLINK_MAX = 50 // 최대 추가 반경
+const SELF_RADIUS = 10 // "나" 노드 고정 반경
+const BOUNDS_SCALE = 5
 
 // ─── Refs ─────────────────────────────────────────────────────
 const containerRef = ref(null)
@@ -104,6 +105,59 @@ let edgeLayer = null // PIXI.Graphics (all edges)
 let nodeContainer = null // PIXI.Container (node sprites)
 let labelContainer = null // PIXI.Container (text labels)
 let hlLayer = null // PIXI.Graphics (highlight rings)
+let boundsLayer = null // PIXI.Graphics (노드가 너무 멀리 못 가게 가두는 사각 경계 — 투명 테두리)
+
+// 노드 이탈 방지용 사각 경계 (화면 배수, 화면 중앙 기준). buildSimulation/resize에서 갱신.
+let _bounds = null
+function _computeBounds() {
+  const w = app.screen.width,
+    h = app.screen.height
+  const halfW = (w * BOUNDS_SCALE) / 2,
+    halfH = (h * BOUNDS_SCALE) / 2
+  return {
+    cx: w / 2,
+    cy: h / 2,
+    minX: w / 2 - halfW,
+    maxX: w / 2 + halfW,
+    minY: h / 2 - halfH,
+    maxY: h / 2 + halfH,
+  }
+}
+// d3-force 커스텀 force: 매 tick마다 노드를 경계 안으로 클램프(벽에 부딪히면 속도 반사로 감속)
+function boundsForce() {
+  if (!_bounds) return
+  const pad = 10
+  for (const n of simNodes) {
+    if (n.fx != null || n.fy != null) continue // 드래그 고정 노드는 건드리지 않음
+    if (n.x < _bounds.minX + pad) {
+      n.x = _bounds.minX + pad
+      if (n.vx < 0) n.vx *= -0.4
+    } else if (n.x > _bounds.maxX - pad) {
+      n.x = _bounds.maxX - pad
+      if (n.vx > 0) n.vx *= -0.4
+    }
+    if (n.y < _bounds.minY + pad) {
+      n.y = _bounds.minY + pad
+      if (n.vy < 0) n.vy *= -0.4
+    } else if (n.y > _bounds.maxY - pad) {
+      n.y = _bounds.maxY - pad
+      if (n.vy > 0) n.vy *= -0.4
+    }
+  }
+}
+// 경계 박스를 월드좌표(시뮬레이션 좌표)로 그린다 — 채움은 투명, 은은한 테두리만.
+function _drawBoundsBox() {
+  if (!boundsLayer || !_bounds) return
+  boundsLayer.clear()
+  const { minX, minY, maxX, maxY } = _bounds
+  boundsLayer
+    .roundRect(minX, minY, maxX - minX, maxY - minY, 28)
+    .stroke({
+      color: props.nightMode ? 0xffffff : 0x64748b,
+      width: 2,
+      alpha: props.nightMode ? 0.16 : 0.22,
+    })
+}
 
 // node display objects: Map<nodeIdx, { gfx: PIXI.Graphics, label: PIXI.Text, data: node }>
 let nodeObjs = new Map()
@@ -196,6 +250,8 @@ async function initPixi() {
   app.canvas.style.height = '100%'
 
   // Layers
+  boundsLayer = new PIXI.Graphics() // 맨 아래 — 노드 경계 박스(투명 테두리)
+  app.stage.addChild(boundsLayer)
   hlLayer = new PIXI.Graphics()
   app.stage.addChild(hlLayer)
   edgeLayer = new PIXI.Graphics()
@@ -238,6 +294,11 @@ function resizePixi() {
     h = el.offsetHeight
   app.renderer.resize(w, h)
   app.stage.hitArea = new PIXI.Rectangle(0, 0, w, h)
+  // 화면 크기 바뀌면 경계 박스도 재계산·재드로잉
+  if (_bounds) {
+    _bounds = _computeBounds()
+    _drawBoundsBox()
+  }
 }
 
 function destroyPixi() {
@@ -256,7 +317,8 @@ function destroyPixi() {
     app = null
   }
   nodeObjs.clear()
-  edgeLayer = nodeContainer = labelContainer = hlLayer = null
+  edgeLayer = nodeContainer = labelContainer = hlLayer = boundsLayer = null
+  _bounds = null
 }
 
 // ─── Simulation ───────────────────────────────────────────────
@@ -306,23 +368,27 @@ function buildSimulation(nodes, edges) {
   //   단순 데이터 갱신 → 0   (노드 이동 없음)
   const startAlpha = isFirstLoad ? 1 : hasNewNodes ? 0.3 : 0.15
 
+  _bounds = _computeBounds() // 화면 1.5배 사각 경계 (노드 이탈 방지)
+
   sim = forceSimulation(simNodes)
     .force(
       'link',
       forceLink(simEdges)
         .id(d => d._idx)
-        .distance(15) // 연결된 노드 간 목표 거리 ↑ = 더 퍼짐
+        .distance(5) // 연결된 노드 간 목표 거리 ↑ = 더 퍼짐
         .strength(0.125), // 링크가 거리를 당기는 강도
     )
     .force('charge', forceManyBody().strength(-160)) // 노드 간 반발력 (음수↑ = 더 멀어짐)
     .force('center', forceCenter(w / 2, h / 2).strength(0.16)) // 중앙으로 모으는 힘
     .force('collide', forceCollide(d => nodeRadiusForIdx(d._idx, d.type, d.id) + 7).strength(0.85)) // 충돌 반경(겹침 방지 여백 +14)
+    .force('bounds', boundsForce) // 사각 경계 밖으로 못 나가게 클램프
     .alphaDecay(0.025) // 작을수록 천천히 안정(레이아웃 더 풀림)
     .alpha(startAlpha) // 초기 에너지 (최초 1.0 / 노드추가 0.3 / 갱신 0)
     .on('tick', () => {
       _simDirty = true
     })
 
+  _drawBoundsBox()
   rebuildNodeObjects()
 }
 
@@ -601,7 +667,7 @@ function tick() {
     h = app.screen.height
 
   // Apply viewport transform to all layers
-  for (const layer of [edgeLayer, nodeContainer, labelContainer, hlLayer]) {
+  for (const layer of [boundsLayer, edgeLayer, nodeContainer, labelContainer, hlLayer]) {
     layer.x = vpX
     layer.y = vpY
     layer.scale.set(vpScale)
@@ -1083,6 +1149,7 @@ watch(
     nodeObjs.forEach(obj => {
       obj.label.style.fill = props.nightMode ? 0xe2e8f0 : 0x0f172a
     })
+    _drawBoundsBox() // 경계 박스 테두리 색도 모드에 맞게 갱신
     _simDirty = true // 야간/주간 전환 시 노드 색도 다시 그린다
   },
 )

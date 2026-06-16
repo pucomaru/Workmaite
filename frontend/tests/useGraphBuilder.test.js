@@ -50,12 +50,77 @@ describe('useGraphBuilder.buildGraphNodes', () => {
     expect(edges.some(e => e.rel === '담당')).toBe(false)
   })
 
+  it('같은 부서명이라도 회사가 다르면 부서 노드가 분리되고 각자 자기 회사에 연결된다 (사람→부서→회사)', () => {
+    const meetingMixedCo = [
+      {
+        id: 'mg-9',
+        title: 'M',
+        status: 'active',
+        members: [
+          { userId: 1, userName: 'A', department: 'Dev', role: 'admin', company: 'Acme' },
+          { userId: 2, userName: 'B', department: 'Dev', role: 'member', company: 'Other Co' },
+        ],
+        tasks: [],
+        minutes: [],
+        reports: [],
+      },
+    ]
+    const { buildGraphNodes } = makeBuilder(meetingMixedCo)
+    const { nodes, edges } = buildGraphNodes()
+    // 두 회사 노드 모두 생성
+    const acme = nodes.findIndex(n => n.type === 'company' && n.label === 'Acme')
+    const otherCo = nodes.findIndex(n => n.type === 'company' && n.label === 'Other Co')
+    expect(acme).toBeGreaterThanOrEqual(0)
+    expect(otherCo).toBeGreaterThanOrEqual(0)
+    // 'Dev' 부서 노드가 회사별로 2개 분리됨
+    const devDepts = nodes.filter(n => n.type === 'dept' && n.label === 'Dev')
+    expect(devDepts.length).toBe(2)
+    // 직접 person→company(소속회사) 엣지는 만들지 않는다 (부서 경유)
+    expect(edges.some(e => e.rel === '소속회사')).toBe(false)
+    // 각 부서 노드가 자기 회사로 소속 연결됨
+    expect(edges.some(e => e.rel === '소속' && e.to === acme)).toBe(true)
+    expect(edges.some(e => e.rel === '소속' && e.to === otherCo)).toBe(true)
+  })
+
+  it('사람은 부서를 거쳐 회사에 연결된다 (사람→부서, 부서→회사). 직접 소속회사 엣지는 없음', () => {
+    const { buildGraphNodes } = makeBuilder(oneMeeting) // 멤버 1명(Kim/Dev/Acme)
+    const { nodes, edges } = buildGraphNodes()
+    const personIdx = nodes.findIndex(n => n.type === 'person')
+    const deptIdx = nodes.findIndex(n => n.type === 'dept')
+    const acmeIdx = nodes.findIndex(n => n.type === 'company' && n.label === 'Acme')
+    // 사람 → 부서 (소속)
+    expect(edges.some(e => e.rel === '소속' && e.from === personIdx && e.to === deptIdx)).toBe(true)
+    // 부서 → 회사 (소속)
+    expect(edges.some(e => e.rel === '소속' && e.from === deptIdx && e.to === acmeIdx)).toBe(true)
+    // 사람→회사 직접 엣지(소속회사)는 없음
+    expect(edges.some(e => e.rel === '소속회사')).toBe(false)
+  })
+
   it('빈 회의체 목록도 회사·본인 노드는 그린다 (빈 화면 방지)', () => {
     const { buildGraphNodes } = makeBuilder([])
     const { nodes } = buildGraphNodes()
     const types = nodes.map(n => n.type)
     expect(types).toContain('company')
     expect(types).toContain('person')
+  })
+
+  it('회의체 없는 본인은 ambient currentCompany가 아니라 자기 company에 연결된다', () => {
+    // person.company(S1112) ≠ currentCompany(SK AX) — 본인 회사가 우선돼야 한다.
+    const { buildGraphNodes } = makeBuilder([], {
+      company: { name: 'SK AX' },
+      person: { id: 4, name: '김도', department: '개발팀331', company: 'S1112' },
+    })
+    const { nodes, edges } = buildGraphNodes()
+    // 회사 노드는 본인 회사(S1112)로 그려진다 (SK AX 아님)
+    const co = nodes.find(n => n.type === 'company')
+    expect(co.label).toBe('S1112')
+    expect(nodes.some(n => n.type === 'company' && n.label === 'SK AX')).toBe(false)
+    // 본인 → 부서 → 회사 경로로 S1112에 도달 (SK AX와 직접 연결 없음)
+    const personIdx = nodes.findIndex(n => n.type === 'person')
+    const deptIdx = nodes.findIndex(n => n.type === 'dept')
+    const coIdx = nodes.findIndex(n => n.type === 'company')
+    expect(edges.some(e => e.from === personIdx && e.to === deptIdx && e.rel === '소속')).toBe(true)
+    expect(edges.some(e => e.from === deptIdx && e.to === coIdx && e.rel === '소속')).toBe(true)
   })
 
   it('노드와 엣지를 중복 제거한다 (같은 id 노드 / 같은 쌍·관계 엣지)', () => {

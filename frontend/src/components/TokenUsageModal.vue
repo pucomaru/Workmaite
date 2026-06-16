@@ -211,11 +211,18 @@ const sec = computed(() => data.value?.sections || null)
               </div>
               <div v-for="p in sec.stt.by_provider" :key="p.provider" class="tum-m-row">
                 <span class="tum-chip tum-chip-stt">{{ p.label }}</span>
-                <span class="tum-m-desc">{{ fmtMin(p.seconds) }}</span>
-                <span class="tum-m-note">
-                  {{ p.cost_per_min > 0 ? `$${p.cost_per_min}` : '무료' }} ·
-                  {{ p.minutes.toFixed(1) }}분
-                </span>
+                <!-- 토큰 기반 STT(전사/화자분리)는 분(分)이 아니라 토큰으로 표기 -->
+                <template v-if="p.tokens != null && !p.seconds">
+                  <span class="tum-m-desc">{{ fmtNum(p.tokens) }} 토큰</span>
+                  <span class="tum-m-note">토큰 기반</span>
+                </template>
+                <template v-else>
+                  <span class="tum-m-desc">{{ fmtMin(p.seconds) }}</span>
+                  <span class="tum-m-note">
+                    {{ p.cost_per_min > 0 ? `$${p.cost_per_min}` : '무료' }} ·
+                    {{ p.minutes.toFixed(1) }}분
+                  </span>
+                </template>
                 <span class="tum-m-cost">{{ fmtCost(p.cost) }}</span>
               </div>
             </div>

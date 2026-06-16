@@ -103,7 +103,9 @@ function onMembersUpdate(newList) {
           />
         </div>
         <div class="app-modal-footer modal-footer-split">
-          <div></div>
+          <button class="app-btn-danger" :disabled="saving" @click="emit('delete')">
+            삭제
+          </button>
           <div class="footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button

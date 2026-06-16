@@ -14,6 +14,14 @@ import com.workmaite.domain.meetings.entity.MeetingMemberRole;
 import com.workmaite.domain.meetings.entity.MeetingStatus;
 import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
+import com.workmaite.domain.agendas.repository.AgendaRepository;
+import com.workmaite.domain.chat.repository.ChatMessageRepository;
+import com.workmaite.domain.logs.repository.AgentLogRepository;
+import com.workmaite.domain.logs.repository.HitlReviewRepository;
+import com.workmaite.domain.reports.repository.ReportRepository;
+import com.workmaite.domain.reports.repository.ReportScoreRepository;
+import com.workmaite.domain.sessions.repository.SessionRepository;
+import com.workmaite.domain.sessions.service.SessionService;
 import com.workmaite.domain.user.entity.User;
 import com.workmaite.domain.user.entity.UserRole;
 import com.workmaite.domain.user.repository.UserRepository;
@@ -27,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +55,49 @@ public class MeetingService {
   private final UserRepository userRepository;
   private final NeoSyncService neoSyncService;
   private final MeetingAccessGuard meetingAccessGuard;
+  // SessionService ↔ MeetingService 순환 참조 차단 — @Lazy 필드 주입(생성자에서 제외).
+  @Autowired @Lazy private SessionService sessionService;
+  private final SessionRepository sessionRepository;
+  private final AgendaRepository agendaRepository;
+  private final ReportRepository reportRepository;
+  private final ReportScoreRepository reportScoreRepository;
+  private final HitlReviewRepository hitlReviewRepository;
+  private final ChatMessageRepository chatMessageRepository;
+  private final AgentLogRepository agentLogRepository;
+
+  /**
+   * 회의체 삭제 — PostgreSQL이 원천. 세션은 검증된 단일 삭제 로직을 재사용하고, 회의체 직속 자식을 FK-안전 순서로 정리한 뒤
+   * 회의체를 지우고 Neo4j 삭제를 아웃박스로 전파한다. 로그(agent_logs·token_usage)와 대화(chat)는 보존(링크만 해제).
+   */
+  @Transactional
+  @AuditLogged(action = "DELETE", entityType = "meeting")
+  public void deleteMeeting(Long meetingId) {
+    Meeting meeting =
+        meetingRepository
+            .findById(meetingId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_NOT_FOUND));
+    meetingAccessGuard.requireMeetingEdit(meetingId);
+
+    // 1) 세션: 검증된 단일 삭제 로직 재사용(세션 자식 정리·로그 보존·Neo4j 동기화 포함)
+    sessionRepository
+        .findByMeetingId(meetingId)
+        .forEach(s -> sessionService.deleteSession(s.getId()));
+
+    // 2) 회의체 직속 자식 정리 — FK 안전 순서. 로그·토큰사용량은 보존.
+    hitlReviewRepository.deleteByMeetingAgendas(meetingId);
+    hitlReviewRepository.deleteByMeetingReports(meetingId);
+    reportScoreRepository.deleteByMeetingId(meetingId);
+    reportRepository.deleteByMeetingId(meetingId);
+    agendaRepository.deleteByMeetingId(meetingId);
+    meetingMemberRepository.deleteByMeetingId(meetingId);
+    chatMessageRepository.detachMeeting(meetingId); // 대화 보존, 링크만 해제
+    agentLogRepository.detachMeeting(meetingId); // 로그 보존, 링크만 해제
+
+    // 3) 보류된 세션 삭제를 먼저 DB에 반영(FK 안전) 후 회의체 삭제 + Neo4j 동기화(아웃박스)
+    meetingRepository.flush();
+    meetingRepository.delete(meeting);
+    neoSyncService.deleteMeeting(meetingId);
+  }
 
   @Transactional
   @AuditLogged(action = "CREATE", entityType = "meeting")
