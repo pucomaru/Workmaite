@@ -420,6 +420,23 @@ async def minutes_generate_minutes(
         and a.status not in ("done", "completed", "closed")
     ]
 
+    # C레벨(임원) 발화 — speaker_label이 [C]로 시작하는 세그먼트
+    clevel_lines = []
+    if data.session_id:
+        c_segs = (
+            db.query(models.SttSegment)
+            .filter(
+                models.SttSegment.session_id == data.session_id,
+                models.SttSegment.speaker_label.like("[C]%"),
+            )
+            .order_by(models.SttSegment.start_sec)
+            .all()
+        )
+        for seg in c_segs:
+            name = seg.speaker_label[3:]  # "[C]" 접두사 제거
+            clevel_lines.append(f"{name}: {seg.content}")
+    clevel_text = "\n".join(clevel_lines) if clevel_lines else ""
+
     # SessionSummaryBlock (refine-chunk 결과 — 이미 구조화된 논의 흐름)
     summary_blocks = []
     if data.session_id:
@@ -480,6 +497,7 @@ async def minutes_generate_minutes(
                 summary_blocks=summary_blocks,
                 report_chunks=report_chunks,
                 overdue_agendas=overdue_agendas,
+                clevel_text=clevel_text,
             ):
                 yield sse_token(chunk)
             # 생성은 미리보기만 — PG/Neo4j 영속화는 사용자가 '아카이브 저장'(/api/upload/minutes)을
