@@ -863,6 +863,7 @@ function downloadPDF() {
 }
 
 const savingMinutes = ref(false)
+const savingAgendas = ref(false)
 const showOngoingWarning = ref(false)
 const minutesSavedAt = ref(null)
 
@@ -1074,6 +1075,10 @@ async function removeNextAgendaItem(i) {
 }
 
 async function saveApprovedNextAgendas() {
+  if (savingAgendas.value) {
+    toast.info('회의록에 반영 중입니다.', { duration: 1500 })
+    return
+  }
   const approved = nextAgendaItems.value.filter(a => a._state === 'approved')
   const rejected = nextAgendaItems.value.filter(a => a._state === 'rejected' && a.db_id)
   if (!approved.length && !rejected.length) return
@@ -1094,6 +1099,7 @@ async function saveApprovedNextAgendas() {
     return
   }
 
+  savingAgendas.value = true
   try {
     await apiAI.post('/api/agent/archive/agendas/commit', {
       meeting_id: meetingId,
@@ -1147,6 +1153,8 @@ async function saveApprovedNextAgendas() {
     toast.error(
       '저장에 실패했습니다: ' + (e?.response?.data?.detail || e?.message || '알 수 없는 오류'),
     )
+  } finally {
+    savingAgendas.value = false
   }
 }
 
@@ -1227,9 +1235,7 @@ async function endMeeting() {
     }
     activeSession.value = { ...activeSession.value, status: 'ended' }
   }
-  // 회의록 탭으로 자동 전환하지 않는다 — 발화(스크립트) 탭으로 이동한다.
   showMinutesTab.value = true
-  activeTab.value = 'script'
 }
 
 function togglePopover(name) {
