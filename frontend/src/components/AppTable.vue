@@ -206,6 +206,12 @@ function startResize(e, colIndex) {
 .app-table tbody tr {
   height: 36px;
 }
+.app-table .filler-row td {
+  border: none;
+}
+.app-table .filler-row td:last-child {
+  background: transparent;
+}
 .app-table td {
   padding: 4px 4px;
   vertical-align: middle;
