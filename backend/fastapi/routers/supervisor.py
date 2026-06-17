@@ -627,28 +627,45 @@ async def session_chat(
     session = ctx["session"]
     status = session.status
 
-    # 상태별 추가 컨텍스트
-    if status == "archived":
-        # Neo4j RAG — 회의록 임베딩 검색
-        try:
-            from graphdb.retrieval_registry import vector_search
+    # ── Neo4j RAG — 임베딩 검색으로 본문 내용 보강 ──
+    # 제출 보고자료(ReportChunk)는 상태와 무관하게 검색(회의 시작 전/중에도 업로드됨),
+    # 확정 회의록(Minutes)은 archived일 때만 검색.
+    rag_sections = []
+    try:
+        from graphdb.retrieval_registry import vector_search
 
-            rag_rows = await vector_search(
+        # 제출된 보고자료/파일 본문 청크
+        report_rows = await vector_search(
+            "ReportChunk",
+            data.message,
+            k=4,
+            meeting_ids=[session.meeting_id],
+        )
+        report_text = "\n\n".join(
+            r.get("content") or "" for r in report_rows if r.get("content")
+        )
+        if report_text:
+            rag_sections.append(f"[검색된 제출 보고자료 내용]\n{report_text}")
+
+        # 확정 회의록 (archived일 때만 존재)
+        if status == "archived":
+            minutes_rows = await vector_search(
                 "Minutes",
                 data.message,
                 k=3,
                 meeting_ids=[session.meeting_id],
             )
-            rag_text = "\n\n".join(
+            minutes_text = "\n\n".join(
                 r.get("summary") or r.get("content") or ""
-                for r in rag_rows
+                for r in minutes_rows
                 if r.get("summary") or r.get("content")
             )
-        except Exception as e:
-            logger.warning(f"[session_chat] RAG 검색 실패 (무시): {e}")
-            rag_text = ""
-    else:
-        rag_text = ""
+            if minutes_text:
+                rag_sections.append(f"[검색된 관련 회의록 내용]\n{minutes_text}")
+    except Exception as e:
+        logger.warning(f"[session_chat] RAG 검색 실패 (무시): {e}")
+
+    rag_text = "\n\n".join(rag_sections)
 
     # 블록이 THRESHOLD 초과 시 오래된 블록을 LLM으로 압축 (rolling summary)
     summary_blocks = ctx.get("summary_blocks", [])
@@ -688,13 +705,14 @@ async def session_chat(
 - "현재까지 논의된 내용은 다음과 같습니다:", "다음과 같습니다:" 같은 불필요한 도입 문구는 쓰지 마세요.
 - "추가 질문이 있으시면 말씀해 주세요", "도움이 필요하시면 언제든지 말씀해 주세요" 같은 마무리 문장은 절대 쓰지 마세요.
 - 회의 내용 요약 시 핵심 결정사항·액션아이템만 bullet로 간결하게 정리하세요. 같은 내용 중복 금지.
-- 이 회의와 무관한 질문에는 "이 회의와 관련된 질문만 답변할 수 있습니다."라고만 답하세요.
-- 회의 관련 질문이지만 데이터가 없는 경우 off-topic으로 처리하지 말고 이유를 설명하세요.
+- 이 회의의 안건·참석자·일정·회의록·제출된 보고자료/파일에 대한 질문은 모두 이 회의와 관련된 질문입니다. 위 [제출된 보고자료/파일]·[안건] 등 제공된 데이터를 근거로 충실히 답변하세요.
+- 회의 관련 질문이지만 해당 데이터가 비어 있는 경우 off-topic으로 처리하지 말고 "현재 등록된 안건/제출 파일이 없습니다"처럼 이유를 설명하세요.
+- 일상 대화, 다른 회의, 회의와 전혀 무관한 일반 상식 등 명백히 이 회의와 관계없는 질문에만 "이 회의와 관련된 질문만 답변할 수 있습니다."라고 답하세요.
 
 {base_context}"""
 
     if rag_text:
-        system_prompt += f"\n\n[검색된 관련 회의록 내용]\n{rag_text}"
+        system_prompt += f"\n\n{rag_text}"
 
     def _to_messages(history: list) -> list:
         result = []

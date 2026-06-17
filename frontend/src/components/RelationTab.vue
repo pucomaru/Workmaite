@@ -7,7 +7,7 @@ import NodeIcon from './NodeIcon.vue'
 // 관계 탭은 '보기 전용'이다 — 사용자가 직접 관계를 편집(추가/삭제)하면 구조 엣지가 끊겨
 // 그래프가 깨지는 문제가 있어 편집 UI를 제거했다. 관계는 PG 동기화 / AI '채우기'로만 변경된다.
 // 단, '회의체↔회의체 연결(협의)'은 전용 테이블(meeting_relations)을 쓰는 안전한 수동 관계라 여기서 편집한다.
-const { currentNodeEdges, REL_COLORS, detailMeeting, meetings, isDetailAdmin } =
+const { currentNodeEdges, REL_COLORS, detailMeeting, meetings, isDetailAdmin, refreshArchive } =
   inject('archiveSidebar')
 
 const outEdges = computed(() => currentNodeEdges.value.filter(e => e.direction === 'out'))
@@ -58,6 +58,8 @@ async function addConnection(target) {
     })
     mrSearch.value = ''
     await loadConnections()
+    // 그래프의 manual_relations(PG 진실)를 다시 읽어 협의 엣지를 즉시 반영한다.
+    refreshArchive?.()
     toast.success('회의체를 연결했습니다.')
   } catch (e) {
     toast.error(e.response?.data?.detail || '연결에 실패했습니다.')
@@ -74,6 +76,8 @@ async function removeConnection(conn) {
       data: { from_meeting_id: detailMeeting.value.id, to_meeting_id: conn.meeting_id },
     })
     await loadConnections()
+    // 해제된 협의 엣지를 그래프에서도 즉시 제거
+    refreshArchive?.()
   } catch (e) {
     toast.error(e.response?.data?.detail || '연결 해제에 실패했습니다.')
   } finally {

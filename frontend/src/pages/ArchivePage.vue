@@ -323,8 +323,11 @@ function openSessionModal(meetingId = null, agendaId = null) {
   agentSidebarOpen.value = false
 }
 function onSessionCreated() {
-  // 새 세션·논의 아젠다는 PG 기반 archive 조회로 즉시 반영된다(600ms 대기 불필요).
+  // 세션·아젠다 연결은 PG에 기록되지만 회의 탭은 Neo4j(/api/neo4j/archive)에서 읽으므로
+  // 동기화 lag를 고려해 즉시 + 지연 갱신을 함께 수행한다(다른 mutation 지점과 동일 패턴).
   refreshArchive()
+  setTimeout(refreshArchive, 600)
+  setTimeout(refreshArchive, 2500)
 }
 
 async function doCreateMeeting() {
@@ -3761,6 +3764,7 @@ provide('archiveSidebar', {
   closeMinutesEdit,
   savingMinutesEdit,
   saveMinutesEdit,
+  refreshArchive,
 })
 </script>
 

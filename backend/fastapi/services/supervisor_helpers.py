@@ -324,6 +324,40 @@ def _build_session_context(db: Session, session_id: int) -> dict:
         else []
     )
 
+    # 안건에 제출된 보고자료/파일 (ReportAgenda → Report, related_agenda_ids fallback)
+    reports = []
+    report_agenda_map: dict[int, list[int]] = {}  # report_id → 연결된 agenda_id 목록
+    if agenda_ids:
+        ra_rows = (
+            db.query(models.ReportAgenda)
+            .filter(models.ReportAgenda.agenda_id.in_(agenda_ids))
+            .all()
+        )
+        report_ids = {ra.report_id for ra in ra_rows}
+        for ra in ra_rows:
+            report_agenda_map.setdefault(ra.report_id, []).append(ra.agenda_id)
+        # 정규화 테이블이 비어 있을 때를 대비해 related_agenda_ids(JSON)로도 보강
+        legacy_reports = (
+            db.query(models.Report)
+            .filter(models.Report.meeting_id == session.meeting_id)
+            .all()
+        )
+        agenda_id_set = set(agenda_ids)
+        for r in legacy_reports:
+            linked = [aid for aid in (r.related_agenda_ids or []) if aid in agenda_id_set]
+            if linked:
+                report_ids.add(r.id)
+                report_agenda_map.setdefault(r.id, [])
+                for aid in linked:
+                    if aid not in report_agenda_map[r.id]:
+                        report_agenda_map[r.id].append(aid)
+        if report_ids:
+            reports = (
+                db.query(models.Report)
+                .filter(models.Report.id.in_(report_ids))
+                .all()
+            )
+
     # 부모 회의체
     meeting = (
         db.query(models.Meeting).filter(models.Meeting.id == session.meeting_id).first()
@@ -347,6 +381,8 @@ def _build_session_context(db: Session, session_id: int) -> dict:
         "meeting": meeting,
         "members": [(u, role_map.get(u.id, "member")) for u in users],
         "agendas": agendas,
+        "reports": reports,
+        "report_agenda_map": report_agenda_map,
         "minutes": minutes,
         "summary_blocks": summary_blocks,
     }
@@ -390,10 +426,50 @@ def _format_session_context_str(ctx: dict) -> str:
         ]
         parts.append("[참석자]\n" + "\n".join(member_parts))
 
-    # 안건
+    # 안건 (상태·우선순위·마감 등 상세 포함)
     if ctx["agendas"]:
-        agenda_parts = [f"- {a.title}" for a in ctx["agendas"]]
+        agenda_parts = []
+        for a in ctx["agendas"]:
+            meta = []
+            if getattr(a, "status", None):
+                meta.append(f"상태: {a.status}")
+            if getattr(a, "priority", None):
+                meta.append(f"우선순위: {a.priority}")
+            if getattr(a, "due_date", None):
+                meta.append(f"마감: {a.due_date.strftime('%Y-%m-%d')}")
+            line = f"- (#{a.id}) {a.title}"
+            if meta:
+                line += " (" + ", ".join(meta) + ")"
+            agenda_parts.append(line)
         parts.append("[안건]\n" + "\n".join(agenda_parts))
+
+    # 제출된 보고자료/파일 (안건에 연결된 Report)
+    reports = ctx.get("reports") or []
+    if reports:
+        report_agenda_map = ctx.get("report_agenda_map") or {}
+        agenda_title_map = {a.id: a.title for a in ctx.get("agendas", [])}
+        report_parts = []
+        for r in reports:
+            name = r.file_name or f"보고서 #{r.id}"
+            details = []
+            if r.submitter_department:
+                details.append(f"제출부서: {r.submitter_department}")
+            if getattr(r, "human_status", None):
+                details.append(f"상태: {r.human_status}")
+            if getattr(r, "version", None):
+                details.append(f"버전: v{r.version}")
+            linked_titles = [
+                agenda_title_map[aid]
+                for aid in report_agenda_map.get(r.id, [])
+                if aid in agenda_title_map
+            ]
+            if linked_titles:
+                details.append("연결 안건: " + ", ".join(linked_titles))
+            line = f"- {name}"
+            if details:
+                line += " (" + ", ".join(details) + ")"
+            report_parts.append(line)
+        parts.append("[제출된 보고자료/파일]\n" + "\n".join(report_parts))
 
     # 회의록 전문 (archived일 때만 존재) — 다음 회의 아젠다 등 끝 섹션 누락 방지
     minutes = ctx.get("minutes")
