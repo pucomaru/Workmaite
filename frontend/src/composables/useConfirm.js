@@ -8,7 +8,7 @@ import { ref } from 'vue'
  * 표시는 App.vue에 마운트된 <AppConfirmModal />이 담당한다.
  */
 export const confirmState = ref(null)
-// { mode: 'confirm'|'prompt', message, okText, cancelText, danger, placeholder, resolve }
+// { mode: 'confirm'|'prompt', message, okText, cancelText, danger, placeholder, inputType, minLength, resolve }
 
 export function confirmDialog(
   message,
@@ -21,7 +21,7 @@ export function confirmDialog(
 
 export function promptDialog(
   message,
-  { okText = '확인', cancelText = '취소', placeholder = '' } = {},
+  { okText = '확인', cancelText = '취소', placeholder = '', inputType = 'text', minLength = 0 } = {},
 ) {
   return new Promise(resolve => {
     confirmState.value = {
@@ -30,6 +30,8 @@ export function promptDialog(
       okText,
       cancelText,
       placeholder,
+      inputType,
+      minLength,
       danger: false,
       resolve,
     }
