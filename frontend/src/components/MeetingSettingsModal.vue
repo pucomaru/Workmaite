@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { toast } from '../composables/useToast'
 import MemberInvite from './MemberInvite.vue'
 
 const props = defineProps({
@@ -9,8 +10,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
-// 부모가 소유한 편집용 draft 객체를 로컬 별칭으로 받아 in-place 편집한다.
-// (저장 시 부모가 같은 객체를 되읽는 구조 — 동일 참조이므로 동작 동일)
 const form = computed(() => props.settings?.form || {})
 
 function onMembersUpdate(newList) {
@@ -19,6 +18,14 @@ function onMembersUpdate(newList) {
   const removed = s.members.find(old => !newList.find(n => n.userId === old.userId))
   if (removed?.id) s.removedIds.push(removed.id)
   s.members = newList
+}
+
+function handleSave() {
+  if (form.value.start_date && form.value.end_date && form.value.end_date <= form.value.start_date) {
+    toast.error('종료일은 시작일보다 늦어야 합니다.')
+    return
+  }
+  emit('save')
 }
 </script>
 
@@ -118,7 +125,7 @@ function onMembersUpdate(newList) {
             <button
               class="app-btn-primary"
               :disabled="!form.title.trim() || saving"
-              @click="emit('save')"
+              @click="handleSave"
             >
               {{ saving ? '저장 중...' : '저장' }}
             </button>
