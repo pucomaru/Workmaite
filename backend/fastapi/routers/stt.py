@@ -60,14 +60,12 @@ async def _transcribe_openai(
     import openai
 
     client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    kwargs = {
-        "model": model,
-        "file": (filename, io.BytesIO(data), "audio/webm"),
-        "language": lang_code,
-    }
-    if prompt:
-        kwargs["prompt"] = prompt
-    resp = await client.audio.transcriptions.create(**kwargs)
+    resp = await client.audio.transcriptions.create(
+        model=model,
+        file=(filename, io.BytesIO(data), "audio/webm"),
+        language=lang_code,
+        prompt=prompt if prompt else openai.omit,
+    )
     return (resp.text or "").strip()
 
 

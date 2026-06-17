@@ -111,14 +111,16 @@ def generate_minutes_human(
     location_cell = (session_info or {}).get("location") or ""
     secretaries = [p for p in (participants or []) if p.get("role") == "admin"]
     members = [p for p in (participants or []) if p.get("role") != "admin"]
-    secretary_cell = ", ".join(
-        p["name"] if p.get("name") else p.get("dept", "?")
-        for p in secretaries
-    ) or "-"
-    member_cell = ", ".join(
-        p["name"] if p.get("name") else p.get("dept", "?")
-        for p in members
-    ) or "-"
+    secretary_cell = (
+        ", ".join(
+            p["name"] if p.get("name") else p.get("dept", "?") for p in secretaries
+        )
+        or "-"
+    )
+    member_cell = (
+        ", ".join(p["name"] if p.get("name") else p.get("dept", "?") for p in members)
+        or "-"
+    )
 
     header_rows = [
         f"| 안건 | {agenda_cell} |",
@@ -134,9 +136,9 @@ def generate_minutes_human(
 
     has_clevel = bool(clevel_text)
     n = 4  # 임원 섹션 번호 (있을 때)
-    n_action    = 5 if has_clevel else 4
-    n_next      = 6 if has_clevel else 5
-    n_conclusion= 7 if has_clevel else 6
+    n_action = 5 if has_clevel else 4
+    n_next = 6 if has_clevel else 5
+    n_conclusion = 7 if has_clevel else 6
 
     clevel_section = ""
     if has_clevel:

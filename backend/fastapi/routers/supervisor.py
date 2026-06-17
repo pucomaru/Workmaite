@@ -189,7 +189,7 @@ from services.supervisor_helpers import (  # noqa: F401, E402
     _build_session_context,
     _format_session_context_str,
 )
-from core.access_guard import require_view_by_session
+from core.access_guard import require_view_by_session  # noqa: E402
 
 
 # ─── Minutes (아라) 에이전트 ──────────────────────────────────────────────────
@@ -579,7 +579,7 @@ async def _get_rolling_summary_text(summary_blocks: list) -> str:
                     )
                 ]
             )
-            merged = f"[전반부 요약]\n{_res.content.strip()}"
+            merged = f"[전반부 요약]\n{cast(str, _res.content).strip()}"
         except Exception:
             merged = "\n".join(f"[{b.title}]" for b in old_blocks)
         _rolling_summary_cache[cache_key] = merged
@@ -714,8 +714,8 @@ async def session_chat(
     if rag_text:
         system_prompt += f"\n\n{rag_text}"
 
-    def _to_messages(history: list) -> list:
-        result = []
+    def _to_messages(history: list | None) -> list:
+        result: list = []
         for m in (history or [])[-10:]:
             role, content = m.get("role", ""), m.get("content", "") or ""
             if role == "user":
@@ -736,8 +736,13 @@ async def session_chat(
                 messages
             ):
                 if chunk.content:
-                    full_response += chunk.content
-                    yield sse_token(chunk.content)
+                    text = (
+                        chunk.content
+                        if isinstance(chunk.content, str)
+                        else str(chunk.content)
+                    )
+                    full_response += text
+                    yield sse_token(text)
         finally:
             # 대화 기록 저장
             thread_id = f"sessions-{data.session_id}"
@@ -1432,8 +1437,13 @@ async def supervisor_chat(
                         temperature=0.2, streaming=True
                     ).astream(_sched_msgs):
                         if _chunk.content:
-                            _assistant_chunks.append(_chunk.content)
-                            yield sse_token(_chunk.content)
+                            _text = (
+                                _chunk.content
+                                if isinstance(_chunk.content, str)
+                                else str(_chunk.content)
+                            )
+                            _assistant_chunks.append(_text)
+                            yield sse_token(_text)
                     yield sse_done()
                     return
 

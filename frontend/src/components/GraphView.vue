@@ -61,7 +61,7 @@ function _lighten(hex, amt = 0.45) {
 function getNodeGradient(centerHex, edgeHex) {
   const key = centerHex * 0x1000000 + edgeHex
   if (_gradientCache.has(key)) return _gradientCache.get(key)
-  let grad = null
+  let grad
   try {
     grad = new PIXI.FillGradient({
       type: 'radial',
@@ -150,13 +150,11 @@ function _drawBoundsBox() {
   if (!boundsLayer || !_bounds) return
   boundsLayer.clear()
   const { minX, minY, maxX, maxY } = _bounds
-  boundsLayer
-    .roundRect(minX, minY, maxX - minX, maxY - minY, 28)
-    .stroke({
-      color: props.nightMode ? 0xffffff : 0x64748b,
-      width: 2,
-      alpha: props.nightMode ? 0.16 : 0.22,
-    })
+  boundsLayer.roundRect(minX, minY, maxX - minX, maxY - minY, 28).stroke({
+    color: props.nightMode ? 0xffffff : 0x64748b,
+    width: 2,
+    alpha: props.nightMode ? 0.16 : 0.22,
+  })
 }
 
 // node display objects: Map<nodeIdx, { gfx: PIXI.Graphics, label: PIXI.Text, data: node }>

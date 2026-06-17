@@ -43,7 +43,7 @@ async def eval_routing() -> dict:
     cases = json.loads((DATASET / "routing_cases.json").read_text())["cases"]
     rows, correct = [], 0
     for c in cases:
-        agent, _thinking, _steps = await classify_intent(c["message"], c.get("history"))
+        agent, *_ = await classify_intent(c["message"], c.get("history"))
         ok = agent in c["expected"]
         correct += ok
         rows.append(

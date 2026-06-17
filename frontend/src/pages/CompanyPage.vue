@@ -158,7 +158,7 @@ async function submitAdd() {
   }
 }
 
-async function removeMember(member) {
+async function _removeMember(member) {
   // (A) 본인 자기 삭제 금지 — 관리자라도 자신은 제거할 수 없다.
   if (member.id === auth.user?.id) {
     toast.error('자기 자신은 제거할 수 없습니다.')
@@ -652,11 +652,7 @@ const {
             <td colspan="7" class="empty-row">
               <div class="empty-state">
                 <p>
-                  {{
-                    myMeetings.length
-                      ? '조회할 구성원이 없습니다'
-                      : '조회할 구성원이 없습니다'
-                  }}
+                  {{ myMeetings.length ? '조회할 구성원이 없습니다' : '조회할 구성원이 없습니다' }}
                 </p>
               </div>
             </td>

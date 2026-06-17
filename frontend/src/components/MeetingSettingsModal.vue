@@ -1,6 +1,5 @@
 <script setup>
 import { computed } from 'vue'
-import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 
 const props = defineProps({
@@ -74,15 +73,25 @@ function onMembersUpdate(newList) {
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="meeting-start-date">시작일</label>
-              <DateInput
+              <input
                 id="meeting-start-date"
                 v-model="form.start_date"
+                type="date"
+                min="1000-01-01"
+                max="9999-12-31"
                 class="app-modal-input"
               />
             </div>
             <div class="app-modal-field">
               <label for="meeting-end-date">종료일</label>
-              <DateInput id="meeting-end-date" v-model="form.end_date" class="app-modal-input" />
+              <input
+                id="meeting-end-date"
+                v-model="form.end_date"
+                type="date"
+                min="1000-01-01"
+                max="9999-12-31"
+                class="app-modal-input"
+              />
             </div>
           </div>
           <div class="app-modal-field">
@@ -103,9 +112,7 @@ function onMembersUpdate(newList) {
           />
         </div>
         <div class="app-modal-footer modal-footer-split">
-          <button class="app-btn-danger" :disabled="saving" @click="emit('delete')">
-            삭제
-          </button>
+          <button class="app-btn-danger" :disabled="saving" @click="emit('delete')">삭제</button>
           <div class="footer-right">
             <button class="app-btn-cancel" @click="emit('close')">취소</button>
             <button

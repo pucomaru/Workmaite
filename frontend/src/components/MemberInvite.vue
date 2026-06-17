@@ -63,7 +63,10 @@ const sortedMembers = computed(() =>
 )
 
 function remove(userId) {
-  emit('update:modelValue', props.modelValue.filter(m => m.userId !== userId))
+  emit(
+    'update:modelValue',
+    props.modelValue.filter(m => m.userId !== userId),
+  )
 }
 
 function updateRole(userId, role) {

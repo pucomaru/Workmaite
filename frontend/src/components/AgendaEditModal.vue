@@ -1,6 +1,5 @@
 <script setup>
 import { computed } from 'vue'
-import DateInput from './DateInput.vue'
 import DeptSelect from './DeptSelect.vue'
 
 const props = defineProps({
@@ -101,10 +100,13 @@ function priorityColor(val) {
             <!-- 마감일 -->
             <div class="app-modal-field">
               <label for="agenda-due-date">마감일</label>
-              <DateInput
+              <input
                 id="agenda-due-date"
                 name="due_date"
+                type="date"
                 v-model="form.due_date"
+                min="1000-01-01"
+                max="9999-12-31"
                 class="app-modal-input"
               />
             </div>

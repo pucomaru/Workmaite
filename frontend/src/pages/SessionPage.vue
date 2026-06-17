@@ -49,6 +49,10 @@ const activeSession = ref(null)
 const sidebarSearch = ref('')
 const sessionStatusFilter = ref('all') // 'all' | 'scheduled' | 'ongoing' | 'ended'
 const showFilterDrop = ref(false)
+function selectStatusFilter(key) {
+  sessionStatusFilter.value = key
+  showFilterDrop.value = false
+}
 const sidebarCollapsed = ref(false)
 const sidebarW = ref(330)
 let sidebarResizing = false,
@@ -573,7 +577,11 @@ const editDraft = ref({ text: '', speaker: '', isClevel: false })
 function startEdit(idx) {
   const line = transcriptLines.value[idx]
   editingIdx.value = idx
-  editDraft.value = { text: line.text, speaker: line.speaker === '화자01' ? '' : (line.speaker || ''), isClevel: !!line.clevel }
+  editDraft.value = {
+    text: line.text,
+    speaker: line.speaker === '화자01' ? '' : line.speaker || '',
+    isClevel: !!line.clevel,
+  }
 }
 function cancelEdit() {
   editingIdx.value = null
@@ -595,10 +603,9 @@ async function saveEdit(idx) {
 
 async function refreshSummaryBlock(segmentId) {
   try {
-    const { data } = await apiAI.post(
-      `/api/ai/sessions/${activeSession.value.id}/blocks/refresh`,
-      { segment_id: segmentId }
-    )
+    const { data } = await apiAI.post(`/api/ai/sessions/${activeSession.value.id}/blocks/refresh`, {
+      segment_id: segmentId,
+    })
     if (data.ok && data.block_index != null) {
       const blocks = conversationBlocks.value
       if (blocks[data.block_index]) {
@@ -723,7 +730,9 @@ async function generateMinutes() {
   if (generatingMinutes.value) return
   if (activeSession.value?.status === 'ongoing') {
     showOngoingWarning.value = true
-    setTimeout(() => { showOngoingWarning.value = false }, 10000)
+    setTimeout(() => {
+      showOngoingWarning.value = false
+    }, 10000)
     return
   }
   generatingMinutes.value = true
@@ -862,7 +871,6 @@ function downloadPDF() {
 }
 
 const savingMinutes = ref(false)
-const savingAgendas = ref(false)
 const showOngoingWarning = ref(false)
 const minutesSavedAt = ref(null)
 
@@ -1075,7 +1083,8 @@ async function removeNextAgendaItem(i) {
 
 const savingNextAgendas = ref(false)
 async function saveApprovedNextAgendas() {
-  if (savingNextAgendas.value) {  // 중복 클릭 차단
+  if (savingNextAgendas.value) {
+    // 중복 클릭 차단
     toast.info('회의록에 반영 중입니다.', { duration: 1500 })
     return
   }
@@ -1165,7 +1174,9 @@ async function saveMinutesToDB() {
   if (!activeSession.value) return
   if (activeSession.value?.status === 'ongoing') {
     showOngoingWarning.value = true
-    setTimeout(() => { showOngoingWarning.value = false }, 10000)
+    setTimeout(() => {
+      showOngoingWarning.value = false
+    }, 10000)
     return
   }
   if (!generatedMinutes.value?.content_summary) {
@@ -1768,8 +1779,7 @@ async function downloadChatFile(filePath) {
                   :key="tab.key"
                   class="sp-filter-drop-item"
                   :class="{ active: sessionStatusFilter === tab.key }"
-                  @click="sessionStatusFilter = tab.key; showFilterDrop = false"
-                  "
+                  @click="selectStatusFilter(tab.key)"
                 >
                   {{ tab.label }}
                 </button>
@@ -2036,7 +2046,11 @@ async function downloadChatFile(filePath) {
                     placeholder="화자 이름"
                   />
                   <label class="tline-clevel-label">
-                    <input type="checkbox" v-model="editDraft.isClevel" class="tline-clevel-check" />
+                    <input
+                      type="checkbox"
+                      v-model="editDraft.isClevel"
+                      class="tline-clevel-check"
+                    />
                     <span class="tline-clevel-text">임원</span>
                   </label>
                 </div>
@@ -4439,8 +4453,14 @@ html.night-mode .sp-sm-role-tag.member {
   animation: fadeIn 0.2s ease;
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .sp-attach-btn {
   display: flex;

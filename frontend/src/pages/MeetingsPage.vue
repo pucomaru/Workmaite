@@ -80,9 +80,7 @@ const filteredGroups = computed(() => {
 const activeCount = computed(
   () => enrichedGroups.value.filter(m => !m.status || m.status === 'active').length,
 )
-const endedCount = computed(
-  () => enrichedGroups.value.filter(m => m.status === 'ended').length,
-)
+const endedCount = computed(() => enrichedGroups.value.filter(m => m.status === 'ended').length)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
 const {
@@ -93,11 +91,7 @@ const {
 } = useTableSort(filteredGroups)
 
 const MG_PAGE_SIZE = 15
-const {
-  page: mgPage,
-  paged: pagedGroups,
-  fillerCount: mgFillerCount,
-} = usePagination(sortedGroups, MG_PAGE_SIZE)
+const { page: mgPage, paged: pagedGroups } = usePagination(sortedGroups, MG_PAGE_SIZE)
 
 async function loadMembers(meetingId) {
   if (membersCache.value[meetingId]) return
@@ -280,11 +274,7 @@ const savingSettings = ref(false)
 async function saveSettings() {
   if (!settingsModal.value) return
   const { meeting, form, members, removedIds, originalRoles } = settingsModal.value
-  if (
-    form.start_date &&
-    form.end_date &&
-    form.end_date < form.start_date
-  ) {
+  if (form.start_date && form.end_date && form.end_date < form.start_date) {
     toast.error('종료일은 시작일 이후여야 합니다.')
     return
   }
@@ -631,11 +621,25 @@ onMounted(async () => {
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="create-meeting-start-date">시작일</label>
-                <DateInput id="create-meeting-start-date" v-model="createForm.start_date" class="app-modal-input" />
+                <input
+                  id="create-meeting-start-date"
+                  v-model="createForm.start_date"
+                  type="date"
+                  min="1000-01-01"
+                  max="9999-12-31"
+                  class="app-modal-input"
+                />
               </div>
               <div class="app-modal-field">
                 <label for="create-meeting-end-date">종료일</label>
-                <DateInput id="create-meeting-end-date" v-model="createForm.end_date" class="app-modal-input" />
+                <input
+                  id="create-meeting-end-date"
+                  v-model="createForm.end_date"
+                  type="date"
+                  min="1000-01-01"
+                  max="9999-12-31"
+                  class="app-modal-input"
+                />
               </div>
             </div>
             <div class="app-modal-field">

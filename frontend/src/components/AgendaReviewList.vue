@@ -1,7 +1,6 @@
 <script setup>
 import { nextTick, computed } from 'vue'
 import { apiAI } from '../api'
-import DateInput from './DateInput.vue'
 
 const props = defineProps({
   items: { type: Array, required: true },
@@ -389,8 +388,20 @@ function onAcKeydown(ag, field, e) {
               </ul>
             </div>
             <div class="dei-date-row">
-              <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
-              <DateInput class="dei-input dei-date-input" v-model="ag._editEndDate" />
+              <input
+                type="date"
+                min="1000-01-01"
+                max="9999-12-31"
+                class="dei-input dei-date-input"
+                v-model="ag._editStartDate"
+              />
+              <input
+                type="date"
+                min="1000-01-01"
+                max="9999-12-31"
+                class="dei-input dei-date-input"
+                v-model="ag._editEndDate"
+              />
             </div>
           </template>
         </div>

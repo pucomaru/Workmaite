@@ -2346,7 +2346,7 @@ watch(detailMeeting, mg => {
 // ─── 그래프 분석·재설정 (Supervisor → Knowledge agent) ─────────
 // 새로고침 버튼 클릭 시 AI가 Neo4j 소속 관계를 분석/재설정하고 근거를 보고합니다.
 const analyzingRelations = ref(false)
-async function analyzeRelationships() {
+async function _analyzeRelationships() {
   if (analyzingRelations.value) return
   analyzingRelations.value = true
   try {
@@ -3815,7 +3815,7 @@ provide('archiveSidebar', {
       </div>
       <div class="year-filter-wrap">
         <select v-model="filterYear" name="filterYear" class="year-filter-select">
-          <option value="">전체 연도</option>
+          <option value="">전체 년도</option>
           <option v-for="y in availableYears" :key="y" :value="y">{{ y }}년</option>
         </select>
         <label for="ended-filter" class="ended-filter-check">

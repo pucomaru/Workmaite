@@ -2,7 +2,6 @@
 import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import api from '../api'
-import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 import { useAuthStore } from '../stores/auth'
 
@@ -151,16 +150,6 @@ async function loadAgendas(meetingId) {
   }
 }
 
-function clampDateYear(e) {
-  const val = e.target.value
-  if (!val) return
-  const parts = val.split('-')
-  if (parts[0] && parts[0].length > 4) {
-    parts[0] = parts[0].slice(0, 4)
-    form.value.dateOnly = parts.join('-')
-  }
-}
-
 const timeOptions = computed(() => {
   const options = []
   for (let h = 8; h <= 22; h++) {
@@ -174,6 +163,11 @@ const timeOptions = computed(() => {
 })
 
 const errors = ref({})
+
+function onDateInput() {
+  showPastDateAlert.value = false
+  errors.value.dateOnly = null
+}
 
 function validate() {
   const f = form.value
@@ -287,13 +281,16 @@ async function doCreate() {
           <div class="app-modal-field">
             <label for="create-date">회의 날짜 <span class="req">*</span></label>
             <div style="display: flex; gap: 8px; align-items: center">
-              <DateInput
+              <input
                 id="create-date"
                 name="date"
+                type="date"
                 v-model="form.dateOnly"
+                min="1000-01-01"
+                max="9999-12-31"
                 class="app-modal-input"
                 style="flex: 1"
-                @update:modelValue="showPastDateAlert = false; errors.dateOnly = null"
+                @input="onDateInput"
               />
               <div style="position: relative; width: 110px">
                 <div

@@ -382,6 +382,7 @@ class HitlReview(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
 class MeetingRelation(Base):
     """회의체↔회의체 수동 연결 (협의). PG 소스 오브 트루스 + Neo4j(`협의`) 동기화.
     방향은 의미상 무관(협의)하지만 행은 from→to로 저장하고 조회 시 양방향을 본다.
@@ -410,9 +411,7 @@ class GraphRelation(Base):
     """
 
     __tablename__ = "graph_relations"
-    __table_args__ = (
-        UniqueConstraint("from_node_id", "to_node_id", "rel_type"),
-    )
+    __table_args__ = (UniqueConstraint("from_node_id", "to_node_id", "rel_type"),)
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     from_node_id: Mapped[str] = mapped_column(String(120), nullable=False)
     to_node_id: Mapped[str] = mapped_column(String(120), nullable=False)

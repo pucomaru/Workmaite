@@ -24,11 +24,11 @@ watch(
 // 어떤 경로에서 '/'로 이동해도 항상 발화한다
 watch(
   () => route.path,
-  (newPath) => {
+  newPath => {
     if (newPath === '/') {
       meetingsStore.fetchMeetings()
     }
-  }
+  },
 )
 </script>
 
@@ -60,7 +60,7 @@ watch(
 .layout-main {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px 0px 28px ;
+  padding: 24px 28px 0px 28px;
 }
 .ai-disclaimer {
   text-align: center;

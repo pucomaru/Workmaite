@@ -30,7 +30,9 @@ def _agenda_brief(agenda, evidence_chars: int) -> str:
     title = (agenda.title or "").strip()
     ev = (agenda.ai_evidence or "").strip().replace("\n", " ")
     if ev and evidence_chars > 0:
-        return f"{title} — 근거: {ev[:evidence_chars]}" if title else ev[:evidence_chars]
+        return (
+            f"{title} — 근거: {ev[:evidence_chars]}" if title else ev[:evidence_chars]
+        )
     return title
 
 
@@ -64,7 +66,9 @@ def meeting_glossary_terms(db: Session, meeting_id: int, limit: int = 40) -> lis
             if a.title:
                 terms.append(a.title.strip())
     except Exception as e:
-        logger.warning(f"[meeting_context] glossary terms 실패(meeting={meeting_id}): {e}")
+        logger.warning(
+            f"[meeting_context] glossary terms 실패(meeting={meeting_id}): {e}"
+        )
         return []
 
     seen: set[str] = set()
@@ -143,7 +147,9 @@ def meeting_report_agenda_context(
         blocks.append("[보고자료]\n" + "\n".join(rlines))
 
     if agendas:
-        alines = [f"• {_agenda_brief(a, evidence_chars)}" for a in agendas[:max_agendas]]
+        alines = [
+            f"• {_agenda_brief(a, evidence_chars)}" for a in agendas[:max_agendas]
+        ]
         blocks.append("[안건 및 추출 근거]\n" + "\n".join(alines))
 
     return "\n\n".join(blocks)

@@ -21,7 +21,7 @@ from pathlib import Path
 # Windows 콘솔(cp949)에서 유니코드(✓/✗ 등) 출력 시 UnicodeEncodeError 방지
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8")
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except Exception:
         pass
 
