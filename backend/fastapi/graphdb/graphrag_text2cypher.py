@@ -55,7 +55,7 @@ class _FactoryLLM(LLMInterface):
     def _messages(self, text: str, system_instruction):
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        msgs = []
+        msgs: list = []
         if system_instruction:
             msgs.append(SystemMessage(content=system_instruction))
         msgs.append(HumanMessage(content=text))

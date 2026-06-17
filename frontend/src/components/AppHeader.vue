@@ -270,7 +270,7 @@ async function saveProfileSettings() {
         class="center-nav-item"
         :class="{ active: route.path === '/company' }"
       >
-        <AppIcon name="company" :size="18" :color="'#6ee7b7'"/>
+        <AppIcon name="company" :size="18" :color="'#6ee7b7'" />
         조직
       </router-link>
       <router-link

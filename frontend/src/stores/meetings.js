@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api, { apiAI } from '../api'
+import api from '../api'
 
 export const useMeetingsStore = defineStore('meetings', () => {
   const meetings = ref([])

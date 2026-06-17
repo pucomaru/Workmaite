@@ -24,7 +24,7 @@
 import asyncio
 import logging
 import os
-from typing import AsyncGenerator, Literal, Optional, TypedDict
+from typing import AsyncGenerator, Literal, Optional, TypedDict, cast
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
@@ -266,7 +266,7 @@ async def _gather_grounding_context(
             return []
 
     labels = _grounding_labels()
-    groups = await asyncio.gather(*[_one(l) for l in labels])
+    groups = await asyncio.gather(*[_one(label) for label in labels])
     snippets = [s[:400] for g in groups for s in g if s and s.strip()]
     return "\n".join(snippets[:12]).strip()  # 프롬프트 비대화 방지(상한)
 
@@ -433,11 +433,11 @@ async def run_agent_workflow_stream(
 
     # 1) 통합 게이트 (fast-mode: 트리아주+재작성+분류 1회. jailbreak는 상위 supervisor_chat 최전선에서 처리)
     yield ("planning", "요청 점검")
-    state.update(await triage_gate(state))
+    state.update(cast(WState, await triage_gate(state)))
 
     if state.get("clarify_question"):
         yield ("planning", "추가 정보 필요")
-        yield ("token", state["clarify_question"])
+        yield ("token", state["clarify_question"] or "")
         return
     if state.get("qa_type") == "external":
         yield ("token", _external_refuse(state)["answer"])
@@ -469,7 +469,7 @@ async def run_agent_workflow_stream(
         return
     state["answer"] = answer
     try:
-        state.update(await hallucination_guard(state))
+        state.update(cast(WState, await hallucination_guard(state)))
     except Exception as e:
         logger.warning(f"[workflow] 환각 검사 실패(생략): {e}")
         return

@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { apiAI } from '../api'
-import DateInput from './DateInput.vue'
 
 const emit = defineEmits(['close'])
 
@@ -100,22 +99,26 @@ const sec = computed(() => data.value?.sections || null)
         <div class="tum-date-bar">
           <div class="app-modal-field" style="flex: 1; min-width: 0">
             <label for="token-usage-start-date">시작일</label>
-            <DateInput
+            <input
               id="token-usage-start-date"
+              type="date"
               v-model="startDate"
               class="app-modal-input"
-              :max="endDate"
+              min="1000-01-01"
+              :max="endDate || '9999-12-31'"
               @keydown.enter="fetchUsage"
             />
           </div>
           <span class="tum-sep">—</span>
           <div class="app-modal-field" style="flex: 1; min-width: 0">
             <label for="token-usage-end-date">종료일</label>
-            <DateInput
+            <input
               id="token-usage-end-date"
+              type="date"
               v-model="endDate"
               class="app-modal-input"
-              :min="startDate"
+              :min="startDate || '1000-01-01'"
+              max="9999-12-31"
               @keydown.enter="fetchUsage"
             />
           </div>

@@ -579,7 +579,7 @@ async def chat_stream(
 
 # ── 지식 그래프 관리(재구성) ──────────────────────────────────────────────────
 # 유사도 임계값은 core.ai_config로 집약(env로 튜닝 가능, 하드코딩 금지)
-from core.ai_config import (
+from core.ai_config import (  # noqa: E402
     ORPHAN_ATTACH_THRESHOLD as _ORPHAN_ATTACH_THRESHOLD,
     LIFECYCLE_LINK_THRESHOLD as _LIFECYCLE_LINK_THRESHOLD,
 )

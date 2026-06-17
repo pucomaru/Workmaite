@@ -344,7 +344,9 @@ def _build_session_context(db: Session, session_id: int) -> dict:
         )
         agenda_id_set = set(agenda_ids)
         for r in legacy_reports:
-            linked = [aid for aid in (r.related_agenda_ids or []) if aid in agenda_id_set]
+            linked = [
+                aid for aid in (r.related_agenda_ids or []) if aid in agenda_id_set
+            ]
             if linked:
                 report_ids.add(r.id)
                 report_agenda_map.setdefault(r.id, [])
@@ -353,9 +355,7 @@ def _build_session_context(db: Session, session_id: int) -> dict:
                         report_agenda_map[r.id].append(aid)
         if report_ids:
             reports = (
-                db.query(models.Report)
-                .filter(models.Report.id.in_(report_ids))
-                .all()
+                db.query(models.Report).filter(models.Report.id.in_(report_ids)).all()
             )
 
     # 부모 회의체

@@ -258,15 +258,6 @@ const visions = [
   },
 ]
 
-
-// 처리 흐름 — 녹음부터 아카이브까지
-const flow = [
-  { icon: 'bi bi-mic-fill', title: '회의 녹음', sub: '실시간 발화 기록' },
-  { icon: 'bi bi-journal-text', title: 'AI 회의록 초안', sub: '요약·후속 아젠다 발굴' },
-  { icon: 'bi bi-person-check-fill', title: '검토·승인', sub: '사람이 최종 확정' },
-  { icon: 'bi bi-diagram-3-fill', title: '연결·아카이빙', sub: '새로운 가치 창출' },
-]
-
 // 신뢰 요소 — 과장된 수치 대신 실제 작동 방식
 const trustItems = [
   { icon: 'bi bi-mic', label: '실시간 발화 기록 & AI 채팅' },

@@ -57,11 +57,14 @@ function onInput(e) {
   autoResize(e.target)
 }
 
-watch(() => props.modelValue, (val) => {
-  if (!val && textareaEl.value) {
-    textareaEl.value.style.height = 'auto'
-  }
-})
+watch(
+  () => props.modelValue,
+  val => {
+    if (!val && textareaEl.value) {
+      textareaEl.value.style.height = 'auto'
+    }
+  },
+)
 function onFileChange(e) {
   emit('fileChange', e)
 }

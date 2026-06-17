@@ -3,7 +3,6 @@ import { ref, computed, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import { confirmDialog } from '../composables/useConfirm'
 import api from '../api'
-import DateInput from './DateInput.vue'
 import MemberInvite from './MemberInvite.vue'
 
 const props = defineProps({
@@ -98,7 +97,7 @@ async function loadAgendas(meetingId) {
   try {
     const { data } = await api.get(`/api/v1/meetings/${meetingId}/agendas`)
     agendas.value = data.data ?? data
-  } catch (e) {
+  } catch {
     agendas.value = []
   }
 }
@@ -107,7 +106,7 @@ async function loadSelectedAgendas(sessionId) {
   try {
     const { data } = await api.get(`/api/v1/sessions/${sessionId}/agendas`)
     selectedAgendaIds.value = data.data ?? data
-  } catch (e) {
+  } catch {
     selectedAgendaIds.value = []
   }
 }
@@ -209,9 +208,12 @@ async function doSave() {
           <div class="app-modal-field">
             <label for="session-edit-date">회의 날짜 <span class="req">*</span></label>
             <div class="datetime-split-input">
-              <DateInput
+              <input
                 id="session-edit-date"
+                type="date"
                 v-model="form.dateOnly"
+                min="1000-01-01"
+                max="9999-12-31"
                 class="datetime-split-date"
               />
               <span class="datetime-split-sep"></span>

@@ -1,5 +1,4 @@
 <script setup>
-import DOMPurify from 'dompurify'
 import { computed, inject, ref, watch } from 'vue'
 import { toast } from '../composables/useToast'
 import AgendaReviewList from './AgendaReviewList.vue'
@@ -1475,7 +1474,9 @@ function parseAiEvidence(val) {
                 <div
                   class="ai-evidence-box"
                   style="max-height: 300px; overflow-y: auto; font-size: 12px"
-                >{{ detailNode.data.short_summary }}</div>
+                >
+                  {{ detailNode.data.short_summary }}
+                </div>
               </div>
             </template>
 

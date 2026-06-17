@@ -108,7 +108,11 @@ async function removeConnection(conn) {
           <circle cx="11" cy="11" r="8" />
           <path d="M21 21l-4.35-4.35" />
         </svg>
-        <input v-model="mrSearch" class="mr-search-input" placeholder="연결할 회의체를 제목으로 검색" />
+        <input
+          v-model="mrSearch"
+          class="mr-search-input"
+          placeholder="연결할 회의체를 제목으로 검색"
+        />
       </div>
       <div v-if="mrResults.length" class="mr-search-results">
         <div v-for="m in mrResults" :key="m.id" class="mr-search-item" @click="addConnection(m)">

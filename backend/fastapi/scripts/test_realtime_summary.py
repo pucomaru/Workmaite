@@ -8,7 +8,6 @@
 """
 
 import argparse
-import json
 import requests
 
 # ─── 테스트용 가짜 STT 발화 텍스트 ───────────────────────────────────────────
@@ -72,7 +71,7 @@ def test_refine_chunk(base_url: str, token: str, session_id: int, sample_idx: in
     resp = requests.post(
         f"{base_url}/api/ai/sessions/refine-chunk",
         headers=headers,
-        json=payload,
+        json=payload,  # type: ignore[arg-type]
         timeout=30,
     )
 
@@ -81,7 +80,7 @@ def test_refine_chunk(base_url: str, token: str, session_id: int, sample_idx: in
         return
 
     result = resp.json()
-    print(f"✅ 결과:")
+    print("✅ 결과:")
     print(f"  제목: {result.get('title', '없음')}")
     bullets = result.get("bullets", [])
     for b in bullets:

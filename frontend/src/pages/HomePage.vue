@@ -17,12 +17,12 @@ const meetingsStore = useMeetingsStore()
 // 홈 화면에 다시 진입할 때 최신 회의체 목록 재조회 (구성원 추가 등 외부 변경 반영)
 watch(
   () => route.path,
-  async (path) => {
+  async path => {
     if (path === '/') {
       await meetingsStore.fetchMeetings()
       hydrateMeetingMeta()
     }
-  }
+  },
 )
 
 const calendarEvents = ref([])
@@ -69,11 +69,6 @@ const calTitle = computed(() => {
   return `${y}년 ${m}월`
 })
 
-const todayLabel = computed(() => {
-  if (calView.value === 'month') return '이번 달'
-  if (calView.value === 'week') return '이번 주'
-  return '오늘'
-})
 
 function isSameDay(a, b) {
   return (
@@ -324,10 +319,9 @@ const {
 
 // ── 페이지네이션 (둘 다 10건, 데이터 수만큼 높이 늘어남) ──
 const PAGE_SIZE = 10
-const {
-  page: sessionPage,
-  paged: pagedSessions,
-} = usePagination(sortedSessions, PAGE_SIZE, { fillEmpty: false })
+const { page: sessionPage, paged: pagedSessions } = usePagination(sortedSessions, PAGE_SIZE, {
+  fillEmpty: false,
+})
 const {
   page: meetingPage,
   paged: pagedMeetings,
@@ -536,7 +530,11 @@ const {
                       >
                         {{ e.title }}
                       </div>
-                      <div v-if="eventsOn(cell).length > 2" class="evt-more" @click.stop="clickWeek(cell)">
+                      <div
+                        v-if="eventsOn(cell).length > 2"
+                        class="evt-more"
+                        @click.stop="clickWeek(cell)"
+                      >
                         +{{ eventsOn(cell).length - 2 }}
                       </div>
                     </div>
