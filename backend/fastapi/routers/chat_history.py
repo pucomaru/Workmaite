@@ -29,7 +29,11 @@ class MessageOut(BaseModel):
 
 
 # ─── GET: 특정 컨텍스트의 대화 기록 조회 ─────────────────────────────
-@router.get("/{context_type}/{context_id}", response_model=List[MessageOut])
+@router.get(
+    "/{context_type}/{context_id}",
+    response_model=List[MessageOut],
+    summary="대화 기록 조회",
+)
 def get_chat_history(
     context_type: str,
     context_id: int,
@@ -38,6 +42,10 @@ def get_chat_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """특정 컨텍스트의 대화 기록을 조회합니다(keyset 페이지네이션 지원).
+
+    본인 스레드만 조회 — user_id == current_user.id로 스코프가 한정된다.
+    """
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(
             status_code=400, detail=f"유효하지 않은 context_type: {context_type}"
@@ -59,7 +67,11 @@ def get_chat_history(
 
 
 # ─── POST: 메시지 1건 저장 ────────────────────────────────────────────
-@router.post("/{context_type}/{context_id}", response_model=MessageOut)
+@router.post(
+    "/{context_type}/{context_id}",
+    response_model=MessageOut,
+    summary="대화 메시지 저장",
+)
 def save_message(
     context_type: str,
     context_id: int,
@@ -67,6 +79,10 @@ def save_message(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """사용자 메시지 1건을 본인 스레드에 저장합니다.
+
+    user 역할만 허용 — assistant/agent 메시지는 서버가 스트림 종료 시 직접 저장한다(H-5).
+    """
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(
             status_code=400, detail=f"유효하지 않은 context_type: {context_type}"
@@ -91,13 +107,14 @@ def save_message(
 
 
 # ─── DELETE: 특정 컨텍스트의 대화 기록 전체 삭제 ────────────────────
-@router.delete("/{context_type}/{context_id}")
+@router.delete("/{context_type}/{context_id}", summary="대화 기록 전체 삭제")
 def clear_chat_history(
     context_type: str,
     context_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """특정 컨텍스트의 대화 기록을 전체 삭제합니다. 본인 스레드만(user_id 스코프) 삭제된다."""
     if context_type not in VALID_CONTEXT_TYPES:
         raise HTTPException(
             status_code=400, detail=f"유효하지 않은 context_type: {context_type}"

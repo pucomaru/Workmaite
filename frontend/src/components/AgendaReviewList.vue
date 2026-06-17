@@ -136,6 +136,65 @@ function deptList(dept) {
   if (!dept) return []
   return Array.isArray(dept) ? dept : [dept]
 }
+
+// ─── 담당 회사/부서 자동완성 ────────────────────────────────────────────
+// memberCompanies/memberDepts(부모가 회의체 멤버에서 모아 전달) 중 입력 문자와
+// 일치하는 항목을 메뉴로 띄워 검색·선택할 수 있게 한다.
+function acFilter(list, query) {
+  const q = (query || '').trim().toLowerCase()
+  const seen = new Set()
+  const out = []
+  for (const raw of list || []) {
+    const v = (raw == null ? '' : String(raw)).trim()
+    if (!v) continue
+    const key = v.toLowerCase()
+    if (seen.has(key) || key === q) continue // 중복·정확히 같은 입력은 제외
+    seen.add(key)
+    if (!q || key.includes(q)) out.push(v)
+    if (out.length >= 8) break
+  }
+  return out
+}
+function acList(ag, field) {
+  return field === 'company'
+    ? acFilter(props.memberCompanies, ag._editCompany)
+    : acFilter(props.memberDepts, ag._editDept)
+}
+function openAc(ag, field) {
+  ag._acOpen = field
+  ag._acHi = 0
+}
+function pickAc(ag, field, val) {
+  if (field === 'company') ag._editCompany = val
+  else ag._editDept = val
+  ag._acOpen = null
+}
+function acBlur(ag) {
+  // 옵션 클릭(mousedown.prevent)은 blur를 막으므로, 바깥 클릭 시에만 약간 늦게 닫는다.
+  setTimeout(() => {
+    ag._acOpen = null
+  }, 120)
+}
+function onAcKeydown(ag, field, e) {
+  const list = acList(ag, field)
+  if (e.key === 'Escape') {
+    ag._acOpen = null
+    return
+  }
+  if (!list.length) return
+  const hi = ag._acHi || 0
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    ag._acOpen = field
+    ag._acHi = (hi + 1) % list.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    ag._acHi = (hi - 1 + list.length) % list.length
+  } else if (e.key === 'Enter' && ag._acOpen === field) {
+    e.preventDefault()
+    pickAc(ag, field, list[Math.min(hi, list.length - 1)])
+  }
+}
 </script>
 
 <template>
@@ -276,22 +335,59 @@ function deptList(dept) {
               placeholder="아젠다 제목"
               style="margin-top: 5px"
             />
-            <input
-              :id="`edit-company-${i}`"
-              :name="`edit-company-${i}`"
-              class="dei-input"
-              v-model="ag._editCompany"
-              placeholder="담당 회사 (선택)"
-              style="margin-top: 4px"
-            />
-            <input
-              :id="`edit-dept-${i}`"
-              :name="`edit-dept-${i}`"
-              class="dei-input"
-              v-model="ag._editDept"
-              placeholder="담당 부서 (선택)"
-              style="margin-top: 4px"
-            />
+            <div class="dei-ac-wrap" style="margin-top: 4px">
+              <input
+                :id="`edit-company-${i}`"
+                :name="`edit-company-${i}`"
+                class="dei-input"
+                v-model="ag._editCompany"
+                placeholder="담당 회사 (선택)"
+                autocomplete="off"
+                @focus="openAc(ag, 'company')"
+                @input="openAc(ag, 'company')"
+                @keydown="onAcKeydown(ag, 'company', $event)"
+                @blur="acBlur(ag)"
+              />
+              <ul
+                v-if="ag._acOpen === 'company' && acList(ag, 'company').length"
+                class="dei-ac-menu"
+              >
+                <li
+                  v-for="(opt, oi) in acList(ag, 'company')"
+                  :key="opt"
+                  :class="{ 'dei-ac-active': oi === (ag._acHi || 0) }"
+                  @mousedown.prevent="pickAc(ag, 'company', opt)"
+                  @mouseenter="ag._acHi = oi"
+                >
+                  {{ opt }}
+                </li>
+              </ul>
+            </div>
+            <div class="dei-ac-wrap" style="margin-top: 4px">
+              <input
+                :id="`edit-dept-${i}`"
+                :name="`edit-dept-${i}`"
+                class="dei-input"
+                v-model="ag._editDept"
+                placeholder="담당 부서 (선택)"
+                autocomplete="off"
+                @focus="openAc(ag, 'dept')"
+                @input="openAc(ag, 'dept')"
+                @keydown="onAcKeydown(ag, 'dept', $event)"
+                @blur="acBlur(ag)"
+              />
+              <ul v-if="ag._acOpen === 'dept' && acList(ag, 'dept').length" class="dei-ac-menu">
+                <li
+                  v-for="(opt, oi) in acList(ag, 'dept')"
+                  :key="opt"
+                  :class="{ 'dei-ac-active': oi === (ag._acHi || 0) }"
+                  @mousedown.prevent="pickAc(ag, 'dept', opt)"
+                  @mouseenter="ag._acHi = oi"
+                >
+                  {{ opt }}
+                </li>
+              </ul>
+            </div>
             <div class="dei-date-row">
               <DateInput class="dei-input dei-date-input" v-model="ag._editStartDate" />
               <DateInput class="dei-input dei-date-input" v-model="ag._editEndDate" />
@@ -623,6 +719,52 @@ function deptList(dept) {
   gap: 6px;
   margin-top: 4px;
 }
+
+/* ── 담당 회사/부서 자동완성 ── */
+.dei-ac-wrap {
+  position: relative;
+}
+.dei-ac-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  margin: 0;
+  padding: 3px;
+  list-style: none;
+  background: var(--surface-raised, #1e1e24);
+  border: 1px solid var(--white-12, rgba(255, 255, 255, 0.14));
+  border-radius: 6px;
+  max-height: 144px;
+  overflow-y: auto;
+  z-index: 40;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.dei-ac-menu li {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--dark-text, #e8e8e8);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dei-ac-menu li.dei-ac-active {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+}
+.day-mode .dei-ac-menu {
+  background: #fff;
+  border-color: #e2e8f0;
+}
+.day-mode .dei-ac-menu li {
+  color: var(--dark-card);
+}
+.day-mode .dei-ac-menu li.dei-ac-active {
+  background: #eef2ff;
+  color: #4338ca;
+}
 .dei-date-input {
   flex: 1;
   min-width: 0;
@@ -788,19 +930,29 @@ function deptList(dept) {
 }
 @keyframes nab-rainbow-glow {
   0% {
-    box-shadow: 0 0 0 1.5px #f43f5e, 0 0 10px 1px rgba(244, 63, 94, 0.6);
+    box-shadow:
+      0 0 0 1.5px #f43f5e,
+      0 0 10px 1px rgba(244, 63, 94, 0.6);
   }
   25% {
-    box-shadow: 0 0 0 1.5px #f59e0b, 0 0 10px 1px rgba(245, 158, 11, 0.6);
+    box-shadow:
+      0 0 0 1.5px #f59e0b,
+      0 0 10px 1px rgba(245, 158, 11, 0.6);
   }
   50% {
-    box-shadow: 0 0 0 1.5px #22c55e, 0 0 10px 1px rgba(34, 197, 94, 0.6);
+    box-shadow:
+      0 0 0 1.5px #22c55e,
+      0 0 10px 1px rgba(34, 197, 94, 0.6);
   }
   75% {
-    box-shadow: 0 0 0 1.5px #38bdf8, 0 0 10px 1px rgba(56, 189, 248, 0.6);
+    box-shadow:
+      0 0 0 1.5px #38bdf8,
+      0 0 10px 1px rgba(56, 189, 248, 0.6);
   }
   100% {
-    box-shadow: 0 0 0 1.5px #a855f7, 0 0 10px 1px rgba(168, 85, 247, 0.6);
+    box-shadow:
+      0 0 0 1.5px #a855f7,
+      0 0 10px 1px rgba(168, 85, 247, 0.6);
   }
 }
 .nab-save-spinner {

@@ -53,3 +53,18 @@ management:
     export:
       prometheus:
         enabled: true
+
+# ── API 문서 (springdoc-openapi / Swagger UI) ───────────────────────────────
+# OpenAPI 3.1로 출력. Swagger UI: /swagger-ui.html , OpenAPI JSON: /v3/api-docs
+# (SecurityConfig가 /swagger-ui/**, /v3/api-docs/** 를 permitAll로 허용 — OpenApiConfig가 JWT 스킴 정의)
+springdoc:
+  api-docs:
+    version: openapi_3_1
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+    doc-expansion: none
+  default-produces-media-type: application/json

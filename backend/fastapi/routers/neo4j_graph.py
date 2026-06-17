@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from db import models
 from core.auth import get_current_user
 from db.database import get_db
-from graphdb.neo4j_ids import to_mg_id
+from graphdb.neo4j_ids import to_mg_id, to_session_id, to_agenda_id
 from graphdb.neo4j_client import run_cypher as _run_cypher  # 공유 Bolt 클라이언트
 from graphdb.rel_schema import (
     ALLOWED_REL_TYPES,
@@ -41,7 +41,7 @@ def _normalize_node_id(raw: str) -> str:
     return raw
 
 
-@router.get("/archive")
+@router.get("/archive", summary="아카이브 그래프 데이터 조회")
 async def get_archive(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -155,7 +155,7 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (ag:Agenda)-[:`관할`]->(mg:Meetings)
+                MATCH (mg:Meetings)-[:`추출`|`관할`]-(ag:Agenda)
                 WHERE mg.id IN $ids AND coalesce(ag.status, '') <> 'draft'
                 OPTIONAL MATCH (p:User)-[:`담당`]->(ag)
                 OPTIONAL MATCH (p)-[:`소속`]->(d:Department)
@@ -176,7 +176,7 @@ async def get_archive(
                 """
                 MATCH (s:Session)-[:`소속`]->(mg:Meetings) WHERE mg.id IN $ids
                 // 아카이브에 저장(확정)된 회의록만 노출 — DRAFT 회의록은 시각화하지 않는다
-                OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
+                OPTIONAL MATCH (mn:Minutes)<-[:`기록`]-(s)
                 WHERE toLower(coalesce(mn.status, '')) = 'completed'
                 OPTIONAL MATCH (u:User)-[:`참석`]->(s)
                 WITH mg, s, mn,
@@ -205,8 +205,8 @@ async def get_archive(
             ),
             _run_cypher(
                 """
-                MATCH (doc:Report)-[:`발제`]->(mg:Meetings) WHERE mg.id IN $ids
-                OPTIONAL MATCH (doc)-[:`도출`]->(ag:Agenda)
+                MATCH (doc:Report)-[:`첨부`|`발제`]->(mg:Meetings) WHERE mg.id IN $ids
+                OPTIONAL MATCH (doc)-[:`취급`|`도출`]->(ag:Agenda)
                 RETURN
                     mg.id AS meetingId,
                     coalesce(mg.title, '') AS meetingTitle,
@@ -437,7 +437,7 @@ async def get_archive(
         mn_ag_rows, sess_ag_rows, deriv_rows = await asyncio.gather(
             _run_cypher(
                 """
-                MATCH (mn:Minutes)-[:`기록`]->(s:Session)<-[:`논의`]-(ag:Agenda)-[:`관할`]->(mg:Meetings)
+                MATCH (mn:Minutes)<-[:`기록`]-(s:Session)<-[:`논의`]-(ag:Agenda)-[:`추출`|`관할`]-(mg:Meetings)
                 WHERE mg.id IN $ids AND toLower(coalesce(mn.status, '')) = 'completed'
                 RETURN mg.id AS meetingId,
                        coalesce(s.id, toString(s.pg_id)) AS session_id,
@@ -654,6 +654,39 @@ async def get_archive(
                         }
                     )
 
+    # ── Postgres 보완: '논의 아젠다'(SessionAgenda) → session_agendas (PG=권위) ──
+    # 그래프의 agenda-[:논의]->session 시각화는 PG 진실에서 직접 파생한다 — Neo4j 엣지 동기화
+    # 지연/누락(예: Spring 미배포·아웃박스 대기)과 무관하게 선택 즉시 반영되도록.
+    if all_raw_ids:
+        try:
+            sa_rows = (
+                db.query(models.SessionAgenda, models.MeetingSession.meeting_id)
+                .join(
+                    models.MeetingSession,
+                    models.MeetingSession.id == models.SessionAgenda.session_id,
+                )
+                .filter(models.MeetingSession.meeting_id.in_(all_raw_ids))
+                .all()
+            )
+            for sa, m_id in sa_rows:
+                mg_id = to_mg_id(m_id)
+                bucket = meetings_map.get(mg_id)
+                if bucket is None:
+                    continue
+                entry = {
+                    "session_id": to_session_id(sa.session_id),
+                    "agenda_id": to_agenda_id(sa.agenda_id),
+                }
+                lst = bucket["session_agendas"]
+                if not any(
+                    e.get("session_id") == entry["session_id"]
+                    and e.get("agenda_id") == entry["agenda_id"]
+                    for e in lst
+                ):
+                    lst.append(entry)
+        except Exception as e:
+            logger.warning(f"[graph] SessionAgenda PG 보강 실패: {e}")
+
     # ── Postgres 보완: Neo4j 미동기 신규 회의체 (기본 정보만) ──────
     missing_pg_ids = pg_meeting_ids - meetings_map.keys()
     if missing_pg_ids:
@@ -773,19 +806,22 @@ async def get_archive(
     }
 
 
-@router.get("/rel-schema")
+@router.get("/rel-schema", summary="관계 스키마 조회")
 async def get_rel_schema(current_user: models.User = Depends(get_current_user)):
     """관계 스키마 SSOT — 프런트가 번들 기본값을 이 값으로 덮어쓴다."""
     return {"matrix": REL_MATRIX, "colors": REL_COLORS}
 
 
-@router.post("/relationships")
+@router.post("/relationships", summary="수동 관계 추가")
 async def create_relationship(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """수동 관계 추가 — PostgreSQL(소스 오브 트루스)에 저장하고 Neo4j에 동기화한다."""
+    """수동 관계 추가 — PostgreSQL(소스 오브 트루스)에 저장하고 Neo4j에 동기화한다.
+
+    한글 관계 타입은 ALLOWED_REL_TYPES(rel_schema SSOT) 내에서만 허용된다. 인증 필요.
+    """
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -841,13 +877,16 @@ async def create_relationship(
     return {"ok": True}
 
 
-@router.delete("/relationships")
+@router.delete("/relationships", summary="수동 관계 삭제")
 async def delete_relationship(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """두 노드 사이의 관계 삭제 — PostgreSQL에서 삭제하고 Neo4j에 동기화한다."""
+    """두 노드 사이의 관계 삭제 — PostgreSQL에서 삭제하고 Neo4j에 동기화한다.
+
+    rel_type은 ALLOWED_REL_TYPES 내일 때만 타입 한정 삭제, 그 외엔 타입 무관 삭제. 인증 필요.
+    """
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     rel_type = (data.get("rel_type") or "").strip()
     to_id = _normalize_node_id((data.get("to_id") or "").strip())
@@ -904,7 +943,7 @@ def _mr_pair_filter(a: int, b: int, rel_type: str):
     )
 
 
-@router.get("/meeting-relations/{mg_id}")
+@router.get("/meeting-relations/{mg_id}", summary="회의체 협의 연결 목록 조회")
 async def list_meeting_relations(
     mg_id: str,
     current_user: models.User = Depends(get_current_user),
@@ -938,7 +977,7 @@ async def list_meeting_relations(
     return {"relations": out}
 
 
-@router.post("/meeting-relations")
+@router.post("/meeting-relations", summary="회의체 협의 연결 생성")
 async def create_meeting_relation(
     data: dict,
     current_user: models.User = Depends(get_current_user),
@@ -959,9 +998,11 @@ async def create_meeting_relation(
         raise HTTPException(status_code=404, detail="회의체를 찾을 수 없습니다.")
     # 1) PG — 멱등(양방향 중복 방지)
     try:
-        exists = db.query(models.MeetingRelation.id).filter(
-            _mr_pair_filter(from_pg, to_pg, rel_type)
-        ).first()
+        exists = (
+            db.query(models.MeetingRelation.id)
+            .filter(_mr_pair_filter(from_pg, to_pg, rel_type))
+            .first()
+        )
         if not exists:
             db.add(
                 models.MeetingRelation(
@@ -988,7 +1029,7 @@ async def create_meeting_relation(
     return {"ok": True}
 
 
-@router.delete("/meeting-relations")
+@router.delete("/meeting-relations", summary="회의체 협의 연결 삭제")
 async def delete_meeting_relation(
     data: dict,
     current_user: models.User = Depends(get_current_user),
@@ -1017,13 +1058,16 @@ async def delete_meeting_relation(
     return {"ok": True}
 
 
-@router.put("/relationships")
+@router.put("/relationships", summary="수동 관계 유형 변경")
 async def update_relationship(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """관계 유형 변경 (old → new) — PostgreSQL에서 변경하고 Neo4j에 동기화한다."""
+    """관계 유형 변경 (old → new) — PostgreSQL에서 변경하고 Neo4j에 동기화한다.
+
+    old_rel·new_rel 모두 ALLOWED_REL_TYPES(rel_schema SSOT) 내여야 한다. 인증 필요.
+    """
     from_id = _normalize_node_id((data.get("from_id") or "").strip())
     old_rel = (data.get("old_rel") or "").strip()
     new_rel = (data.get("new_rel") or "").strip()
@@ -1071,7 +1115,7 @@ async def update_relationship(
     return {"ok": True}
 
 
-@router.post("/meeting-groups")
+@router.post("/meeting-groups", summary="회의체 노드 생성")
 async def create_meeting_group(
     data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1116,7 +1160,7 @@ async def create_meeting_group(
     return {"ok": True}
 
 
-@router.put("/meeting-groups/{mg_id}")
+@router.put("/meeting-groups/{mg_id}", summary="회의체 노드 수정")
 async def update_meeting_group(
     mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1141,7 +1185,7 @@ async def update_meeting_group(
     return {"ok": True}
 
 
-@router.delete("/meeting-groups/{mg_id}")
+@router.delete("/meeting-groups/{mg_id}", summary="회의체 노드 삭제")
 async def delete_meeting_group(
     mg_id: str, current_user: models.User = Depends(get_current_user)
 ):
@@ -1158,7 +1202,7 @@ async def delete_meeting_group(
     return {"ok": True}
 
 
-@router.post("/meeting-groups/{mg_id}/members")
+@router.post("/meeting-groups/{mg_id}/members", summary="회의체 멤버 관계 추가")
 async def add_member_to_group(
     mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1184,7 +1228,7 @@ async def add_member_to_group(
     return {"ok": True}
 
 
-@router.delete("/meeting-groups/{mg_id}/members")
+@router.delete("/meeting-groups/{mg_id}/members", summary="회의체 멤버 관계 삭제")
 async def remove_member_from_group(
     mg_id: str, data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1207,7 +1251,7 @@ async def remove_member_from_group(
     return {"ok": True}
 
 
-@router.post("/sessions")
+@router.post("/sessions", summary="세션 노드 생성")
 async def create_session_node(
     data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1248,7 +1292,7 @@ async def create_session_node(
     return {"ok": True}
 
 
-@router.post("/agendas")
+@router.post("/agendas", summary="안건 노드 생성")
 async def create_agenda_node(
     data: dict, current_user: models.User = Depends(get_current_user)
 ):
@@ -1290,7 +1334,7 @@ async def create_agenda_node(
         )
         if mg_id:
             await _run_cypher(
-                "MATCH (ag:Agenda {id: $ag_id}), (mg:Meetings {id: $mg_id}) MERGE (ag)-[:`관할`]->(mg)",
+                "MATCH (ag:Agenda {id: $ag_id}), (mg:Meetings {id: $mg_id}) MERGE (mg)-[:`추출`]->(ag)",
                 {"ag_id": ag_id, "mg_id": mg_id},
             )
         if assignee_name:
@@ -1305,7 +1349,7 @@ async def create_agenda_node(
     return {"ok": True}
 
 
-@router.patch("/agendas/{ag_id}")
+@router.patch("/agendas/{ag_id}", summary="안건 노드 수정")
 async def update_agenda_node(
     ag_id: str, data: dict, current_user: models.User = Depends(get_current_user)
 ):

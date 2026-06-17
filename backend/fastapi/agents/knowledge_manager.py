@@ -807,13 +807,13 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             emb = await _embed(content[:2000])
             rows = await run_cypher(
-                "MATCH (mn:Minutes {pg_id:$mid})-[:`기록`]->(s:Session {id:$sid})"
+                "MATCH (mn:Minutes {pg_id:$mid})<-[:`기록`]-(s:Session {id:$sid})"
                 "-[:`소속`]->(mg:Meetings) "
                 "WITH mn, s, mg "
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 5, $emb) YIELD node AS ag, score "
                 "WHERE score >= $lifecycle_th "
                 "WITH mn, s, mg, ag, score "
-                "WHERE (ag)-[:`관할`]->(mg) AND NOT (mn)-[:`도출`]->(ag) "
+                "WHERE (mg)-[:`추출`|`관할`]-(ag) AND NOT (mn)-[:`도출`]->(ag) "
                 "MERGE (mn)-[r:`도출`]->(ag) "
                 "SET r.score=score, r.kind='minutes_agenda', r.discovered_by='knowledge_agent', r.discovered_at=$ts "
                 "MERGE (ag)-[r2:`논의`]->(s) "
@@ -844,7 +844,7 @@ async def reconcile_graph(analysis: dict) -> dict:
     # ①-b 이월(carry-forward)
     try:
         cf = await run_cypher(
-            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
+            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)-[:`추출`|`관할`]-(ag:Agenda) "
             "WHERE coalesce(ag.status,'') IN ['ON_HOLD','IN_PROGRESS'] AND coalesce(s.scheduled_at,'')<>'' "
             "WITH ag, s ORDER BY s.scheduled_at DESC "
             "WITH ag, collect(s)[0] AS latest "
@@ -871,7 +871,7 @@ async def reconcile_graph(analysis: dict) -> dict:
     #     발제세션 하나로만 표현(Neo4j는 양방향 탐색 가능). 발제세션 없는 떠있는 안건을 같은 회의체 세션과 연결.
     try:
         floating_rows = await run_cypher(
-            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)<-[:`관할`]-(ag:Agenda) "
+            "MATCH (s:Session)-[:`소속`]->(mg:Meetings)-[:`추출`|`관할`]-(ag:Agenda) "
             "WHERE NOT (ag)-[:`논의`]->(:Session) "
             "  AND NOT coalesce(ag.status,'') IN ['DONE','COMPLETED','CLOSED','RESOLVED'] "
             "WITH s, ag LIMIT 200 "
@@ -928,8 +928,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             pass
 
     # ② 문서 ↔ 안건 적합 → canonical 연결
-    # 스키마상 안건으로 들어오는(agenda<-) 문서 관계는 보고자료·회의록 모두 `도출`이다.
-    # (과거엔 보고자료를 `발제`로 연결했으나 `도출`로 통일. `발제`는 문서→회의체 전용.)
+    # 안건으로 들어오는 문서 관계: 보고자료=`취급`, 회의록=`도출` (라벨로 분기). `발제`는 폐지.
     for link in sem.get("doc_links", []):
         d_id, ag_id = link.get("doc_id"), link.get("ag_id")
         if not d_id or not ag_id:
@@ -937,8 +936,12 @@ async def reconcile_graph(analysis: dict) -> dict:
         try:
             await run_cypher(
                 "MATCH (d {id:$d}), (a:Agenda {id:$a}) WHERE d:Report OR d:Minutes "
-                "MERGE (d)-[r:`도출`]->(a) "
-                "SET r.score = $score, r.discovered_by = 'knowledge_agent', r.discovered_at = $ts",
+                "FOREACH (_ IN CASE WHEN d:Report THEN [1] ELSE [] END | "
+                "  MERGE (d)-[r1:`취급`]->(a) "
+                "  SET r1.score=$score, r1.discovered_by='knowledge_agent', r1.discovered_at=$ts) "
+                "FOREACH (_ IN CASE WHEN d:Minutes THEN [1] ELSE [] END | "
+                "  MERGE (d)-[r2:`도출`]->(a) "
+                "  SET r2.score=$score, r2.discovered_by='knowledge_agent', r2.discovered_at=$ts)",
                 {
                     "d": d_id,
                     "a": ag_id,
@@ -951,7 +954,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 {
                     "kind": "doc_ref",
                     "detail": f"문서 [{link.get('doc_title', '?')}] → 안건 [{link.get('ag_title', '?')}]",
-                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — 보고자료·회의록 모두 '도출' 관계로 연결했습니다.",
+                    "evidence": f"문서 내용이 해당 안건과 {pct:.0f}% 부합 — 보고자료는 '취급', 회의록은 '도출' 관계로 연결했습니다.",
                     "highlight": link.get("ag_title"),
                 }
             )
@@ -959,7 +962,7 @@ async def reconcile_graph(analysis: dict) -> dict:
         except Exception:
             pass
 
-    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 `도출`
+    # ③ 고아 문서 → 임베딩으로 가장 적합한 안건에 연결 (보고자료=취급, 회의록=도출)
     for doc in struct.get("orphan_documents", []):
         if not doc.get("emb") or not doc.get("id"):
             continue
@@ -969,8 +972,12 @@ async def reconcile_graph(analysis: dict) -> dict:
                 "CALL db.index.vector.queryNodes('agendaEmbedding', 1, d.embedding) "
                 "YIELD node, score "
                 "WITH d, node, score WHERE score >= $th "
-                "MERGE (d)-[r:`도출`]->(node) "
-                "SET r.auto_linked = true, r.score = score, r.discovered_at = $ts "
+                "FOREACH (_ IN CASE WHEN d:Report THEN [1] ELSE [] END | "
+                "  MERGE (d)-[r1:`취급`]->(node) "
+                "  SET r1.auto_linked=true, r1.score=score, r1.discovered_at=$ts) "
+                "FOREACH (_ IN CASE WHEN d:Minutes THEN [1] ELSE [] END | "
+                "  MERGE (d)-[r2:`도출`]->(node) "
+                "  SET r2.auto_linked=true, r2.score=score, r2.discovered_at=$ts) "
                 "RETURN node.title AS title, score",
                 {"id": doc["id"], "th": _ORPHAN_ATTACH_THRESHOLD, "ts": ts},
             )
@@ -1084,7 +1091,7 @@ async def reconcile_graph(analysis: dict) -> dict:
                 # AI가 의미유사로 자동 연결한 문서→안건(발제/도출) 중 임계값 미달분 제거.
                 # 라이프사이클 도출(r.kind 보유)·수동 발제는 건드리지 않는다.
                 await run_cypher(
-                    "MATCH (a {id:$fid})-[r:`발제`|`도출`]->(b:Agenda {id:$tid}) "
+                    "MATCH (a {id:$fid})-[r:`취급`|`도출`|`발제`]->(b:Agenda {id:$tid}) "
                     "WHERE (a:Report OR a:Minutes) AND r.discovered_by = 'knowledge_agent' "
                     "  AND r.kind IS NULL DELETE r",
                     {"fid": from_id, "tid": to_id},
@@ -1092,7 +1099,7 @@ async def reconcile_graph(analysis: dict) -> dict:
             elif kind == "weak_attach":
                 await run_cypher(
                     # 자동연결 문서→안건 엣지(도출, 구 데이터는 발제)의 임계값 미달분 제거
-                    "MATCH (a {id:$fid})-[r:`발제`|`도출`]->(b:Agenda {id:$tid}) "
+                    "MATCH (a {id:$fid})-[r:`취급`|`도출`|`발제`]->(b:Agenda {id:$tid}) "
                     "WHERE (a:Report OR a:Minutes) AND r.auto_linked = true DELETE r",
                     {"fid": from_id, "tid": to_id},
                 )

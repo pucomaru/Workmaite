@@ -63,12 +63,16 @@ class _ConfirmRelationshipsReq(BaseModel):
 
 
 # ─── Knowledge Base 저장 ──────────────────────────────────────────────────────
-@router.post("/knowledge/store-minutes")
+@router.post("/knowledge/store-minutes", summary="회의록 지식베이스 저장")
 async def knowledge_store_minutes(
     data: _StoreMinutesReq,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의록을 임베딩해 Knowledge Base(Neo4j)에 저장한다.
+
+    require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.
+    """
     require_meeting_edit(db, current_user, data.meeting_id)
     try:
         return await knowledge_agent.store_minutes(
@@ -81,12 +85,16 @@ async def knowledge_store_minutes(
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/store-task")
+@router.post("/knowledge/store-task", summary="과제 지식베이스 저장")
 async def knowledge_store_task(
     data: _StoreTaskReq,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """과제(할 일)를 임베딩해 Knowledge Base(Neo4j)에 저장한다.
+
+    meeting_id가 있으면 require_meeting_edit 가드(간사/회사관리자/시스템관리자)를 적용한다.
+    """
     if data.meeting_id is not None:
         require_meeting_edit(db, current_user, data.meeting_id)
     try:
@@ -100,12 +108,16 @@ async def knowledge_store_task(
         return {"status": "error", "detail": str(e)}
 
 
-@router.post("/knowledge/store-report")
+@router.post("/knowledge/store-report", summary="보고서 지식베이스 저장")
 async def knowledge_store_report(
     data: _StoreReportReq,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """보고서를 임베딩해 Knowledge Base(Neo4j)에 저장한다.
+
+    meeting_id가 있으면 require_meeting_edit 가드(간사/회사관리자/시스템관리자)를 적용한다.
+    """
     if data.meeting_id is not None:
         require_meeting_edit(db, current_user, data.meeting_id)
     try:
@@ -119,9 +131,7 @@ async def knowledge_store_report(
         return {"status": "error", "detail": str(e)}
 
 
-@router.post(
-    "/knowledge/propose-relationships", summary="Knowledge Propose Relationships"
-)
+@router.post("/knowledge/propose-relationships", summary="노드 간 관계 제안")
 async def knowledge_propose_relationships(
     data: _ProposeRelationshipsReq,
     current_user: models.User = Depends(get_current_user),
@@ -140,9 +150,7 @@ async def knowledge_propose_relationships(
         return {"status": "error", "detail": str(e)}
 
 
-@router.post(
-    "/knowledge/confirm-relationships", summary="Knowledge Confirm Relationships"
-)
+@router.post("/knowledge/confirm-relationships", summary="제안된 관계 승인/반려")
 async def knowledge_confirm_relationships(
     data: _ConfirmRelationshipsReq,
     _: models.User = Depends(get_current_user),  # 인증 가드 (본문에서 미사용)
@@ -166,12 +174,16 @@ class KnowledgeChatRequest(BaseModel):
     meeting_id: Optional[int] = 0
 
 
-@router.post("/knowledge/chat/stream")
+@router.post("/knowledge/chat/stream", summary="지식 관리 채팅 — SSE 스트리밍")
 async def knowledge_chat_stream_ep(
     data: KnowledgeChatRequest,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """지식 관리 에이전트와 대화하며 응답을 SSE(text/event-stream)로 스트리밍한다.
+
+    meeting_id가 있으면 require_view 가드로 회의체 열람 권한을 확인한다.
+    """
     if data.meeting_id:
         require_view(db, current_user, data.meeting_id)
     meeting_context = (

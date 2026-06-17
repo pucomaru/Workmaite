@@ -53,6 +53,15 @@ def build_vocab_prompt(db: Session, session_id) -> str:
         terms.extend(u.name for u in members if u.name)
         terms.extend(u.department for u in members if u.department)
 
+        # 회의 중 다루는 보고자료명·안건 제목도 고유명사 힌트로 추가 (report-[:취급]->agenda 맥락).
+        # 음차된 도메인 용어(제품·시스템·약어)가 보고자료/안건에 등장하므로 인식·교정 정확도가 오른다.
+        try:
+            from core.meeting_context import meeting_glossary_terms
+
+            terms.extend(meeting_glossary_terms(db, sess.meeting_id, limit=30))
+        except Exception:
+            pass
+
         # 순서 유지 중복 제거
         seen: set[str] = set()
         uniq: list[str] = []

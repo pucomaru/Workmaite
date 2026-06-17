@@ -5,6 +5,8 @@ import com.workmaite.domain.scripts.dto.ScriptSaveRequest;
 import com.workmaite.domain.scripts.dto.ScriptUpdateRequest;
 import com.workmaite.domain.scripts.service.ScriptService;
 import com.workmaite.global.common.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * /api/v1/sessions/{sessionId}/scripts - 세그먼트 수정 (ID 목록 기반 부분 수정) DELETE
  * /api/v1/sessions/{sessionId}/scripts - 세션의 모든 세그먼트 삭제
  */
+@Tag(name = "STT 스크립트", description = "세션 STT 세그먼트(전사) 저장·조회·수정·삭제 API")
 @RestController
 @RequestMapping("/api/v1/sessions/{sessionId}/scripts")
 @RequiredArgsConstructor
@@ -33,6 +36,9 @@ public class ScriptController {
 
   private final ScriptService scriptService;
 
+  @Operation(
+      summary = "STT 세그먼트 일괄 저장",
+      description = "세션(sessionId)의 STT 전사 세그먼트를 일괄 저장합니다. 201 Created를 반환합니다.")
   @PostMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> saveScripts(
       @PathVariable Long sessionId, @Valid @RequestBody ScriptSaveRequest request) {
@@ -40,6 +46,11 @@ public class ScriptController {
         .body(ApiResponse.ok(scriptService.saveScripts(sessionId, request)));
   }
 
+  @Operation(
+      summary = "세그먼트 목록 조회",
+      description =
+          "세션(sessionId)의 STT 세그먼트를 시작 시간 오름차순으로 조회합니다. keyset 페이지네이션 파라미터로 afterSec(이 시작초 이후"
+              + " 세그먼트부터)와 limit(최대 반환 개수)을 선택적으로 지정할 수 있습니다.")
   @GetMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> getScripts(
       @PathVariable Long sessionId,
@@ -48,12 +59,16 @@ public class ScriptController {
     return ResponseEntity.ok(ApiResponse.ok(scriptService.getScripts(sessionId, afterSec, limit)));
   }
 
+  @Operation(
+      summary = "세그먼트 수정",
+      description = "세션(sessionId)의 STT 세그먼트를 ID 목록 기반으로 부분 수정합니다(예: 텍스트·화자 라벨 편집).")
   @PatchMapping
   public ResponseEntity<ApiResponse<List<ScriptResponse>>> updateScripts(
       @PathVariable Long sessionId, @Valid @RequestBody ScriptUpdateRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(scriptService.updateScripts(sessionId, request)));
   }
 
+  @Operation(summary = "세그먼트 전체 삭제", description = "세션(sessionId)의 모든 STT 세그먼트를 삭제합니다.")
   @DeleteMapping
   public ResponseEntity<ApiResponse<Void>> deleteScripts(@PathVariable Long sessionId) {
     scriptService.deleteScripts(sessionId);

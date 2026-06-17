@@ -1,7 +1,6 @@
 package com.workmaite.domain.home.dto;
 
 import com.workmaite.domain.agendas.entity.Agenda;
-import com.workmaite.domain.agendas.entity.AgendaStatus;
 import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Getter;

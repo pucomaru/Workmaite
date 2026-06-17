@@ -389,9 +389,9 @@ function toggleAgendaDropdown() {
               <span
                 class="conn-rel"
                 :style="{
-                  color: REL_COLORS['도출'] || '#a78bfa',
+                  color: REL_COLORS['취급'] || '#a78bfa',
                 }"
-                >{{ '도출' }}</span
+                >{{ '취급' }}</span
               >
               <span class="conn-arrow">→</span>
               <span class="conn-node" style="flex: auto">
@@ -419,7 +419,7 @@ function toggleAgendaDropdown() {
                 <path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" />
                 <path d="M12 16v-4M12 8h.01" />
               </svg>
-              도출 아젠다는 AI 검토 과정에서 자동으로 판별되어 연결됩니다.
+              AI 검토 후 아젠다와 자동으로 연결됩니다.
             </p>
           </div>
           <div class="app-modal-footer">

@@ -52,7 +52,7 @@ router = APIRouter(prefix="/api/agent", tags=["agents"])
 
 
 # ─── 아카이브 과제 추출 ───────────────────────────────────────────────────────
-@router.post("/archive/extract-agendas")
+@router.post("/archive/extract-agendas", summary="아카이브 파일에서 아젠다 추출")
 async def archive_extract_agendas(
     meeting_id: int = Form(...),
     session_id: int | None = Form(
@@ -64,6 +64,11 @@ async def archive_extract_agendas(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """업로드·선택한 파일과 회의 맥락으로 다음 회의 아젠다를 추출해 draft로 저장한다.
+
+    require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하며,
+    저장된 draft 아젠다는 Neo4j에 백그라운드로 동기화된다.
+    """
     selected_ids = json.loads(selected_file_ids) if selected_file_ids else []
 
     meeting = db.query(models.Meeting).filter(models.Meeting.id == meeting_id).first()
@@ -330,13 +335,17 @@ async def archive_extract_agendas(
 
 
 # ─── 아카이브 채팅 기반 과제 업데이트 ────────────────────────────────────────
-@router.post("/archive/chat-extract")
+@router.post("/archive/chat-extract", summary="채팅 기반 아젠다 갱신 — SSE 스트리밍")
 async def archive_chat_extract(
     data: schemas.AgentChatRequest,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """사용자 채팅 요청에 따라 추출된 아젠다 목록을 갱신하고 draft로 다시 저장한다.
+
+    계획·결과 이벤트를 SSE(text/event-stream)로 스트리밍한다. (로그인 사용자 인증)
+    """
     meeting_id = data.meeting_id
     message = data.message or ""
     current_agendas = (
@@ -488,7 +497,7 @@ async def archive_chat_extract(
 
 
 # ─── 아카이브 파일 AI 검토 ────────────────────────────────────────────────────
-@router.post("/archive/analyze-file")
+@router.post("/archive/analyze-file", summary="아카이브 파일 AI 검토")
 async def analyze_archive_file(
     file: Optional[UploadFile] = File(None),
     file_name: str = Form(""),
@@ -500,6 +509,10 @@ async def analyze_archive_file(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """업로드 파일에서 텍스트를 추출해 LangGraph 검토 에이전트로 점수·피드백을 산출한다.
+
+    로그인 사용자(get_current_user) 인증이 필요하며, 결과를 단건 JSON으로 반환한다.
+    """
     # 후보 과제(JSON 문자열) 파싱
     try:
         candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
@@ -563,7 +576,10 @@ async def analyze_archive_file(
 
 
 # ─── 아카이브 파일 AI 검토 (스트리밍) ─────────────────────────────────────────
-@router.post("/archive/analyze-file/stream")
+@router.post(
+    "/archive/analyze-file/stream",
+    summary="아카이브 파일 AI 검토 — SSE 스트리밍",
+)
 async def analyze_archive_file_stream_ep(
     file: Optional[UploadFile] = File(None),
     file_name: str = Form(""),
@@ -575,6 +591,10 @@ async def analyze_archive_file_stream_ep(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """업로드 파일을 검토해 진행 이벤트를 SSE(text/event-stream)로 스트리밍한다.
+
+    사용자당 동시 1건만 처리(single_flight 가드)하며 로그인 인증이 필요하다.
+    """
     # 후보 과제(JSON 문자열) 파싱
     try:
         candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
@@ -746,12 +766,17 @@ async def _update_next_agenda_section(
     db.commit()
 
 
-@router.post("/archive/agendas/commit")
+@router.post("/archive/agendas/commit", summary="draft 아젠다 확정(승인/반려)")
 async def commit_draft_agendas(
     data: dict,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """승인된 draft 아젠다는 ongoing으로 확정하고 반려 건은 삭제한다.
+
+    require_meeting_edit 가드(간사/회사관리자/시스템관리자)와 멱등성 가드를 적용하며,
+    변경분을 Neo4j에 동기화하고 출처 회의록의 '다음 회의 아젠다' 섹션을 갱신한다.
+    """
     import uuid as _uuid
     from datetime import datetime as _dt
 
@@ -891,13 +916,17 @@ async def commit_draft_agendas(
 
 
 # ─── 회의체 draft 아젠다 조회 (과제추출 탭 복원용) ──────────────────────────
-@router.get("/meetings/{meeting_id}/draft-agendas")
+@router.get("/meetings/{meeting_id}/draft-agendas", summary="회의체 draft 아젠다 조회")
 async def get_draft_agendas(
     meeting_id: int,
     session_id: int | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """과제추출 탭 복원용 — 회의체의 draft 상태 아젠다 목록을 반환한다.
+
+    require_view 가드로 회의체 열람 권한을 확인한다.
+    """
     require_view(db, current_user, meeting_id)
     q = db.query(models.Agenda).filter(
         models.Agenda.meeting_id == meeting_id, models.Agenda.status == "draft"
@@ -929,12 +958,16 @@ async def get_draft_agendas(
 
 
 # ─── 회의체 아젠다 목록 조회 ──────────────────────────────────────────────────
-@router.get("/meetings/{meeting_id}/agendas")
+@router.get("/meetings/{meeting_id}/agendas", summary="회의체 아젠다 목록 조회")
 async def get_meeting_agendas(
     meeting_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의체의 확정 아젠다(draft 제외) 목록을 반환한다.
+
+    require_view 가드로 회의체 열람 권한을 확인한다.
+    """
     require_view(db, current_user, meeting_id)
     agendas = (
         db.query(models.Agenda)
@@ -966,7 +999,7 @@ async def get_meeting_agendas(
 
 
 # ─── 아젠다 상세 수정 (제목/부서/마감일/우선순위) ───────────────────────────
-@router.patch("/archive/agendas/{agenda_id}")
+@router.patch("/archive/agendas/{agenda_id}", summary="아젠다 상세 수정")
 async def update_agenda(
     agenda_id: int,
     data: dict,
@@ -974,6 +1007,10 @@ async def update_agenda(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """아젠다의 제목·부서·마감일·우선순위·상태를 수정하고 Neo4j에 동기화한다.
+
+    require_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.
+    """
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         from fastapi import HTTPException
@@ -1039,7 +1076,7 @@ async def update_agenda(
 
 
 # ─── 아젠다 상태 변경 (완료/진행 등) ─────────────────────────────────────────
-@router.patch("/archive/agendas/{agenda_id}/status")
+@router.patch("/archive/agendas/{agenda_id}/status", summary="아젠다 상태 변경")
 async def update_agenda_status(
     agenda_id: int,
     data: dict,
@@ -1047,6 +1084,10 @@ async def update_agenda_status(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """아젠다 상태(완료/진행 등)를 변경하고 Neo4j에 동기화한다.
+
+    require_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.
+    """
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if not agenda:
         from fastapi import HTTPException
@@ -1080,7 +1121,7 @@ async def update_agenda_status(
 
 
 # ─── 보고자료 편집 ────────────────────────────────────────────────────────────
-@router.patch("/archive/reports/{report_id}")
+@router.patch("/archive/reports/{report_id}", summary="보고자료 편집")
 async def update_report(
     report_id: int,
     data: dict,
@@ -1088,6 +1129,11 @@ async def update_report(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """보고자료의 파일명·제출부서·검토상태(human_status)를 수정하고 Neo4j에 동기화한다.
+
+    require_owned_edit 가드(업로더 본인 또는 회의체 편집권한)가 필요하며, 반려 시
+    승인 보고서가 없는 연관 아젠다는 ongoing으로 되돌린다.
+    """
     from fastapi import HTTPException
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
@@ -1181,7 +1227,10 @@ async def update_report(
 
 
 # ─── 회의록 편집 (session_id 기반 lookup) ────────────────────────────────────
-@router.patch("/archive/minutes/by-session/{session_id}")
+@router.patch(
+    "/archive/minutes/by-session/{session_id}",
+    summary="회의록 편집(세션 ID 기준)",
+)
 async def update_minutes_by_session(
     session_id: int,
     data: dict,
@@ -1189,6 +1238,10 @@ async def update_minutes_by_session(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """session_id로 회의록을 조회해 파일명·상태를 수정하고 Neo4j에 동기화한다.
+
+    require_owned_edit 가드(기록자 본인 또는 회의체 편집권한)가 필요하다.
+    """
     from fastapi import HTTPException
 
     minutes = (
@@ -1227,7 +1280,7 @@ async def update_minutes_by_session(
 
 
 # ─── 회의록 편집 ──────────────────────────────────────────────────────────────
-@router.patch("/archive/minutes/{minutes_id}")
+@router.patch("/archive/minutes/{minutes_id}", summary="회의록 편집")
 async def update_minutes(
     minutes_id: int,
     data: dict,
@@ -1235,6 +1288,10 @@ async def update_minutes(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의록(minutes_id)의 파일명·상태를 수정하고 Neo4j에 동기화한다.
+
+    require_owned_edit 가드(기록자 본인 또는 회의체 편집권한)가 필요하다.
+    """
     from fastapi import HTTPException
 
     minutes = db.query(models.Minutes).filter(models.Minutes.id == minutes_id).first()
@@ -1274,12 +1331,16 @@ async def update_minutes(
 
 
 # ─── 아젠다 삭제 ──────────────────────────────────────────────────────────────
-@router.delete("/archive/agendas/{agenda_id}")
+@router.delete("/archive/agendas/{agenda_id}", summary="아젠다 삭제")
 async def delete_agenda_item(
     agenda_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """아젠다와 세션 연결을 삭제하고 감사 로그 기록 후 Neo4j에서도 제거한다.
+
+    require_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.
+    """
     agenda = db.query(models.Agenda).filter(models.Agenda.id == agenda_id).first()
     if agenda is None:
         return {"ok": True}
@@ -1332,12 +1393,19 @@ async def delete_agenda_item(
 
 
 # ─── 아젠다 삭제 로그 조회 ────────────────────────────────────────────────────
-@router.get("/meetings/{meeting_id}/agenda-delete-logs")
+@router.get(
+    "/meetings/{meeting_id}/agenda-delete-logs",
+    summary="아젠다 삭제 로그 조회",
+)
 async def get_agenda_delete_logs(
     meeting_id: int,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """회의체의 아젠다 삭제 감사 로그(audit_logs)를 시간순으로 반환한다.
+
+    require_view 가드로 회의체 열람 권한을 확인한다.
+    """
     require_view(db, current_user, meeting_id)
     from sqlalchemy import text as _text
 

@@ -6,8 +6,6 @@ import com.workmaite.domain.logs.repository.AgentLogRepository;
 import com.workmaite.domain.meetings.entity.Meeting;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
 import com.workmaite.domain.meetings.service.MeetingService;
-import com.workmaite.domain.user.entity.User;
-import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.domain.minutes.repository.MinutesRepository;
 import com.workmaite.domain.scripts.repository.ScriptRepository;
 import com.workmaite.domain.sessions.dto.AttendeeRequest;
@@ -24,6 +22,8 @@ import com.workmaite.domain.sessions.repository.SessionAgendaRepository;
 import com.workmaite.domain.sessions.repository.SessionMemberRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
 import com.workmaite.domain.sessions.repository.SessionSummaryBlockRepository;
+import com.workmaite.domain.user.entity.User;
+import com.workmaite.domain.user.repository.UserRepository;
 import com.workmaite.global.audit.AuditLogged;
 import com.workmaite.global.auth.MeetingAccessGuard;
 import com.workmaite.global.exception.BusinessException;
@@ -65,12 +65,14 @@ public class SessionService {
   // 역할 기반 가시 회의체의 예정 세션을 일시 오름차순으로 반환 (SYSTEM_ADMIN=전체, COMPANY_ADMIN=자사, USER=소속)
   public List<UpcomingSessionResponse> getMyUpcomingSessions(Long userId) {
     User user = userRepository.findById(userId).orElseThrow();
-    List<Long> meetingIds = meetingService.getVisibleMeetings(user)
-        .stream()
-        .filter(m -> !"ended".equalsIgnoreCase(m.getStatus().name())
-                  && !"archived".equalsIgnoreCase(m.getStatus().name()))
-        .map(Meeting::getId)
-        .toList();
+    List<Long> meetingIds =
+        meetingService.getVisibleMeetings(user).stream()
+            .filter(
+                m ->
+                    !"ended".equalsIgnoreCase(m.getStatus().name())
+                        && !"archived".equalsIgnoreCase(m.getStatus().name()))
+            .map(Meeting::getId)
+            .toList();
     if (meetingIds.isEmpty()) return List.of();
 
     List<MeetingSession> sessions =
@@ -188,6 +190,8 @@ public class SessionService {
       }
     }
 
+    // 회의 편집(참석자·논의 아젠다 변경)도 Neo4j에 반영 — 누락 시 agenda-[:논의]->session이 동기화되지 않음
+    neoSyncService.syncSession(sessionId);
     return SessionResponse.from(session, sessionMemberRepository.findBySessionId(sessionId));
   }
 

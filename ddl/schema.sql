@@ -149,6 +149,7 @@ CREATE TABLE "minutes" (
   "recorder_id" bigint,
   "content_original" text,
   "content_summary" text,
+  "short_summary" text,
   "status" character varying(20) DEFAULT 'draft'::character varying,
   "generated_at" timestamp without time zone DEFAULT now(),
   CONSTRAINT "minutes_pkey" PRIMARY KEY (id),

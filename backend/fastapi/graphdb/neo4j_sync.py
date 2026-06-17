@@ -290,8 +290,13 @@ async def sync_user(
     department: str | None = None,
     position: str | None = None,
     created_at: str | None = None,
+    recompute_dept_participation: bool = False,
 ) -> None:
-    """User 노드를 upsert합니다."""
+    """User 노드를 upsert합니다.
+
+    recompute_dept_participation=True면, 사용자의 부서(소속) 변경이 그가 속한 회의체들의
+    부서 참여 파생에 반영되도록 재계산한다. 전체 재동기화는 마지막에 일괄 처리하므로 기본 False.
+    """
     now = datetime.now(timezone.utc).isoformat()
     cypher = """
     MERGE (u:User {pg_id: $pg_id})
@@ -348,13 +353,23 @@ async def sync_user(
     except Exception as e:
         logger.warning(f"[Neo4jSync] User {user_id} 부서(소속) 연결 실패 (무시): {e}")
 
+    # 부서(소속)가 바뀌면 이 사용자가 속한 회의체들의 참여 부서 집합이 달라진다 → 파생 갱신.
+    if recompute_dept_participation:
+        await sync_meeting_dept_participation_for_user(user_id)
+
 
 async def sync_meeting_member(
     meeting_id: int,
     user_id: int,
     role: str,
+    recompute_participation: bool = True,
 ) -> None:
-    """User-Meetings 구성원 관계를 upsert합니다."""
+    """User-Meetings 구성원 관계를 upsert합니다.
+
+    recompute_participation=True면 멤버 변경 후 부서 참여 파생((Department)-[:참여]->(Meetings))을
+    갱신한다. 전체 재동기화 루프에서는 매 멤버마다 갱신하면 비효율이므로 False로 끄고 마지막에
+    sync_all_meeting_dept_participation()으로 한 번에 처리한다.
+    """
     cypher = """
     MATCH (u:User {pg_id: $user_id})
     MATCH (mg:Meetings {id: $mg_id})
@@ -374,6 +389,9 @@ async def sync_meeting_member(
         logger.error(
             f"[Neo4jSync] sync_meeting_member 실패 (meeting_id={meeting_id}, user_id={user_id}): {e}"
         )
+    # 멤버 추가/변경으로 이 회의체에 참여하는 부서 집합이 바뀔 수 있다 → 파생 갱신.
+    if recompute_participation:
+        await sync_meeting_dept_participation(meeting_id)
 
 
 async def delete_meeting_member(
@@ -396,6 +414,8 @@ async def delete_meeting_member(
         logger.error(
             f"[Neo4jSync] delete_meeting_member 실패 (meeting_id={meeting_id}, user_id={user_id}): {e}"
         )
+    # 멤버가 빠지면 그 부서가 더는 이 회의체에 참여하지 않을 수 있다 → 파생 갱신.
+    await sync_meeting_dept_participation(meeting_id)
 
 
 async def update_meeting_member_role(
@@ -421,6 +441,68 @@ async def update_meeting_member_role(
         logger.error(
             f"[Neo4jSync] update_meeting_member_role 실패 (meeting_id={meeting_id}, user_id={user_id}): {e}"
         )
+
+
+# ─── Department ↔ Meetings 참여 파생 ─────────────────────────────────────────
+# (Department)-[:참여]->(Meetings) 는 저장된 1차 관계가 아니라 멤버십에서 파생된다:
+#   회의체 멤버 (:User)-[:참여|운영]->(:Meetings) 의 소속 부서 (:User)-[:소속]->(:Department) 가
+#   곧 그 회의체에 '참여'하는 부서다. 멤버·소속이 바뀌면 재계산해야 하므로, 매번
+#   "현재 멤버 소속 부서 집합"을 MERGE하고 그 집합에 없는 스테일 엣지를 지운다(멱등).
+# ⚠️ 관계 타입 `참여`는 User→Meetings 와 공유되므로, MATCH/DELETE는 반드시 (:Department) 라벨로
+#    스코프해 User 멤버십 엣지를 건드리지 않는다.
+_DEPT_PARTICIPATION_BODY = """
+    OPTIONAL MATCH (mg)<-[:`참여`|`운영`]-(:User)-[:`소속`]->(d:Department)
+    WITH mg, collect(DISTINCT d) AS depts
+    FOREACH (dep IN depts | MERGE (dep)-[:`참여`]->(mg))
+    WITH mg, depts
+    OPTIONAL MATCH (mg)<-[stale:`참여`]-(od:Department)
+    WHERE NOT od IN depts
+    DELETE stale
+"""
+
+
+async def sync_meeting_dept_participation(meeting_id: int) -> None:
+    """한 회의체의 (Department)-[:참여]->(Meetings) 파생 엣지를 현재 멤버 소속 기준으로 재계산.
+
+    멤버 추가/삭제 후 호출한다. 멱등이며, 실패해도 메인 흐름을 막지 않는다(파생 관계).
+    """
+    try:
+        await run_cypher(
+            "MATCH (mg:Meetings {id: $mg_id})\n" + _DEPT_PARTICIPATION_BODY,
+            {"mg_id": to_mg_id(meeting_id)},
+        )
+    except Exception as e:
+        logger.warning(
+            f"[Neo4jSync] 부서 참여 파생 갱신 실패 (meeting_id={meeting_id}, 무시): {e}"
+        )
+
+
+async def sync_meeting_dept_participation_for_user(user_id: int) -> None:
+    """특정 사용자가 속한 모든 회의체의 부서 참여 파생을 재계산.
+
+    사용자의 부서(소속)가 바뀌면 그가 속한 회의체들의 참여 부서 집합이 달라지므로 호출한다.
+    """
+    try:
+        await run_cypher(
+            "MATCH (:User {pg_id: $pg_id})-[:`참여`|`운영`]->(mg:Meetings)\n"
+            "WITH DISTINCT mg\n" + _DEPT_PARTICIPATION_BODY,
+            {"pg_id": user_id},
+        )
+    except Exception as e:
+        logger.warning(
+            f"[Neo4jSync] 사용자 회의체 부서 참여 파생 갱신 실패 (user_id={user_id}, 무시): {e}"
+        )
+
+
+async def sync_all_meeting_dept_participation() -> int:
+    """모든 회의체의 부서 참여 파생을 일괄 재계산 (전체 재동기화용). 갱신 회의체 수 반환."""
+    rows = await run_cypher(
+        "MATCH (mg:Meetings)\n"
+        + _DEPT_PARTICIPATION_BODY
+        + "\nRETURN count(DISTINCT mg) AS n",
+        {},
+    )
+    return (rows[0]["n"] if rows else 0) or 0
 
 
 # ─── Meetings 동기화 (PG meetings) ───────────────────────────────────────────
@@ -510,8 +592,13 @@ async def sync_session(
     session_type: str | None = None,  # PG: type (대면/비대면 등)
     description: str | None = None,
     attendees: list[dict] = [],
+    discussion_agenda_ids: list[int] | None = None,
 ) -> None:
-    """Session 노드를 Neo4j에 upsert하고 Meetings과 관계를 맺습니다."""
+    """Session 노드를 Neo4j에 upsert하고 Meetings·논의 안건과 관계를 맺습니다.
+
+    discussion_agenda_ids: 이 세션의 '논의 아젠다'(SessionAgenda) PG id 목록.
+      None  → 정보 없음(논의 엣지 건드리지 않음), [] → 전부 해제(선택 표식 엣지 제거).
+    """
     mg_id = to_mg_id(meeting_id)
     s_id = to_session_id(session_id)
     cypher = """
@@ -580,6 +667,53 @@ async def sync_session(
         except Exception as e:
             logger.error(f"[Neo4jSync] Session {session_id} 참석자 관계 실패: {e}")
 
+    # ── 논의 안건(SessionAgenda) 동기화 — agenda-[:`논의`]->session ──────────────
+    # None=정보없음→스킵, []=전부 해제. 안건 노드가 아직 없으면(부트스트랩 순서) sync_session_agendas의
+    # MATCH가 조용히 실패하므로, 전체 재동기화는 안건 생성 후 sync_all_from_pg가 다시 호출한다.
+    if discussion_agenda_ids is not None:
+        await sync_session_agendas(session_id, discussion_agenda_ids)
+
+
+async def sync_session_agendas(session_id: int, agenda_ids: list[int]) -> None:
+    """세션의 '논의 아젠다'(SessionAgenda) 선택을 agenda-[:`논의`]->session 엣지로 동기화한다.
+
+    세션이 자기 '논의 아젠다' 선택을 소유한다 — 선택분은 MERGE, 해제분은 제거(빈 목록이면 전부 해제).
+    kind='session_agenda' 표식으로 한정해, agenda.session_id 파생 '논의'·타 관계는 건드리지 않는다.
+    안건 노드가 없으면(draft 등) MATCH 실패로 해당 엣지만 조용히 건너뛴다.
+    """
+    s_id = to_session_id(session_id)
+    neo_agenda_ids = [to_agenda_id(a) for a in (agenda_ids or [])]
+    try:
+        # 1) 해제된(선택 목록에 없는) 논의 엣지 제거 — 선택 표식이 있는 것만
+        await run_cypher(
+            """
+            MATCH (ag:Agenda)-[r:`논의`]->(s:Session {id: $s_id})
+            WHERE coalesce(r.kind, '') IN ['session_agenda', 'session_agenda_group']
+              AND NOT ag.id IN $ids
+            DELETE r
+            """,
+            {"s_id": s_id, "ids": neo_agenda_ids},
+        )
+        # 2) 선택된 안건을 논의 엣지로 연결 (존재하는 안건 노드에만)
+        if neo_agenda_ids:
+            await run_cypher(
+                """
+                MATCH (s:Session {id: $s_id})
+                UNWIND $ids AS aid
+                MATCH (ag:Agenda {id: aid})
+                MERGE (ag)-[r:`논의`]->(s)
+                SET r.kind = 'session_agenda'
+                """,
+                {"s_id": s_id, "ids": neo_agenda_ids},
+            )
+        logger.debug(
+            f"[Neo4jSync] Session {session_id} 논의 안건 {len(neo_agenda_ids)}건 동기화 완료"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[Neo4jSync] Session {session_id} 논의 안건 동기화 실패 (무시): {e}"
+        )
+
 
 # ─── User 동기화 (PG users) ──────────────────────────────────────────────────
 
@@ -635,7 +769,7 @@ async def sync_agenda(
     WITH ag
     OPTIONAL MATCH (mg:Meetings {id: $mg_id})
     FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (ag)-[:`관할`]->(mg)
+        MERGE (mg)-[:`추출`]->(ag)
     )
     WITH ag
     OPTIONAL MATCH (s:Session {id: $s_id})
@@ -648,6 +782,13 @@ async def sync_agenda(
     WITH ag
     OPTIONAL MATCH (s3:Session)-[old2:`진행`|`다룸`|`도출`]->(ag)
     DELETE old2
+    WITH ag
+    // 레거시 'agenda↔Meetings 관할' 제거 — 현행은 'Meetings→추출→agenda'로 일원화
+    OPTIONAL MATCH (ag)-[oldj1:`관할`]->(:Meetings)
+    DELETE oldj1
+    WITH ag
+    OPTIONAL MATCH (:Meetings)-[oldj2:`관할`]->(ag)
+    DELETE oldj2
     WITH ag
     OPTIONAL MATCH (assignee:User {pg_id: $assignee_id})
     FOREACH (_ IN CASE WHEN assignee IS NOT NULL THEN [1] ELSE [] END |
@@ -755,7 +896,7 @@ async def sync_minutes(
     WITH mn
     OPTIONAL MATCH (s:Session {id: $s_id})
     FOREACH (_ IN CASE WHEN s IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (mn)-[:`기록`]->(s)
+        MERGE (mn)<-[:`기록`]-(s)
     )
     WITH mn
     OPTIONAL MATCH (recorder:User {pg_id: $recorder_id})
@@ -813,7 +954,7 @@ async def sync_report(
     hitl_rationale: str | None = None,
     hitl_reviewed_at: str | None = None,
 ) -> None:
-    """Report 노드를 upsert하고 Meetings에 [:`발제`], 안건에 [:`도출`] 관계로 연결합니다.
+    """Report 노드를 upsert하고 Meetings에 [:`첨부`], 안건에 [:`취급`] 관계로 연결합니다.
 
     HITL 검토 결과(status·코멘트·ai_rationale)를 노드 속성으로 흡수하고
     임베딩 텍스트에도 포함해 벡터 검색에 활용한다.
@@ -835,9 +976,17 @@ async def sync_report(
         r.hitl_reviewed_at     = $hitl_reviewed_at,
         r.updated_at           = $updated_at
     WITH r
+    // 레거시 report 관계 제거 — '발제'(→Meetings/Agenda)·report발 '도출'(→Agenda).
+    // 현행: 첨부(→Meetings)·취급(→Agenda). minutes→agenda '도출'은 라벨로 보호되어 영향 없음.
+    OPTIONAL MATCH (r)-[oldp:`발제`]->()
+    DELETE oldp
+    WITH r
+    OPTIONAL MATCH (r)-[oldd:`도출`]->(:Agenda)
+    DELETE oldd
+    WITH r
     OPTIONAL MATCH (mg:Meetings {id: $mg_id})
     FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (r)-[:`발제`]->(mg)
+        MERGE (r)-[:`첨부`]->(mg)
     )
     """
     if related_agenda_ids:
@@ -846,7 +995,7 @@ async def sync_report(
     WITH r
     OPTIONAL MATCH (ag:Agenda {{id: '{ag_id}'}})
     FOREACH (_ IN CASE WHEN ag IS NOT NULL THEN [1] ELSE [] END |
-        MERGE (r)-[:`도출`]->(ag)
+        MERGE (r)-[:`취급`]->(ag)
     )"""
     params = {
         "id": report_neo_id,
@@ -891,6 +1040,29 @@ async def sync_report(
     except Exception as e:
         logger.error(f"[Neo4jSync] Report {report_id} 실패: {e}")
         _log_failure("sync_report", "report", str(report_id), e, params)
+
+    # 제출 부서 → 보고자료: dept-[:작성]->report (제출 부서를 그래프 관계로 연결)
+    # submitter_department가 JSON 배열이든 평문이든 _parse_dept_names로 일관 처리.
+    dept_names_list = _parse_dept_names(submitter_department)
+    if dept_names_list:
+        try:
+            await run_cypher(
+                """
+            MATCH (r:Report {id: $id})
+            // 변경 반영: 기존 작성 엣지를 끊고 현재 제출 부서로만 재연결
+            OPTIONAL MATCH (:Department)-[old:`작성`]->(r)
+            DELETE old
+            WITH r
+            UNWIND $dept_names AS dept_name
+            MERGE (d:Department {name: dept_name})
+            MERGE (d)-[:`작성`]->(r)
+            """,
+                {"id": report_neo_id, "dept_names": dept_names_list},
+            )
+        except Exception as e:
+            logger.warning(
+                f"[Neo4jSync] Report {report_id} 작성 부서 연결 실패 (무시): {e}"
+            )
 
 
 # ─── HITL 검토 → 대상 노드(Agenda/Report) 속성 동기화 ────────────────────────
@@ -1150,9 +1322,10 @@ async def delete_meeting(meeting_id: int) -> None:
         """
         MATCH (mg:Meetings {id: $id})
         OPTIONAL MATCH (s:Session)-[:`소속`]->(mg)
-        OPTIONAL MATCH (mn:Minutes)-[:`기록`]->(s)
-        OPTIONAL MATCH (ag:Agenda)-[:`관할`]->(mg)
-        OPTIONAL MATCH (r:Report)-[:`발제`]->(mg)
+        OPTIONAL MATCH (mn:Minutes)<-[:`기록`]-(s)
+        // 방향·레거시 무관 매칭(추출/관할, 첨부/발제) — 전환기 잔존 엣지로도 자식이 orphan되지 않게
+        OPTIONAL MATCH (mg)-[:`추출`|`관할`]-(ag:Agenda)
+        OPTIONAL MATCH (r:Report)-[:`첨부`|`발제`]->(mg)
         OPTIONAL MATCH (rc:ReportChunk)-[:`청크`]->(r)
         OPTIONAL MATCH (mc:MinutesChunk)-[:`청크`]->(mn)
         WITH collect(DISTINCT mg) + collect(DISTINCT s) + collect(DISTINCT mn)
@@ -1280,6 +1453,8 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 meeting_id=mm.meeting_id,
                 user_id=mm.user_id,
                 role=mm.meeting_role,
+                # 매 멤버마다 부서 참여를 재계산하면 비효율 → 멤버 전체·정합화 후 일괄 처리(5-2)
+                recompute_participation=False,
             )
             valid_pairs.append([mm.meeting_id, mm.user_id])
             stats["meeting_members"] += 1
@@ -1308,6 +1483,18 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
             stats["meeting_members_pruned"] = n_removed_mem
         except Exception as e:
             logger.warning(f"[Neo4jSync] 멤버십 정합화 실패 (무시): {e}")
+
+        # 5-2. 부서 참여 파생 일괄 재계산 — (Department)-[:참여]->(Meetings).
+        # 멤버십(참여/운영) + 사용자 소속(User-[:소속]->Department)에서 파생되므로, 멤버 동기화·
+        # 정합화가 끝난 뒤 한 번에 계산한다. 멤버 소속이 아닌 부서의 스테일 참여 엣지도 함께 정리한다.
+        try:
+            n_dept_links = await sync_all_meeting_dept_participation()
+            stats["meeting_dept_participation"] = n_dept_links
+            logger.info(
+                f"[Neo4jSync] 부서 참여 파생 일괄 갱신 — 회의체 {n_dept_links}건"
+            )
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] 부서 참여 파생 일괄 갱신 실패 (무시): {e}")
 
         # 4. Session
         for s in db.query(models.MeetingSession).all():
@@ -1352,6 +1539,17 @@ async def sync_all_from_pg(db: DBSession | None = None) -> dict:
                 **hitl_agenda_map.get(ag.id, {}),
             )
             stats["agendas"] += 1
+
+        # 5-b. 세션별 '논의 아젠다'(SessionAgenda) → agenda-[:논의]->session
+        # 안건 노드가 모두 만들어진 뒤 실행해야 MATCH가 성립한다(세션은 안건보다 먼저 동기화됨).
+        try:
+            sa_by_session: dict[int, list[int]] = {}
+            for sa in db.query(models.SessionAgenda).all():
+                sa_by_session.setdefault(sa.session_id, []).append(sa.agenda_id)
+            for _sid, _ag_ids in sa_by_session.items():
+                await sync_session_agendas(_sid, _ag_ids)
+        except Exception as e:
+            logger.warning(f"[Neo4jSync] 논의 안건 일괄 동기화 실패 (무시): {e}")
 
         # 6. Minutes
         for mn in db.query(models.Minutes).all():

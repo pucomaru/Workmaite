@@ -292,7 +292,7 @@ async def _similar_agenda_hint(content: str, meeting_id: int | None) -> str:
         mids = [meeting_id] if meeting_id else None
         similar = await vector_search("Agenda", content[:400], k=5, meeting_ids=mids)
         dept_rows = await run_cypher(
-            "MATCH (d:Department)-[:`담당부서`]->(ag:Agenda) "
+            "MATCH (ag:Agenda)-[:`담당부서`]->(d:Department) "
             "RETURN d.name AS dept, count(ag) AS c ORDER BY c DESC LIMIT 8"
         )
         parts = []

@@ -1,5 +1,9 @@
 package com.workmaite.domain.meetings.service;
 
+import com.workmaite.domain.agendas.repository.AgendaRepository;
+import com.workmaite.domain.chat.repository.ChatMessageRepository;
+import com.workmaite.domain.logs.repository.AgentLogRepository;
+import com.workmaite.domain.logs.repository.HitlReviewRepository;
 import com.workmaite.domain.meetings.dto.ActiveMeetingResponse;
 import com.workmaite.domain.meetings.dto.MeetingCreateRequest;
 import com.workmaite.domain.meetings.dto.MeetingDetailResponse;
@@ -14,10 +18,6 @@ import com.workmaite.domain.meetings.entity.MeetingMemberRole;
 import com.workmaite.domain.meetings.entity.MeetingStatus;
 import com.workmaite.domain.meetings.repository.MeetingMemberRepository;
 import com.workmaite.domain.meetings.repository.MeetingRepository;
-import com.workmaite.domain.agendas.repository.AgendaRepository;
-import com.workmaite.domain.chat.repository.ChatMessageRepository;
-import com.workmaite.domain.logs.repository.AgentLogRepository;
-import com.workmaite.domain.logs.repository.HitlReviewRepository;
 import com.workmaite.domain.reports.repository.ReportRepository;
 import com.workmaite.domain.reports.repository.ReportScoreRepository;
 import com.workmaite.domain.sessions.repository.SessionRepository;
@@ -66,8 +66,8 @@ public class MeetingService {
   private final AgentLogRepository agentLogRepository;
 
   /**
-   * 회의체 삭제 — PostgreSQL이 원천. 세션은 검증된 단일 삭제 로직을 재사용하고, 회의체 직속 자식을 FK-안전 순서로 정리한 뒤
-   * 회의체를 지우고 Neo4j 삭제를 아웃박스로 전파한다. 로그(agent_logs·token_usage)와 대화(chat)는 보존(링크만 해제).
+   * 회의체 삭제 — PostgreSQL이 원천. 세션은 검증된 단일 삭제 로직을 재사용하고, 회의체 직속 자식을 FK-안전 순서로 정리한 뒤 회의체를 지우고 Neo4j 삭제를
+   * 아웃박스로 전파한다. 로그(agent_logs·token_usage)와 대화(chat)는 보존(링크만 해제).
    */
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "meeting")
