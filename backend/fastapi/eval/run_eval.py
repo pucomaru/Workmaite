@@ -205,8 +205,8 @@ async def eval_report() -> dict:
     n = len(cases)
     band_rate = band_hits / n
     print(
-        f"보고서 채점: 밴드적중={band_rate:.2%} | tier평균={{강:{means.get('strong',0):.0f}, "
-        f"중:{means.get('medium',0):.0f}, 약:{means.get('weak',0):.0f}}} | 순서일치={ordering_ok}"
+        f"보고서 채점: 밴드적중={band_rate:.2%} | tier평균={{강:{means.get('strong', 0):.0f}, "
+        f"중:{means.get('medium', 0):.0f}, 약:{means.get('weak', 0):.0f}}} | 순서일치={ordering_ok}"
     )
     return {
         "metric": "report_scoring",
