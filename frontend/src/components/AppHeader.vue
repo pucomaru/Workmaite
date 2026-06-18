@@ -334,7 +334,7 @@ async function saveProfileSettings() {
           <div class="profile-info">
             <div class="avatar-lg">{{ auth.user.name[0] }}</div>
             <div>
-              <div style="font-weight: 600; color: var(--dark-text)">{{ auth.user.name }}</div>
+              <div style="font-weight: 600; color: var(--text)">{{ auth.user.name }}</div>
               <div style="color: var(--text-muted); font-size: 12px">
                 {{ auth.user.employee_id }}
               </div>

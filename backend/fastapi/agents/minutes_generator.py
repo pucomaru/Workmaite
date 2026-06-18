@@ -41,8 +41,8 @@ async def _search_similar_minutes(text: str, k: int = 3) -> List[str]:
     try:
         from graphdb.neo4j_client import run_cypher
 
-        # EMBED_MODEL(대형)·EMBED_DIM(3072)·사용량 기록을 일원화한 공용 임베더 사용.
-        # 직접 OpenAIEmbeddings()는 ada-002(1536)로 떨어져 인덱스 차원과 어긋나 검색이 실패한다.
+        # EMBED_MODEL(text-embedding-3-small)·EMBED_DIM(1536)·사용량 기록을 일원화한 공용 임베더 사용.
+        # 직접 OpenAIEmbeddings()는 ada-002로 떨어져 EMBED_MODEL을 무시할 수 있어 사용하지 않는다.
         from graphdb.file_embedder import embed_query
 
         query_vec = await embed_query(text[:500])

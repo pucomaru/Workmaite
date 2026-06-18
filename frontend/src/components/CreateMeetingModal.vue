@@ -8,7 +8,11 @@ const { showCreateModal, nightMode, createForm, creating, doCreateMeeting, creat
 const authStore = useAuthStore()
 
 function handleCreate() {
-  if (createForm.start_date && createForm.end_date && createForm.end_date <= createForm.start_date) {
+  if (
+    createForm.start_date &&
+    createForm.end_date &&
+    createForm.end_date <= createForm.start_date
+  ) {
     toast.error('종료일은 시작일보다 늦어야 합니다.')
     return
   }

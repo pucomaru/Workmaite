@@ -21,7 +21,11 @@ function onMembersUpdate(newList) {
 }
 
 function handleSave() {
-  if (form.value.start_date && form.value.end_date && form.value.end_date <= form.value.start_date) {
+  if (
+    form.value.start_date &&
+    form.value.end_date &&
+    form.value.end_date <= form.value.start_date
+  ) {
     toast.error('종료일은 시작일보다 늦어야 합니다.')
     return
   }

@@ -1,5 +1,5 @@
 {
-  "_note": "아젠다 추출 골든셋 (P6 스모크). title은 부분 일치(유사도), department는 정확 일치로 채점.",
+  "_note": "아젠다 추출 골든셋 (P6 스모크). title은 부분 일치(유사도 0.55), department는 정확 일치로 채점. 무-액션(정보공유) 케이스는 expected_agendas: [] 로 과추출(false positive)을 검증한다.",
   "cases": [
     {
       "id": "e01",
@@ -25,6 +25,133 @@
       "content": "결정사항: 재무팀이 3분기 예산안 초안을 작성해 다음 회의(7/3 수)에 공유한다.",
       "expected_agendas": [
         {"title": "3분기 예산안", "department": "재무팀"}
+      ]
+    },
+    {
+      "id": "e04",
+      "org_dept_list": "- ACME / 인사팀\n- ACME / 교육팀",
+      "content": "채용 회의: 인사팀은 하반기 신입 채용공고를 7/10까지 게시한다. 교육팀은 신규 입사자 온보딩 프로그램을 개편하기로 했다.",
+      "expected_agendas": [
+        {"title": "하반기 채용공고 게시", "department": "인사팀"},
+        {"title": "온보딩 프로그램 개편", "department": "교육팀"}
+      ]
+    },
+    {
+      "id": "e05",
+      "org_dept_list": "- ACME / 영업팀\n- ACME / 마케팅팀",
+      "content": "분기 전략 회의: 영업팀은 주요 고객사 대상 제안서를 보완해 재제출한다. 마케팅팀은 신규 캠페인 기획안을 다음 주까지 마련한다.",
+      "expected_agendas": [
+        {"title": "고객사 제안서 보완", "department": "영업팀"},
+        {"title": "신규 캠페인 기획", "department": "마케팅팀"}
+      ]
+    },
+    {
+      "id": "e06",
+      "org_dept_list": "- ACME / 법무팀",
+      "content": "결정: 법무팀이 신규 협력사와의 NDA 계약서를 검토하고 7/5까지 의견을 회신한다.",
+      "expected_agendas": [
+        {"title": "NDA 계약서 검토", "department": "법무팀"}
+      ]
+    },
+    {
+      "id": "e07",
+      "org_dept_list": "- ACME / 보안팀\n- ACME / 인프라팀",
+      "content": "보안 점검 회의: 보안팀은 외부 취약점 점검을 이번 달 내 수행한다. 인프라팀은 노후 서버 이전 계획을 수립한다.",
+      "expected_agendas": [
+        {"title": "외부 취약점 점검", "department": "보안팀"},
+        {"title": "서버 이전 계획 수립", "department": "인프라팀"}
+      ]
+    },
+    {
+      "id": "e08",
+      "org_dept_list": "- ACME / 데이터팀\n- ACME / 기획팀",
+      "content": "프로젝트 킥오프: 데이터팀은 운영 지표 대시보드를 구축한다. 기획팀은 요구사항 정의서를 작성해 공유한다.",
+      "expected_agendas": [
+        {"title": "운영 지표 대시보드 구축", "department": "데이터팀"},
+        {"title": "요구사항 정의서 작성", "department": "기획팀"}
+      ]
+    },
+    {
+      "id": "e09",
+      "org_dept_list": "- ACME / 운영팀\n- ACME / 기획팀",
+      "content": "주간 공유 회의: 지난주 진행 상황을 각 팀이 보고했고 특별한 결정사항이나 신규 과제는 없었다. 정보 공유만 진행하고 마무리했다.",
+      "expected_agendas": []
+    },
+    {
+      "id": "e10",
+      "org_dept_list": "- ACME / CS팀\n- ACME / 품질팀",
+      "content": "고객 대응 회의: CS팀은 응대 매뉴얼을 최신화한다. 품질팀은 최근 불만 사례를 분석해 보고한다.",
+      "expected_agendas": [
+        {"title": "응대 매뉴얼 최신화", "department": "CS팀"},
+        {"title": "불만 사례 분석", "department": "품질팀"}
+      ]
+    },
+    {
+      "id": "e11",
+      "org_dept_list": "- ACME / 물류팀",
+      "content": "결정사항: 물류팀이 분기 말 재고 실사를 6/28까지 완료하고 결과를 정리한다.",
+      "expected_agendas": [
+        {"title": "분기 재고 실사", "department": "물류팀"}
+      ]
+    },
+    {
+      "id": "e12",
+      "org_dept_list": "- ACME / 디자인팀\n- ACME / 개발팀",
+      "content": "리뉴얼 회의: 디자인팀은 메인 페이지 리뉴얼 시안을 제작한다. 개발팀은 확정된 시안을 적용해 배포 준비를 한다.",
+      "expected_agendas": [
+        {"title": "메인 페이지 리뉴얼 시안", "department": "디자인팀"},
+        {"title": "시안 적용 및 배포 준비", "department": "개발팀"}
+      ]
+    },
+    {
+      "id": "e13",
+      "org_dept_list": "- ACME / 재무팀\n- ACME / 회계팀",
+      "content": "결산 회의: 재무팀은 상반기 정산 자료를 마감한다. 회계팀은 외부 감사 대비 서류를 준비한다.",
+      "expected_agendas": [
+        {"title": "상반기 정산 마감", "department": "재무팀"},
+        {"title": "외부 감사 대비 서류 준비", "department": "회계팀"}
+      ]
+    },
+    {
+      "id": "e14",
+      "org_dept_list": "- ACME / 총무팀\n- ACME / 운영팀",
+      "content": "행사 준비 회의: 총무팀은 행사 비품을 발주한다. 운영팀은 행사 당일 진행 시나리오를 작성한다.",
+      "expected_agendas": [
+        {"title": "행사 비품 발주", "department": "총무팀"},
+        {"title": "행사 진행 시나리오 작성", "department": "운영팀"}
+      ]
+    },
+    {
+      "id": "e15",
+      "org_dept_list": "- ACME / 개발팀\n- ACME / QA팀",
+      "content": "짧은 동기화 미팅: 현재 일정에 차질이 없음을 확인했고 다음 회의 일정만 6/30(월)으로 정한 뒤 종료했다. 별도로 배정된 작업은 없다.",
+      "expected_agendas": []
+    },
+    {
+      "id": "e16",
+      "org_dept_list": "- ACME / 마케팅팀\n- ACME / 홍보팀\n- ACME / 디자인팀",
+      "content": "출시 캠페인 회의: 마케팅팀은 SNS 광고 집행안을 수립한다. 홍보팀은 보도자료 초안을 작성한다. 디자인팀은 캠페인 배너를 제작한다.",
+      "expected_agendas": [
+        {"title": "SNS 광고 집행안 수립", "department": "마케팅팀"},
+        {"title": "보도자료 초안 작성", "department": "홍보팀"},
+        {"title": "캠페인 배너 제작", "department": "디자인팀"}
+      ]
+    },
+    {
+      "id": "e17",
+      "org_dept_list": "- ACME / 개발팀",
+      "content": "긴급 대응 회의: 개발팀이 결제 모듈의 치명적 버그를 6/18 내로 수정해 핫픽스를 배포한다.",
+      "expected_agendas": [
+        {"title": "결제 모듈 버그 수정 및 핫픽스 배포", "department": "개발팀"}
+      ]
+    },
+    {
+      "id": "e18",
+      "org_dept_list": "- ACME / 연구팀\n- ACME / 특허팀",
+      "content": "R&D 회의: 연구팀은 신규 알고리즘 논문 초안을 작성한다. 특허팀은 관련 기술의 특허 출원을 준비한다.",
+      "expected_agendas": [
+        {"title": "신규 알고리즘 논문 초안", "department": "연구팀"},
+        {"title": "특허 출원 준비", "department": "특허팀"}
       ]
     }
   ]

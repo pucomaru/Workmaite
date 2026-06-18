@@ -25,17 +25,47 @@
                 @click="showPw = !showPw"
                 :aria-label="showPw ? '비밀번호 숨기기' : '비밀번호 표시'"
               >
-                <svg v-if="!showPw" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  v-if="!showPw"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
-                <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <svg
+                  v-else
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                  />
                   <line x1="1" y1="1" x2="23" y2="23" />
                 </svg>
               </button>
             </div>
-            <p v-if="confirmState.inputType === 'password' && confirmState.minLength > 0 && inputValue.length > 0 && inputValue.length < confirmState.minLength" class="pw-hint">
+            <p
+              v-if="
+                confirmState.inputType === 'password' &&
+                confirmState.minLength > 0 &&
+                inputValue.length > 0 &&
+                inputValue.length < confirmState.minLength
+              "
+              class="pw-hint"
+            >
               {{ confirmState.minLength }}자 이상 입력해주세요
             </p>
           </div>
@@ -66,7 +96,8 @@ const showPw = ref(false)
 const isOkDisabled = computed(() => {
   const s = confirmState.value
   if (!s || s.mode !== 'prompt') return false
-  if (s.minLength > 0 && inputValue.value.length > 0 && inputValue.value.length < s.minLength) return true
+  if (s.minLength > 0 && inputValue.value.length > 0 && inputValue.value.length < s.minLength)
+    return true
   return false
 })
 

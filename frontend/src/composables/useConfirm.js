@@ -21,7 +21,13 @@ export function confirmDialog(
 
 export function promptDialog(
   message,
-  { okText = '확인', cancelText = '취소', placeholder = '', inputType = 'text', minLength = 0 } = {},
+  {
+    okText = '확인',
+    cancelText = '취소',
+    placeholder = '',
+    inputType = 'text',
+    minLength = 0,
+  } = {},
 ) {
   return new Promise(resolve => {
     confirmState.value = {

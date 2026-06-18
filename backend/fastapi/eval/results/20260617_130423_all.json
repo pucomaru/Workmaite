@@ -1,0 +1,892 @@
+{
+  "ran_at": "2026-06-17T04:01:04.627300+00:00",
+  "model": "gpt-4o-mini",
+  "routing": {
+    "metric": "routing_accuracy",
+    "accuracy": 0.9814814814814815,
+    "n": 54,
+    "rows": [
+      {
+        "id": "r01",
+        "message": "이 회의록에서 다음 과제를 추출해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r02",
+        "message": "다음 회의 때 각 팀이 할 일 정리해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r03",
+        "message": "업로드한 파일 분석해서 아젠다 뽑아줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r04",
+        "message": "회의록에서 후속 액션아이템만 정리해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "minutes_generator",
+        "ok": false
+      },
+      {
+        "id": "r05",
+        "message": "이 문서에서 팀별 할 일 도출해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r06",
+        "message": "녹취록 기반으로 다음 회의 안건 만들어줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r07",
+        "message": "회의 결과에서 담당자별 과제 뽑아줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r08",
+        "message": "첨부한 회의자료에서 to-do 리스트 추출해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r09",
+        "message": "논의된 내용에서 실행 항목만 정리해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r10",
+        "message": "이 내용 바탕으로 후속 아젠다 생성해줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r11",
+        "message": "오늘 회의 내용으로 회의록 작성해줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r12",
+        "message": "방금 논의한 내용 요약해서 회의록 초안 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r13",
+        "message": "회의 녹취 정리해서 회의록 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r14",
+        "message": "오늘 미팅 회의록 초안 작성해줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r15",
+        "message": "이 대화 내용으로 정식 회의록 써줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r16",
+        "message": "회의 내용 깔끔하게 회의록으로 정리해줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r17",
+        "message": "지금까지 논의 요약해서 회의록 형태로 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r18",
+        "message": "이 보고서 검토하고 피드백 줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r19",
+        "message": "첨부한 기획안 평가해줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r20",
+        "message": "제출된 제안서 점수 매겨줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r21",
+        "message": "이 보고서 품질 평가하고 등급 알려줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r22",
+        "message": "제출한 문서 보완점 알려줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r23",
+        "message": "이 보고자료 심사하고 개선 의견 줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r24",
+        "message": "올린 발표자료 검토 의견 부탁해",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r25",
+        "message": "지난 분기 회의에서 예산 관련 논의 내용 찾아줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r26",
+        "message": "이 결정사항 지식베이스에 저장해줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r27",
+        "message": "작년 마케팅 회의에서 나온 결정 찾아줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r28",
+        "message": "과거 회의록에서 신규 채용 관련 내용 검색해줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r29",
+        "message": "이 합의사항 지식그래프에 등록해줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r30",
+        "message": "지난 회의들에서 비슷한 안건 있었는지 찾아줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r31",
+        "message": "예전에 논의한 보안 정책 관련 자료 조회해줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r32",
+        "message": "우리 회의체 현황 브리핑해줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r33",
+        "message": "과제 진행 상황 어때?",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r34",
+        "message": "내가 속한 회의체 목록 알려줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r35",
+        "message": "안녕하세요!",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r36",
+        "message": "보고서 제출 현황 보여줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r37",
+        "message": "이번 주 회의 일정 알려줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r38",
+        "message": "진행 중인 아젠다 몇 개야?",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r39",
+        "message": "다가오는 회의 뭐 있어?",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r40",
+        "message": "고마워요, 도움이 됐어요",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r41",
+        "message": "우리 팀 회의체에 누가 참여하고 있어?",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r42",
+        "message": "마감 임박한 과제만 알려줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r43",
+        "message": "전체 회의체별 안건 수 요약해줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      },
+      {
+        "id": "r44",
+        "message": "너 몇살이야?",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r45",
+        "message": "파이썬으로 퀵소트 코드 짜줘",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r46",
+        "message": "오늘 서울 날씨 어때?",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r47",
+        "message": "김치찌개 맛있게 끓이는 법 알려줘",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r48",
+        "message": "비트코인 지금 시세 얼마야?",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r49",
+        "message": "주말에 볼 만한 영화 추천해줘",
+        "expected": [
+          "off_topic",
+          "supervisor_direct"
+        ],
+        "predicted": "off_topic",
+        "ok": true
+      },
+      {
+        "id": "r50",
+        "message": "방금 그 내용 회의록 초안으로 만들어줘",
+        "expected": [
+          "minutes_generator"
+        ],
+        "predicted": "minutes_generator",
+        "ok": true
+      },
+      {
+        "id": "r51",
+        "message": "거기서 우리 팀이 할 일만 뽑아줘",
+        "expected": [
+          "task_extractor"
+        ],
+        "predicted": "task_extractor",
+        "ok": true
+      },
+      {
+        "id": "r52",
+        "message": "그럼 그 기획안 평가까지 해줘",
+        "expected": [
+          "report_reviewer"
+        ],
+        "predicted": "report_reviewer",
+        "ok": true
+      },
+      {
+        "id": "r53",
+        "message": "그 중에서 예산 관련 논의만 과거 자료에서 찾아줘",
+        "expected": [
+          "knowledge_manager"
+        ],
+        "predicted": "knowledge_manager",
+        "ok": true
+      },
+      {
+        "id": "r54",
+        "message": "지금 내 회의체 상태 한 번 더 정리해줘",
+        "expected": [
+          "supervisor_direct"
+        ],
+        "predicted": "supervisor_direct",
+        "ok": true
+      }
+    ]
+  },
+  "extraction": {
+    "metric": "extraction",
+    "precision": 0.8285714285714286,
+    "recall": 1.0,
+    "f1": 0.90625,
+    "dept_accuracy": 1.0,
+    "rows": [
+      {
+        "id": "e01",
+        "expected": [
+          {
+            "title": "포스터 시안",
+            "department": "홍보팀"
+          },
+          {
+            "title": "행사장 섭외",
+            "department": "운영팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "신규 서비스 홍보 포스터 시안 제작",
+            "department": "홍보팀"
+          },
+          {
+            "title": "행사장 섭외 진행",
+            "department": "운영팀"
+          }
+        ]
+      },
+      {
+        "id": "e02",
+        "expected": [
+          {
+            "title": "로그인 API 리팩터링",
+            "department": "개발팀"
+          },
+          {
+            "title": "회귀 테스트 계획",
+            "department": "QA팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "로그인 API 리팩터링 완료",
+            "department": "개발팀"
+          },
+          {
+            "title": "회귀 테스트 계획서 작성",
+            "department": "QA팀"
+          }
+        ]
+      },
+      {
+        "id": "e03",
+        "expected": [
+          {
+            "title": "3분기 예산안",
+            "department": "재무팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "3분기 예산안 초안 작성",
+            "department": "재무팀"
+          }
+        ]
+      },
+      {
+        "id": "e04",
+        "expected": [
+          {
+            "title": "하반기 채용공고 게시",
+            "department": "인사팀"
+          },
+          {
+            "title": "온보딩 프로그램 개편",
+            "department": "교육팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "하반기 신입 채용공고 게시",
+            "department": "인사팀"
+          },
+          {
+            "title": "신규 입사자 온보딩 프로그램 개편",
+            "department": "교육팀"
+          }
+        ]
+      },
+      {
+        "id": "e05",
+        "expected": [
+          {
+            "title": "고객사 제안서 보완",
+            "department": "영업팀"
+          },
+          {
+            "title": "신규 캠페인 기획",
+            "department": "마케팅팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "주요 고객사 대상 제안서 보완 및 재제출",
+            "department": "영업팀"
+          },
+          {
+            "title": "신규 캠페인 기획안 마련",
+            "department": "마케팅팀"
+          }
+        ]
+      },
+      {
+        "id": "e06",
+        "expected": [
+          {
+            "title": "NDA 계약서 검토",
+            "department": "법무팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "신규 협력사와의 NDA 계약서 검토 및 의견 회신",
+            "department": "법무팀"
+          }
+        ]
+      },
+      {
+        "id": "e07",
+        "expected": [
+          {
+            "title": "외부 취약점 점검",
+            "department": "보안팀"
+          },
+          {
+            "title": "서버 이전 계획 수립",
+            "department": "인프라팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "외부 취약점 점검 수행",
+            "department": "보안팀"
+          },
+          {
+            "title": "노후 서버 이전 계획 수립",
+            "department": "인프라팀"
+          }
+        ]
+      },
+      {
+        "id": "e08",
+        "expected": [
+          {
+            "title": "운영 지표 대시보드 구축",
+            "department": "데이터팀"
+          },
+          {
+            "title": "요구사항 정의서 작성",
+            "department": "기획팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "운영 지표 대시보드 구축",
+            "department": "데이터팀"
+          },
+          {
+            "title": "요구사항 정의서 작성",
+            "department": "기획팀"
+          }
+        ]
+      },
+      {
+        "id": "e09",
+        "expected": [],
+        "predicted": [
+          {
+            "title": "연간 AI 교육 운영 방향 및 목표 수립",
+            "department": "AX서비스팀"
+          },
+          {
+            "title": "프로그램별 세부 운영 일정 초안 작성",
+            "department": "운영팀"
+          },
+          {
+            "title": "상생 착수 보고",
+            "department": "인1프라팀"
+          }
+        ]
+      },
+      {
+        "id": "e10",
+        "expected": [
+          {
+            "title": "응대 매뉴얼 최신화",
+            "department": "CS팀"
+          },
+          {
+            "title": "불만 사례 분석",
+            "department": "품질팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "응대 매뉴얼 최신화",
+            "department": "CS팀"
+          },
+          {
+            "title": "최근 불만 사례 분석 보고",
+            "department": "품질팀"
+          }
+        ]
+      },
+      {
+        "id": "e11",
+        "expected": [
+          {
+            "title": "분기 재고 실사",
+            "department": "물류팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "분기 말 재고 실사 완료 및 결과 정리",
+            "department": "물류팀"
+          }
+        ]
+      },
+      {
+        "id": "e12",
+        "expected": [
+          {
+            "title": "메인 페이지 리뉴얼 시안",
+            "department": "디자인팀"
+          },
+          {
+            "title": "시안 적용 및 배포 준비",
+            "department": "개발팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "메인 페이지 리뉴얼 시안 제작",
+            "department": "디자인팀"
+          },
+          {
+            "title": "확정된 시안 적용해 배포 준비",
+            "department": "개발팀"
+          }
+        ]
+      },
+      {
+        "id": "e13",
+        "expected": [
+          {
+            "title": "상반기 정산 마감",
+            "department": "재무팀"
+          },
+          {
+            "title": "외부 감사 대비 서류 준비",
+            "department": "회계팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "상반기 정산 자료 마감",
+            "department": "재무팀"
+          },
+          {
+            "title": "외부 감사 대비 서류 준비",
+            "department": "회계팀"
+          }
+        ]
+      },
+      {
+        "id": "e14",
+        "expected": [
+          {
+            "title": "행사 비품 발주",
+            "department": "총무팀"
+          },
+          {
+            "title": "행사 진행 시나리오 작성",
+            "department": "운영팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "행사 비품 발주",
+            "department": "총무팀"
+          },
+          {
+            "title": "행사 당일 진행 시나리오 작성",
+            "department": "운영팀"
+          }
+        ]
+      },
+      {
+        "id": "e15",
+        "expected": [],
+        "predicted": [
+          {
+            "title": "연간 AI 교육 운영 방향 및 목표",
+            "department": "AX서비스팀"
+          },
+          {
+            "title": "프로그램별 세부 운영 일정 초안 작성",
+            "department": "운영팀"
+          },
+          {
+            "title": "1고객사 A와 납기 조율 미팅 진행",
+            "department": "인프라팀"
+          }
+        ]
+      },
+      {
+        "id": "e16",
+        "expected": [
+          {
+            "title": "SNS 광고 집행안 수립",
+            "department": "마케팅팀"
+          },
+          {
+            "title": "보도자료 초안 작성",
+            "department": "홍보팀"
+          },
+          {
+            "title": "캠페인 배너 제작",
+            "department": "디자인팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "SNS 광고 집행안 수립",
+            "department": "마케팅팀"
+          },
+          {
+            "title": "보도자료 초안 작성",
+            "department": "홍보팀"
+          },
+          {
+            "title": "캠페인 배너 제작",
+            "department": "디자인팀"
+          }
+        ]
+      },
+      {
+        "id": "e17",
+        "expected": [
+          {
+            "title": "결제 모듈 버그 수정 및 핫픽스 배포",
+            "department": "개발팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "결제 모듈의 치명적 버그 수정",
+            "department": "개발팀"
+          }
+        ]
+      },
+      {
+        "id": "e18",
+        "expected": [
+          {
+            "title": "신규 알고리즘 논문 초안",
+            "department": "연구팀"
+          },
+          {
+            "title": "특허 출원 준비",
+            "department": "특허팀"
+          }
+        ],
+        "predicted": [
+          {
+            "title": "신규 알고리즘 논문 초안 작성",
+            "department": "연구팀"
+          },
+          {
+            "title": "관련 기술의 특허 출원 준비",
+            "department": "특허팀"
+          }
+        ]
+      }
+    ]
+  }
+}

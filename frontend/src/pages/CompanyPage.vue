@@ -331,10 +331,10 @@ async function parseAndImportCSV(text) {
 
   // 일괄 임시 비밀번호: CSV에 개별 비밀번호가 없거나 비어있는 행에 공통 적용 (각자 최초 로그인 시 변경 강제)
   const bulkPassword = (
-  (await promptDialog(
-    '가져올 구성원의 임시 비밀번호를 입력하세요 (8자 이상)\nCSV 비밀번호가 있으면 우선 적용됩니다',
-    { placeholder: '임시 비밀번호 입력', inputType: 'password', minLength: 8 },
-  )) || ''
+    (await promptDialog(
+      '가져올 구성원의 임시 비밀번호를 입력하세요 (8자 이상)\nCSV 비밀번호가 있으면 우선 적용됩니다',
+      { placeholder: '임시 비밀번호 입력', inputType: 'password', minLength: 8 },
+    )) || ''
   ).trim()
 
   const existingEmails = new Set(allMembers.value.map(m => (m.email || '').toLowerCase()))

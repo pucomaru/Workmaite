@@ -1,0 +1,97 @@
+{
+  "ran_at": "2026-06-17T04:20:44.545729+00:00",
+  "model": "gpt-4o-mini",
+  "report": {
+    "metric": "report_scoring",
+    "band_hit_rate": 0.625,
+    "tier_means": {
+      "strong": 75.0,
+      "medium": 75.0,
+      "weak": 75.0
+    },
+    "ordering_ok": false,
+    "n": 8,
+    "rows": [
+      {
+        "id": "rp01",
+        "tier": "strong",
+        "score": 75,
+        "band": [
+          70,
+          100
+        ],
+        "in_band": true
+      },
+      {
+        "id": "rp02",
+        "tier": "strong",
+        "score": 75,
+        "band": [
+          70,
+          100
+        ],
+        "in_band": true
+      },
+      {
+        "id": "rp03",
+        "tier": "medium",
+        "score": 75,
+        "band": [
+          40,
+          75
+        ],
+        "in_band": true
+      },
+      {
+        "id": "rp04",
+        "tier": "medium",
+        "score": 75,
+        "band": [
+          40,
+          78
+        ],
+        "in_band": true
+      },
+      {
+        "id": "rp05",
+        "tier": "weak",
+        "score": 75,
+        "band": [
+          0,
+          45
+        ],
+        "in_band": false
+      },
+      {
+        "id": "rp06",
+        "tier": "weak",
+        "score": 75,
+        "band": [
+          0,
+          40
+        ],
+        "in_band": false
+      },
+      {
+        "id": "rp07",
+        "tier": "weak",
+        "score": 75,
+        "band": [
+          0,
+          35
+        ],
+        "in_band": false
+      },
+      {
+        "id": "rp08",
+        "tier": "strong",
+        "score": 75,
+        "band": [
+          70,
+          100
+        ],
+        "in_band": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "ran_at": "2026-06-17T12:58:12.697611",
+  "k": 5,
+  "labels": {
+    "Minutes": {
+      "n": 0,
+      "recall_at_k": null
+    },
+    "Agenda": {
+      "n": 5,
+      "recall_at_k": 1.0
+    },
+    "Report": {
+      "n": 5,
+      "recall_at_k": 1.0
+    }
+  }
+}
