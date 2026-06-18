@@ -90,9 +90,9 @@ async def ensure_vector_indexes() -> None:
 
 # ── 임베딩 생성 ────────────────────────────────────────────────────────────
 async def _embed(text: str) -> List[float]:
-    # EMBED_MODEL(text-embedding-3-large)·EMBED_DIM(3072)·사용량 기록을 일원화한 공용
+    # EMBED_MODEL(text-embedding-3-small)·EMBED_DIM(1536)·사용량 기록을 일원화한 공용
     # 임베더 사용. 직접 OpenAIEmbeddings()는 모델 미지정 시 ada-002로 떨어져 EMBED_MODEL을
-    # 무시하고 벡터 차원(1536)도 인덱스(3072)와 어긋난다.
+    # 무시하므로 사용하지 않는다(벡터 차원이 인덱스와 어긋나 검색이 실패할 수 있다).
     from graphdb.file_embedder import embed_query
 
     return await embed_query(text[:2000])

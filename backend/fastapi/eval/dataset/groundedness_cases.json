@@ -1,0 +1,89 @@
+{
+  "_note": "환각 가드(_Grounding 판정) 판별 정확도 골든셋. context를 직접 주입해 Neo4j 없이 hallucination_guard의 판단 코어(_GROUND_SYS)를 측정한다. expected_grounded=true: 근거로 뒷받침되거나 정직하게 '확인불가'라고 답함. false: 근거에 없는 사실 단정(수치·이름·일정).",
+  "cases": [
+    {
+      "id": "g01",
+      "context": "[회의록] 3분기 예산안 작성은 재무팀이 맡으며 마감은 6월 20일이다.",
+      "answer": "3분기 예산안은 재무팀이 담당하고 6월 20일까지 작성합니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g02",
+      "context": "[회의록] 3분기 예산안을 논의했다.",
+      "answer": "3분기 예산은 5천만 원으로 확정되었습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g03",
+      "context": "[회의록] 참석자: 김부장, 이대리. 안건은 신규 서비스 출시 일정이었다.",
+      "answer": "회의에는 김부장과 이대리가 참석했으며 신규 서비스 출시 일정을 논의했습니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g04",
+      "context": "[회의록] 참석자: 김부장, 이대리.",
+      "answer": "박과장이 회의를 주재했습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g05",
+      "context": "[회의록] 마케팅 캠페인 방향을 논의했으나 예산은 다루지 않았다.",
+      "answer": "예산 관련 내용은 회의록에서 확인되지 않았습니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g06",
+      "context": "[회의록] 다음 회의 일정은 아직 정해지지 않았다.",
+      "answer": "다음 회의는 7월 3일 오후 2시에 열립니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g07",
+      "context": "[보고서] 상반기 매출이 전년 대비 10% 증가했다.",
+      "answer": "상반기 매출은 전년 대비 10% 증가했습니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g08",
+      "context": "[보고서] 상반기 매출이 증가했다.",
+      "answer": "상반기 매출이 35% 증가했습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g09",
+      "context": "[회의록] 검토 결과 A안을 채택하기로 결정했다.",
+      "answer": "회의에서 A안이 채택되었습니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g10",
+      "context": "[회의록] A안과 B안 두 가지를 검토했다.",
+      "answer": "최종적으로 B안이 승인되었습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g11",
+      "context": "[회의록] 프로젝트 일정에 차질이 생겨 지연되고 있다는 보고가 있었다.",
+      "answer": "프로젝트가 정확히 2주 지연되었습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g12",
+      "context": "[보고서] 운영팀이 행사장 섭외를 완료했고 장소는 본사 대강당으로 확정했다.",
+      "answer": "행사장은 본사 대강당으로 확정되었으며 운영팀이 섭외를 마쳤습니다.",
+      "expected_grounded": true
+    },
+    {
+      "id": "g13",
+      "context": "[회의록] 신규 채용 규모는 추후 결정하기로 했다.",
+      "answer": "올해 신규 채용은 총 12명으로 결정되었습니다.",
+      "expected_grounded": false
+    },
+    {
+      "id": "g14",
+      "context": "[회의록] 보안 정책 개정안을 다음 분기까지 마련하기로 합의했다.",
+      "answer": "보안 정책 개정안은 다음 분기까지 마련될 예정입니다.",
+      "expected_grounded": true
+    }
+  ]
+}

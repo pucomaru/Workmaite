@@ -34,7 +34,7 @@ def review_propose_prompt(agenda: str, report_content: str) -> str:
 
 반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON만):
 {{
-  "score": 75,
+  "score": <0~100 사이 정수 — 아래 element_scores를 종합한 실제 평가 점수. 예시 값을 그대로 복사하지 말 것>,
   "feedback": ["전체 종합 피드백1", "전체 종합 피드백2"],
   "element_scores": [
     {{"id": 1, "name": "표지", "present": true, "score": 90, "comment": "표지 평가"}},
@@ -69,7 +69,7 @@ def review_direct_prompt(agenda: str, report_content: str) -> str:
 
 반드시 아래 JSON 형식으로만 응답하세요 (설명 없이 JSON만):
 {{
-  "score": 75,
+  "score": <0~100 사이 정수 — 아래 element_scores를 종합한 실제 평가 점수. 예시 값을 그대로 복사하지 말 것>,
   "feedback": ["전체 종합 피드백1", "전체 종합 피드백2"],
   "element_scores": [
     {{"id": 1, "name": "표지", "present": true, "score": 90, "comment": "제목과 발제자 정보가 명확합니다."}},
