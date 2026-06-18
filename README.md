@@ -27,7 +27,7 @@ Vue 3 SPA ──┐
 
 - **AI 오케스트레이션**: LangGraph 기반으로 사용자 의도를 분류한 뒤 4개 전문 에이전트(`task_extractor`, `minutes_generator`, `report_reviewer`, `knowledge_manager`)에 위임합니다.
 - **데이터 정합성**: PostgreSQL을 단일 소스로 두고, 트랜잭션 아웃박스 패턴으로 Neo4j에 안정적으로 동기화합니다(재시도·삭제 전파 포함).
-- **GraphRAG**: 노드/청크 임베딩(`text-embedding-3-small`, 1536d)과 벡터 인덱스로 회의록·보고서·지식 검색을 수행합니다.
+- **GraphRAG**: 노드/청크 임베딩과 벡터 인덱스로 회의록·보고서·지식 검색을 수행합니다.
 
 ## 기술 스택
 

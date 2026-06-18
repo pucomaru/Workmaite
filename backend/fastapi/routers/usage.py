@@ -188,6 +188,8 @@ def get_token_usage(
             models.SttSegment.created_at >= since,
             models.SttSegment.created_at <= until,
             models.SttSegment.provider.isnot(None),
+            # 수동 입력 전사(provider="manual")는 STT 사용량/비용에서 제외
+            ~models.SttSegment.provider.ilike("manual"),
         )
         .group_by(models.SttSegment.provider)
         .all()
@@ -250,6 +252,8 @@ def get_token_usage(
         .filter(
             models.MeetingMember.user_id == current_user.id,
             models.SttSegment.provider.isnot(None),
+            # 수동 입력 전사(provider="manual")는 STT 누적 사용량/비용에서 제외
+            ~models.SttSegment.provider.ilike("manual"),
         )
         .group_by(models.SttSegment.provider)
         .all()
