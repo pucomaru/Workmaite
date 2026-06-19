@@ -1,0 +1,6196 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Workma!te AI API",
+    "description": "회의체 운영 AI Agent 서비스의 **AI · 실시간 · 지식그래프** 백엔드 (FastAPI).\n\n- **인증**: Spring이 발급한 JWT access token을 `Authorize`(HTTPBearer)에 입력하세요. (`JWT_SECRET`을 Spring과 공유, HS256)\n- **스트리밍**: 다수 엔드포인트가 SSE(`text/event-stream`)로 토큰 단위 응답합니다.\n- **데이터 스코프**: AI 도구는 사용자의 소속 회의체로 접근을 제한합니다(IDOR 이중 방어).\n- 인증·도메인 CRUD는 별도 Spring Boot 서버(`/api/v1`)가 담당합니다.",
+    "contact": {
+      "name": "Team No.9"
+    },
+    "license": {
+      "name": "Internal"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/metrics": {
+      "get": {
+        "summary": "Metrics",
+        "description": "Endpoint that serves Prometheus metrics.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/minutes/sessions-chat": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의록(아라) 세션 챗 — SSE 스트리밍",
+        "description": "회의 세션 목록·세션별 회의록을 컨텍스트로 회의록 에이전트와 대화한다.\n\nmeeting_id가 있으면 require_view 가드로 열람 권한을 확인한다.\n응답은 SSE(text/event-stream)로 토큰 스트리밍된다.",
+        "operationId": "minutes_sessions_chat_api_agent_minutes_sessions_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/minutes/generate-minutes": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의록 생성 — SSE 스트리밍",
+        "description": "전사·안건·참석자·이전 회의록·보고서(GraphRAG) 맥락으로 회의록을 생성한다.\n\nmeeting_id가 있으면 require_view 가드로 열람 권한을 확인한다.\n생성 결과는 미리보기만 SSE(text/event-stream)로 스트리밍하며 DB·그래프에 영속화하지 않는다.",
+        "operationId": "minutes_generate_minutes_api_agent_minutes_generate_minutes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/session/chat": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "세션 전용 챗봇 — SSE 스트리밍",
+        "description": "세션 상태에 따라 분기하는 회의 전용 챗봇.\n\nrequire_view_by_session 가드로 세션 열람 권한을 확인하며, 응답은\nSSE(text/event-stream)로 스트리밍한다.\nscheduled → 기본 정보(일정·참석자·안건)만 안내\nongoing   → 진행 중 안내\nended     → 회의록 미생성 안내\narchived  → Neo4j RAG로 회의록 기반 답변",
+        "operationId": "session_chat_api_agent_session_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/models": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "선택 가능한 LLM 모델 목록",
+        "description": "컴포저에서 선택 가능한 LLM 모델 목록 — pricing.yaml에 단가가 등록된 모델만 노출.\n\n로그인 사용자(get_current_user)만 조회할 수 있다.",
+        "operationId": "list_models_api_agent_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/supervisor/chat": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "슈퍼바이저 챗봇 — SSE 스트리밍",
+        "description": "LLM이 의도를 분류해 하위 에이전트로 라우팅하는 통합 슈퍼바이저 챗봇.\n\n탈옥·유해 요청은 최전선에서 차단하고, 일일 토큰 예산을 검사한다. 멀티테넌트\n검색 스코프로 본인 소속 회의체만 조회하도록 강제(IDOR 방지)하며, 응답은\nSSE(text/event-stream)로 스트리밍한다.",
+        "operationId": "supervisor_chat_api_agent_supervisor_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/feedback": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "챗봇 응답 피드백 등록",
+        "description": "챗봇 응답에 대한 좋아요/싫어요(rating ±1) 피드백을 저장한다.\n\n로그인 사용자(get_current_user) 본인 명의로 기록된다.",
+        "operationId": "submit_feedback_api_agent_feedback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/supervisor/chat/history": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "슈퍼바이저 채팅 이력 조회",
+        "description": "특정 회의체의 슈퍼바이저 채팅 이력을 시간순으로 반환한다.\n\n시스템 관리자가 아니면 해당 회의체 멤버인지 확인(미소속 시 403).",
+        "operationId": "supervisor_chat_history_api_agent_supervisor_chat_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/knowledge/analyze-relationships": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "지식 그래프 관계 분석·재구성 — SSE 스트리밍",
+        "description": "전체 지식 그래프를 점검해 끊긴 흐름·미연결 안건/문서를 찾아 자동 재구성한다.\n\n분석 계획·진행·요약을 SSE(text/event-stream)로 스트리밍하며, 관계 방향·명칭\n정규화도 수행한다. (로그인 사용자 인증)",
+        "operationId": "analyze_relationships_stream_api_agent_knowledge_analyze_relationships_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/fill-fields": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "안건 빈 필드 자동 채우기 — SSE 스트리밍",
+        "description": "'채우기' — 사용자가 비워둔 안건 필드(담당 부서)·우선순위·완료 상태를 맥락에 맞게 자동 보정한다.\n\n기존 analyze-relationships('관계 재설정')와 달리 노드 메타데이터를 채우는 데 집중하며,\n진행·요약을 SSE(text/event-stream)로 스트리밍한다.\n스코프: 사용자가 속한 회의체(관리자는 자사 구성원 회의체까지).",
+        "operationId": "fill_fields_stream_api_agent_knowledge_fill_fields_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/store-minutes": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의록 지식베이스 저장",
+        "description": "회의록을 임베딩해 Knowledge Base(Neo4j)에 저장한다.\n\nrequire_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.",
+        "operationId": "knowledge_store_minutes_api_agent_knowledge_store_minutes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_StoreMinutesReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/store-task": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "과제 지식베이스 저장",
+        "description": "과제(할 일)를 임베딩해 Knowledge Base(Neo4j)에 저장한다.\n\nmeeting_id가 있으면 require_meeting_edit 가드(간사/회사관리자/시스템관리자)를 적용한다.",
+        "operationId": "knowledge_store_task_api_agent_knowledge_store_task_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_StoreTaskReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/store-report": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고서 지식베이스 저장",
+        "description": "보고서를 임베딩해 Knowledge Base(Neo4j)에 저장한다.\n\nmeeting_id가 있으면 require_meeting_edit 가드(간사/회사관리자/시스템관리자)를 적용한다.",
+        "operationId": "knowledge_store_report_api_agent_knowledge_store_report_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_StoreReportReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/propose-relationships": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "노드 간 관계 제안",
+        "description": "Neo4j 노드 간 연결 관계를 LLM이 분석해 제안. proposal_id를 반환.",
+        "operationId": "knowledge_propose_relationships_api_agent_knowledge_propose_relationships_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_ProposeRelationshipsReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/confirm-relationships": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "제안된 관계 승인/반려",
+        "description": "제안된 관계를 승인(Neo4j MERGE) 또는 반려(제안 폐기).",
+        "operationId": "knowledge_confirm_relationships_api_agent_knowledge_confirm_relationships_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_ConfirmRelationshipsReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/knowledge/chat/stream": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "지식 관리 채팅 — SSE 스트리밍",
+        "description": "지식 관리 에이전트와 대화하며 응답을 SSE(text/event-stream)로 스트리밍한다.\n\nmeeting_id가 있으면 require_view 가드로 회의체 열람 권한을 확인한다.",
+        "operationId": "knowledge_chat_stream_ep_api_agent_knowledge_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/archive/extract-agendas": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아카이브 파일에서 아젠다 추출",
+        "description": "업로드·선택한 파일과 회의 맥락으로 다음 회의 아젠다를 추출해 draft로 저장한다.\n\nrequire_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하며,\n저장된 draft 아젠다는 Neo4j에 백그라운드로 동기화된다.",
+        "operationId": "archive_extract_agendas_api_agent_archive_extract_agendas_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_archive_extract_agendas_api_agent_archive_extract_agendas_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/archive/chat-extract": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "채팅 기반 아젠다 갱신 — SSE 스트리밍",
+        "description": "사용자 채팅 요청에 따라 추출된 아젠다 목록을 갱신하고 draft로 다시 저장한다.\n\n계획·결과 이벤트를 SSE(text/event-stream)로 스트리밍한다. (로그인 사용자 인증)",
+        "operationId": "archive_chat_extract_api_agent_archive_chat_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/archive/analyze-file": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아카이브 파일 AI 검토",
+        "description": "업로드 파일에서 텍스트를 추출해 LangGraph 검토 에이전트로 점수·피드백을 산출한다.\n\n로그인 사용자(get_current_user) 인증이 필요하며, 결과를 단건 JSON으로 반환한다.",
+        "operationId": "analyze_archive_file_api_agent_archive_analyze_file_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_archive_file_api_agent_archive_analyze_file_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/archive/analyze-file/stream": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아카이브 파일 AI 검토 — SSE 스트리밍",
+        "description": "업로드 파일을 검토해 진행 이벤트를 SSE(text/event-stream)로 스트리밍한다.\n\n사용자당 동시 1건만 처리(single_flight 가드)하며 로그인 인증이 필요하다.",
+        "operationId": "analyze_archive_file_stream_ep_api_agent_archive_analyze_file_stream_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_analyze_archive_file_stream_ep_api_agent_archive_analyze_file_stream_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/archive/agendas/commit": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "draft 아젠다 확정(승인/반려)",
+        "description": "승인된 draft 아젠다는 ongoing으로 확정하고 반려 건은 삭제한다.\n\nrequire_meeting_edit 가드(간사/회사관리자/시스템관리자)와 멱등성 가드를 적용하며,\n변경분을 Neo4j에 동기화하고 출처 회의록의 '다음 회의 아젠다' 섹션을 갱신한다.",
+        "operationId": "commit_draft_agendas_api_agent_archive_agendas_commit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/meetings/{meeting_id}/draft-agendas": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의체 draft 아젠다 조회",
+        "description": "과제추출 탭 복원용 — 회의체의 draft 상태 아젠다 목록을 반환한다.\n\nrequire_view 가드로 회의체 열람 권한을 확인한다.",
+        "operationId": "get_draft_agendas_api_agent_meetings__meeting_id__draft_agendas_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/meetings/{meeting_id}/agendas": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의체 아젠다 목록 조회",
+        "description": "회의체의 확정 아젠다(draft 제외) 목록을 반환한다.\n\nrequire_view 가드로 회의체 열람 권한을 확인한다.",
+        "operationId": "get_meeting_agendas_api_agent_meetings__meeting_id__agendas_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/archive/agendas/{agenda_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아젠다 상세 수정",
+        "description": "아젠다의 제목·부서·마감일·우선순위·상태를 수정하고 Neo4j에 동기화한다.\n\nrequire_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.",
+        "operationId": "update_agenda_api_agent_archive_agendas__agenda_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agenda_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Agenda Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아젠다 삭제",
+        "description": "아젠다와 세션 연결을 삭제하고 감사 로그 기록 후 Neo4j에서도 제거한다.\n\nrequire_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.",
+        "operationId": "delete_agenda_item_api_agent_archive_agendas__agenda_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agenda_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Agenda Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/archive/agendas/{agenda_id}/status": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아젠다 상태 변경",
+        "description": "아젠다 상태(완료/진행 등)를 변경하고 Neo4j에 동기화한다.\n\nrequire_owned_edit 가드(담당자 본인 또는 회의체 편집권한)가 필요하다.",
+        "operationId": "update_agenda_status_api_agent_archive_agendas__agenda_id__status_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agenda_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Agenda Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/archive/reports/{report_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고자료 편집",
+        "description": "보고자료의 파일명·제출부서·검토상태(human_status)를 수정하고 Neo4j에 동기화한다.\n\nrequire_owned_edit 가드(업로더 본인 또는 회의체 편집권한)가 필요하며, 반려 시\n승인 보고서가 없는 연관 아젠다는 ongoing으로 되돌린다.",
+        "operationId": "update_report_api_agent_archive_reports__report_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/archive/minutes/by-session/{session_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의록 편집(세션 ID 기준)",
+        "description": "session_id로 회의록을 조회해 파일명·상태를 수정하고 Neo4j에 동기화한다.\n\nrequire_owned_edit 가드(기록자 본인 또는 회의체 편집권한)가 필요하다.",
+        "operationId": "update_minutes_by_session_api_agent_archive_minutes_by_session__session_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/archive/minutes/{minutes_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "회의록 편집",
+        "description": "회의록(minutes_id)의 파일명·상태를 수정하고 Neo4j에 동기화한다.\n\nrequire_owned_edit 가드(기록자 본인 또는 회의체 편집권한)가 필요하다.",
+        "operationId": "update_minutes_api_agent_archive_minutes__minutes_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "minutes_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Minutes Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/meetings/{meeting_id}/agenda-delete-logs": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "아젠다 삭제 로그 조회",
+        "description": "회의체의 아젠다 삭제 감사 로그(audit_logs)를 시간순으로 반환한다.\n\nrequire_view 가드로 회의체 열람 권한을 확인한다.",
+        "operationId": "get_agenda_delete_logs_api_agent_meetings__meeting_id__agenda_delete_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/hitl-reviews": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "HITL 검토 생성",
+        "description": "보고서/아젠다에 대한 사람(HITL) 검토 결과를 저장하고 대상 노드에 흡수 동기화한다.\n\n대상 회의체의 require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.",
+        "operationId": "create_hitl_review_api_agent_hitl_reviews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HitlReviewCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/hitl-reviews/{hj_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "HITL 검토 수정",
+        "description": "기존 HITL 검토의 상태·코멘트를 수정하고 대상 노드에 다시 흡수 동기화한다.\n\n대상 회의체의 require_meeting_edit 가드(간사/회사관리자/시스템관리자)가 필요하다.",
+        "operationId": "update_hitl_review_api_agent_hitl_reviews__hj_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hj_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Hj Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HitlReviewPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/reports/global-review/stream": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고서 종합 검토 — SSE 스트리밍",
+        "description": "회의체의 여러 보고서를 종합 검토한 결과를 SSE(text/event-stream)로 스트리밍한다.\n\nrequire_view 가드로 회의체 열람 권한을 확인한다.",
+        "operationId": "global_review_stream_ep_api_agent_reports_global_review_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/reports/review": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고서 단건 검토",
+        "description": "단일 보고서 내용을 안건 기준으로 검토해 점수·피드백을 반환한다.\n\n로그인 사용자(get_current_user) 인증이 필요하며, 검토 생성 실패 시 502를 반환한다.",
+        "operationId": "review_report_ep_api_agent_reports_review_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/reports/review/start": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고서 HITL 검토 시작",
+        "description": "보고서 HITL 검토 워크플로우를 시작하고 서버 발급 thread_id(run_id)를 반환한다.\n\n로그인 사용자(get_current_user) 인증이 필요하다.",
+        "operationId": "start_report_review_ep_api_agent_reports_review_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartReportReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/reports/review/confirm": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "보고서 HITL 검토 확정",
+        "description": "보고서 HITL 검토를 승인/반려로 확정하고 결과를 저장한다.\n\nmeeting_id가 있으면 require_meeting_edit 가드를 적용하고, 멱등성 가드로\n더블클릭·재시도 중복을 차단한다.",
+        "operationId": "confirm_report_review_ep_api_agent_reports_review_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmReportReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/extraction/review/start": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "과제 추출 HITL 검토 시작",
+        "description": "과제(아젠다) 추출 HITL 검토를 시작하고 서버 발급 thread_id(run_id)를 반환한다.\n\n로그인 사용자(get_current_user) 인증이 필요하다.",
+        "operationId": "start_extraction_review_ep_api_agent_extraction_review_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartExtractionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/agent/extraction/review/confirm": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "과제 추출 HITL 검토 확정",
+        "description": "과제(아젠다) 추출 HITL 검토를 승인/반려로 확정하고 결과를 저장한다.\n\nmeeting_id가 있으면 require_meeting_edit 가드를 적용하고, 멱등성 가드로\n더블클릭·재시도 중복을 차단한다.",
+        "operationId": "confirm_extraction_review_ep_api_agent_extraction_review_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmExtractionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/chats/{context_type}/{context_id}": {
+      "get": {
+        "tags": [
+          "chat_history"
+        ],
+        "summary": "대화 기록 조회",
+        "description": "특정 컨텍스트의 대화 기록을 조회합니다(keyset 페이지네이션 지원).\n\n본인 스레드만 조회 — user_id == current_user.id로 스코프가 한정된다.",
+        "operationId": "get_chat_history_api_chats__context_type___context_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "context_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Type"
+            }
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Context Id"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MessageOut"
+                  },
+                  "title": "Response Get Chat History Api Chats  Context Type   Context Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chat_history"
+        ],
+        "summary": "대화 메시지 저장",
+        "description": "사용자 메시지 1건을 본인 스레드에 저장합니다.\n\nuser 역할만 허용 — assistant/agent 메시지는 서버가 스트림 종료 시 직접 저장한다(H-5).",
+        "operationId": "save_message_api_chats__context_type___context_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "context_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Type"
+            }
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Context Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chat_history"
+        ],
+        "summary": "대화 기록 전체 삭제",
+        "description": "특정 컨텍스트의 대화 기록을 전체 삭제합니다. 본인 스레드만(user_id 스코프) 삭제된다.",
+        "operationId": "clear_chat_history_api_chats__context_type___context_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "context_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Context Type"
+            }
+          },
+          {
+            "name": "context_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Context Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/neo4j/archive": {
+      "get": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "아카이브 그래프 데이터 조회",
+        "description": "인증된 사용자의 소속 회의체만 반환 — Neo4j 기반, Postgres는 meeting_id 보완에만 사용.",
+        "operationId": "get_archive_api_neo4j_archive_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/rel-schema": {
+      "get": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "관계 스키마 조회",
+        "description": "관계 스키마 SSOT — 프런트가 번들 기본값을 이 값으로 덮어쓴다.",
+        "operationId": "get_rel_schema_api_neo4j_rel_schema_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/relationships": {
+      "put": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "수동 관계 유형 변경",
+        "description": "관계 유형 변경 (old → new) — PostgreSQL에서 변경하고 Neo4j에 동기화한다.\n\nold_rel·new_rel 모두 ALLOWED_REL_TYPES(rel_schema SSOT) 내여야 한다. 인증 필요.",
+        "operationId": "update_relationship_api_neo4j_relationships_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "수동 관계 추가",
+        "description": "수동 관계 추가 — PostgreSQL(소스 오브 트루스)에 저장하고 Neo4j에 동기화한다.\n\n한글 관계 타입은 ALLOWED_REL_TYPES(rel_schema SSOT) 내에서만 허용된다. 인증 필요.",
+        "operationId": "create_relationship_api_neo4j_relationships_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "수동 관계 삭제",
+        "description": "두 노드 사이의 관계 삭제 — PostgreSQL에서 삭제하고 Neo4j에 동기화한다.\n\nrel_type은 ALLOWED_REL_TYPES 내일 때만 타입 한정 삭제, 그 외엔 타입 무관 삭제. 인증 필요.",
+        "operationId": "delete_relationship_api_neo4j_relationships_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/meeting-relations/{mg_id}": {
+      "get": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 협의 연결 목록 조회",
+        "description": "회의체의 협의 연결 목록(양방향) — 연결된 상대 회의체 정보 반환.",
+        "operationId": "list_meeting_relations_api_neo4j_meeting_relations__mg_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mg Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/neo4j/meeting-relations": {
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 협의 연결 생성",
+        "description": "회의체↔회의체 협의 연결 생성 — PG(진실) 저장 + Neo4j MERGE.",
+        "operationId": "create_meeting_relation_api_neo4j_meeting_relations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 협의 연결 삭제",
+        "description": "협의 연결 삭제 — PG + Neo4j(양방향).",
+        "operationId": "delete_meeting_relation_api_neo4j_meeting_relations_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/meeting-groups": {
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 노드 생성",
+        "description": "Meetings 노드 생성 및 Company에 연결",
+        "operationId": "create_meeting_group_api_neo4j_meeting_groups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/meeting-groups/{mg_id}": {
+      "put": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 노드 수정",
+        "description": "Meetings 노드 속성 수정",
+        "operationId": "update_meeting_group_api_neo4j_meeting_groups__mg_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mg Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 노드 삭제",
+        "description": "Meetings 노드 및 연결 관계 삭제",
+        "operationId": "delete_meeting_group_api_neo4j_meeting_groups__mg_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mg Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/neo4j/meeting-groups/{mg_id}/members": {
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 멤버 관계 추가",
+        "description": "User → Meetings 멤버 관계 추가",
+        "operationId": "add_member_to_group_api_neo4j_meeting_groups__mg_id__members_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mg Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "회의체 멤버 관계 삭제",
+        "description": "User → Meetings 멤버 관계 삭제",
+        "operationId": "remove_member_from_group_api_neo4j_meeting_groups__mg_id__members_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mg_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Mg Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/neo4j/sessions": {
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "세션 노드 생성",
+        "description": "Session 노드 생성 및 Meetings에 연결",
+        "operationId": "create_session_node_api_neo4j_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/agendas": {
+      "post": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "안건 노드 생성",
+        "description": "Agenda 노드 생성 및 Meetings에 연결",
+        "operationId": "create_agenda_node_api_neo4j_agendas_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/neo4j/agendas/{ag_id}": {
+      "patch": {
+        "tags": [
+          "neo4j"
+        ],
+        "summary": "안건 노드 수정",
+        "description": "Agenda 노드 속성 수정",
+        "operationId": "update_agenda_node_api_neo4j_agendas__ag_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ag Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/retry": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "실패 동기화 재시도 트리거",
+        "description": "agent_logs의 실패 항목을 재시도합니다.\n- max_retries: 이 횟수 미만인 항목만 대상",
+        "operationId": "trigger_retry_api_sync_retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "max_retries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 3,
+              "title": "Max Retries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/user/{user_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "User 동기화 (내부 전용)",
+        "description": "특정 User를 Neo4j에 동기화합니다. Spring Boot에서 유저 생성/수정 시 호출합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_user_manual_api_sync_user__user_id__post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "User 삭제 동기화 (내부 전용)",
+        "description": "User 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "delete_user_sync_api_sync_user__user_id__delete",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/department": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Department 동기화 (내부 전용)",
+        "description": "Department 노드를 Neo4j에 수동으로 동기화합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_department_manual_api_sync_department_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/company": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Company 동기화 (내부 전용)",
+        "description": "Company 노드를 Neo4j에 수동으로 동기화합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_company_manual_api_sync_company_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/meeting/{meeting_id}/delete": {
+      "delete": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Meeting 삭제 동기화 (내부 전용)",
+        "description": "Meeting 노드 및 연결된 모든 관계를 Neo4j에서 삭제합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "delete_meeting_sync_api_sync_meeting__meeting_id__delete_delete",
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/meeting/{meeting_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Meeting 동기화 (내부 전용)",
+        "description": "특정 Meeting을 Neo4j에 수동으로 동기화합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_meeting_manual_api_sync_meeting__meeting_id__post",
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/session/{session_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Session 동기화 (내부 전용)",
+        "description": "특정 Session을 Neo4j에 수동으로 동기화합니다(참석자·논의 안건 포함).\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_session_manual_api_sync_session__session_id__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Session 삭제 동기화 (내부 전용)",
+        "description": "Session 삭제를 Neo4j에 전파합니다 (DATA-4).\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "delete_session_sync_api_sync_session__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/all": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "전체 동기화 (부트스트랩·복구)",
+        "description": "PostgreSQL의 모든 엔티티를 Neo4j에 전체 동기화합니다.\nNeo4j 재설치 또는 데이터 불일치 복구 시 사용합니다.\n백그라운드에서 실행되며 즉시 응답을 반환합니다.",
+        "operationId": "sync_all_api_sync_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/sync/agenda/{agenda_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Agenda 동기화 (내부 전용)",
+        "description": "특정 Agenda를 Neo4j에 수동으로 동기화합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_agenda_manual_api_sync_agenda__agenda_id__post",
+        "parameters": [
+          {
+            "name": "agenda_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Agenda Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Agenda 삭제 동기화 (내부 전용)",
+        "description": "Agenda 삭제를 Neo4j에 전파합니다 (DATA-4).\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "delete_agenda_sync_api_sync_agenda__agenda_id__delete",
+        "parameters": [
+          {
+            "name": "agenda_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Agenda Id"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/minutes/{minutes_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Minutes 수동 동기화",
+        "description": "특정 Minutes를 Neo4j에 수동으로 동기화합니다. 인증 필요.",
+        "operationId": "sync_minutes_manual_api_sync_minutes__minutes_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "minutes_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Minutes Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/member": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "회의 멤버 관계 동기화 (내부 전용)",
+        "description": "Spring Boot에서 회의 멤버 추가/수정 시 (User)-[:구성원]-\u003E(Meetings) 관계를 동기화합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "sync_member_manual_api_sync_member_post",
+        "parameters": [
+          {
+            "name": "meetingId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meetingid"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Userid"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "member",
+              "title": "Role"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/member/delete": {
+      "delete": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "회의 멤버 관계 삭제 동기화 (내부 전용)",
+        "description": "Spring Boot에서 회의 멤버 삭제 시 (User)-[:구성원]-\u003E(Meetings) 관계를 제거합니다.\n\n내부 전용 — X-Internal-Secret 헤더 검증(verify_internal) 필요.",
+        "operationId": "delete_member_manual_api_sync_member_delete_delete",
+        "parameters": [
+          {
+            "name": "meetingId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meetingid"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Userid"
+            }
+          },
+          {
+            "name": "x-internal-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/report/{report_id}": {
+      "post": {
+        "tags": [
+          "sync"
+        ],
+        "summary": "Report 수동 동기화",
+        "description": "특정 Report를 Neo4j에 수동으로 동기화합니다. 인증 필요.",
+        "operationId": "sync_report_manual_api_sync_report__report_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/companies/rename": {
+      "patch": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "회사명 변경",
+        "description": "회사명 변경 — SYSTEM_ADMIN 또는 해당 회사 COMPANY_ADMIN만.\n\n그래프 회사 노드는 이름으로 식별되므로 old_name으로 회사를 찾는다.\ncompanies.name 한 행만 바꾸면 users.company_name(파생 property)이 전부 따라온다.",
+        "operationId": "rename_company_endpoint_api_ai_companies_rename_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/ai/departments/rename": {
+      "patch": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "부서명 변경",
+        "description": "부서명 변경 — SYSTEM_ADMIN 또는 해당 회사 COMPANY_ADMIN만.\n\n부서는 별도 테이블 없이 users.department(문자열)로만 존재하므로\nold_name과 일치하는 users 행의 department를 일괄 변경한다.\ncompany_name이 주어지면 그 회사 소속으로 한정해 타 회사 동명 부서를 보호한다.",
+        "operationId": "rename_department_endpoint_api_ai_departments_rename_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Data"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/ai/company/members": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "회사 구성원 목록 조회",
+        "description": "회사 관리 탭 데이터. 역할별 가시 범위(MT-3):\n- SYSTEM_ADMIN: 전체 사용자 (회사 경계 무시)\n- COMPANY_ADMIN: 자기 회사 소속 사용자만\n- 일반 사용자: 본인이 속한 회의체의 구성원만",
+        "operationId": "company_members_api_ai_company_members_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/ai/users/{user_id}": {
+      "delete": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "사용자 계정 삭제",
+        "description": "사용자 계정 삭제(소프트 삭제) — SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN만 (MT-6).\n\n하드 삭제는 작성한 회의록·보고서·감사 로그 등 users(id)를 RESTRICT로 참조하는\n행이 하나라도 있으면 불가능했다(사실상 활동한 모든 사용자 삭제 불가). 대신 행은\n남기고 is_active=False로 비활성화한다.\n- 표시용 이름(name)은 보존 → 과거 작성물의 작성자 표기 유지\n- 로그인 자격(email)은 익명화 → ① 재로그인 차단 ② 같은 이메일로 재가입 허용",
+        "operationId": "ai_delete_user_api_ai_users__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "사용자 정보 수정",
+        "description": "사용자 정보(이름·이메일·회사·부서·직책)를 수정하고 Neo4j에 동기화합니다.\n\n권한: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 가능(MT-1).\n이메일(로그인 자격) 변경은 관리자만 허용 — 본인 자가수정으로는 불가.",
+        "operationId": "ai_update_user_api_ai_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/sessions/{session_id}/minutes": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "회의록 저장",
+        "description": "생성된 회의록을 PostgreSQL minutes 테이블에 저장합니다.\n\ndraft=true(초안 자동저장): PDF/R2 업로드와 Neo4j 동기화를 건너뛰고 내용만 upsert한다 →\n생성 직후 새로고침/탭 이동에도 초안이 유지된다(확정 전까지 그래프에는 노출하지 않음).\ndraft=false(확정 저장): PDF 변환→R2 업로드→Neo4j 동기화까지 수행한다.",
+        "operationId": "save_minutes_api_ai_sessions__session_id__minutes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "draft",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Draft"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MinutesSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MinutesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "회의록 조회",
+        "description": "세션의 회의록을 조회합니다(없으면 200 + null). 회의체 조회 권한 필요.",
+        "operationId": "get_minutes_api_ai_sessions__session_id__minutes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MinutesOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Minutes Api Ai Sessions  Session Id  Minutes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "회의록 내용 수정",
+        "description": "회의록 본문·요약을 수정합니다. 작성자 본인 또는 간사/회사관리자/시스템관리자만.",
+        "operationId": "update_minutes_content_api_ai_sessions__session_id__minutes_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MinutesContentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MinutesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "회의록 삭제",
+        "description": "회의록을 PostgreSQL·Neo4j에서 삭제합니다(멱등). 작성자 본인 또는 간사/회사관리자/시스템관리자만.",
+        "operationId": "delete_minutes_api_ai_sessions__session_id__minutes_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/sessions/refine-chunk": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "실시간 발화 청크 정제·요약",
+        "description": "회의 중 발화 원문을 LLM으로 정제해 제목·요약 블록으로 저장합니다.\n\nGraphRAG(보고자료·안건 맥락)를 주입해 전문용어 교정 정확도를 높인다.\n회의체 운영 행위 — 간사/회사관리자/시스템관리자만.",
+        "operationId": "refine_chunk_api_ai_sessions_refine_chunk_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefineChunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefineChunkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/ai/sessions/{session_id}/blocks/refresh": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "요약 블록 재정제",
+        "description": "지정 세그먼트가 속한 요약 블록을 LLM으로 다시 정제합니다.\n\n회의체 운영 행위 — 간사/회사관리자/시스템관리자만.",
+        "operationId": "refresh_block_api_ai_sessions__session_id__blocks_refresh_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshBlockRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stt/transcribe": {
+      "post": {
+        "tags": [
+          "stt"
+        ],
+        "summary": "음성 파일 전사",
+        "description": "업로드된 음성 파일을 STT로 전사하고 stt_segments에 저장합니다.\n\n도메인 어휘 프롬프트로 고유명사 인식률을 높이고 사용량을 녹음자에 귀속한다.\nsession_id가 있으면 해당 회의체 구성원만 호출 가능. 인증 필요.",
+        "operationId": "transcribe_api_stt_transcribe_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_transcribe_api_stt_transcribe_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/upload/reports/rejected": {
+      "get": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "반려된 보고서 목록 조회",
+        "description": "현재 사용자가 업로드한 rejected 보고서 목록을 반환합니다(본인 업로드분만).",
+        "operationId": "get_rejected_reports_api_upload_reports_rejected_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/upload/reports/{meeting_id}": {
+      "post": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "보고자료 업로드",
+        "description": "보고자료를 R2에 업로드하고 reports 테이블에 pending 상태로 저장합니다.\n\n회의체 조회 권한 필요. 파일 크기 상한(_MAX_BYTES)을 초과하면 413으로 거부한다.",
+        "operationId": "upload_report_api_upload_reports__meeting_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_report_api_upload_reports__meeting_id__post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload/reports/{report_id}/score": {
+      "get": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "보고서 AI 검토 결과 조회",
+        "description": "저장된 AI 검토 결과를 조회합니다 (pending 보고서 재검토용). 회의체 조회 권한 필요.",
+        "operationId": "get_report_score_api_upload_reports__report_id__score_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "보고서 AI 검토 결과 저장",
+        "description": "AI 검토 완료 후 report_scores 테이블에 결과를 저장합니다.\n\n검토(운영) 행위 — 간사/회사관리자/시스템관리자만.",
+        "operationId": "save_report_score_api_upload_reports__report_id__score_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload/reports/{report_id}/review": {
+      "post": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "보고서 검토 결정 제출",
+        "description": "사람의 보고서 검토 결과(승인/반려 + 피드백)를 저장하고 연결 안건 상태를 갱신합니다.\n\n검토 결정(운영) 행위 — 간사/회사관리자/시스템관리자만.",
+        "operationId": "submit_report_review_api_upload_reports__report_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Data"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload/reports/{report_id}": {
+      "delete": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "보고서 삭제",
+        "description": "보고서를 R2·report_scores·hitl_reviews·reports·Neo4j에서 삭제합니다.\n\n업로더 본인 또는 간사/회사관리자/시스템관리자만.",
+        "operationId": "delete_report_api_upload_reports__report_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload/minutes/{session_id}": {
+      "post": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "회의록 PDF 저장",
+        "description": "Tiptap HTML을 PDF로 변환하여 R2에 저장하고 minutes 테이블에 upsert합니다.\n\n회의체 조회 권한 필요. PDF 변환 실패 시에도 회의록 내용은 저장한다.",
+        "operationId": "upload_minutes_api_upload_minutes__session_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_minutes_api_upload_minutes__session_id__post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload/chat": {
+      "post": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "채팅 첨부파일 업로드",
+        "description": "채팅 첨부파일을 R2에 업로드하고 chat_messages 테이블에 저장합니다.\n\nmeeting_id/session_id가 있으면 해당 회의체 조회 권한 필요. 파일 크기 상한 초과 시 413.",
+        "operationId": "upload_chat_file_api_upload_chat_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_chat_file_api_upload_chat_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/upload/presigned": {
+      "get": {
+        "tags": [
+          "upload"
+        ],
+        "summary": "다운로드용 presigned URL 발급",
+        "description": "R2 file_path로 시간 제한 presigned URL을 생성합니다.\n\nQuery params:\n  file_path  : DB에 저장된 R2 URL 또는 object key\n  expires_in : 유효 시간(초), 기본 1시간",
+        "operationId": "get_presigned_url_api_upload_presigned_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Path"
+            }
+          },
+          {
+            "name": "expires_in",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 3600,
+              "title": "Expires In"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/usage/tokens": {
+      "get": {
+        "tags": [
+          "usage"
+        ],
+        "summary": "토큰·STT 사용량 조회",
+        "description": "본인의 LLM 토큰·STT 사용량과 비용을 기간별·모델별·에이전트별로 집계해 반환합니다.\n\n모델별/context_type별 세분화와 전체 기간 누적을 함께 제공한다. 인증 필요(본인 데이터만).",
+        "operationId": "get_token_usage_api_usage_tokens_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "시작일 (YYYY-MM-DD)",
+              "title": "Start Date"
+            },
+            "description": "시작일 (YYYY-MM-DD)"
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "종료일 (YYYY-MM-DD)",
+              "title": "End Date"
+            },
+            "description": "종료일 (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentChatRequest": {
+        "properties": {
+          "meeting_id": {
+            "type": "integer",
+            "title": "Meeting Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "chat_history": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History",
+            "default": []
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id",
+          "message"
+        ],
+        "title": "AgentChatRequest"
+      },
+      "Body_analyze_archive_file_api_agent_archive_analyze_file_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name",
+            "default": ""
+          },
+          "file_type": {
+            "type": "string",
+            "title": "File Type",
+            "default": ""
+          },
+          "dept_name": {
+            "type": "string",
+            "title": "Dept Name",
+            "default": ""
+          },
+          "graph_context": {
+            "type": "string",
+            "title": "Graph Context",
+            "default": ""
+          },
+          "candidate_agendas": {
+            "type": "string",
+            "title": "Candidate Agendas",
+            "default": "[]"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          }
+        },
+        "type": "object",
+        "title": "Body_analyze_archive_file_api_agent_archive_analyze_file_post"
+      },
+      "Body_analyze_archive_file_stream_ep_api_agent_archive_analyze_file_stream_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name",
+            "default": ""
+          },
+          "file_type": {
+            "type": "string",
+            "title": "File Type",
+            "default": ""
+          },
+          "dept_name": {
+            "type": "string",
+            "title": "Dept Name",
+            "default": ""
+          },
+          "graph_context": {
+            "type": "string",
+            "title": "Graph Context",
+            "default": ""
+          },
+          "candidate_agendas": {
+            "type": "string",
+            "title": "Candidate Agendas",
+            "default": "[]"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          }
+        },
+        "type": "object",
+        "title": "Body_analyze_archive_file_stream_ep_api_agent_archive_analyze_file_stream_post"
+      },
+      "Body_archive_extract_agendas_api_agent_archive_extract_agendas_post": {
+        "properties": {
+          "meeting_id": {
+            "type": "integer",
+            "title": "Meeting Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "selected_file_ids": {
+            "type": "string",
+            "title": "Selected File Ids",
+            "default": "[]"
+          },
+          "selected_similar_docs": {
+            "type": "string",
+            "title": "Selected Similar Docs",
+            "default": "[]"
+          },
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id"
+        ],
+        "title": "Body_archive_extract_agendas_api_agent_archive_extract_agendas_post"
+      },
+      "Body_transcribe_api_stt_transcribe_post": {
+        "properties": {
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio"
+          },
+          "lang": {
+            "type": "string",
+            "title": "Lang",
+            "default": "ko"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "duration_sec": {
+            "type": "number",
+            "title": "Duration Sec",
+            "default": 0
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audio"
+        ],
+        "title": "Body_transcribe_api_stt_transcribe_post"
+      },
+      "Body_upload_chat_file_api_upload_chat_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "context_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Type"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "thread_id"
+        ],
+        "title": "Body_upload_chat_file_api_upload_chat_post"
+      },
+      "Body_upload_minutes_api_upload_minutes__session_id__post": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "Body_upload_minutes_api_upload_minutes__session_id__post"
+      },
+      "Body_upload_report_api_upload_reports__meeting_id__post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "dept_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dept Name"
+          },
+          "parent_report_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Report Id"
+          },
+          "related_agenda_ids": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Agenda Ids",
+            "default": "[]"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_report_api_upload_reports__meeting_id__post"
+      },
+      "ConfirmExtractionRequest": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "approved"
+        ],
+        "title": "ConfirmExtractionRequest"
+      },
+      "ConfirmReportReviewRequest": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "default": ""
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content",
+            "default": ""
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "approved"
+        ],
+        "title": "ConfirmReportReviewRequest"
+      },
+      "FeedbackRequest": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "rating": {
+            "type": "integer",
+            "title": "Rating"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "content_snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Snippet"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "rating"
+        ],
+        "title": "FeedbackRequest"
+      },
+      "GlobalReviewRequest": {
+        "properties": {
+          "meeting_id": {
+            "type": "integer",
+            "title": "Meeting Id"
+          },
+          "reports_info": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Reports Info"
+          },
+          "chat_history": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id",
+          "reports_info"
+        ],
+        "title": "GlobalReviewRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HitlReviewCreate": {
+        "properties": {
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "agenda_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agenda Id"
+          },
+          "report_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Id"
+          },
+          "agent_log_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Log Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "edited"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_type"
+        ],
+        "title": "HitlReviewCreate"
+      },
+      "HitlReviewPatch": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "title": "HitlReviewPatch"
+      },
+      "KnowledgeChatRequest": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "chat_history": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History",
+            "default": []
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "KnowledgeChatRequest"
+      },
+      "MessageIn": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "MessageIn"
+      },
+      "MessageOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "MessageOut"
+      },
+      "MinutesContentUpdate": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "content_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "MinutesContentUpdate"
+      },
+      "MinutesOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "integer",
+            "title": "Session Id"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Path"
+          },
+          "recorder_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorder Id"
+          },
+          "content_original": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Original"
+          },
+          "content_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Summary"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id"
+        ],
+        "title": "MinutesOut"
+      },
+      "MinutesSaveRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "content_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Summary"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "MinutesSaveRequest"
+      },
+      "RefineChunkRequest": {
+        "properties": {
+          "session_id": {
+            "type": "integer",
+            "title": "Session Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "recording_start_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Start Sec"
+          },
+          "recording_end_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording End Sec"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "text"
+        ],
+        "title": "RefineChunkRequest"
+      },
+      "RefineChunkResponse": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "bullets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Bullets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "bullets"
+        ],
+        "title": "RefineChunkResponse"
+      },
+      "RefreshBlockRequest": {
+        "properties": {
+          "segment_id": {
+            "type": "integer",
+            "title": "Segment Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_id"
+        ],
+        "title": "RefreshBlockRequest"
+      },
+      "ReviewReportRequest": {
+        "properties": {
+          "report_content": {
+            "type": "string",
+            "title": "Report Content"
+          },
+          "agenda": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agenda",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_content"
+        ],
+        "title": "ReviewReportRequest"
+      },
+      "StartExtractionRequest": {
+        "properties": {
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "org_dept_list": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Dept List",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "StartExtractionRequest"
+      },
+      "StartReportReviewRequest": {
+        "properties": {
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "report_content": {
+            "type": "string",
+            "title": "Report Content"
+          },
+          "agenda": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agenda",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_content"
+        ],
+        "title": "StartReportReviewRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "_ConfirmRelationshipsReq": {
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "reject_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reject Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "approved"
+        ],
+        "title": "_ConfirmRelationshipsReq",
+        "description": "POST /knowledge/confirm-relationships 요청 바디."
+      },
+      "_ProposeRelationshipsReq": {
+        "properties": {
+          "meeting_id": {
+            "type": "integer",
+            "title": "Meeting Id"
+          },
+          "node_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id"
+        ],
+        "title": "_ProposeRelationshipsReq",
+        "description": "POST /knowledge/propose-relationships 요청 바디."
+      },
+      "_StoreMinutesReq": {
+        "properties": {
+          "meeting_id": {
+            "type": "integer",
+            "title": "Meeting Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_id",
+          "title",
+          "content"
+        ],
+        "title": "_StoreMinutesReq"
+      },
+      "_StoreReportReq": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "_StoreReportReq"
+      },
+      "_StoreTaskReq": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "meeting_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meeting Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "_StoreTaskReq"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "agents",
+      "description": "AI 슈퍼바이저 채팅·아카이브 분석·HITL 검토·지식그래프 에이전트 (대부분 SSE 스트리밍)"
+    },
+    {
+      "name": "ai",
+      "description": "회의록 등 AI 보조 CRUD 및 조직(회사/부서) 보조 관리 API"
+    },
+    {
+      "name": "chat",
+      "description": "에이전트 채팅 이력 (context_type별, 본인 스코프)"
+    },
+    {
+      "name": "neo4j",
+      "description": "지식 그래프 조회 및 관계(엣지) CRUD"
+    },
+    {
+      "name": "stt",
+      "description": "음성 전사(STT) — 배치 업로드 (실시간 전사는 WebSocket)"
+    },
+    {
+      "name": "upload",
+      "description": "보고서/회의록 파일 업로드 및 AI 채점"
+    },
+    {
+      "name": "usage",
+      "description": "LLM 토큰·STT 사용량 및 추정 비용 집계"
+    },
+    {
+      "name": "sync",
+      "description": "내부 전용 — Spring→FastAPI PG→Neo4j 동기화 (X-Internal-Secret 헤더 인증, 외부 비공개)"
+    }
+  ]
+}

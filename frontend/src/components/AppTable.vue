@@ -1,11 +1,13 @@
 <template>
   <div class="app-table-wrap" :class="{ 'app-table-dark': dark }">
-    <table class="app-table" :style="colWidths.length ? { tableLayout: 'fixed' } : {}">
+    <table class="app-table" :style="fixed || colWidths.length ? { tableLayout: 'fixed' } : {}">
       <colgroup>
         <col
           v-for="(col, i) in columns"
           :key="i"
-          :style="colWidths[i] ? { width: colWidths[i] + 'px' } : (col.width ? { width: col.width } : {})"
+          :style="
+            colWidths[i] ? { width: colWidths[i] + 'px' } : col.width ? { width: col.width } : {}
+          "
         />
       </colgroup>
       <thead>
@@ -19,13 +21,25 @@
             <span class="th-content">
               {{ col.label ?? '' }}
               <span v-if="col.sortKey" class="sort-icons">
-                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'asc' }"
-                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M4 1 L7 6 L1 6 Z"/>
+                <svg
+                  class="sort-icon"
+                  :class="{ active: sortKey === col.sortKey && sortDir === 'asc' }"
+                  width="8"
+                  height="8"
+                  viewBox="0 0 8 8"
+                  fill="currentColor"
+                >
+                  <path d="M4 1 L7 6 L1 6 Z" />
                 </svg>
-                <svg class="sort-icon" :class="{ active: sortKey === col.sortKey && sortDir === 'desc' }"
-                  width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M4 7 L1 2 L7 2 Z"/>
+                <svg
+                  class="sort-icon"
+                  :class="{ active: sortKey === col.sortKey && sortDir === 'desc' }"
+                  width="8"
+                  height="8"
+                  viewBox="0 0 8 8"
+                  fill="currentColor"
+                >
+                  <path d="M4 7 L1 2 L7 2 Z" />
                 </svg>
               </span>
             </span>
@@ -51,7 +65,9 @@ const props = defineProps({
   columns: { type: Array, default: () => [] },
   dark: { type: Boolean, default: false },
   sortKey: { type: String, default: null },
-  sortDir: { type: String, default: null },  // 'asc' | 'desc' | null
+  sortDir: { type: String, default: null }, // 'asc' | 'desc' | null
+  // true면 처음부터 table-layout:fixed — 데이터 내용과 무관하게 컬럼 폭이 columns의 width 정의만 따른다
+  fixed: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['sort'])
@@ -87,7 +103,7 @@ function startResize(e, colIndex) {
     nextStartWidth: colWidths.value[colIndex + 1],
   }
 
-  const onMouseMove = (ev) => {
+  const onMouseMove = ev => {
     if (!resizing) return
     const dx = ev.clientX - resizing.startX
 
@@ -120,11 +136,12 @@ function startResize(e, colIndex) {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-card);
+  flex: 1;
 }
 .app-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 .app-table thead tr {
   border-bottom: 1px solid var(--border);
@@ -133,11 +150,11 @@ function startResize(e, colIndex) {
 .app-table th {
   position: relative;
   padding: 8px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--dark-text) !important;
   text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
   text-align: left;
   white-space: nowrap;
   background: var(--surface);
@@ -148,8 +165,9 @@ function startResize(e, colIndex) {
   align-items: center;
   gap: 5px;
 }
-.sortable-th {
-  cursor: pointer;
+
+html.day-mode-global .app-table th {
+  color: var(--dark-card) !important; /* 주간: 어두운 텍스트 (밝은 배경 대비) */
 }
 .sortable-th:hover {
   color: var(--dark-border);
@@ -183,6 +201,17 @@ function startResize(e, colIndex) {
   position: sticky;
   right: 0;
   z-index: 2;
+}
+/* 행 높이 통일 — 셀 내용(버튼 유무 등)과 무관하게 모든 행이 같은 높이를 갖는다.
+   36px = 가장 높은 셀 내용(28px 버튼) + td 상하 패딩 8px. table-row의 height는 min-height처럼 동작한다. */
+.app-table tbody tr {
+  height: 36px;
+}
+.app-table .filler-row td {
+  border: none;
+}
+.app-table .filler-row td:last-child {
+  background: transparent;
 }
 .app-table td {
   padding: 4px 4px;
@@ -223,12 +252,12 @@ function startResize(e, colIndex) {
 }
 /* ── Dark variant ── */
 .app-table-dark {
-  border-color: rgba(255,255,255,.09);
+  border-color: var(--white-09);
   background: var(--dark-card);
 }
 .app-table-dark .app-table thead tr {
-  border-bottom-color: rgba(255,255,255,.09);
-  background: rgba(255,255,255,.03);
+  border-bottom-color: var(--white-09);
+  background: var(--white-03);
 }
 .app-table-dark .app-table th {
   background: transparent;
@@ -236,26 +265,26 @@ function startResize(e, colIndex) {
 }
 .app-table-dark .sortable-th:hover {
   color: var(--dark-muted);
-  background: rgba(255,255,255,.05);
+  background: var(--white-05);
 }
 .app-table-dark .sort-icon {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .app-table-dark .app-table th:last-child {
   background: #1e2d3e;
 }
 .app-table-dark .app-table td {
-  color: var(--dark-text);
-  border-right-color: rgba(255,255,255,.05);
+  color: var(--text-muted);
+  border-right-color: var(--white-05);
 }
 .app-table-dark .app-table td:last-child {
   background: var(--dark-card);
 }
 .app-table-dark .col-resize-handle {
-  background: rgba(255,255,255,.12);
+  background: var(--white-12);
 }
 .app-table-dark .col-resize-handle:hover,
 .app-table-dark .col-resize-handle:active {
-  background: rgba(255,255,255,.35);
+  background: rgba(255, 255, 255, 0.35);
 }
 </style>

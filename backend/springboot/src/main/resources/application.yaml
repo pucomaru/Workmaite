@@ -2,10 +2,6 @@ spring:
   application:
     name: workmaite-server
 
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
   profiles:
     active: local
 
@@ -21,12 +17,6 @@ spring:
       connection-timeout: 20000
       maximum-pool-size: 10
 
-  # 스키마의 단일 소스는 Flyway 마이그레이션 (기존 운영 스키마는 V1 baseline 처리)
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
-    baseline-version: 1
-
   jpa:
     hibernate:
       ddl-auto: none
@@ -39,6 +29,13 @@ spring:
     show-sql: ${SHOW_SQL:false}
     open-in-view: false
 
+logging:
+  # 로그 레벨을 LOG_LEVEL env로 제어 — FastAPI와 동일 변수를 쓰도록 통일 (미설정 시 INFO).
+  # root까지 함께 적용하므로 DEBUG 지정 시 프레임워크 로그도 상세해진다.
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.workmaite: ${LOG_LEVEL:INFO}
+
 jwt:
   # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증) — 반드시 환경변수로 주입
   secret: ${JWT_SECRET:}
@@ -46,7 +43,7 @@ jwt:
   refresh-token-expiration: 1209600000 # 14일 (ms)
 
 ai:
-  # FastAPI AI 서버 URL (Neo4j 동기화 webhook 호출)
+  # FastAPI AI 서버 URL
   url: http://localhost:8000
 
 management:
@@ -58,8 +55,24 @@ management:
     prometheus:
       enabled: true
     health:
-      show-details: always
+      # 인증된 요청에만 컴포넌트 상세 노출 — 미인증(k8s probe 등)에는 status만 반환
+      show-details: when-authorized
   metrics:
     export:
       prometheus:
         enabled: true
+
+# ── API 문서 (springdoc-openapi / Swagger UI) ───────────────────────────────
+# OpenAPI 3.1로 출력. Swagger UI: /swagger-ui.html , OpenAPI JSON: /v3/api-docs
+# (SecurityConfig가 /swagger-ui/**, /v3/api-docs/** 를 permitAll로 허용 — OpenApiConfig가 JWT 스킴 정의)
+springdoc:
+  api-docs:
+    version: openapi_3_1
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+    doc-expansion: none
+  default-produces-media-type: application/json

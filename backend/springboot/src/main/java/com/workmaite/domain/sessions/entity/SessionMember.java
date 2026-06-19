@@ -1,6 +1,11 @@
 package com.workmaite.domain.sessions.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,24 +16,24 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SessionMember {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  private Long id;
 
-    @Column(name = "session_id", nullable = false)
-    private Long sessionId;
+  @Column(name = "session_id", nullable = false)
+  private Long sessionId;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
+  @Column(name = "user_id", nullable = false)
+  private Long userId;
 
-    @Column(name = "role")
-    private String role;
+  @Column(name = "role")
+  private String role;
 
-    public static SessionMember of(Long sessionId, Long userId, String role) {
-        SessionMember m = new SessionMember();
-        m.sessionId = sessionId;
-        m.userId = userId;
-        m.role = role != null ? role : "member";
-        return m;
-    }
+  public static SessionMember of(Long sessionId, Long userId, String role) {
+    SessionMember m = new SessionMember();
+    m.sessionId = sessionId;
+    m.userId = userId;
+    m.role = role != null ? role : "member";
+    return m;
+  }
 }

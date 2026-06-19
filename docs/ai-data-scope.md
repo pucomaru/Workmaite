@@ -24,6 +24,5 @@ AI 에이전트(supervisor 채팅 포함)가 사용자 대신 데이터를 조�
 
 ## 구현 위치
 
-- 도구: `backend/ai/tools/meeting_tools.py` (`SUPERVISOR_TOOLS`)
-- HTTP 레이어 가드: `backend/ai/access_guard.py` (P1-4) — 도구 스코프와 별개로 이중 방어
-- 회사(company) 차원 스코프: P1-7②/MT-5에서 추가 예정
+- 도구: `backend/fastapi/tools/meeting_tools.py` (`SUPERVISOR_TOOLS`)
+- HTTP 레이어 가드: `backend/fastapi/access_guard.py` (P1-4) — 도구 스코프와 별개로 이중 방어

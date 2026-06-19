@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class AttendeeRequest {
 
-    @JsonProperty("user_id")
-    private Long userId;
+  @JsonProperty("user_id")
+  private Long userId;
 
-    private String role;
+  private String role;
 }

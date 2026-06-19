@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: workmaite-postgres
+    environment:
+      POSTGRES_DB: sk-team-9
+      POSTGRES_USER: team9
+      POSTGRES_PASSWORD: team9postgres1234
+      # init 스크립트가 항상 POSTGRES_DB(sk-team-9)에 적용되도록 고정
+      PGDATABASE: sk-team-9
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 최초 기동(빈 데이터 볼륨)에만 알파벳 순으로 실행된다.      
+      - ../ddl/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../ddl/relation.sql:/docker-entrypoint-initdb.d/02-relation.sql:ro
+      - ../ddl/index.sql:/docker-entrypoint-initdb.d/03-index.sql:ro
+      
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U team9 -d sk-team-9"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - postgres_network
+
+volumes:
+  postgres_data:
+
+networks:
+  postgres_network:

@@ -1,0 +1,98 @@
+{
+  "ran_at": "2026-06-17T04:20:17.755633+00:00",
+  "model": "gpt-4o-mini",
+  "groundedness": {
+    "metric": "groundedness_guard",
+    "accuracy": 0.9285714285714286,
+    "halluc_precision": 1.0,
+    "halluc_recall": 0.8571428571428571,
+    "halluc_f1": 0.923076923076923,
+    "n": 14,
+    "rows": [
+      {
+        "id": "g01",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g02",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g03",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g04",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g05",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g06",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g07",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g08",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g09",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g10",
+        "expected": false,
+        "predicted": true,
+        "ok": false
+      },
+      {
+        "id": "g11",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g12",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      },
+      {
+        "id": "g13",
+        "expected": false,
+        "predicted": false,
+        "ok": true
+      },
+      {
+        "id": "g14",
+        "expected": true,
+        "predicted": true,
+        "ok": true
+      }
+    ]
+  }
+}

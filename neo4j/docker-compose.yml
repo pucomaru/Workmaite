@@ -1,27 +1,40 @@
-version: '3.8'
-
+# 프로덕션(k8s/neo4j/deployment.yaml)과 동일하게 5.x + 환경변수 기반 설정.
+# 4.x 문법의 docker/neo4j.conf 마운트는 제거(5.x에서 기동 실패하던 원인).
 services:
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5.19-community
     container_name: neo4j
     environment:
-      - NEO4J_AUTH=${NEO4J_AUTH}
-      - NEO4J_dbms_memory_heap_initial_size=${NEO4J_HEAP_SIZE}
-      - NEO4J_dbms_memory_heap_max_size=${NEO4J_HEAP_SIZE}
-      - NEO4J_dbms_memory_pagecache_size=${NEO4J_PAGECACHE_SIZE}
+      # user/password 형식. .env의 NEO4J_USER / NEO4J_PASSWORD 와 일치
+      - NEO4J_AUTH=neo4j/skala-2-team9
+      # 메모리 (프로덕션 deployment.yaml과 동일)
+      # 5.x env 변환 규칙: 설정키의 '.' → '_', 키 안의 '_' → '__'
+      - NEO4J_server_memory_heap_initial__size=512m   # server.memory.heap.initial_size
+      - NEO4J_server_memory_heap_max__size=1g         # server.memory.heap.max_size
+      - NEO4J_server_memory_pagecache_size=256m       # server.memory.pagecache.size
+      # 컨테이너 외부(호스트)에서 접속 허용
+      - NEO4J_server_default__listen__address=0.0.0.0 # server.default_listen_address
+    ports:
+      - "7474:7474"   # HTTP (Neo4j Browser, NEO4J_URL)
+      - "7687:7687"   # Bolt
     volumes:
       - neo4j_data:/data
-      - ./docker/neo4j.conf:/var/lib/neo4j/conf/neo4j.conf
-      - ./scripts/init.cypher:/var/lib/neo4j/import/init.cypher
-      - ./scripts/seed.cypher:/var/lib/neo4j/import/seed.cypher
-    ports:
-      - "7474:7474"
-      - "7687:7687"
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p skala-2-team9 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - neo4j_network
 
 volumes:
   neo4j_data:
+  neo4j_logs:
+  neo4j_import:
 
 networks:
   neo4j_network:

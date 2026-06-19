@@ -7,5 +7,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class MinutesConfirmRequest {
 
-    private String contentSummary;  // null이면 AI 생성본(contentOriginal) 그대로 확정
+  private String contentSummary; // null이면 AI 생성본(contentOriginal) 그대로 확정
 }

@@ -1,0 +1,41 @@
+name: Quality Check - FastAPI
+
+# backend/fastapi 품질 검사 (ruff lint/format · mypy · deptry · pip-audit)
+on:
+  pull_request:
+    paths:
+      - 'backend/fastapi/**'
+  push:
+    branches:
+      - develop
+    paths:
+      - 'backend/fastapi/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/fastapi
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          working-directory: backend/fastapi
+      - run: uv sync
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy .
+
+      - name: Dependency check
+        run: uv run deptry .
+
+      - name: Security audit
+        run: uv run pip-audit
+        continue-on-error: true # 즉시 수정 불가한 transitive 취약점 대비, 경고만

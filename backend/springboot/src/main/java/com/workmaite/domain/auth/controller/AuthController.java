@@ -6,6 +6,8 @@ import com.workmaite.domain.auth.dto.RefreshRequest;
 import com.workmaite.domain.auth.dto.SignupRequest;
 import com.workmaite.domain.auth.service.AuthService;
 import com.workmaite.global.common.ApiResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -16,49 +18,51 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 인증 관련 API
- * POST /api/v1/auth/signup   - 회원가입
- * POST /api/v1/auth/login    - 로그인 (Access Token 발급)
- * POST /api/v1/auth/refresh  - Access Token 갱신 (Refresh Token 필요)
- * POST /api/v1/auth/logout   - 로그아웃
- */
+@Tag(name = "인증", description = "회원가입·로그인·토큰 갱신·로그아웃 등 인증 관련 API")
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    private final AuthService authService;
+  private final AuthService authService;
 
-    // 회원가입 - 성공 시 201 반환
-    @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<Void>> signup(@Valid @RequestBody SignupRequest request) {
-        authService.signup(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(null));
-    }
+  @Operation(summary = "회원가입", description = "신규 사용자를 등록한다. 성공 시 201 Created를 반환한다.")
+  @PostMapping("/signup")
+  public ResponseEntity<ApiResponse<Void>> signup(@Valid @RequestBody SignupRequest request) {
+    authService.signup(request);
+    return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(null));
+  }
 
-    // 로그인 - 성공 시 Access Token 반환
-    @PostMapping("/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
-        LoginResponse response = authService.login(request);
-        return ResponseEntity.ok(ApiResponse.ok(response));
-    }
+  @Operation(
+      summary = "로그인",
+      description = "이메일·비밀번호로 인증하고 성공 시 Access Token과 Refresh Token을 발급한다.")
+  @PostMapping("/login")
+  public ResponseEntity<ApiResponse<LoginResponse>> login(
+      @Valid @RequestBody LoginRequest request) {
+    LoginResponse response = authService.login(request);
+    return ResponseEntity.ok(ApiResponse.ok(response));
+  }
 
-    // Refresh Token으로 새 Access Token 발급
-    @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<LoginResponse>> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(authService.refresh(request)));
-    }
+  @Operation(
+      summary = "토큰 갱신",
+      description = "유효한 Refresh Token으로 새 Access Token을 발급한다. 본문에 Refresh Token이 필요하다.")
+  @PostMapping("/refresh")
+  public ResponseEntity<ApiResponse<LoginResponse>> refresh(
+      @Valid @RequestBody RefreshRequest request) {
+    return ResponseEntity.ok(ApiResponse.ok(authService.refresh(request)));
+  }
 
-    // 로그아웃 - 제출된 refresh token 폐기 (없으면 인증 사용자의 전체 폐기)
-    @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout(
-            @RequestBody(required = false) RefreshRequest request,
-            Authentication authentication) {
-        Long userId = authentication != null && authentication.getName() != null
-                ? Long.parseLong(authentication.getName())
-                : null;
-        authService.logout(request != null ? request.getRefreshToken() : null, userId);
-        return ResponseEntity.ok(ApiResponse.ok(null));
-    }
+  @Operation(
+      summary = "로그아웃",
+      description = "제출된 Refresh Token을 폐기한다. 토큰이 없으면 인증된 사용자의 모든 Refresh Token을 폐기한다.")
+  @PostMapping("/logout")
+  public ResponseEntity<ApiResponse<Void>> logout(
+      @RequestBody(required = false) RefreshRequest request, Authentication authentication) {
+    Long userId =
+        authentication != null && authentication.getName() != null
+            ? Long.parseLong(authentication.getName())
+            : null;
+    authService.logout(request != null ? request.getRefreshToken() : null, userId);
+    return ResponseEntity.ok(ApiResponse.ok(null));
+  }
 }

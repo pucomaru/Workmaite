@@ -14,7 +14,7 @@ jobs:
     steps:
       # 1. 코드 체크아웃 (워크플로우가 레포 코드에 접근할 수 있게 함)
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GIT_TOKEN }}  # yaml 업데이트 후 push할 때 필요
 
@@ -24,7 +24,7 @@ jobs:
 
       # 3. Harbor 로그인
       - name: Login to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: amdp-registry.skala-ai.com
           username: ${{ secrets.HARBOR_USERNAME }}
@@ -32,7 +32,7 @@ jobs:
 
       # 4. 이미지 빌드 & Harbor에 push
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend   # frontend 폴더의 Dockerfile 사용
           push: true

@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    hibernate:
+      # create-drop은 컨텍스트 종료 시 전체 테이블을 DROP한다. 테스트가 운영 DB로 연결되면
+      # (DB_URL/DB_PASSWORD/SPRING_DATASOURCE_URL이 운영을 가리킬 때) 운영 데이터·스키마가
+      # 통째로 삭제되는 사고가 난다. 어떤 테스트도 실DB를 부팅하지 않도록 바꿨으므로 none으로 고정.
+      # DB 통합 테스트가 필요하면 Testcontainers로 격리된 일회용 DB를 쓸 것.
+      ddl-auto: none
+
+# 테스트 전용 더미
+jwt:
+  secret: "test-jwt-secret-for-ci-only-do-not-use-in-production-0123456789"

@@ -11,10 +11,25 @@ onMounted(async () => {
   await meetingsStore.fetchMeetings()
 })
 
-watch(() => route.params.meetingId, (id) => {
-  meetingsStore.currentLoopIdx = 0
-  if (id) meetingsStore.fetchRole(id)
-}, { immediate: true })
+watch(
+  () => route.params.meetingId,
+  id => {
+    meetingsStore.currentLoopIdx = 0
+    if (id) meetingsStore.fetchRole(id)
+  },
+  { immediate: true },
+)
+
+// 홈 화면 진입 시 회의체 목록 재조회 — MainLayout은 영구 컴포넌트이므로
+// 어떤 경로에서 '/'로 이동해도 항상 발화한다
+watch(
+  () => route.path,
+  newPath => {
+    if (newPath === '/') {
+      meetingsStore.fetchMeetings()
+    }
+  },
+)
 </script>
 
 <template>
@@ -30,12 +45,26 @@ watch(() => route.params.meetingId, (id) => {
 </template>
 
 <style scoped>
-.layout { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.layout-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
-.layout-main { flex: 1; overflow-y: auto; padding: 24px 28px; }
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.layout-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.layout-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 0px 28px;
+}
 .ai-disclaimer {
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   background: var(--bg);
   padding: 4px 12px;
