@@ -16,7 +16,6 @@ const form = computed(() => props.modal?.form || {})
   <Teleport to="body">
     <div v-if="modal" class="app-modal-backdrop" @click.self="emit('close')">
       <div class="app-modal minutes-edit-modal" :class="{ dark: nightMode }">
-        <!-- Header -->
         <div class="app-modal-header">
           <span class="app-modal-title">회의록 편집</span>
           <button class="app-modal-close" @click="emit('close')">
@@ -33,9 +32,7 @@ const form = computed(() => props.modal?.form || {})
           </button>
         </div>
 
-        <!-- Body -->
         <div class="app-modal-body">
-          <!-- 회의록명 -->
           <div class="app-modal-field">
             <label>회의록명</label>
             <input
@@ -48,7 +45,6 @@ const form = computed(() => props.modal?.form || {})
           </div>
         </div>
 
-        <!-- Footer -->
         <div class="app-modal-footer modal-footer-split">
           <button class="app-btn-danger" @click="emit('delete')">삭제</button>
           <div class="footer-right">

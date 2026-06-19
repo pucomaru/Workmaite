@@ -890,7 +890,6 @@ function parseAiEvidence(val) {
                     </svg>
                     <span class="ctx-file-name">{{ f.file_name || f.name }}</span>
                   </label>
-                  <!-- 새로 업로드된 파일 -->
                   <div
                     v-for="(uf, i) in uploadedCtxFiles"
                     :key="'uf' + i"
@@ -951,7 +950,6 @@ function parseAiEvidence(val) {
                     <button class="ctx-file-remove" @click.prevent="removeCtxFile(i)">×</button>
                   </div>
                 </div>
-                <!-- 파일 업로드 영역 -->
                 <FileUploadArea multiple @change="onCtxFilesAdded" />
               </div>
 
@@ -1468,7 +1466,6 @@ function parseAiEvidence(val) {
                   </div>
                 </div>
               </div>
-              <!-- 내용 요약 -->
               <div v-if="detailNode.data?.short_summary" class="detail-section">
                 <div class="detail-section-label">AI 요약</div>
                 <div

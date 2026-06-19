@@ -4,11 +4,8 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self):
-        # meeting_id -> list of websockets
         self.meeting_connections: Dict[int, List[WebSocket]] = {}
-        # user_id -> websocket
         self.user_connections: Dict[int, WebSocket] = {}
-        # session_id -> list of websockets
         self.session_connections: Dict[int, List[WebSocket]] = {}
 
     async def connect_meeting(self, meeting_id: int, ws: WebSocket):

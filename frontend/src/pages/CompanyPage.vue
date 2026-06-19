@@ -24,7 +24,6 @@ const companyColumns = [
   { label: '', width: '72px', noResize: true },
 ]
 
-// company_role → 한글 라벨 (조직 권한 표시)
 function roleLabel(role) {
   return (
     { SYSTEM_ADMIN: '시스템 관리자', COMPANY_ADMIN: '회사 관리자', USER: '일반 사용자' }[role] ||
@@ -89,7 +88,6 @@ const filteredMembers = computed(() => {
   if (sid !== 'all') list = list.filter(m => m.meetings.some(mg => String(mg.id) === String(sid)))
   const q = searchQuery.value.trim().toLowerCase()
   if (q)
-    // 모든 컬럼 검색: 이름·회사·부서·직책·권한(표시 라벨)·이메일 + 소속 회의체 제목
     list = list.filter(m =>
       [
         m.name,
@@ -404,7 +402,6 @@ async function parseAndImportCSV(text) {
   csvImportResult.value = resultLines.join('\n')
 }
 
-// Each user from /api/users/all is already unique – no grouping needed
 const groupedFilteredMembers = computed(() => filteredMembers.value)
 
 // ── 정렬·페이지네이션 (공통 컴포저블) ────────────────
@@ -616,26 +613,6 @@ const {
                     <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
                 </button>
-                <!-- <button
-                  v-if="member.id !== auth.user?.id"
-                  class="act-btn danger"
-                  @click="removeMember(member)"
-                  title="제거"
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                    <path d="M10 11v6M14 11v6" />
-                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                  </svg>
-                </button> -->
               </div>
             </td>
           </tr>
@@ -681,7 +658,6 @@ const {
             </button>
           </div>
           <div class="app-modal-body">
-            <!-- Name & Email -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-name">이름 <span class="req">*</span></label>
@@ -704,7 +680,6 @@ const {
                 />
               </div>
             </div>
-            <!-- Company & Department -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-company">회사명</label>
@@ -727,7 +702,6 @@ const {
                 />
               </div>
             </div>
-            <!-- Position -->
             <div class="app-modal-field-row">
               <div class="app-modal-field">
                 <label for="add-member-position">직책</label>

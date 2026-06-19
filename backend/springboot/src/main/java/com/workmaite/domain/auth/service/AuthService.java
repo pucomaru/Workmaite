@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HexFormat;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 인증 비즈니스 로직 - 회원가입: 이메일 중복 확인 후 비밀번호 암호화하여 저장 - 로그인: 이메일/비밀번호 검증 후 Access Token 발급 - 토큰 갱신:
  * Refresh Token 검증 후 새 Access Token 발급 - 로그아웃: Redis 도입 전까지 클라이언트 토큰 삭제 방식으로 처리
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -43,7 +45,6 @@ public class AuthService {
   private final CompanyService companyService;
 
   public void signup(SignupRequest request) {
-    // 이메일 중복 확인
     if (userRepository.existsByEmail(request.getEmail())) {
       throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
     }
@@ -61,6 +62,7 @@ public class AuthService {
     User saved = userRepository.save(user);
     // 같은 트랜잭션에서 생성된 사용자라 FK 충족을 위해 커밋 후 기록
     auditLogService.recordAfterCommit(saved.getId(), "SIGNUP", "auth", saved.getId(), null, null);
+    log.info("회원가입 완료 — userId={}", saved.getId());
   }
 
   public LoginResponse login(LoginRequest request) {
@@ -77,6 +79,7 @@ public class AuthService {
         throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
       }
       user.updatePassword(passwordEncoder.encode(request.getPassword()));
+      log.info("레거시(pbkdf2) 비밀번호를 BCrypt로 재해시 — userId={}", user.getId());
     } else if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
       throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
     }
@@ -84,6 +87,7 @@ public class AuthService {
     String accessToken = jwtTokenProvider.createAccessToken(user.getId());
     String refreshToken = issueRefreshToken(user.getId());
     auditLogService.recordAs(user.getId(), "LOGIN", "auth", user.getId(), null, null);
+    log.info("로그인 성공 — userId={}", user.getId());
     return LoginResponse.of(accessToken, refreshToken, UserResponse.from(user));
   }
 
@@ -104,6 +108,7 @@ public class AuthService {
     RefreshToken stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
     if (stored == null) {
       // 서명은 유효한데 DB에 없음 = 이미 회전된 토큰의 재사용(탈취 신호) → 전체 폐기
+      log.warn("Refresh token 재사용 탐지 — userId={}의 모든 refresh token 폐기 (탈취 가능성)", userId);
       refreshTokenRepository.deleteByUserId(userId);
       throw new BusinessException(ErrorCode.INVALID_TOKEN);
     }

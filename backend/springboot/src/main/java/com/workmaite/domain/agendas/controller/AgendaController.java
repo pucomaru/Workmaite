@@ -23,12 +23,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 안건 관련 API POST /api/v1/meetings/{meetingId}/agendas/extract - AI 안건 추출 GET
- * /api/v1/meetings/{meetingId}/agendas - 안건 목록 조회 POST /api/v1/meetings/{meetingId}/agendas - 안건 생성
- * GET /api/v1/agendas/{agendaId} - 안건 상세 조회 PATCH /api/v1/agendas/{agendaId} - 안건 수정 DELETE
- * /api/v1/agendas/{agendaId} - 안건 삭제 PATCH /api/v1/agendas/{agendaId}/assignment - 안건 담당자 배정
- */
 @Tag(name = "안건", description = "AI 안건 추출, 안건 생성·조회·수정·삭제 및 담당자 배정 API")
 @RestController
 @RequestMapping("/api/v1")

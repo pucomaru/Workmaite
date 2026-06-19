@@ -75,9 +75,7 @@ async def archive_extract_agendas(
     if not meeting:
         return {"agendas": [], "error": "회의체를 찾을 수 없습니다."}
 
-    require_meeting_edit(
-        db, current_user, meeting_id
-    )  # 아젠다 추출은 간사/회사관리자/시스템관리자만
+    require_meeting_edit(db, current_user, meeting_id)
     meeting_context = _get_meeting_context(db, meeting_id)
     org_dept_pairs = _get_member_org_depts(db, meeting_id)
     # 현재 세션(session_id)은 제외 — 다른 세션 회의록이 현재 회의로 오인돼 아젠다가 새는 것을 막는다.
@@ -134,7 +132,7 @@ async def archive_extract_agendas(
         except Exception as e:
             logger.warning(f"[DB 파일 추출 오류] {e}")
 
-    current_minutes_texts = []  # 현재 회의록 (최우선 컨텍스트)
+    current_minutes_texts = []
     for upload in files:
         if not upload or not upload.filename:
             continue
@@ -143,7 +141,6 @@ async def archive_extract_agendas(
             text = _extract_text_from_file(raw, upload.filename.lower())
             fname = upload.filename
             if text.strip():
-                # 파일명에 "회의록" 포함 시 현재 회의록으로 분리
                 if "회의록" in fname or "minutes" in fname.lower():
                     current_minutes_texts.append(text[:4000])
                 else:
@@ -405,7 +402,6 @@ async def archive_chat_extract(
 
         agendas = parsed.get("agendas", current_agendas)
 
-        # 기존 draft 삭제 후 새 draft 저장
         from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
         _KST = _tz(_td(hours=9))
@@ -486,7 +482,6 @@ async def archive_chat_extract(
         _token_collector_var.reset(_tok_ctx_token)
         _finalize(_log_id, _collector, _stream_error, None)
 
-    # 미리 계산된 이벤트를 재생 — DB 접근 없음
     async def stream():
         for _step in plan_steps:
             yield sse_event("planning", f"{_step}")
@@ -513,7 +508,6 @@ async def analyze_archive_file(
 
     로그인 사용자(get_current_user) 인증이 필요하며, 결과를 단건 JSON으로 반환한다.
     """
-    # 후보 과제(JSON 문자열) 파싱
     try:
         candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
     except Exception:
@@ -521,7 +515,6 @@ async def analyze_archive_file(
     if not isinstance(candidate_list, list):
         candidate_list = []
 
-    # 첨부 파일에서 실제 텍스트 추출 (PDF/DOCX/XLSX/텍스트)
     file_content = ""
     if file is not None:
         try:
@@ -546,7 +539,6 @@ async def analyze_archive_file(
     else:
         file_content = "[파일 미첨부 — 이름만 입력됨]"
 
-    # LangGraph 기반 아카이브 파일 검토 에이전트 실행
     try:
         return await report_agent.analyze_archive_file(
             file_name=file_name,
@@ -595,7 +587,6 @@ async def analyze_archive_file_stream_ep(
 
     사용자당 동시 1건만 처리(single_flight 가드)하며 로그인 인증이 필요하다.
     """
-    # 후보 과제(JSON 문자열) 파싱
     try:
         candidate_list = json.loads(candidate_agendas) if candidate_agendas else []
     except Exception:
@@ -798,14 +789,12 @@ async def commit_draft_agendas(
     )  # P3C-2   # [{db_id, assignee_name, dept, due_date}]
     rejected_ids: list = data.get("rejected_ids", [])  # [int]
 
-    # 반려된 draft 삭제
     if rejected_ids:
         db.query(models.Agenda).filter(
             models.Agenda.id.in_(rejected_ids),
             models.Agenda.status == "draft",
         ).delete(synchronize_session=False)
 
-    # 승인된 항목 업데이트 또는 신규 생성
     updated_ids = []
     for item in approved:
         db_id = item.get("db_id")
@@ -816,7 +805,6 @@ async def commit_draft_agendas(
         )
 
         if agenda:
-            # 기존 draft 업데이트
             if item.get("title"):
                 agenda.title = item["title"]
             agenda.status = "ongoing"
@@ -828,7 +816,6 @@ async def commit_draft_agendas(
                 except Exception:
                     pass
         else:
-            # db_id 없는 신규 항목 직접 생성
             if not item.get("title") or not meeting_id:
                 continue
             agenda = models.Agenda(
@@ -847,7 +834,6 @@ async def commit_draft_agendas(
 
         updated_ids.append(agenda.id)
 
-    # AgentLog 기록
     db.add(
         models.AgentLog(
             task_id=str(_uuid.uuid4()),
@@ -865,7 +851,6 @@ async def commit_draft_agendas(
     )
     db.commit()
 
-    # Neo4j 동기화: 승인된 건 그래프에 추가, 반려된 건 그래프에서 삭제
     from graphdb.neo4j_sync import sync_agenda as _sync_ag, delete_agenda as _del_ag
     import json as _json
 
@@ -1043,7 +1028,6 @@ async def update_agenda(
         agenda.status = data["status"]
     db.commit()
     db.refresh(agenda)
-    # Neo4j 동기화
     from graphdb.neo4j_sync import sync_agenda as _sync_ag
     import json as _json
 

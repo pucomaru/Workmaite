@@ -11,6 +11,7 @@ function isDone(i) {
 function isActive(i) {
   return i === props.currentStep
 }
+// 이미 지난 단계로만 이동 가능 — 앞 단계 건너뛰기는 막는다.
 function canNav(i) {
   return i < props.currentStep
 }

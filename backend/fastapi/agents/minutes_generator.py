@@ -165,7 +165,6 @@ def _minutes_state_modifier(state: MinutesState) -> List[BaseMessage]:
 
 
 def _build_graph():
-    """LangGraph create_react_agent — MINUTES_TOOLS를 도구로 사용하는 에이전트 그래프."""
     return create_react_agent(
         model=_make_llm(),
         tools=MINUTES_TOOLS,

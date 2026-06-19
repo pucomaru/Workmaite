@@ -36,6 +36,9 @@ spec:
             - secretRef:
                 name: r2-secret
           env:
+            # 로그 레벨 (Spring Boot와 동일 변수). 기본 INFO — 디버깅 시 DEBUG/WARNING 등으로 조정
+            - name: LOG_LEVEL
+              value: "INFO"
             - name: NEO4J_URL
               value: "bolt://workmaite-neo4j:7687"
             - name: DB_HOST

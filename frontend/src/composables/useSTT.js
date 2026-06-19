@@ -140,7 +140,7 @@ export function useSTT({ onResult, onError = null, getLang = null, getSessionId 
     const myGen = generation
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      runLoop(myGen) // 12초 청크 → /api/stt/transcribe (OpenAI 단순 전사)
+      runLoop(myGen)
     } catch (e) {
       active = false
       console.warn('[STT] 마이크 권한 없음', e)

@@ -53,7 +53,7 @@ const { floatDragging, floatDragPos, floatDragPreviewLine } = inject('archiveCan
           </svg>
         </template>
         <template v-else>
-          <!-- doc-preview와 동일 아이콘 (레거시 업로드 화살표 → 문서 아이콘으로 교체) -->
+          <!-- doc-preview와 동일 아이콘 (드래그 ghost = 생성될 노드 모양) -->
           <svg
             width="16"
             height="16"

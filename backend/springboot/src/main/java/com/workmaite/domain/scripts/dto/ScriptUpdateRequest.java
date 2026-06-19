@@ -19,7 +19,6 @@ public class ScriptUpdateRequest {
   @NoArgsConstructor
   public static class SegmentUpdate {
 
-    // 수정할 세그먼트 ID (필수)
     @NotNull(message = "세그먼트 ID는 필수입니다.")
     private Long id;
 

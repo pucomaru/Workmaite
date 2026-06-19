@@ -89,7 +89,7 @@ class _ConfirmRelationshipsReq(BaseModel):
 
     proposal_id: str
     approved: bool
-    reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
+    reject_reason: Optional[str] = None
 
 
 # ─── Supervisor 라우팅 — LLM이 직접 에이전트를 선택 ───────────────────────────
@@ -342,7 +342,6 @@ async def minutes_generate_minutes(
         f"{meeting_obj.title} 회의록 ({now})" if meeting_obj else f"회의록 ({now})"
     )
 
-    # session_info
     session_info = None
     if data.session_id:
         session = (
@@ -477,7 +476,6 @@ async def minutes_generate_minutes(
                 f"[{b.title}]\n{bullets}" if bullets else f"[{b.title}]"
             )
 
-    # 관련 보고서 내용 (Neo4j 벡터 검색)
     report_chunks = []
     if agendas:
         try:
@@ -545,7 +543,6 @@ _ROLLING_KEEP_RECENT = 3  # 최근 N개 블록은 항상 전문 유지
 async def _get_rolling_summary_text(summary_blocks: list) -> str:
     """블록이 THRESHOLD 초과 시 오래된 블록을 LLM으로 압축, 최근 블록은 전문 유지."""
     if len(summary_blocks) <= _ROLLING_THRESHOLD:
-        # 전부 그대로 렌더링
         parts = []
         for b in summary_blocks:
             bullets = (
@@ -611,7 +608,6 @@ async def session_chat(
     archived  → Neo4j RAG로 회의록 기반 답변
     """
     if not data.session_id:
-        # 세션 미선택 시 supervisor 로직으로 fallback
         from fastapi import HTTPException
 
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
@@ -634,7 +630,6 @@ async def session_chat(
     try:
         from graphdb.retrieval_registry import vector_search
 
-        # 제출된 보고자료/파일 본문 청크
         report_rows = await vector_search(
             "ReportChunk",
             data.message,
@@ -667,7 +662,6 @@ async def session_chat(
 
     rag_text = "\n\n".join(rag_sections)
 
-    # 블록이 THRESHOLD 초과 시 오래된 블록을 LLM으로 압축 (rolling summary)
     summary_blocks = ctx.get("summary_blocks", [])
     if summary_blocks:
         ctx["summary_text_override"] = await _get_rolling_summary_text(summary_blocks)
@@ -744,7 +738,6 @@ async def session_chat(
                     full_response += text
                     yield sse_token(text)
         finally:
-            # 대화 기록 저장
             thread_id = f"sessions-{data.session_id}"
             try:
                 db_local = SessionLocal()
@@ -1133,7 +1126,6 @@ async def supervisor_chat(
                         )
 
                     if mg_detail_rows:
-                        # mg_id 기준 중복 제거
                         seen_mg_ids: set = set()
                         unique_rows: list[dict] = []
                         for _row in mg_detail_rows:
@@ -1346,7 +1338,6 @@ async def supervisor_chat(
                 .limit(10)
                 .all()
             )
-            # SessionMember 결과 없으면 MeetingMember 기반으로 폴백
             if not _upcoming and pg_meeting_ids:
                 _upcoming = (
                     db.query(models.MeetingSession, models.Meeting.title)
@@ -1577,7 +1568,6 @@ async def supervisor_chat(
                 finally:
                     _save_db.close()
 
-    # 사용자 메시지 저장
     if msg:
         try:
             db.add(
@@ -1600,7 +1590,6 @@ async def supervisor_chat(
     )  # TTFT 측정 (P5-1)
 
 
-# ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────
 # ─── 응답 피드백 (P3C-3, H-9) ────────────────────────────────────────────────
 class FeedbackRequest(BaseModel):
     thread_id: str
@@ -1637,6 +1626,7 @@ async def submit_feedback(
     return {"ok": True, "id": fb.id}
 
 
+# ─── Supervisor Chat 히스토리 조회 ───────────────────────────────────────────
 @router.get("/supervisor/chat/history", summary="슈퍼바이저 채팅 이력 조회")
 async def supervisor_chat_history(
     meeting_id: int,

@@ -76,7 +76,7 @@ public class AgendaService {
     Agenda agenda = fetchAgenda(agendaId);
     meetingAccessGuard.requireOwnedEdit(agenda.getMeetingId(), agenda.getAssigneeId());
     agendaRepository.delete(agenda);
-    neoSyncService.deleteAgenda(agendaId); // 삭제 전파 (DATA-4)
+    neoSyncService.deleteAgenda(agendaId);
   }
 
   @Transactional

@@ -67,13 +67,11 @@ const gridPoly = CRITERIA_DEF.map((_, i) => pt(i * 60 - 90, R)).join(' ')
 const gridPoly2 = CRITERIA_DEF.map((_, i) => pt(i * 60 - 90, R * 0.66)).join(' ')
 const gridPoly3 = CRITERIA_DEF.map((_, i) => pt(i * 60 - 90, R * 0.33)).join(' ')
 
-// 축 선
 const axisLines = CRITERIA_DEF.map((_, i) => {
   const [x2, y2] = ptArr(i * 60 - 90, R)
   return { x2: x2.toFixed(1), y2: y2.toFixed(1) }
 })
 
-// 라벨 위치
 const labelPos = CRITERIA_DEF.map((c, i) => {
   const [x, y] = ptArr(i * 60 - 90, R + 20)
   return { x: x.toFixed(1), y: y.toFixed(1), label: c.label }
@@ -139,6 +137,7 @@ watch(aiStreamText, text => {
     currentEvalStep.value = 8
     return
   }
+  // 스트림에 마지막으로 등장한 카테고리까지 단계를 진행 (역순 탐색으로 가장 앞선 단계 선택)
   for (let i = CATEGORY_ORDER.length - 1; i >= 0; i--) {
     if (text.includes(CATEGORY_ORDER[i])) {
       currentEvalStep.value = Math.max(currentEvalStep.value, i + 2)
@@ -151,7 +150,6 @@ const activeCategory = computed(() =>
   aiAnalyzing.value ? EVAL_STEPS[currentEvalStep.value]?.category : null,
 )
 
-// 점수 다각형
 const scorePoly = computed(() => {
   const scores = aiResult.value?.detail_scores || {}
   return CRITERIA_DEF.map((c, i) => {
@@ -160,7 +158,6 @@ const scorePoly = computed(() => {
   }).join(' ')
 })
 
-// 색상
 const scoreColor = computed(() => {
   const s = aiResult.value?.score ?? 0
   return s >= 80 ? '#10b981' : s >= 60 ? '#f59e0b' : '#ef4444'
@@ -254,7 +251,6 @@ function toggleAgendaDropdown() {
             </button>
           </div>
           <div class="app-modal-body">
-            <!-- 재검토 토글 -->
             <label for="upload-resubmit-toggle" class="resubmit-toggle">
               <input
                 type="checkbox"
@@ -267,7 +263,6 @@ function toggleAgendaDropdown() {
               >
             </label>
 
-            <!-- 반려 보고서 선택 -->
             <div v-if="isResubmit" class="app-modal-field">
               <label for="upload-rejected-report"
                 >반려된 보고서 선택 <span class="req">*</span></label
@@ -566,16 +561,13 @@ function toggleAgendaDropdown() {
                 </text>
               </svg>
 
-              <!-- 로딩 상태 메시지 -->
               <div v-if="aiAnalyzing" class="radar-stage">
                 <div class="radar-stage-dot"></div>
                 {{ EVAL_STEPS[currentEvalStep]?.message }}
               </div>
 
-              <!-- 항목별 점수 바 -->
               <div v-if="aiResult && !aiAnalyzing" class="criteria-scores">
                 <div v-for="c in CRITERIA_DEF" :key="c.key" class="cs-block">
-                  <!-- 카테고리 행 -->
                   <div class="cs-row" @click="toggleCriteria(c.key)" style="cursor: pointer">
                     <span class="cs-label">{{ c.label }}</span>
                     <div class="cs-bar-wrap">
@@ -606,9 +598,7 @@ function toggleAgendaDropdown() {
                     </svg>
                   </div>
 
-                  <!-- 펼쳐진 세부 항목 -->
                   <div v-if="expandedCriteria.has(c.key)" class="cs-detail">
-                    <!-- sub_scores -->
                     <div
                       v-for="(sub, subKey) in aiResult.detail_scores?.[c.key]?.sub_scores"
                       :key="subKey"
@@ -626,7 +616,6 @@ function toggleAgendaDropdown() {
                       </div>
                       <span class="cs-sub-num">{{ sub.score }}/{{ sub.max }}</span>
                     </div>
-                    <!-- 잘된 점 -->
                     <div
                       v-if="aiResult.detail_scores?.[c.key]?.strengths?.length"
                       class="cs-feedback-section"
@@ -642,7 +631,6 @@ function toggleAgendaDropdown() {
                         </li>
                       </ul>
                     </div>
-                    <!-- 개선 방향 -->
                     <div
                       v-if="aiResult.detail_scores?.[c.key]?.improvements?.length"
                       class="cs-feedback-section"
@@ -688,9 +676,7 @@ function toggleAgendaDropdown() {
               </div>
             </div>
 
-            <!-- Top 3 개선 과제 + 피드백 -->
             <template v-if="aiResult && !aiAnalyzing && !showFeedback">
-              <!-- 연관 과제 -->
               <div class="ai-section">
                 <div class="ai-section-title">
                   <svg
@@ -709,7 +695,6 @@ function toggleAgendaDropdown() {
                   >
                 </div>
 
-                <!-- 선택된 과제 태그 -->
                 <div v-if="uploadForm.relatedAgendaIds.length" class="agenda-tags">
                   <span v-for="id in uploadForm.relatedAgendaIds" :key="id" class="agenda-tag">
                     {{
@@ -730,7 +715,6 @@ function toggleAgendaDropdown() {
                   </span>
                 </div>
 
-                <!-- 드롭다운 트리거 버튼 -->
                 <div class="agenda-dropdown-wrap">
                   <button class="agenda-dropdown-trigger" @click.stop="toggleAgendaDropdown">
                     <span>{{ agendaDropdownOpen ? '아젠다 선택 닫기' : '아젠다 선택하기' }}</span>
@@ -751,7 +735,6 @@ function toggleAgendaDropdown() {
                   </button>
 
                   <div v-if="agendaDropdownOpen" class="agenda-dropdown">
-                    <!-- 검색 -->
                     <input
                       id="upload-agenda-search"
                       name="upload-agenda-search"
@@ -764,7 +747,6 @@ function toggleAgendaDropdown() {
                     />
 
                     <div class="agenda-dropdown-list">
-                      <!-- AI 추천 -->
                       <template v-if="!agendaSearch.trim()">
                         <div
                           v-if="업로드회의체과제.filter(t => aiMatchReason(t)).length"
@@ -797,7 +779,6 @@ function toggleAgendaDropdown() {
                         </div>
                       </template>
 
-                      <!-- 검색 결과 or 전체 -->
                       <template
                         v-for="t in 업로드회의체과제.filter(
                           t =>

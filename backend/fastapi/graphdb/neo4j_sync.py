@@ -58,7 +58,7 @@ async def ensure_constraints() -> None:
     """
     for label, name, prop in _UNIQUE_CONSTRAINTS:
         try:
-            # 1) 중복 정리 — 차수(degree) 높은 노드를 보존
+            # 중복 정리 — 차수(degree) 높은 노드를 보존
             await run_cypher(
                 f"MATCH (n:{label}) WHERE n.{prop} IS NOT NULL "
                 f"WITH n, COUNT {{ (n)--() }} AS deg ORDER BY deg DESC "
@@ -66,7 +66,6 @@ async def ensure_constraints() -> None:
                 f"WHERE size(nodes) > 1 "
                 f"UNWIND nodes[1..] AS dup DETACH DELETE dup"
             )
-            # 2) 제약 생성
             await run_cypher(
                 f"CREATE CONSTRAINT {name} IF NOT EXISTS "
                 f"FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE"
@@ -715,8 +714,6 @@ async def sync_session_agendas(session_id: int, agenda_ids: list[int]) -> None:
         )
 
 
-# ─── User 동기화 (PG users) ──────────────────────────────────────────────────
-
 # ─── Agenda 동기화 (PG agenda) ───────────────────────────────────────────────
 
 
@@ -934,8 +931,6 @@ async def sync_minutes(
         logger.error(f"[Neo4jSync] Minutes {minutes_id} 실패: {e}")
         _log_failure("sync_minutes", "minutes", str(minutes_id), e, params)
 
-
-# ─── MeetingMember 관계 동기화 ────────────────────────────────────────────────
 
 # ─── Report 동기화 (PG reports → Neo4j Report 노드) ──────────────────────────
 

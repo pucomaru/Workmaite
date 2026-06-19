@@ -23,11 +23,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 사용자 정보 관련 API GET /api/v1/users/me - 내 정보 조회 PATCH /api/v1/users/me - 회원정보 수정 GET
- * /api/v1/users/search - 사용자 검색 (?q=) GET /api/v1/users - 전체 사용자 목록 PATCH /api/v1/users/{id} - 특정
- * 사용자 정보 수정 (관리자)
- */
 @Tag(name = "사용자/조직", description = "내 정보·사용자 검색·구성원 관리·조직 권한 등 사용자/조직 관련 API")
 @RestController
 @RequestMapping("/api/v1/users")

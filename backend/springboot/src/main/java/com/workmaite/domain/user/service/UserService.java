@@ -23,10 +23,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 사용자 정보 비즈니스 로직 - 내 정보 조회: JWT userId로 DB 조회 - 회원정보 수정: 이름, 회사, 부서, 직책 변경 (이메일, 비밀번호 변경 불가) - 사용자
- * 검색: 이름/이메일로 검색
- */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -105,7 +101,6 @@ public class UserService {
         meetingRepository.findAllById(meetingIds).stream()
             .collect(Collectors.toMap(m -> m.getId(), m -> m.getTitle()));
 
-    // userId → memberList 맵
     Map<Long, List<MeetingMember>> membersByUser =
         allMembers.stream().collect(Collectors.groupingBy(MeetingMember::getUserId));
 

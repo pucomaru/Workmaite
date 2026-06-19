@@ -31,7 +31,6 @@ def _clean_transcript(text: str) -> str:
     # 단독 한글 자모(ㄱ~ㅣ, U+3131~U+314E/U+314F~U+3163) 연속 2개 이상 → 제거
     # (정상 한글은 완성형 U+AC00~U+D7A3, 자모 단독은 인코딩 깨짐 신호)
     text = re.sub(r"[ㄱ-ㆎ]{2,}", "", text)
-    # 공백 정리
     text = re.sub(r" {2,}", " ", text).strip()
     return text
 
@@ -94,7 +93,6 @@ async def transcribe(
     # 도메인 어휘 프롬프트(회의 제목·참석자·부서) — 고유명사 인식률 향상 (P-STT1)
     vocab_prompt = build_vocab_prompt(db, session_id) if session_id else ""
 
-    # 단순 전사
     try:
         full_text = _clean_transcript(
             await _transcribe_openai(data, filename, lang_code, stt_model, vocab_prompt)

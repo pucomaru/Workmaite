@@ -863,7 +863,6 @@ async def fill_fields_stream(
             if _hl:
                 yield sse_event("highlight", _hl)
 
-            # 결과 요약 스트리밍
             from llm.llm_factory import llm_factory
             from langchain_core.messages import (
                 SystemMessage as _Sys,

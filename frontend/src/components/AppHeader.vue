@@ -465,7 +465,6 @@ async function saveProfileSettings() {
               </button>
             </div>
             <div class="app-modal-body">
-              <!-- 이름 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-name">이름</label>
                 <input
@@ -477,7 +476,6 @@ async function saveProfileSettings() {
                   placeholder="홍길동"
                 />
               </div>
-              <!-- 회사명 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-company">회사명</label>
                 <input
@@ -489,7 +487,6 @@ async function saveProfileSettings() {
                   placeholder="-"
                 />
               </div>
-              <!-- 부서 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-department">부서</label>
                 <input
@@ -501,7 +498,6 @@ async function saveProfileSettings() {
                   placeholder="예: 경영지원팀"
                 />
               </div>
-              <!-- 직위 -->
               <div class="app-modal-field">
                 <label for="hdr-profile-position">직급</label>
                 <input
@@ -513,7 +509,6 @@ async function saveProfileSettings() {
                   placeholder="Manager"
                 />
               </div>
-              <!-- 이메일 (readonly) -->
               <div class="app-modal-field">
                 <label for="hdr-profile-email"
                   >이메일 <span class="ps-readonly-tag">변경할 수 없습니다</span></label
@@ -528,7 +523,6 @@ async function saveProfileSettings() {
                   style="background: var(--surface); color: var(--dark-muted)"
                 />
               </div>
-              <!-- 권한 (readonly) -->
               <div class="app-modal-field">
                 <label for="hdr-profile-role"
                   >권한 <span class="ps-readonly-tag">변경할 수 없습니다</span></label
@@ -543,7 +537,6 @@ async function saveProfileSettings() {
                   style="background: var(--surface); color: var(--dark-muted)"
                 />
               </div>
-              <!-- 비밀번호 -->
               <div class="ps-divider">비밀번호 변경</div>
               <div class="app-modal-field">
                 <label for="hdr-profile-password">새 비밀번호</label>
@@ -597,7 +590,6 @@ async function saveProfileSettings() {
                   </button>
                 </div>
               </div>
-              <!-- 메시지 -->
               <div
                 v-if="profileMsg"
                 class="alert py-2 small mt-2"

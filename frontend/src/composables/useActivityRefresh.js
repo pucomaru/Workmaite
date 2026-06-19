@@ -12,7 +12,7 @@ export function useActivityRefresh() {
   let _throttleTimer = null
 
   const onActivity = () => {
-    if (_throttleTimer) return // 60초 내 중복 체크 방지
+    if (_throttleTimer) return
     _throttleTimer = setTimeout(() => {
       _throttleTimer = null
     }, 60_000)

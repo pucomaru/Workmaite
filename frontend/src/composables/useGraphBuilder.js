@@ -138,7 +138,7 @@ export function useGraphBuilder({
           edges.push({ from: pIdx, to: mgIdx, rel: mb.role === 'admin' ? '운영' : '참여' })
         })
       })
-      const depts = [...deptIdxMap.keys()] // 아젠다 배정용 부서명 목록
+      const depts = [...deptIdxMap.keys()]
 
       // ── Agenda nodes ─────────────────────────────────────────
       const taskList = g.tasks || []

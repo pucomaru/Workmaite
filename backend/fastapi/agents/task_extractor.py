@@ -151,7 +151,6 @@ def _task_state_modifier(state: TaskState) -> List[BaseMessage]:
 
 
 def _build_chat_graph():
-    """LangGraph create_react_agent — TASK_TOOLS를 도구로 사용하는 에이전트 그래프."""
     llm = llm_factory("chat", temperature=0.1)
     return create_react_agent(
         model=llm,

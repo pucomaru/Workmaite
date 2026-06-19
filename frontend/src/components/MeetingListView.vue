@@ -101,7 +101,6 @@ function versionKey(groupId, itemIdx) {
           </td>
         </tr>
         <template v-for="g in sortedGroups" :key="g.id">
-          <!-- 회의체 행 -->
           <tr
             class="lv-group-row"
             @click="expandedMeeting = expandedMeeting === g.id ? null : g.id"
@@ -147,7 +146,6 @@ function versionKey(groupId, itemIdx) {
             <td class="lv-td-cnt">{{ (filteredGroupHistoryMap.get(g.id) || []).length }}건</td>
           </tr>
 
-          <!-- 서브헤더 행 -->
           <tr v-if="isExpanded(g.id)" class="lv-sub-header-row">
             <td colspan="2" class="lv-sub-th">파일명</td>
             <td class="lv-sub-th">점수</td>
@@ -155,17 +153,14 @@ function versionKey(groupId, itemIdx) {
             <td class="lv-sub-th">진행일시</td>
           </tr>
 
-          <!-- 이력 없을 때 -->
           <tr v-if="isExpanded(g.id) && !(filteredGroupHistoryMap.get(g.id) || []).length">
             <td colspan="5" class="lv-hist-empty">
               {{ selectedHistoryType ? '해당 유형의 이력이 없습니다.' : '이력이 없습니다.' }}
             </td>
           </tr>
 
-          <!-- 데이터 행들 -->
           <template v-if="isExpanded(g.id)">
             <template v-for="(item, i) in filteredGroupHistoryMap.get(g.id) || []" :key="i">
-              <!-- 메인 행 -->
               <tr class="lv-sub-row" :class="{ 'lv-hist-rejected': item.rejected }">
                 <td colspan="2" class="lv-sub-td-name">
                   <div class="lv-hist-desc-inner">
@@ -292,7 +287,6 @@ function versionKey(groupId, itemIdx) {
                   </div>
                 </td>
               </tr>
-              <!-- 이전 버전 행들 -->
               <template
                 v-if="item.olderVersions?.length && expandedVersionKeys.has(versionKey(g.id, i))"
               >

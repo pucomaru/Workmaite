@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 
-// 회사명·부서명 등 '이름 변경' 공용 모달 (app-modal 패턴 재사용).
 const props = defineProps({
   modal: Object, // { oldName, form: { name } }
   nightMode: Boolean,
@@ -21,7 +20,6 @@ const form = computed(() => props.modal?.form || {})
   <Teleport to="body">
     <div v-if="modal" class="app-modal-backdrop" @click.self="emit('close')">
       <div class="app-modal rename-modal" :class="{ dark: nightMode }">
-        <!-- Header -->
         <div class="app-modal-header">
           <span class="app-modal-title">{{ title }}</span>
           <button class="app-modal-close" @click="emit('close')">
@@ -38,7 +36,6 @@ const form = computed(() => props.modal?.form || {})
           </button>
         </div>
 
-        <!-- Body -->
         <div class="app-modal-body">
           <div class="app-modal-field">
             <label for="rename-modal-input">{{ fieldLabel }}</label>
@@ -52,7 +49,6 @@ const form = computed(() => props.modal?.form || {})
           </div>
         </div>
 
-        <!-- Footer -->
         <div class="app-modal-footer">
           <button class="app-btn-cancel" @click="emit('close')">취소</button>
           <button

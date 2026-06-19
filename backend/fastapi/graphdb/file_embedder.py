@@ -33,7 +33,6 @@ def _get_openai() -> AsyncOpenAI:
     return _openai
 
 
-# 청킹 설정 (token 수 기준)
 CHUNK_TOKENS = int(os.environ["EMBED_CHUNK_TOKENS"])
 CHUNK_OVERLAP = int(os.environ["EMBED_CHUNK_OVERLAP"])
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
@@ -103,7 +102,6 @@ def extract_text(file_path: str) -> str:
     elif suffix == ".txt":
         return path.read_text(encoding="utf-8", errors="replace")
     else:
-        # 알 수 없는 형식: 바이트를 UTF-8로 디코딩 시도
         try:
             return path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
@@ -154,7 +152,6 @@ def chunk_text(
             start += chunk_tokens - overlap
         return [c for c in chunks if c.strip()]
     except ImportError:
-        # 문자 수 기반 fallback (4자 ≈ 1토큰)
         char_size = chunk_tokens * 4
         char_overlap = overlap * 4
         chunks = []
@@ -290,7 +287,6 @@ FOREACH (_ IN CASE WHEN mg IS NOT NULL THEN [1] ELSE [] END |
 )"""
             params["mg_id"] = mg_id
 
-        # 부모 노드(Report/Minutes)와 청크 연결
         if context_type == "report" and source_id:
             cypher += """
 WITH c

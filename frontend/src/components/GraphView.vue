@@ -91,7 +91,6 @@ const NODE_RADIUS = {
   person: 10,
   company: 10,
 }
-// inbound 기반 노드 크기
 const BACKLINK_STEP = 2.4 // 백링크 1개당 가중치
 const BACKLINK_MAX = 50 // 최대 추가 반경
 const SELF_RADIUS = 10 // "나" 노드 고정 반경
@@ -160,7 +159,6 @@ function _drawBoundsBox() {
 // node display objects: Map<nodeIdx, { gfx: PIXI.Graphics, label: PIXI.Text, data: node }>
 let nodeObjs = new Map()
 
-// d3-force simulation
 let sim = null
 let simNodes = [] // { index, x, y, vx, vy, id, type, ... }
 let simEdges = [] // { source, target, rel }
@@ -216,10 +214,8 @@ let _targetVpX = null,
   _targetVpY = null,
   _targetVpScale = null
 
-// focused node
 let focusedIdx = null
 
-// resize observer
 let ro = null
 
 // ─── PIXI init ───────────────────────────────────────────────
@@ -268,11 +264,9 @@ async function initPixi() {
   app.stage.on('pointerupoutside', onBgUp)
   app.canvas.addEventListener('wheel', onWheel, { passive: false })
 
-  // Resize observer
   ro = new ResizeObserver(() => resizePixi())
   ro.observe(el)
 
-  // Ticker
   app.ticker.add(tick)
 
   // 노드는 즉시 렌더하고, 아이콘 텍스처는 백그라운드로 로드해 준비되면 부착한다.
@@ -481,7 +475,6 @@ function rebuildNodeObjects() {
       })
       nodeContainer.addChild(gfx)
 
-      // Label
       const label = new PIXI.Text({
         text: (n.label || '').length > 10 ? (n.label || '').slice(0, 10) + '…' : n.label || '',
         style: {
@@ -533,7 +526,6 @@ function drawNode(obj, sn) {
 
   gfx.clear()
 
-  // Search hit — yellow ring
   if (isSearch) {
     gfx.circle(0, 0, r + 6)
     gfx.stroke({ color: 0xfbbf24, width: 3, alpha: 1 })
@@ -664,7 +656,6 @@ function tick() {
   const w = app.screen.width,
     h = app.screen.height
 
-  // Apply viewport transform to all layers
   for (const layer of [boundsLayer, edgeLayer, nodeContainer, labelContainer, hlLayer]) {
     layer.x = vpX
     layer.y = vpY
@@ -710,7 +701,6 @@ function tick() {
     const alpha =
       (focusedIdx !== null ? (isFocEdge ? 0.85 : 0.12) : 0.35) * (endedEdge ? 0.45 : 1.0)
 
-    // dx/dy for arrow
     const dx = tn.x - sn.x,
       dy = tn.y - sn.y
     const len = Math.sqrt(dx * dx + dy * dy)
@@ -722,7 +712,6 @@ function tick() {
     const ex = tn.x - ux * tr,
       ey = tn.y - uy * tr
 
-    // Edge line (straight)
     const sr =
       (nodeObjs.get(si)?.r ??
         nodeRadiusForIdx(si, props.gNodes[si]?.type ?? 'minutes', props.gNodes[si]?.id)) + 3
@@ -739,7 +728,6 @@ function tick() {
       alpha: finalAlpha,
     })
 
-    // Arrowhead
     const as = 7
     const px2 = -uy * as * 0.44,
       py2 = ux * as * 0.44
@@ -788,13 +776,11 @@ function tick() {
       return
     }
 
-    // Position
     obj.gfx.x = sn.x
     obj.gfx.y = sn.y
     obj.label.x = sn.x
     obj.label.y = sn.y + obj.r + 3
 
-    // Fade non-focused / non-search-hit
     const hasSearchHits = props.searchHitMgIdxs?.length > 0
     const alphaVal =
       focusedIdx !== null

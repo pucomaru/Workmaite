@@ -110,7 +110,6 @@ async function remove() {
   <Teleport to="body">
     <div v-if="member" class="app-modal-backdrop" @click.self="emit('close')">
       <div class="app-modal app-modal-sm" :class="{ dark: nightMode }">
-        <!-- Header -->
         <div class="app-modal-header">
           <span class="app-modal-title">구성원 정보 수정</span>
           <button class="app-modal-close" @click="emit('close')">
@@ -127,7 +126,6 @@ async function remove() {
           </button>
         </div>
 
-        <!-- Body -->
         <div class="app-modal-body">
           <div class="app-modal-field-row">
             <div class="app-modal-field">
@@ -206,7 +204,6 @@ async function remove() {
           </div>
         </div>
 
-        <!-- Footer: 좌측 삭제 / 우측 취소·저장 -->
         <div class="app-modal-footer modal-footer-split">
           <button
             v-if="member?.id !== auth.user?.id"

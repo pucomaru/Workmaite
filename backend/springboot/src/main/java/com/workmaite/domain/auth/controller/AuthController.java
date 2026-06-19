@@ -18,10 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 인증 관련 API POST /api/v1/auth/signup - 회원가입 POST /api/v1/auth/login - 로그인 (Access Token 발급) POST
- * /api/v1/auth/refresh - Access Token 갱신 (Refresh Token 필요) POST /api/v1/auth/logout - 로그아웃
- */
 @Tag(name = "인증", description = "회원가입·로그인·토큰 갱신·로그아웃 등 인증 관련 API")
 @RestController
 @RequestMapping("/api/v1/auth")

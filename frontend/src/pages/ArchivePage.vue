@@ -78,7 +78,6 @@ const _graphSnapshot = { detailOpen: false, agentSidebarOpen: false }
 const _listSnapshot = { expandedMeeting: null }
 
 watch(viewMode, (next, prev) => {
-  // graph ↔ list
   if (prev === 'graph' && next === 'list') {
     _graphSnapshot.detailOpen = detailOpen.value
     _graphSnapshot.agentSidebarOpen = agentSidebarOpen.value
@@ -275,8 +274,6 @@ function _applyHighlightLabels(labels) {
     queryHlEdgeIdxs.value = new Set()
   }, 6000)
 }
-
-// ─── Plus snackbar (removed - replaced by direct button) ──────
 
 // ─── Create meeting modal ─────────────────────────────────────
 const showCreateModal = ref(false)
@@ -1005,7 +1002,6 @@ async function runExtract() {
         _feedbackAction: '',
         _reason: '',
       }))
-      // 실제 추출 결과를 채팅에 표시
       agentMsg.content = _formatExtractForChat(extractResult.value)
     } else {
       const errMsg = data.error
@@ -1140,7 +1136,6 @@ async function addDirectAgenda(form) {
     ],
     rejected_ids: [],
   })
-  // 아젠다 목록 즉시 갱신 (과제 탭)
   detailAgendas.value = (await apiAI.get(`/api/agent/meetings/${meeting_id}/agendas`)).data || []
   // 그래프 + 기본탭 로그: Neo4j 동기화 완료 후 두 번 갱신 (빠른 표시 + 확실한 반영)
   setTimeout(refreshArchive, 600)
@@ -1887,7 +1882,6 @@ function openUploadModal(ctx = {}) {
   }
 }
 
-// Build graph context string for AI
 function buildGraphContextStr() {
   const nodes = gNodes.map(n => `[${n.type}] ${n.label}`).join(', ')
   const edges = gEdges
@@ -2197,7 +2191,6 @@ const meetings = computed(() => {
         tasks: [],
       })
     })
-  // Add minutes & reports
   minutes.value.forEach(m => {
     if (!map.has(m.meeting_id))
       map.set(m.meeting_id, {
@@ -3020,7 +3013,6 @@ async function deleteReport(reportId) {
     return
   try {
     await apiAI.delete(`/api/upload/reports/${reportId}`)
-    // 그래프에서 노드 제거
     const idx = gNodes.findIndex(n => n.reportId === reportId || n.id === `file-report-${reportId}`)
     if (idx >= 0) {
       gNodes.splice(idx, 1)
@@ -3252,7 +3244,6 @@ async function saveAgendaEdit() {
       priority: form.priority || 'medium',
       status: form.status || 'ongoing',
     })
-    // detailNode 즉시 업데이트
     if (detailNode.value) {
       detailNode.value = {
         ...detailNode.value,
@@ -3932,7 +3923,6 @@ provide('archiveSidebar', {
       </button>
     </div>
 
-    <!-- ── Graph Breadcrumb ── -->
     <!-- ── Body ── -->
     <div class="archive-body">
       <!-- Main area -->
@@ -4052,7 +4042,6 @@ provide('archiveSidebar', {
           @bgClick="onGraphBgClick"
         />
 
-        <!-- ── Constellation view ── -->
         <!-- Map drag invalid toast -->
         <Transition name="map-toast-fade">
           <div v-if="mapToastMsg" class="map-toast">{{ mapToastMsg }}</div>
@@ -4069,8 +4058,6 @@ provide('archiveSidebar', {
         <GraphLegend />
         <GraphFloatBtns />
         <MeetingListView />
-
-        <!-- Bottom panel (slides up) -->
       </div>
       <!-- /main-area -->
     </div>
