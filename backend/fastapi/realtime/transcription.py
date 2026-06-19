@@ -418,9 +418,7 @@ async def ws_transcribe(websocket: WebSocket, session_id: int):
             async def _emit_complete(sentences, tail):
                 """완결 문장들을 각각 stt_segment로 저장하고 final로 전송한다. buf_bytes를
                 글자수 비율로 배분해 문장별 시간(start/end)을 추정한다(총합=실제 오디오 길이)."""
-                sentences = [
-                    s for s in sentences if _HAS_WORD.search(s)
-                ]  # 구두점만인 조각 제외
+                sentences = [s for s in sentences if _HAS_WORD.search(s)]
                 if not sentences:
                     state["buf"] = tail
                     return

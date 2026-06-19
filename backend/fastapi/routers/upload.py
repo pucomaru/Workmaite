@@ -329,7 +329,6 @@ async def save_report_score(
 
     검토(운영) 행위 — 간사/회사관리자/시스템관리자만.
     """
-    # 점수 저장은 검토(운영) 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
 
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
@@ -381,7 +380,6 @@ async def submit_report_review(
 
     검토 결정(운영) 행위 — 간사/회사관리자/시스템관리자만.
     """
-    # 보고서 검토 결정은 운영 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_report(db, report_id))
     from datetime import datetime as _dt
     from sqlalchemy import desc as _desc
@@ -579,10 +577,8 @@ async def delete_report(
     report = db.query(models.Report).filter(models.Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="보고서를 찾을 수 없습니다.")
-    # 삭제는 업로더 본인 또는 간사/회사관리자/시스템관리자만
     require_owned_edit(db, current_user, report.meeting_id, report.upload_id)
 
-    # R2에서 파일 삭제
     if report.file_path:
         try:
             from storage.r2_storage import url_to_key
@@ -678,9 +674,8 @@ def _first_sentence_title(html: str) -> str:
     태그·마크다운 머리표를 제거하고 첫 종결부호(. ! ? 。) 또는 줄바꿈까지를 취한다.
     맨 앞이 '회의록' 같은 일반 머리글이면 다음 의미있는 문장을 사용한다. 최대 60자.
     """
-    text = re.sub(r"<[^>]+>", " ", html or "")  # HTML 태그 제거
+    text = re.sub(r"<[^>]+>", " ", html or "")
     text = text.replace("&nbsp;", " ")
-    # 줄 단위로 보며 의미있는 첫 줄을 찾는다
     for raw_line in re.split(r"[\r\n]+", text):
         line = re.sub(r"^[#>*\-\s]+", "", raw_line).strip()  # 마크다운 머리표 제거
         line = re.sub(r"\s+", " ", line)

@@ -120,14 +120,3 @@ CI/CD 초기 배포 파이프라인의 완료 기준은 다음과 같다.
 6. ArgoCD가 Manifest를 기준으로 EKS에 배포를 수행한다.
 7. EKS에서 Backend, AI Agent Pod가 정상 기동된다.
 8. Health Check API로 배포 성공 여부를 확인할 수 있다.
-
-## 9. 후속 작업
-
-초기 파이프라인 구축 이후 다음 작업을 진행한다.
-
-- Frontend S3 + CloudFront 배포 자동화
-- Nginx Ingress 라우팅 설정
-- NLB 외부 진입점 구성
-- PostgreSQL, Redis, Neo4j 연결 설정
-- Prometheus, Grafana, Loki 기반 모니터링 구성
-- 운영 환경 Secret 및 ConfigMap 분리

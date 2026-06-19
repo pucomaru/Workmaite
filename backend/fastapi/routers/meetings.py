@@ -55,7 +55,6 @@ async def rename_company_endpoint(
     company = db.query(models.Company).filter(models.Company.name == old_name).first()
     if not company:
         raise HTTPException(status_code=404, detail="회사를 찾을 수 없습니다.")
-    # 권한: SYSTEM_ADMIN 또는 같은 회사 COMPANY_ADMIN
     is_co_admin = (
         current_user.company_role == "COMPANY_ADMIN"
         and current_user.company_id == company.id
@@ -98,14 +97,12 @@ async def rename_department_endpoint(
     if not old_name or not new_name:
         raise HTTPException(status_code=400, detail="old_name, new_name이 필요합니다.")
 
-    # 회사 scope 해석 (있으면 company_id로 한정)
     company = None
     if company_name:
         company = (
             db.query(models.Company).filter(models.Company.name == company_name).first()
         )
 
-    # 권한: SYSTEM_ADMIN(전체) 또는 COMPANY_ADMIN(자기 회사에 한해)
     if not is_system_admin(current_user):
         is_co_admin = (
             current_user.company_role == "COMPANY_ADMIN"
@@ -360,7 +357,6 @@ async def ai_update_user(
     권한: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 가능(MT-1).
     이메일(로그인 자격) 변경은 관리자만 허용 — 본인 자가수정으로는 불가.
     """
-    # MT-1: 본인 또는 SYSTEM_ADMIN, 같은 회사 COMPANY_ADMIN만 수정 가능
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Not found")

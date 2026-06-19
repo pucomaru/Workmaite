@@ -22,7 +22,6 @@ const STATUS_OPTIONS = [
   <Teleport to="body">
     <div v-if="modal" class="app-modal-backdrop" @click.self="emit('close')">
       <div class="app-modal report-edit-modal" :class="{ dark: nightMode }">
-        <!-- Header -->
         <div class="app-modal-header">
           <span class="app-modal-title">보고자료 편집</span>
           <button class="app-modal-close" @click="emit('close')">
@@ -39,9 +38,7 @@ const STATUS_OPTIONS = [
           </button>
         </div>
 
-        <!-- Body -->
         <div class="app-modal-body">
-          <!-- 파일명 -->
           <div class="app-modal-field">
             <label for="report-edit-file-name">파일명 <span class="req">*</span></label>
             <input
@@ -52,7 +49,6 @@ const STATUS_OPTIONS = [
             />
           </div>
 
-          <!-- 작성부서 + 검토상태 한 행 -->
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="report-edit-submitter-department">작성 부서</label>
@@ -78,7 +74,6 @@ const STATUS_OPTIONS = [
           </div>
         </div>
 
-        <!-- Footer -->
         <div class="app-modal-footer modal-footer-split">
           <button class="app-btn-danger" @click="emit('delete')">삭제</button>
           <div class="footer-right">

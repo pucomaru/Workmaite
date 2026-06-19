@@ -95,7 +95,6 @@ const sec = computed(() => data.value?.sections || null)
           <button class="app-modal-close" @click="emit('close')"><i class="bi bi-x-lg" /></button>
         </div>
 
-        <!-- 기간 선택 -->
         <div class="tum-date-bar">
           <div class="app-modal-field" style="flex: 1; min-width: 0">
             <label for="token-usage-start-date">시작일</label>
@@ -142,7 +141,6 @@ const sec = computed(() => data.value?.sections || null)
         </div>
 
         <template v-else-if="data && sec">
-          <!-- 요약 통계 바 -->
           <div class="tum-stats-bar">
             <div class="tum-stat">
               <span class="tum-stat-val">{{ fmtNum(data.period_total_tokens) }}</span>
@@ -177,7 +175,6 @@ const sec = computed(() => data.value?.sections || null)
                 >
               </div>
               <template v-for="model in sec.ai_model.by_model" :key="model.model_name">
-                <!-- 모델 행 -->
                 <div class="tum-m-row tum-model-row">
                   <span
                     class="tum-model-dot"
@@ -187,7 +184,6 @@ const sec = computed(() => data.value?.sections || null)
                   <span class="tum-m-note">{{ fmtNum(model.total_tokens) }} 토큰</span>
                   <span class="tum-m-cost">{{ fmtCost(model.cost) }}</span>
                 </div>
-                <!-- 컨텍스트 하위 행 -->
                 <div
                   v-for="ctx in model.by_context"
                   :key="ctx.section"
@@ -201,7 +197,6 @@ const sec = computed(() => data.value?.sections || null)
               </template>
             </div>
 
-            <!-- ② STT (제공자별) -->
             <div class="app-modal-field" style="padding: 0px 0px 28px">
               <label class="tum-m-total"
                 >🎙️ STT 모델별 사용량

@@ -29,6 +29,13 @@ spring:
     show-sql: ${SHOW_SQL:false}
     open-in-view: false
 
+logging:
+  # 로그 레벨을 LOG_LEVEL env로 제어 — FastAPI와 동일 변수를 쓰도록 통일 (미설정 시 INFO).
+  # root까지 함께 적용하므로 DEBUG 지정 시 프레임워크 로그도 상세해진다.
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.workmaite: ${LOG_LEVEL:INFO}
+
 jwt:
   # FastAPI(python-jose HS256)와 동일한 시크릿 사용 (공유 JWT 인증) — 반드시 환경변수로 주입
   secret: ${JWT_SECRET:}
@@ -48,7 +55,8 @@ management:
     prometheus:
       enabled: true
     health:
-      show-details: always
+      # 인증된 요청에만 컴포넌트 상세 노출 — 미인증(k8s probe 등)에는 status만 반환
+      show-details: when-authorized
   metrics:
     export:
       prometheus:

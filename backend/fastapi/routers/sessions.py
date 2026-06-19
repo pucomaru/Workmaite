@@ -38,7 +38,7 @@ def _md_to_pdf(md_text: str) -> bytes:
 
 
 class MinutesSaveRequest(BaseModel):
-    content: str  # 생성된 회의록 전체 텍스트
+    content: str
     content_summary: Optional[str] = None  # 요약 (없으면 content 앞 500자 사용)
     file_name: Optional[str] = None  # 저장할 파일명 (없으면 자동 생성)
 
@@ -71,7 +71,6 @@ async def save_minutes(
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
-    # 파일명 결정 (.pdf)
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     base_name = body.file_name or f"minutes_{session_id}_{ts}"
     base_name = base_name.removesuffix(".pdf").removesuffix(".md")
@@ -273,7 +272,6 @@ async def refine_chunk(
     GraphRAG(보고자료·안건 맥락)를 주입해 전문용어 교정 정확도를 높인다.
     회의체 운영 행위 — 간사/회사관리자/시스템관리자만.
     """
-    # 실시간 요약 블록 기록은 회의체 운영 행위 — 간사/회사관리자/시스템관리자만
     require_meeting_edit(db, current_user, meeting_id_of_session(db, body.session_id))
     session = (
         db.query(models.MeetingSession)
@@ -401,7 +399,6 @@ async def refresh_block(
     """
     require_meeting_edit(db, current_user, meeting_id_of_session(db, session_id))
 
-    # 세션의 모든 세그먼트를 createdAt/id 순으로 정렬
     all_segs = (
         db.query(models.SttSegment)
         .filter(models.SttSegment.session_id == session_id)
@@ -426,7 +423,6 @@ async def refresh_block(
     if not block:
         return {"ok": False, "message": "no block found"}
 
-    # 해당 블록에 속한 세그먼트만 추출
     chunk_start = block_index * REFINE_EVERY
     chunk_end = chunk_start + REFINE_EVERY
     segs = all_segs[chunk_start:chunk_end]

@@ -18,7 +18,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/** Spring Security 설정 JWT 기반 인증, CORS, 권한 설정 */
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -32,30 +31,23 @@ public class SecurityConfig {
     http
         // CSRF 비활성화 (JWT 사용하므로 불필요)
         .csrf(AbstractHttpConfigurer::disable)
-
-        // CORS 설정
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
         // 세션 사용 안 함 (JWT Stateless)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-        // 요청별 권한 설정
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers("/api/v1/auth/**")
-                    .permitAll() // 로그인/회원가입
+                    .permitAll()
                     .requestMatchers("/actuator/**")
-                    .permitAll() // actuator (prometheus, health 등)
+                    .permitAll()
                     .requestMatchers("/swagger-ui/**", "/v3/api-docs/**")
-                    .permitAll() // Swagger
+                    .permitAll()
                     .requestMatchers("/", "/error")
-                    .permitAll() // 루트/에러
+                    .permitAll()
                     .anyRequest()
-                    .authenticated() // 나머지는 인증 필요
-            )
-
-        // JWT 필터를 Security 필터 앞에 추가
+                    .authenticated())
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         // 임시 비밀번호 상태의 API 사용 차단 — JWT 인증 뒤에 평가 (P1-7②)
         .addFilterAfter(mustChangePasswordFilter, UsernamePasswordAuthenticationFilter.class);

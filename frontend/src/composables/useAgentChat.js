@@ -213,7 +213,6 @@ export function useAgentChat({
     loadChatHistory()
   }
 
-  // 새 채팅: DB 삭제 + UI 초기화
   async function clearAgentChat() {
     const threadId = getThreadId()
     if (threadId) {

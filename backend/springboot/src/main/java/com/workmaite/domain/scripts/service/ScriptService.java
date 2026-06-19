@@ -23,7 +23,6 @@ public class ScriptService {
   private final ScriptRepository scriptRepository;
   private final MeetingAccessGuard meetingAccessGuard;
 
-  // STT 세그먼트 일괄 저장 - 한 세션에 여러 세그먼트를 한 번에 저장
   @Transactional
   public List<ScriptResponse> saveScripts(Long sessionId, ScriptSaveRequest request) {
     // STT 전사본은 회의체 운영물 — 간사/회사관리자/시스템관리자만 기록·수정
@@ -46,7 +45,6 @@ public class ScriptService {
     return scriptRepository.saveAll(segments).stream().map(ScriptResponse::from).toList();
   }
 
-  // 세션의 STT 세그먼트 목록 조회 (발화 시작 시간 오름차순)
   private static final int MAX_PAGE_SIZE = 500;
 
   /**
@@ -69,7 +67,6 @@ public class ScriptService {
         .toList();
   }
 
-  // 세그먼트 부분 수정 - 세그먼트 ID 목록을 받아 각각 업데이트
   @Transactional
   public List<ScriptResponse> updateScripts(Long sessionId, ScriptUpdateRequest request) {
     meetingAccessGuard.requireMeetingEdit(meetingAccessGuard.meetingIdOfSession(sessionId));
@@ -81,7 +78,7 @@ public class ScriptService {
                       .findById(seg.getId())
                       .orElseThrow(() -> new BusinessException(ErrorCode.SCRIPT_NOT_FOUND));
 
-              // 요청한 sessionId와 세그먼트의 sessionId가 다를 경우 차단
+              // IDOR 방지: 세그먼트가 요청 세션 소속인지 검증
               if (!segment.getSessionId().equals(sessionId)) {
                 throw new BusinessException(ErrorCode.SCRIPT_SESSION_MISMATCH);
               }
@@ -97,7 +94,6 @@ public class ScriptService {
         .toList();
   }
 
-  // 세션의 모든 STT 세그먼트 삭제
   @Transactional
   @AuditLogged(action = "DELETE", entityType = "script")
   public void deleteScripts(Long sessionId) {

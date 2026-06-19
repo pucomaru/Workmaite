@@ -59,7 +59,7 @@ class _ConfirmRelationshipsReq(BaseModel):
 
     proposal_id: str
     approved: bool
-    reject_reason: Optional[str] = None  # approved=False 일 때 반려 사유
+    reject_reason: Optional[str] = None
 
 
 # ─── Knowledge Base 저장 ──────────────────────────────────────────────────────

@@ -391,7 +391,6 @@ async def propose_relationships(
     if node_types is None:
         node_types = ["Agenda", "Minutes"]
 
-    # 해당 회의체의 노드 수집
     nodes: List[dict] = []
     queries = {
         "Agenda": "MATCH (n:Agenda {meeting_id: $mid}) RETURN n.id AS id, n.content AS content, 'Agenda' AS type",
@@ -412,7 +411,6 @@ async def propose_relationships(
             "message": "분석할 노드가 없습니다.",
         }
 
-    # LLM에게 노드 목록 전달 → 연결 관계 제안
     node_list_text = "\n".join(
         [
             f"- [{r['type']}] id={r['id']}: {str(r.get('content', ''))[:100]}"
@@ -455,7 +453,6 @@ async def propose_relationships(
 
     relationships = parsed.get("relationships", [])
 
-    # 메모리에 임시 저장
     proposal_id = f"proposal-{uuid.uuid4().hex[:8]}"
     _proposals[proposal_id] = {
         "meeting_id": meeting_id,
@@ -484,7 +481,6 @@ async def confirm_relationships(
     relationships = proposal["relationships"]
 
     if approved:
-        # 승인: 제안된 관계를 Neo4j에 MERGE
         merged = []
         for rel in relationships:
             try:
@@ -501,7 +497,6 @@ async def confirm_relationships(
         return {"status": "confirmed", "relationships": merged}
 
     else:
-        # 반려: 제안을 폐기한다
         _proposals.pop(proposal_id, None)
         return {"status": "rejected"}
 
@@ -520,7 +515,6 @@ def _to_base_messages(messages: List[dict]) -> List[BaseMessage]:
 
 # ── Graph ─────────────────────────────────────────────────────────────────
 def _knowledge_state_modifier(state: KnowledgeState) -> List[BaseMessage]:
-    """런타임 컨텍스트(knowledge·meeting_context)를 시스템 메시지로 주입합니다."""
     knowledge = state.get("knowledge", [])
     meeting_context = state.get("meeting_context", "")
     system = KNOWLEDGE_SYSTEM
@@ -538,7 +532,6 @@ def _knowledge_state_modifier(state: KnowledgeState) -> List[BaseMessage]:
 
 
 def _build_graph():
-    """LangGraph create_react_agent — KNOWLEDGE_TOOLS를 도구로 사용하는 에이전트 그래프."""
     return create_react_agent(
         model=_make_llm(),
         tools=KNOWLEDGE_TOOLS,

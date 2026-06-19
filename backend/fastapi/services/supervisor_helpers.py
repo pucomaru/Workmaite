@@ -203,13 +203,11 @@ def _extract_text_from_file(raw: bytes, filename: str) -> str:
             parts = []
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 for page in pdf.pages:
-                    # 표 구조화 추출
                     tables = page.extract_tables()
                     for t in tables or []:
                         formatted = _format_schedule_table(t)
                         if formatted:
                             parts.append(formatted)
-                    # 일반 텍스트 추출 (표 외 영역 포함)
                     page_text = page.extract_text() or ""
                     if page_text.strip():
                         parts.append(page_text.strip())
@@ -358,12 +356,10 @@ def _build_session_context(db: Session, session_id: int) -> dict:
                 db.query(models.Report).filter(models.Report.id.in_(report_ids)).all()
             )
 
-    # 부모 회의체
     meeting = (
         db.query(models.Meeting).filter(models.Meeting.id == session.meeting_id).first()
     )
 
-    # 회의록
     minutes = (
         db.query(models.Minutes).filter(models.Minutes.session_id == session_id).first()
     )
@@ -396,7 +392,6 @@ def _format_session_context_str(ctx: dict) -> str:
     parts = []
     session = ctx["session"]
 
-    # 회의체 정보
     meeting = ctx.get("meeting")
     if meeting:
         mg_lines = [f"회의체명: {meeting.title}"]
@@ -406,7 +401,6 @@ def _format_session_context_str(ctx: dict) -> str:
             mg_lines.append(f"유형: {meeting.type}")
         parts.append("[회의체 정보]\n" + "\n".join(mg_lines))
 
-    # 기본 정보
     lines = [f"회의명: {session.title}"]
     if session.scheduled_at:
         lines.append(f"일정: {session.scheduled_at.strftime('%Y-%m-%d %H:%M')}")
@@ -418,7 +412,6 @@ def _format_session_context_str(ctx: dict) -> str:
         lines.append(f"장소: {session.location}")
     parts.append("[회의 기본 정보]\n" + "\n".join(lines))
 
-    # 참석자
     if ctx["members"]:
         member_parts = [
             f"- {u.name}({u.department or ''}), 역할: {role}"
@@ -426,7 +419,6 @@ def _format_session_context_str(ctx: dict) -> str:
         ]
         parts.append("[참석자]\n" + "\n".join(member_parts))
 
-    # 안건 (상태·우선순위·마감 등 상세 포함)
     if ctx["agendas"]:
         agenda_parts = []
         for a in ctx["agendas"]:
@@ -443,7 +435,6 @@ def _format_session_context_str(ctx: dict) -> str:
             agenda_parts.append(line)
         parts.append("[안건]\n" + "\n".join(agenda_parts))
 
-    # 제출된 보고자료/파일 (안건에 연결된 Report)
     reports = ctx.get("reports") or []
     if reports:
         report_agenda_map = ctx.get("report_agenda_map") or {}

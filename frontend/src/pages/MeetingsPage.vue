@@ -66,7 +66,6 @@ const filteredGroups = computed(() => {
   return enrichedGroups.value.filter(m => {
     const matchStatus =
       statusTab.value === 'active' ? !m.status || m.status === 'active' : m.status === 'ended'
-    // 모든 컬럼 검색: 회의체명·역할·유형·간사·참여조직·참여자
     const matchSearch =
       !q ||
       [m.title, m._role, m.meeting_type, m._adminName, m._companyCount, m._memberCount].some(v =>
@@ -325,7 +324,6 @@ function getCompanies(gid) {
   return [...companies]
 }
 
-// 한 번에 테이블을 렌더링
 const initialLoading = ref(true)
 
 onMounted(async () => {
@@ -460,12 +458,10 @@ onMounted(async () => {
               </span>
               <span v-else class="mg-row-nodates"></span>
             </td>
-            <!-- 유형 -->
             <td>
               <span v-if="g.meeting_type" class="mg-type-text">{{ g.meeting_type }}</span>
               <span v-else class="mg-row-nodates"></span>
             </td>
-            <!-- 간사 -->
             <td>
               <div v-if="membersCache[g.id]">
                 <span v-if="getAdmins(g.id).length" class="mg-admin-name">{{
@@ -478,7 +474,6 @@ onMounted(async () => {
               </div>
               <span v-else class="mg-row-nodates"></span>
             </td>
-            <!-- 참여조직 -->
             <td>
               <div v-if="membersCache[g.id]">
                 <span v-if="getCompanies(g.id).length" class="mg-company-plain"
@@ -491,7 +486,6 @@ onMounted(async () => {
               </div>
               <span v-else class="mg-row-nodates"></span>
             </td>
-            <!-- 참여자 -->
             <td>
               <span v-if="membersCache[g.id]" class="mg-member-count-label"
                 >{{ membersCache[g.id].length }}명</span
@@ -519,7 +513,6 @@ onMounted(async () => {
                     />
                   </svg>
                 </button>
-                <!-- 진행중: 종료 처리 버튼 -->
                 <button
                   v-if="canManage(g) && statusTab === 'active'"
                   class="mg-action-btn mg-btn-end"
@@ -538,28 +531,6 @@ onMounted(async () => {
                   </svg>
                   {{ endingId === g.id ? '처리 중…' : '종료' }}
                 </button>
-                <!-- 삭제 버튼 -->
-                <!-- <button
-                  v-if="canManage(g)"
-                  class="mg-action-btn mg-btn-delete"
-                  @click.stop="confirmDelete(g)"
-                  :disabled="deletingId === g.id"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                    <path d="M10 11v6M14 11v6" />
-                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                  </svg>
-                  {{ deletingId === g.id ? '삭제 중…' : '삭제' }}
-                </button> -->
               </div>
             </td>
           </tr>

@@ -32,7 +32,6 @@ async function loadConnections() {
   }
 }
 
-// 선택된 회의체가 바뀌면 연결 목록 재조회
 watch(() => detailMeeting.value?.id, loadConnections, { immediate: true })
 
 // 검색 결과: 회의체 제목 매칭, 자기 자신·이미 연결된 회의체 제외
@@ -87,7 +86,6 @@ async function removeConnection(conn) {
 </script>
 
 <template>
-  <!-- ── 회의체 연결(협의) — 도착 회의체를 검색해 연결 ── -->
   <div v-if="detailMeeting" class="detail-section">
     <div class="detail-section-label-row">
       <span class="detail-section-label">회의체 연결</span>
@@ -124,7 +122,6 @@ async function removeConnection(conn) {
       <div v-else-if="mrSearch.trim()" class="mr-no-result">검색 결과가 없습니다.</div>
     </template>
 
-    <!-- 연결된 회의체 목록 -->
     <div class="mr-list">
       <div v-if="!mrConnections.length" class="detail-log-empty">연결된 회의체가 없습니다.</div>
       <div v-for="c in mrConnections" :key="c.id" class="mr-row">

@@ -10,7 +10,6 @@ const emit = defineEmits(['close', 'go-register'])
 const router = useRouter()
 const auth = useAuthStore()
 const theme = useThemeStore()
-// 야간모드에서는 흰색 로고 사용
 const logoSrc = computed(() => (theme.nightMode ? logoWhite : logoBlack))
 
 const form = ref({ email: '', password: '' })
@@ -37,7 +36,6 @@ async function submit() {
 
 <template>
   <div class="popup-inner">
-    <!-- Header -->
     <div class="popup-header">
       <img :src="logoSrc" class="popup-logo-img" alt="Workma!te" />
     </div>
@@ -46,7 +44,6 @@ async function submit() {
     <p class="text-muted small mb-4">이메일과 비밀번호를 입력하세요</p>
 
     <form @submit.prevent="submit">
-      <!-- Email -->
       <div class="mb-3">
         <label for="login-email" class="form-label">이메일</label>
         <div class="input-group">
@@ -66,7 +63,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Password -->
       <div class="mb-3">
         <label for="login-password" class="form-label">비밀번호</label>
         <div class="input-group">
@@ -93,7 +89,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Error -->
       <div v-if="error" class="alert alert-danger py-2 small mb-3">
         <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
       </div>

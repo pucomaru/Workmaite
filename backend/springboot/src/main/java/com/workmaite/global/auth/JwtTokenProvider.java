@@ -17,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** JWT 토큰 발급 / 검증 / 파싱 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -34,7 +33,6 @@ public class JwtTokenProvider {
 
   private SecretKey key;
 
-  // Bean 생성 후 secret key 초기화
   // FastAPI(python-jose)와 동일한 키 방식: 시크릿 문자열을 직접 바이트로 사용
   @PostConstruct
   protected void init() {
@@ -47,17 +45,14 @@ public class JwtTokenProvider {
   public static final String TYPE_ACCESS = "access";
   public static final String TYPE_REFRESH = "refresh";
 
-  // Access Token 발급
   public String createAccessToken(Long userId) {
     return createToken(userId, accessTokenExpiration, TYPE_ACCESS);
   }
 
-  // Refresh Token 발급
   public String createRefreshToken(Long userId) {
     return createToken(userId, refreshTokenExpiration, TYPE_REFRESH);
   }
 
-  // 토큰 생성 공통 로직
   private String createToken(Long userId, long expiration, String type) {
     Date now = new Date();
     Date expiredAt = new Date(now.getTime() + expiration);
@@ -72,7 +67,6 @@ public class JwtTokenProvider {
         .compact();
   }
 
-  // 토큰에서 userId 추출
   public Long getUserId(String token) {
     return Long.parseLong(getClaims(token).getSubject());
   }
@@ -90,7 +84,6 @@ public class JwtTokenProvider {
     }
   }
 
-  // 갱신용 refresh token 검증 — type 클레임이 refresh인 토큰만 허용
   public void validateRefreshToken(String token) {
     Claims claims = parseOrThrow(token);
     if (!TYPE_REFRESH.equals(claims.get(CLAIM_TYPE))) {
@@ -108,7 +101,6 @@ public class JwtTokenProvider {
     }
   }
 
-  // 토큰 파싱
   private Claims getClaims(String token) {
     return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
   }

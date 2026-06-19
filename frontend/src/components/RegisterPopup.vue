@@ -10,7 +10,6 @@ const emit = defineEmits(['close', 'go-login'])
 const router = useRouter()
 const auth = useAuthStore()
 const theme = useThemeStore()
-// 야간모드에서는 흰색 로고 사용
 const logoSrc = computed(() => (theme.nightMode ? logoWhite : logoBlack))
 
 const step = ref(1)
@@ -84,7 +83,6 @@ async function submit() {
 
 <template>
   <div class="popup-inner">
-    <!-- Header -->
     <div class="popup-header mb-3">
       <img :src="logoSrc" class="popup-logo-img" alt="Workma!te" />
     </div>
@@ -94,7 +92,6 @@ async function submit() {
       <h5 class="fw-bold mb-1" style="color: var(--primary)">회원가입</h5>
       <p class="text-muted small mb-4">정보를 입력하고 계정을 만드세요</p>
 
-      <!-- 이메일 -->
       <div class="mb-3">
         <label for="register-email" class="form-label"
           >이메일 <span class="text-danger">*</span></label
@@ -118,7 +115,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- 이름 -->
       <div class="mb-3">
         <label for="register-name" class="form-label"
           >이름 <span class="text-danger">*</span></label
@@ -138,7 +134,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- 조직 / 부서 -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px" class="mb-3">
         <div>
           <label for="register-company" class="form-label"
@@ -168,7 +163,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- 직책 -->
       <div class="mb-3">
         <label for="register-position" class="form-label"
           >직책 <span class="text-danger">*</span></label
@@ -183,7 +177,6 @@ async function submit() {
         />
       </div>
 
-      <!-- 비밀번호 -->
       <div class="mb-3">
         <label for="register-password" class="form-label"
           >비밀번호 <span class="text-danger">*</span></label
@@ -244,7 +237,6 @@ async function submit() {
         </div>
       </div>
 
-      <!-- 비밀번호 확인 -->
       <div class="mb-4">
         <label for="register-confirm" class="form-label">비밀번호 확인</label>
         <div class="input-group">
@@ -308,7 +300,6 @@ async function submit() {
       </button>
     </div>
 
-    <!-- Footer link -->
     <div v-if="step < 2" class="text-center mt-4 small text-muted">
       이미 계정이 있으신가요?
       <button

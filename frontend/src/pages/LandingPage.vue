@@ -195,19 +195,19 @@ onBeforeUnmount(() => {
 // 문제 제기 — 사용자가 이미 겪고 있는 상황
 const pains = [
   {
+    icon: 'bi bi-folder2-open',
+    title: '"회의에서 무슨 말 했더라?"',
+    desc: '지난 보고서, 그때 그 회의…\n분명 기억 속에 있는데 정리가 안 돼요.',
+  },
+  {
     icon: 'bi bi-pencil-square',
     title: '회의록 정리에 또 한 시간',
-    desc: '회의가 끝나면 녹취를 \n다시 듣고 받아 적는 일이 시작됩니다. \n회의록 작성이 또 하나의 업무가 됩니다.',
+    desc: '회의가 끝나면 녹취를 \n다시 듣고 받아 적는 일이 시작됩니다. \n회의록 작성이 또 하나의 일이 됩니다.',
   },
   {
     icon: 'bi bi-chat-left-dots',
     title: '"그거 누가 하기로 했죠?"',
-    desc: '회의에서 정한 일들이 메신저와 메일에 흩어집니다.\n다음 회의에서 같은 얘기를 반복합니다.',
-  },
-  {
-    icon: 'bi bi-folder2-open',
-    title: '"회의에서 무슨 말 했더라?"',
-    desc: '지난 보고서, 그때 그 회의…\n분명 기억 속에 있지만 정리가 안돼요.',
+    desc: '해야 할 일들이 서로 다른 형식의 보고서에 흩어집니다.\n제각각인 보고서를 파악하기도 어렵고,\n알맞은 부서에 배정하기도 어렵습니다.',
   },
 ]
 
@@ -269,7 +269,6 @@ const trustItems = [
 
 <template>
   <div class="landing-page">
-    <!-- Navbar -->
     <nav class="landing-nav">
       <div class="container nav-inner">
         <img src="../assets/workmaite-logo-white.png" class="nav-logo-img" alt="Workma!te" />
@@ -378,7 +377,6 @@ const trustItems = [
       </div>
     </section>
 
-    <!-- Footer -->
     <footer class="landing-footer">
       <div class="container footer-inner">
         <span class="footer-brand">Workmaite</span>

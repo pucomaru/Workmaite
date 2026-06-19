@@ -432,8 +432,6 @@ async function refineChunk() {
   }
 }
 
-// 스피커 레이블 — 발화 등장 순서 기반으로 A/B/C... 동적 할당
-
 const KST = { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' }
 function nowTime() {
   return new Date().toLocaleTimeString('ko-KR', KST)
@@ -1875,7 +1873,6 @@ async function downloadChatFile(filePath) {
                   </svg>
                 </button>
               </div>
-              <!-- archived 세션 구분선 + 목록 -->
               <template
                 v-if="
                   mtg.sessions.filter(s => s.status === 'archived').length &&
@@ -1955,7 +1952,6 @@ async function downloadChatFile(filePath) {
 
       <!-- Active session recording view -->
       <div v-else class="sp-panel card">
-        <!-- Panel header: title + tabs -->
         <div class="sp-panel-header">
           <div class="sp-panel-title-row">
             <div class="sp-panel-title-group">
@@ -1992,7 +1988,6 @@ async function downloadChatFile(filePath) {
           </div>
         </div>
 
-        <!-- Tab content -->
         <div
           ref="transcriptAreaRef"
           class="sp-tab-body"
@@ -2003,7 +1998,6 @@ async function downloadChatFile(filePath) {
               <i class="bi bi-mic" style="font-size: 28px; opacity: 0.25"></i>
               <p class="text-muted small mb-0">녹음을 시작하면 대화가 실시간으로 기록됩니다.</p>
             </div>
-            <!-- 완성된 블록들 — 위 -->
             <div v-for="(block, i) in conversationBlocks" :key="i" class="conv-block">
               <div class="conv-block-header">
                 <span class="conv-block-title">{{ block.title }}</span>
@@ -2091,7 +2085,6 @@ async function downloadChatFile(filePath) {
                 </div>
               </div>
             </template>
-            <!-- 실시간 부분 전사 (미확정) -->
             <div v-if="partialText" class="tline" style="opacity: 0.55; font-style: italic">
               <div class="tline-head"><span class="tline-time">···</span></div>
               <div class="tline-body">
@@ -2111,7 +2104,6 @@ async function downloadChatFile(filePath) {
                 <p class="text-muted small">AI가 회의록을 생성 중입니다...</p>
               </div>
               <template v-else-if="generatedMinutes">
-                <!-- Tiptap Toolbar -->
                 <div class="tiptap-toolbar">
                   <button
                     class="tt-btn"
@@ -2321,7 +2313,6 @@ async function downloadChatFile(filePath) {
             v-show="!['archived', 'ended'].includes(activeSession?.status)"
             class="ctrl-group-left"
           >
-            <!-- Language selector -->
             <div class="ctrl-pop-wrap">
               <button
                 class="ctrl-btn ctrl-lang"
@@ -2354,7 +2345,6 @@ async function downloadChatFile(filePath) {
               </div>
             </div>
 
-            <!-- STT 모델 선택 -->
             <div class="ctrl-pop-wrap">
               <button
                 class="ctrl-btn ctrl-lang"
@@ -2383,8 +2373,6 @@ async function downloadChatFile(filePath) {
               </div>
             </div>
 
-            <!-- Record / pause -->
-            <!-- 맥락 입력 버튼 -->
             <div class="ctrl-pop-wrap">
               <!-- prettier-ignore -->
               <button

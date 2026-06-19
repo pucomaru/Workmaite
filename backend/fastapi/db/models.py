@@ -227,7 +227,7 @@ class SttSegment(Base):
     start_sec: Mapped[float] = mapped_column(Float, nullable=False)
     end_sec: Mapped[float] = mapped_column(Float, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    provider: Mapped[str | None] = mapped_column(String(30), nullable=True)  # openai
+    provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

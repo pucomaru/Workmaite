@@ -67,7 +67,6 @@ export function useAgentMention({
     const q = atQuery.value.toLowerCase()
     const seen = new Set()
     const items = []
-    // 회의체
     for (const mg of meetings?.value || []) {
       const label = mg.title || mg.name || ''
       if (!label) continue
@@ -129,7 +128,6 @@ export function useAgentMention({
         }
       }
     }
-    // 아젠다
     for (const t of tasksData?.value || []) {
       const label = (t.content || t.title || '').slice(0, 40)
       if (!label) continue
@@ -165,7 +163,6 @@ export function useAgentMention({
         }
       }
     }
-    // 구성원 (persons)
     for (const m of membersData?.value || []) {
       const label = m.name || m.userName || m.email || ''
       if (!label) continue
@@ -247,7 +244,7 @@ export function useAgentMention({
         })
       }
     }
-    // 회사
+    // 회사 — 회의체 멤버에서 수집
     const _coSeen = new Set()
     for (const mg of meetings?.value || []) {
       for (const mb of mg.members || []) {

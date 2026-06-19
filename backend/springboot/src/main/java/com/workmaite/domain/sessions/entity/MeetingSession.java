@@ -14,7 +14,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 회의 세션 엔티티 - meeting_sessions 테이블 매핑 */
 @Entity
 @Table(name = "meeting_sessions")
 @Getter

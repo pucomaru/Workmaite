@@ -227,7 +227,7 @@ def get_token_usage(
                 "minutes": 0,
                 "cost_per_min": 0,
                 "cost": round(agg["cost"], 6),
-                "tokens": agg["total_tokens"],  # 토큰 기반 STT 사용량
+                "tokens": agg["total_tokens"],
             }
         )
         stt_total_cost += agg["cost"]
@@ -273,7 +273,7 @@ def get_token_usage(
                 "by_context": sorted(
                     [
                         {
-                            "section": ctx,  # context_type 원본 (키)
+                            "section": ctx,
                             "group": agent_of(ctx),  # 칩 색상용 에이전트 그룹
                             "label": context_label(ctx),
                             "total_tokens": v["total_tokens"],

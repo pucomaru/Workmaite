@@ -21,7 +21,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 사용자 엔티티 - users 테이블 매핑 */
 @Entity
 @Table(name = "users")
 @Getter

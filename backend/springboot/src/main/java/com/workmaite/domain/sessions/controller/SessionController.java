@@ -25,15 +25,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 회의 관련 API GET /api/v1/me/sessions - 내 예정된 회의 목록 조회 GET /api/v1/meetings/{meetingId}/sessions -
- * 회의체별 회의 목록 조회 POST /api/v1/meetings/{meetingId}/sessions - 회의 생성 (secretary 권한) GET
- * /api/v1/sessions/{sessionId} - 회의 상세 조회 PATCH /api/v1/sessions/{sessionId} - 회의 수정 (secretary 권한)
- * PATCH /api/v1/sessions/{sessionId}/context - 회의 맥락 수정 DELETE /api/v1/sessions/{sessionId} - 회의 삭제
- * (secretary 권한) POST /api/v1/sessions/{sessionId}/start - 회의 시작 (secretary 권한) POST
- * /api/v1/sessions/{sessionId}/pause - 회의 정지 (secretary 권한) POST /api/v1/sessions/{sessionId}/end -
- * 회의 종료 (secretary 권한)
- */
 @Tag(name = "회의 세션", description = "회의 세션 생성·조회·수정·삭제 및 진행 상태(시작/정지/재개/종료/보관) 관리 API")
 @RestController
 @RequestMapping("/api/v1")

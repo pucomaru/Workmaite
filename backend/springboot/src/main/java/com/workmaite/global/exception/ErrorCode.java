@@ -4,7 +4,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 
-/** 에러 코드 관리 enum 에러 종류, HTTP 상태코드, 메시지를 한 곳에서 관리 */
 @Getter
 @RequiredArgsConstructor
 public enum ErrorCode {
@@ -60,6 +59,6 @@ public enum ErrorCode {
   // 수정/삭제 요청한 세그먼트가 경로의 sessionId와 다른 세션에 속한 경우
   SCRIPT_SESSION_MISMATCH(HttpStatus.BAD_REQUEST, "해당 세션의 스크립트가 아닙니다.");
 
-  private final HttpStatus status; // HTTP 상태코드
-  private final String message; // 에러 메시지
+  private final HttpStatus status;
+  private final String message;
 }

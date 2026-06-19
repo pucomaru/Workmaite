@@ -44,12 +44,10 @@ public class SyncOutboxDispatcher {
     this.internalSecret = internalSecret;
   }
 
-  /** 커밋 직후 호출 — 비동기로 한 사이클 디스패치 */
   public void kick() {
     taskExecutor.execute(this::dispatchPending);
   }
 
-  /** 잔여/실패 행 주기 재처리 */
   @Scheduled(fixedDelayString = "${sync.outbox.poll-ms:30000}")
   public void poll() {
     dispatchPending();

@@ -28,14 +28,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 회의체 관련 API GET /api/v1/me/meetings - 내 진행중인 회의체 목록 조회 GET /api/v1/meetings - 전체 회의체 목록 조회 / 키워드
- * 검색 POST /api/v1/meetings - 회의체 생성 (생성자 간사 자동 등록) GET /api/v1/meetings/{meetingId} - 회의체 상세 조회
- * (참여자 목록 포함) PATCH /api/v1/meetings/{meetingId} - 회의체 수정 (secretary 권한) POST
- * /api/v1/meetings/{meetingId}/members - 회의체 참여자 추가 (secretary 권한) DELETE
- * /api/v1/meetings/{meetingId}/members/{userId} - 회의체 참여자 삭제 (secretary 권한) PATCH
- * /api/v1/meetings/{meetingId}/members/{userId} - 회의체 참여자 역할 수정 (secretary 권한)
- */
 @Tag(name = "회의체", description = "회의체 생성·조회·수정·삭제 및 참여자/권한 관리 API")
 @RestController
 @RequestMapping("/api/v1")

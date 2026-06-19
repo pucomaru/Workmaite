@@ -338,7 +338,7 @@ async def get_archive(
                 "due_date": row.get("due_date"),
                 "created_at": raw_created_at,
                 "ai_evidence": row.get("ai_evidence"),
-                "assignee_names": [],  # 담당자 여러 명 지원
+                "assignee_names": [],
                 "assignee_dept": row.get("assignee_dept", ""),
             }
         if row.get("assignee_name"):
@@ -792,7 +792,7 @@ async def get_archive(
         "email": user_email,
         "position": current_user.position or "",
         "department": current_user.department or "",
-        "company": _company_name,  # 본인 회사 (PG companies FK)
+        "company": _company_name,
     }
 
     return {

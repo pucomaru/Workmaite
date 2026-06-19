@@ -98,7 +98,6 @@ function selectModel(m) {
         <div class="at-menu-hint">↑↓ 이동 · Enter 선택 · Esc 닫기</div>
       </div>
     </Transition>
-    <!-- 파일 chips -->
     <div v-if="pendingFiles.length" class="agent-file-chips">
       <span v-for="f in pendingFiles" :key="f.name" class="agent-file-chip">📎 {{ f.name }}</span>
     </div>

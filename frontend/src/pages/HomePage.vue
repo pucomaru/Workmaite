@@ -206,7 +206,6 @@ onMounted(async () => {
   try {
     await meetingsStore.fetchMeetings()
 
-    // 캘린더·담당자 메타·역할을 모두 병렬 실행
     await Promise.all([
       fetchCalendar(),
 
@@ -276,7 +275,6 @@ function goToSession(s) {
   })
 }
 
-// 예정된 회의: calendarEvents 중 type='session' 이고 오늘 이후 항목
 const sessionColumns = [
   { label: '회의명', sortKey: 'title' },
   { label: '회의체', sortKey: 'meeting_title' },
@@ -422,7 +420,6 @@ const {
               </h6>
             </div>
 
-            <!-- 회의체 테이블 -->
             <div v-if="initialLoading" class="table-loading">
               <span class="spinner-border spinner-border-sm text-primary"></span>
               <span style="margin-left: 10px; color: var(--text-muted); font-size: 12px"

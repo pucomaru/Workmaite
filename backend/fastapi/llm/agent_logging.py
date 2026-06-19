@@ -36,7 +36,6 @@ from db.database import SessionLocal
 
 logger = logging.getLogger("agent_logging")
 
-# ── 모델별 1M 토큰당 단가 (USD): (prompt, completion) ─────────────────────────
 # 단가표는 pricing.yaml로 외출 (P5-3/HC-7)
 from llm.pricing import estimate_cost as _estimate_cost  # noqa: E402
 

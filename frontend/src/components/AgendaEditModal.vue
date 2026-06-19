@@ -55,7 +55,6 @@ function priorityColor(val) {
 
         <!-- Body -->
         <div class="app-modal-body">
-          <!-- 제목 -->
           <div class="app-modal-field">
             <label for="agenda-title">아젠다 제목 <span class="req">*</span></label>
             <input
@@ -67,7 +66,6 @@ function priorityColor(val) {
             />
           </div>
 
-          <!-- 우선순위 + 상태 한 행 -->
           <div class="app-modal-field-row">
             <div class="app-modal-field">
               <label for="agenda-priority">우선순위</label>
@@ -97,7 +95,6 @@ function priorityColor(val) {
               </select>
             </div>
 
-            <!-- 마감일 -->
             <div class="app-modal-field">
               <label for="agenda-due-date">마감일</label>
               <input

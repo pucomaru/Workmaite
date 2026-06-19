@@ -209,7 +209,6 @@ REPORT_TOOLS: list = [search_review_references, get_report_agenda_context]
 
 # ── Chat graph ─────────────────────────────────────────────────────────────────
 def _report_state_modifier(state: ReportState) -> List[BaseMessage]:
-    """런타임 컨텍스트(knowledge·meeting_context·reports_info)를 시스템 메시지로 주입합니다."""
     system = _build_system_with_knowledge(
         state.get("knowledge", []), state.get("meeting_context", "")
     )
@@ -229,7 +228,6 @@ def _report_state_modifier(state: ReportState) -> List[BaseMessage]:
 
 
 def _build_chat_graph():
-    """LangGraph create_react_agent — REPORT_TOOLS를 도구로 사용하는 에이전트 그래프."""
     return create_react_agent(
         model=_make_llm(),
         tools=REPORT_TOOLS,

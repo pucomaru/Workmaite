@@ -115,7 +115,7 @@ class AgendaOut(BaseModel):
     title: str
     status: Optional[str] = None
     assignee_id: Optional[int] = None
-    department: Optional[Any] = None  # JSON
+    department: Optional[Any] = None
     due_date: Optional[datetime] = None
     priority: Optional[str] = None
     ai_evidence: Optional[str] = None
@@ -142,8 +142,8 @@ class ReportOut(BaseModel):
 
 class ReportStatusUpdate(BaseModel):
     status: str  # approved | rejected | submitted | draft | pending
-    comment: Optional[str] = None  # 승인/반려 사유
-    notify_teams: bool = False  # Teams 알림 전송 여부
+    comment: Optional[str] = None
+    notify_teams: bool = False
 
 
 # ── ReportScore (report_scores) ───────────────────────────────────────────────
@@ -152,7 +152,7 @@ class ReportScoreOut(BaseModel):
     report_id: int
     ai_status: str
     total_score: Optional[float] = None
-    detail_scores: Optional[Any] = None  # JSON
+    detail_scores: Optional[Any] = None
     feedback: Optional[str] = None
     created_at: Optional[datetime] = None
 

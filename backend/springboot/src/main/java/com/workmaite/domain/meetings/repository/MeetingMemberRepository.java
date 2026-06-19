@@ -13,7 +13,6 @@ public interface MeetingMemberRepository extends JpaRepository<MeetingMember, Lo
 
   List<MeetingMember> findByMeetingId(Long meetingId);
 
-  // 회의체 삭제 시: 참여자 일괄 삭제.
   @Modifying
   @Query("DELETE FROM MeetingMember m WHERE m.meetingId = :meetingId")
   void deleteByMeetingId(@Param("meetingId") Long meetingId);

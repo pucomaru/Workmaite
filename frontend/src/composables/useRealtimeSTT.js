@@ -136,7 +136,7 @@ export function useRealtimeSTT({
     node = sink = highpass = compressor = analyser = freqData = audioCtx = null
   }
 
-  // 마이크 스트림 트랙을 정지(마이크 표시등 해제).
+  // 트랙 정지 → OS 마이크 표시등 해제.
   function releaseStream() {
     if (stream) {
       stream.getTracks().forEach(t => t.stop())

@@ -117,7 +117,6 @@ public class SessionService {
     if (request.getContext() != null) session.updateContext(request.getContext());
     sessionRepository.save(session);
 
-    // 참석자 저장
     List<AttendeeRequest> requested =
         request.getAttendees() != null ? request.getAttendees() : List.of();
     List<SessionMember> members =
@@ -126,7 +125,6 @@ public class SessionService {
             .collect(Collectors.toList());
     sessionMemberRepository.saveAll(members);
 
-    // 선택된 안건 저장
     List<Long> agendaIds = request.getAgendaIds();
     if (agendaIds != null && !agendaIds.isEmpty()) {
       List<SessionAgenda> sessionAgendas =
