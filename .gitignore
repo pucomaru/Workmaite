@@ -102,6 +102,7 @@ backend/fastapi/uploads/*
 
 # Secrets
 k8s/k8s-secrets.yaml
+k8s/secrets.yaml
 k8s/neo4j/secret.yaml
 backend/ai/uploads/
 backend/target/

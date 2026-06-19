@@ -31,13 +31,11 @@ public class SecurityConfig {
     http
         // CSRF 비활성화 (JWT 사용하므로 불필요)
         .csrf(AbstractHttpConfigurer::disable)
-
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
         // 세션 사용 안 함 (JWT Stateless)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
         .authorizeHttpRequests(
             auth ->
                 auth.requestMatchers("/api/v1/auth/**")
