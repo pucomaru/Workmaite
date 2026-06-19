@@ -1,18 +1,44 @@
-# WorkMaite
+<div align="center">
 
-> AI 기반 회의체 운영 플랫폼 — 회의 녹취부터 안건 추출, 회의록 작성, 보고서 검토까지 하나의 워크플로우로.
+<img src="frontend/public/favicon-512.png" alt="WorkMaite" width="92" />
 
-WorkMaite는 여러 회사·부서의 인원이 모여 구성하는 **회의체(meeting group)** 를 중심으로, 회의 진행 과정에서 발생하는 음성·문서·의사결정을 AI 에이전트와 지식 그래프(GraphRAG)로 연결해 관리하는 B2B 협업 서비스입니다.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="frontend/src/assets/workmaite-logo-white.png" />
+  <img src="frontend/src/assets/workmaite-logo-black.png" alt="WorkMaite" width="380" />
+</picture>
+
+### AI 기반 회의체 운영 플랫폼
+
+회의 녹취부터 안건 추출, 회의록 작성, 보고서 검토까지 — 하나의 워크플로우로.
+
+<br/>
+
+![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
+![Java](https://img.shields.io/badge/Java-21-007396?style=flat-square&logo=openjdk&logoColor=white)
+<br/>
+![LangGraph](https://img.shields.io/badge/LangGraph-1.x-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-단일%20소스-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Neo4j](https://img.shields.io/badge/Neo4j-GraphRAG-4581C3?style=flat-square&logo=neo4j&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-GitOps-326CE5?style=flat-square&logo=kubernetes&logoColor=white)
+
+</div>
+
+---
+
+WorkMaite는 여러 회사·부서의 구성원이 함께 참여하는 **회의체** 를 중심으로, 회의에서 오가는 음성·문서·의사결정을 AI 에이전트와 지식 그래프(GraphRAG)로 엮어 관리하는 SaaS 플랫폼입니다.
 
 ## 주요 기능
 
-- **실시간 STT & 화자 분리** — WebSocket으로 회의 음성을 실시간 전사하고, 회의체 구성원·용어 사전을 프롬프트에 주입해 정확도를 높입니다(`SttSegment` 단위 화자/구간 저장).
-- **AI 안건 추출** — 회의 맥락과 조직 지식 그래프를 바탕으로 실행 과제(아젠다)를 도출하고 담당 부서를 제안합니다.
-- **회의록 자동 생성** — 녹취·안건·첨부 문서를 종합해 구조화된 회의록을 작성합니다.
-- **보고서 AI 검토** — 12대 평가 요소 루브릭으로 보고서를 채점하고 개선점을 제시합니다.
-- **지식 그래프 & 챗봇** — 회의체·세션·안건·문서·구성원을 온톨로지로 연결하고, 자연어 질의에 Text2Cypher / 벡터 검색 기반으로 답변합니다.
-- **에이전트 직접 액션(HITL)** — 챗봇에서 아젠다·회의록·보고서·회의를 생성/수정/삭제하며, 휴먼인더루프 검토를 거칩니다.
-- **운영 거버넌스** — RBAC(접근 가드), 감사 로그 미들웨어, 토큰·비용 추적(usage) 대시보드를 제공합니다.
+- **실시간 STT & 화자 분리** — WebSocket으로 회의 음성을 실시간 전사하고, 회의체 구성원과 용어 사전을 프롬프트에 주입해 인식 정확도를 높입니다. 발화는 `SttSegment` 단위로 화자·구간과 함께 저장됩니다.
+- **AI 안건 추출** — 회의 맥락과 조직 지식 그래프를 바탕으로 실행 과제(아젠다)를 도출하고, 담당 부서까지 제안합니다.
+- **회의록 자동 생성** — 녹취·안건·첨부 문서를 종합해 구조화된 회의록을 자동으로 작성합니다.
+- **보고서 AI 검토** — 12대 평가 요소 루브릭으로 보고서를 채점하고 구체적인 개선점을 제시합니다.
+- **지식 그래프 & 챗봇** — 회의체·세션·안건·문서·구성원을 온톨로지로 연결하고, 자연어 질문에 Text2Cypher와 벡터 검색을 결합해 답변합니다.
+- **에이전트 직접 액션(HITL)** — 챗봇에서 아젠다·회의록·보고서·회의를 바로 생성·수정·삭제하며, 모든 변경은 휴먼인더루프(HITL) 검토를 거칩니다.
+- **운영 거버넌스** — RBAC 접근 제어, 감사 로그 미들웨어, 토큰·비용 추적 대시보드(usage)로 운영을 관리합니다.
 
 ## 아키텍처
 
@@ -27,10 +53,26 @@ Vue 3 SPA ──┐
    Cloudflare R2 (음성·첨부 파일 저장) ────┘
 ```
 
-- **AI 오케스트레이션**: LangGraph 1.x 기반 supervisor가 사용자 의도를 분류한 뒤 4개 전문 에이전트(`task_extractor`, `minutes_generator`, `report_reviewer`, `knowledge_manager`)에 위임하거나, 도구(tool) 기반으로 직접 액션을 수행합니다. 대화 상태는 `langgraph-checkpoint-postgres`로 영속화합니다.
-- **데이터 정합성**: PostgreSQL을 단일 소스로 두고, 트랜잭션 아웃박스 패턴(`NeoSyncService` → `neo4j_sync_outbox` → `SyncOutboxDispatcher` 폴러)으로 Neo4j에 안정적으로 동기화합니다(커밋 후 전달, 실패 시 재시도·삭제 전파).
-- **GraphRAG**: 노드/문서 청크 임베딩과 Neo4j 벡터 인덱스, Text2Cypher, 한국어 형태소 분석(kiwipiepy)을 결합해 회의록·보고서·지식 검색을 수행합니다.
-- **관측성**: 두 백엔드 모두 Prometheus 메트릭(`/metrics`)을 노출하고, LLM 토큰·비용은 `usage` 라우터와 `pricing.yaml`로 추적합니다.
+- **AI 오케스트레이션**: LangGraph 1.x 기반 supervisor가 사용자 의도를 분류한 뒤, 4개 전문 에이전트(`task_extractor`, `minutes_generator`, `report_reviewer`, `knowledge_manager`)에 작업을 위임하거나 도구(tool)로 직접 액션을 처리합니다. 대화 상태는 `langgraph-checkpoint-postgres`에 영속화됩니다.
+- **데이터 정합성**: PostgreSQL을 단일 진실 공급원(single source of truth)으로 두고, 트랜잭션 아웃박스 패턴(`NeoSyncService` → `neo4j_sync_outbox` → `SyncOutboxDispatcher` 폴러)으로 Neo4j에 동기화합니다. 변경은 커밋 이후에 전달되며, 실패 시 재시도하고 삭제도 함께 전파합니다.
+- **GraphRAG**: 노드·문서 청크 임베딩과 Neo4j 벡터 인덱스, Text2Cypher, 한국어 형태소 분석(kiwipiepy)을 결합해 회의록·보고서·지식을 검색합니다.
+- **관측성**: 두 백엔드 모두 Prometheus 메트릭을 `/metrics`로 노출하며, LLM 토큰·비용은 `usage` 라우터와 `pricing.yaml`로 추적합니다.
+
+### AI 오케스트레이션 플로우
+
+사용자 의도 분류 → 전문 에이전트 위임 또는 도구 기반 직접 액션 → GraphRAG 검색 → 응답 생성으로 이어지는 LangGraph 파이프라인입니다.
+
+<div align="center">
+  <img src="assets/ai_architecture.png" alt="WorkMaite AI 오케스트레이션 아키텍처" width="820" />
+</div>
+
+### 지식 그래프 온톨로지
+
+회의체·세션·안건·회의록·보고서·구성원·조직을 노드로, 이들 사이의 관계(참여·운영·도출·논의·작성·소속 등)를 엣지로 표현해 Neo4j에 저장합니다. 회의록과 보고서는 청크 단위로 임베딩되어 벡터 검색의 근거가 됩니다.
+
+<div align="center">
+  <img src="assets/graphdb_schema.png" alt="WorkMaite 지식 그래프 온톨로지" width="720" />
+</div>
 
 ## 기술 스택
 
@@ -97,7 +139,11 @@ cd backend/fastapi && uv run python eval/run_eval.py
 
 ## 배포
 
-`develop` 브랜치에 푸시하면 GitHub Actions가 서비스별 CI(`ci-frontend`·`ci-springboot`·`ci-fastapi`)로 컨테이너 이미지를 빌드해 Harbor에 푸시하고, k8s 매니페스트의 이미지 태그를 갱신합니다. ArgoCD가 이를 감지해 클러스터에 GitOps 방식으로 배포합니다. 별도의 `quality-*` 워크플로우가 정적분석·테스트를 수행하며, 모든 시크릿은 Kubernetes Secret으로 관리됩니다.
+`develop` 브랜치에 푸시하면 GitHub Actions가 서비스별 CI(`ci-frontend`·`ci-springboot`·`ci-fastapi`)를 실행해 컨테이너 이미지를 빌드하고 Harbor에 푸시한 뒤, k8s 매니페스트의 이미지 태그를 갱신합니다. ArgoCD가 이 변경을 감지해 GitOps 방식으로 클러스터에 배포합니다. 정적 분석과 테스트는 별도의 `quality-*` 워크플로우가 담당하며, 모든 시크릿은 Kubernetes Secret으로 관리됩니다.
+
+<div align="center">
+  <img src="assets/cloud_architecture.png" alt="WorkMaite 클라우드 인프라 아키텍처" width="820" />
+</div>
 
 ## 디렉터리 구조
 

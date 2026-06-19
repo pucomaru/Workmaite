@@ -75,9 +75,6 @@ ALTER TABLE "token_usage_logs" ADD CONSTRAINT "token_usage_logs_agent_log_id_fke
 
 ALTER TABLE "users" ADD CONSTRAINT "users_company_id_fkey" FOREIGN KEY (company_id) REFERENCES companies(id);
 
+ALTER TABLE "session_agendas" ADD CONSTRAINT "session_agendas_session_id_fkey" FOREIGN KEY (session_id) REFERENCES meeting_sessions(id) ON DELETE CASCADE;
 
-ALTER TABLE "session_agendas" ADD CONSTRAINT "pk_session_agendas" PRIMARY KEY ("session_id", "agenda_id");
-
-ALTER TABLE "session_agendas" ADD CONSTRAINT "fk_session_agendas_session" FOREIGN KEY ("session_id") REFERENCES "meeting_sessions" ("id") ON DELETE CASCADE;
-
-ALTER TABLE "session_agendas" ADD CONSTRAINT "fk_session_agendas_agenda" FOREIGN KEY ("agenda_id") REFERENCES "agenda" ("id") ON DELETE CASCADE;
+ALTER TABLE "session_agendas" ADD CONSTRAINT "session_agendas_agenda_id_fkey" FOREIGN KEY (agenda_id) REFERENCES agenda(id) ON DELETE CASCADE;

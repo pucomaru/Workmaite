@@ -280,9 +280,7 @@ CREATE TABLE "users" (
 CREATE TABLE "session_agendas" (
   "session_id" bigint NOT NULL,
   "agenda_id" bigint NOT NULL,
-  CONSTRAINT "session_agendas_pkey" PRIMARY KEY (session_id, agenda_id),
-  CONSTRAINT "session_agendas_session_id_fkey" FOREIGN KEY (session_id) REFERENCES "meeting_sessions" (id) ON DELETE CASCADE,
-  CONSTRAINT "session_agendas_agenda_id_fkey" FOREIGN KEY (agenda_id) REFERENCES "agenda" (id) ON DELETE CASCADE
+  CONSTRAINT "session_agendas_pkey" PRIMARY KEY (session_id, agenda_id)
 );
 
 CREATE TABLE meeting_relations (
