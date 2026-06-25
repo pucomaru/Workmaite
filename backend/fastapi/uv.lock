@@ -1468,7 +1468,7 @@ wheels = [
 
 [[package]]
 name = "neo4j-graphrag"
-version = "1.17.0"
+version = "1.18.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fsspec" },
@@ -1482,9 +1482,9 @@ dependencies = [
     { name = "tenacity" },
     { name = "types-pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/91/35/ca153393545ba59d72cbb41cdfa373e873051c974ff19093bbf8f7867471/neo4j_graphrag-1.17.0.tar.gz", hash = "sha256:c95077a3b0a750dfbeaa89a6bb4c78ce3501053dc7ca0848504514e9bfa32570", size = 1347096, upload-time = "2026-05-27T13:36:29.375Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/50/31f8332b01673c53241026921fae1ac7795ef4f2ebc7224c2d14cc521345/neo4j_graphrag-1.18.0.tar.gz", hash = "sha256:c5accf78b8c0a5cdf6ca70ec2fdad69812631e4a2b5430af0ff4752e6c446298", size = 1349614, upload-time = "2026-06-24T09:12:05.074Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/24/d4daf9b9d3ec8f45a6995f2b52ec061e81d109bb08df749802fbf6732b7b/neo4j_graphrag-1.17.0-py3-none-any.whl", hash = "sha256:87c1b41859032f1ac9a4d6a2fa29375e38aabc3d6d240f6b6ede8622aaae030d", size = 262348, upload-time = "2026-05-27T13:36:27.291Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/9f/627401aa9b021af8b314015fecd5b07b85870ac098c7613eadea0a90b584/neo4j_graphrag-1.18.0-py3-none-any.whl", hash = "sha256:5cbd35146940ff821bbe0a914264c60d8a72b10fb730c8f8bb1173eb4e5d6b5a", size = 263691, upload-time = "2026-06-24T09:12:03.525Z" },
 ]
 
 [[package]]
@@ -3407,7 +3407,7 @@ requires-dist = [
     { name = "langsmith", specifier = ">=0.8.0" },
     { name = "markdown", specifier = ">=3.6" },
     { name = "neo4j", specifier = ">=6.2.0,<7" },
-    { name = "neo4j-graphrag", specifier = ">=1.17.0" },
+    { name = "neo4j-graphrag", specifier = ">=1.18.0" },
     { name = "openai", specifier = "==2.41.1" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pdfplumber", specifier = ">=0.11" },
